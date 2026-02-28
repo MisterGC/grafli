@@ -22,6 +22,9 @@ class Box:
     w: float
     h: float
     color: str = ""
+    anchor: str = ""      # "topleft", "topcenter", or "" (= center)
+    textsize: str = ""    # "small", "large", or "" (= medium)
+    parent: str = ""
 
 
 @dataclass
@@ -36,6 +39,7 @@ class Note:
     x: float
     y: float
     text: str
+    color: str = ""
 
 
 @dataclass
@@ -97,7 +101,10 @@ class Board:
 _RE_BOX = re.compile(
     r'^@\s+box\s+(\S+)\s+"([^"]*)"\s+'
     r'(-?[\d.]+),(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
-    r'(?:\s+(#[0-9A-Fa-f]{6}))?\s*$'
+    r'(?:\s+(#[0-9A-Fa-f]{6}))?'
+    r'(?:\s+\^(topleft|topcenter))?'
+    r'(?:\s+~(small|large))?'
+    r'(?:\s+>(\S+))?\s*$'
 )
 
 _RE_ARROW_LABEL = re.compile(
@@ -109,7 +116,8 @@ _RE_ARROW_BARE = re.compile(
 )
 
 _RE_NOTE = re.compile(
-    r'^@\s+note\s+(-?[\d.]+),(-?[\d.]+)\s+"([^"]*)"\s*$'
+    r'^@\s+note\s+(-?[\d.]+),(-?[\d.]+)\s+"([^"]*)"'
+    r'(?:\s+(#[0-9A-Fa-f]{6}))?\s*$'
 )
 
 
@@ -140,6 +148,9 @@ def parse(text: str) -> Board:
                 w=float(m.group(5)),
                 h=float(m.group(6)),
                 color=m.group(7) or "",
+                anchor=m.group(8) or "",
+                textsize=m.group(9) or "",
+                parent=m.group(10) or "",
             )
             board.boxes.append(box)
             board._lines.append(("box", box))
@@ -169,6 +180,7 @@ def parse(text: str) -> Board:
                 x=float(m.group(1)),
                 y=float(m.group(2)),
                 text=m.group(3),
+                color=m.group(4) or "",
             )
             board.notes.append(note)
             board._lines.append(("note", note))
@@ -197,6 +209,12 @@ def _serialize_box(box: Box) -> str:
     s = f'@ box {box.id} "{box.label}" {x},{y} {w}x{h}'
     if box.color:
         s += f" {box.color}"
+    if box.anchor:
+        s += f" ^{box.anchor}"
+    if box.textsize:
+        s += f" ~{box.textsize}"
+    if box.parent:
+        s += f" >{box.parent}"
     return s
 
 
@@ -210,7 +228,10 @@ def _serialize_arrow(arrow: Arrow) -> str:
 def _serialize_note(note: Note) -> str:
     x = int(note.x) if note.x == int(note.x) else note.x
     y = int(note.y) if note.y == int(note.y) else note.y
-    return f'@ note {x},{y} "{note.text}"'
+    s = f'@ note {x},{y} "{note.text}"'
+    if note.color:
+        s += f" {note.color}"
+    return s
 
 
 def serialize(board: Board) -> str:

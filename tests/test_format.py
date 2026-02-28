@@ -221,3 +221,198 @@ def test_remove_note():
     board.remove_note(note)
     assert note not in board.notes
     assert not any(v is note for _, v in board._lines)
+
+
+# ── Parent field tests ────────────────────────────────────────
+
+def test_parse_box_with_parent():
+    text = '@ box web "Web App" 60,70 180x80 >frontend\n'
+    board = parse(text)
+    assert board.boxes[0].parent == "frontend"
+
+
+def test_parse_box_with_color_and_parent():
+    text = '@ box web "Web App" 60,70 180x80 #4285F4 >frontend\n'
+    board = parse(text)
+    assert board.boxes[0].color == "#4285F4"
+    assert board.boxes[0].parent == "frontend"
+
+
+def test_parse_box_without_parent():
+    text = '@ box web "Web App" 60,70 180x80\n'
+    board = parse(text)
+    assert board.boxes[0].parent == ""
+
+
+def test_serialize_box_with_parent():
+    box = Box(id="web", label="Web App", x=60, y=70, w=180, h=80, parent="frontend")
+    board = Board()
+    board.add_box(box)
+    text = serialize(board)
+    assert '@ box web "Web App" 60,70 180x80 >frontend' in text
+
+
+def test_serialize_box_with_color_and_parent():
+    box = Box(
+        id="web", label="Web App", x=60, y=70, w=180, h=80,
+        color="#4285F4", parent="frontend",
+    )
+    board = Board()
+    board.add_box(box)
+    text = serialize(board)
+    assert '@ box web "Web App" 60,70 180x80 #4285F4 >frontend' in text
+
+
+def test_parent_roundtrip():
+    text = '@ box web "Web App" 60,70 180x80 >frontend\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_parent_color_roundtrip():
+    text = '@ box web "Web App" 60,70 180x80 #4285F4 >frontend\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+# ── Anchor field tests ───────────────────────────────────────
+
+def test_parse_box_with_anchor_topleft():
+    text = '@ box title "Title" 60,70 180x80 ^topleft\n'
+    board = parse(text)
+    assert board.boxes[0].anchor == "topleft"
+
+
+def test_parse_box_with_anchor_topcenter():
+    text = '@ box title "Title" 60,70 180x80 ^topcenter\n'
+    board = parse(text)
+    assert board.boxes[0].anchor == "topcenter"
+
+
+def test_parse_box_without_anchor():
+    text = '@ box title "Title" 60,70 180x80\n'
+    board = parse(text)
+    assert board.boxes[0].anchor == ""
+
+
+def test_serialize_box_with_anchor():
+    box = Box(id="a", label="A", x=0, y=0, w=100, h=50, anchor="topleft")
+    board = Board()
+    board.add_box(box)
+    text = serialize(board)
+    assert '@ box a "A" 0,0 100x50 ^topleft' in text
+
+
+def test_anchor_roundtrip():
+    text = '@ box title "Title" 60,70 180x80 ^topcenter\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+# ── Textsize field tests ─────────────────────────────────────
+
+def test_parse_box_with_textsize_small():
+    text = '@ box title "Title" 60,70 180x80 ~small\n'
+    board = parse(text)
+    assert board.boxes[0].textsize == "small"
+
+
+def test_parse_box_with_textsize_large():
+    text = '@ box title "Title" 60,70 180x80 ~large\n'
+    board = parse(text)
+    assert board.boxes[0].textsize == "large"
+
+
+def test_parse_box_without_textsize():
+    text = '@ box title "Title" 60,70 180x80\n'
+    board = parse(text)
+    assert board.boxes[0].textsize == ""
+
+
+def test_serialize_box_with_textsize():
+    box = Box(id="a", label="A", x=0, y=0, w=100, h=50, textsize="large")
+    board = Board()
+    board.add_box(box)
+    text = serialize(board)
+    assert '@ box a "A" 0,0 100x50 ~large' in text
+
+
+def test_textsize_roundtrip():
+    text = '@ box title "Title" 60,70 180x80 ~small\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+# ── Combined optional field tests ────────────────────────────
+
+def test_parse_all_optional_fields():
+    text = '@ box web "Web App" 60,70 180x80 #4285F4 ^topleft ~small >frontend\n'
+    board = parse(text)
+    box = board.boxes[0]
+    assert box.color == "#4285F4"
+    assert box.anchor == "topleft"
+    assert box.textsize == "small"
+    assert box.parent == "frontend"
+
+
+def test_serialize_all_optional_fields():
+    box = Box(
+        id="web", label="Web App", x=60, y=70, w=180, h=80,
+        color="#4285F4", anchor="topleft", textsize="small", parent="frontend",
+    )
+    board = Board()
+    board.add_box(box)
+    text = serialize(board)
+    assert '@ box web "Web App" 60,70 180x80 #4285F4 ^topleft ~small >frontend' in text
+
+
+def test_all_optional_fields_roundtrip():
+    text = '@ box web "Web App" 60,70 180x80 #4285F4 ^topleft ~small >frontend\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_color_and_anchor_roundtrip():
+    text = '@ box a "A" 10,20 100x50 #AABBCC ^topcenter\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_anchor_and_parent_roundtrip():
+    text = '@ box a "A" 10,20 100x50 ^topleft >container\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_textsize_and_parent_roundtrip():
+    text = '@ box a "A" 10,20 100x50 ~large >container\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+# ── Note color tests ─────────────────────────────────────────
+
+def test_parse_note_with_color():
+    text = '@ note 100,200 "hello" #FF6B6B\n'
+    board = parse(text)
+    assert board.notes[0].color == "#FF6B6B"
+
+
+def test_parse_note_without_color():
+    text = '@ note 100,200 "hello"\n'
+    board = parse(text)
+    assert board.notes[0].color == ""
+
+
+def test_serialize_note_with_color():
+    note = Note(x=10, y=20, text="hi", color="#4285F4")
+    board = Board()
+    board.add_note(note)
+    text = serialize(board)
+    assert '@ note 10,20 "hi" #4285F4' in text
+
+
+def test_note_color_roundtrip():
+    text = '@ note 10,20 "hi" #FF6B6B\n'
+    board = parse(text)
+    assert serialize(board) == text

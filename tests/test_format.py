@@ -1,0 +1,223 @@
+"""Tests for whiteboard.format — .board file parsing and serialization."""
+
+import tempfile
+from pathlib import Path
+
+from whiteboard.format import (
+    Arrow,
+    Board,
+    Box,
+    Note,
+    parse,
+    parse_file,
+    serialize,
+    serialize_to_file,
+)
+
+SAMPLE = """\
+# Project Architecture
+# file: arch.board
+
+@ box auth "Auth Service" 100,200 200x100
+@ box db "Database" 400,200 200x100
+@ box cache "Redis Cache" 250,50 160x80
+
+@ arrow auth -> db "queries"
+@ arrow auth -> cache "sessions"
+@ arrow db -> cache
+
+@ note 300,400 "TODO: Add rate limiting"
+"""
+
+
+def test_parse_boxes():
+    board = parse(SAMPLE)
+    assert len(board.boxes) == 3
+    auth = board.box_by_id("auth")
+    assert auth is not None
+    assert auth.label == "Auth Service"
+    assert auth.x == 100
+    assert auth.y == 200
+    assert auth.w == 200
+    assert auth.h == 100
+
+
+def test_parse_arrows():
+    board = parse(SAMPLE)
+    assert len(board.arrows) == 3
+    assert board.arrows[0].from_id == "auth"
+    assert board.arrows[0].to_id == "db"
+    assert board.arrows[0].label == "queries"
+    assert board.arrows[2].label == ""
+
+
+def test_parse_notes():
+    board = parse(SAMPLE)
+    assert len(board.notes) == 1
+    assert board.notes[0].x == 300
+    assert board.notes[0].y == 400
+    assert board.notes[0].text == "TODO: Add rate limiting"
+
+
+def test_parse_comments():
+    board = parse(SAMPLE)
+    assert any("Project Architecture" in c for c in board.comments)
+    assert any("file: arch.board" in c for c in board.comments)
+
+
+def test_roundtrip():
+    """Parsing then serializing should produce identical output."""
+    board = parse(SAMPLE)
+    result = serialize(board)
+    assert result == SAMPLE
+
+
+def test_serialize_from_scratch():
+    board = Board()
+    board.boxes.append(Box(id="a", label="Box A", x=10, y=20, w=100, h=50))
+    board.arrows.append(Arrow(from_id="a", to_id="a", label="self"))
+    board.notes.append(Note(x=0, y=0, text="hello"))
+    text = serialize(board)
+    assert '@ box a "Box A" 10,20 100x50' in text
+    assert '@ arrow a -> a "self"' in text
+    assert '@ note 0,0 "hello"' in text
+
+
+def test_file_roundtrip(tmp_path: Path):
+    path = tmp_path / "test.board"
+    path.write_text(SAMPLE)
+    board = parse_file(str(path))
+    serialize_to_file(board, str(path))
+    assert path.read_text() == SAMPLE
+
+
+def test_empty_file():
+    board = parse("")
+    assert board.boxes == []
+    assert board.arrows == []
+    assert board.notes == []
+    assert serialize(board) == "\n"
+
+
+def test_box_by_id_missing():
+    board = parse(SAMPLE)
+    assert board.box_by_id("nonexistent") is None
+
+
+def test_float_coordinates():
+    text = '@ box f "Float" 10.5,20.3 100.0x50.0\n'
+    board = parse(text)
+    assert board.boxes[0].x == 10.5
+    assert board.boxes[0].y == 20.3
+    # integer-like floats should serialize without decimals
+    assert "100x50" in serialize(board)
+    # true floats should keep decimals
+    assert "10.5,20.3" in serialize(board)
+
+
+def test_negative_coordinates():
+    text = '@ box n "Neg" -50,-100 200x100\n@ note -10,-20 "offscreen"\n'
+    board = parse(text)
+    assert board.boxes[0].x == -50
+    assert board.notes[0].x == -10
+    result = serialize(board)
+    assert "-50,-100" in result
+    assert "-10,-20" in result
+
+
+# ── Color tests ────────────────────────────────────────────────
+
+def test_parse_box_with_color():
+    text = '@ box auth "Auth" 100,200 200x100 #FF6B6B\n'
+    board = parse(text)
+    assert board.boxes[0].color == "#FF6B6B"
+
+
+def test_parse_box_without_color():
+    text = '@ box auth "Auth" 100,200 200x100\n'
+    board = parse(text)
+    assert board.boxes[0].color == ""
+
+
+def test_serialize_box_with_color():
+    box = Box(id="a", label="A", x=0, y=0, w=100, h=50, color="#4285F4")
+    board = Board()
+    board.add_box(box)
+    text = serialize(board)
+    assert '@ box a "A" 0,0 100x50 #4285F4' in text
+
+
+def test_color_roundtrip():
+    text = '@ box a "A" 10,20 100x50 #AABBCC\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+# ── next_box_id tests ──────────────────────────────────────────
+
+def test_next_box_id_empty():
+    board = Board()
+    assert board.next_box_id() == "box1"
+
+
+def test_next_box_id_existing():
+    board = parse(SAMPLE)
+    # SAMPLE has auth, db, cache — no boxN IDs
+    assert board.next_box_id() == "box1"
+
+    board.add_box(Box(id="box3", label="X", x=0, y=0, w=50, h=50))
+    assert board.next_box_id() == "box4"
+
+
+# ── add/remove tests ──────────────────────────────────────────
+
+def test_add_box():
+    board = parse(SAMPLE)
+    n = len(board.boxes)
+    box = Box(id="new", label="New", x=0, y=0, w=100, h=50)
+    board.add_box(box)
+    assert len(board.boxes) == n + 1
+    assert any(k == "box" and v is box for k, v in board._lines)
+    assert '@ box new "New"' in serialize(board)
+
+
+def test_add_arrow():
+    board = parse(SAMPLE)
+    n = len(board.arrows)
+    arrow = Arrow(from_id="auth", to_id="cache", label="test")
+    board.add_arrow(arrow)
+    assert len(board.arrows) == n + 1
+    assert any(k == "arrow" and v is arrow for k, v in board._lines)
+
+
+def test_add_note():
+    board = parse(SAMPLE)
+    n = len(board.notes)
+    note = Note(x=500, y=500, text="new note")
+    board.add_note(note)
+    assert len(board.notes) == n + 1
+    assert any(k == "note" and v is note for k, v in board._lines)
+
+
+def test_remove_box():
+    board = parse(SAMPLE)
+    box = board.boxes[0]
+    board.remove_box(box)
+    assert box not in board.boxes
+    assert not any(v is box for _, v in board._lines)
+
+
+def test_remove_arrow():
+    board = parse(SAMPLE)
+    arrow = board.arrows[0]
+    board.remove_arrow(arrow)
+    assert arrow not in board.arrows
+    assert not any(v is arrow for _, v in board._lines)
+
+
+def test_remove_note():
+    board = parse(SAMPLE)
+    note = board.notes[0]
+    board.remove_note(note)
+    assert note not in board.notes
+    assert not any(v is note for _, v in board._lines)

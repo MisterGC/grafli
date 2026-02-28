@@ -1,0 +1,27 @@
+# Feature Development Workflow
+# file: workflow.board
+
+@ box idea "Brainstorm" 190.7606562968395,-11.777962800681713 150x80
+@ box spec "Draft RFC" 411.6874717302519,79.76262194005098 150x80
+@ box impl "Implement" 409.4016505513082,296.15398553637533 150x80
+@ box review "Code Review" 667.0940418731334,300.42749600465885 150x80
+@ box test "Run Tests" 843.6121446488296,90.34181647157195 150x80
+@ box deploy "Ship It!" 1050,200 150x80
+
+@ arrow idea -> spec
+@ arrow spec -> impl
+@ arrow impl -> review
+@ arrow review -> test "pass"
+@ arrow test -> deploy "green"
+
+@ box monitor "Monitor" 1171.3692516722406,522.4720944816054 150x80
+@ box rollback "Rollback" 902.167485367893,584.2213628762541 150x80
+@ box hotfix "Hotfix" 632.9657190635452,546.9588733277592 150x80
+
+@ arrow deploy -> monitor
+@ arrow monitor -> rollback "alert"
+@ arrow rollback -> hotfix
+@ arrow hotfix -> review "re-review"
+
+@ note 650,50 "Request changes? Go back to Implement"
+@ note 1050,450 "Ops loop: detect, rollback, fix"

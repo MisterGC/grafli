@@ -1,0 +1,23 @@
+# Microservices Architecture
+
+@ box frontend "Frontend Layer" 8.176165803108802,17.374352331606232 523.0660621761658x200 #4285F4 ^topleft ~small
+@ box web "Web App" 29.198186528497388,70.44041450777206 200x120 #00BCD4 >frontend
+@ box mobile "Mobile App" 295.770725388601,52.044041450777186 200x120 #00BCD4 >frontend
+
+@ box backend "Backend Layer" 29.779792746113912,267.73575129533685 522.0440414507772x193.86787564766837 #34A853 ^topleft ~small
+@ box api "API Gateway" 49.77979274611391,317.73575129533685 200x120 #F9AB00 >backend
+@ box auth "Auth Service" 289.7797927461139,317.73575129533685 200x120 #F9AB00 >backend
+
+@ box data "Data Layer" 40,530 520x200 #9C27B0 ^topleft ~small
+@ box db "PostgreSQL" 60,580 200x120 #FF6B6B >data
+@ box cache "Redis Cache" 300,580 200x120 #FF6B6B >data
+
+@ arrow web -> api "REST"
+@ arrow mobile -> api "GraphQL"
+@ arrow api -> auth "validate"
+@ arrow api -> db "queries"
+@ arrow auth -> cache "sessions"
+
+@ note 611.2422279792746,85.69170984455957 "Client-facing applications"
+@ note 600,350 "Business logic"
+@ note 600,600 "Persistence"

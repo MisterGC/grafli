@@ -416,3 +416,40 @@ def test_note_color_roundtrip():
     text = '@ note 10,20 "hi" #FF6B6B\n'
     board = parse(text)
     assert serialize(board) == text
+
+
+# ── Token color tests ────────────────────────────────────────
+
+def test_parse_box_with_token_color():
+    text = '@ box auth "Auth" 100,200 200x100 %primary\n'
+    board = parse(text)
+    assert board.boxes[0].color == "%primary"
+
+
+def test_parse_note_with_token_color():
+    text = '@ note 100,200 "hello" %accent\n'
+    board = parse(text)
+    assert board.notes[0].color == "%accent"
+
+
+def test_token_color_roundtrip():
+    text = '@ box a "A" 10,20 100x50 %primary\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_all_fields_with_token_color():
+    text = '@ box web "Web App" 60,70 180x80 %secondary ^topleft ~small >frontend\n'
+    board = parse(text)
+    box = board.boxes[0]
+    assert box.color == "%secondary"
+    assert box.anchor == "topleft"
+    assert box.textsize == "small"
+    assert box.parent == "frontend"
+    assert serialize(board) == text
+
+
+def test_note_token_color_roundtrip():
+    text = '@ note 10,20 "hi" %highlight\n'
+    board = parse(text)
+    assert serialize(board) == text

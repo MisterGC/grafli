@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import enum
 import math
 import sys
@@ -28,6 +29,7 @@ from PySide6.QtGui import (
     QPixmap,
     QPolygonF,
     QTextCursor,
+    QTextOption,
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
@@ -43,6 +45,7 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
     QGraphicsTextItem,
     QGraphicsView,
+    QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -55,12 +58,12 @@ from whiteboard.format import Arrow, Board, Box, Note, parse, serialize
 
 # ── Constants ───────────────────────────────────────────────────
 
-BOX_FILL = QColor("#E8F0FE")
-BOX_BORDER = QColor("#4285F4")
-ARROW_COLOR = QColor("#5F6368")
-NOTE_COLOR = QColor("#F9AB00")
-GRID_COLOR = QColor("#F0F0F0")
-SCENE_BG = QColor("#FFFFFF")
+BOX_FILL = QColor("#F2F0EB")
+BOX_BORDER = QColor("#2F3437")
+ARROW_COLOR = QColor("#2F3437")
+NOTE_COLOR = QColor("#E6B82E")
+GRID_COLOR = QColor("#E5E3DD")
+SCENE_BG = QColor("#F2F0EB")
 
 FONT_FAMILY = "Marker Felt"
 
@@ -68,7 +71,8 @@ BOX_FONT = QFont(FONT_FAMILY, 13)
 NOTE_FONT = QFont(FONT_FAMILY, 11)
 LABEL_FONT = QFont(FONT_FAMILY, 10)
 
-BOX_FONT_SIZES = {"": 13, "small": 10, "large": 18}
+BOX_FONT_SIZES = {"": 13, "small": 10, "large": 18, "xlarge": 24, "xxlarge": 32}
+NOTE_FONT_SIZES = {"": 11, "small": 9, "large": 15, "xlarge": 21, "xxlarge": 28}
 
 BOX_RADIUS = 8
 BOX_BORDER_WIDTH = 2
@@ -80,18 +84,50 @@ DEFAULT_BOX_H = 80
 MIN_BOX_SIZE = 20
 HANDLE_SIZE = 8
 
+COLOR_TOKENS = {
+    "base": "#F2F0EB",
+    "primary": "#2760A1",
+    "secondary": "#43BFF2",
+    "tertiary": "#97BB13",
+    "subtle": "#4A4A4A",
+    "accent": "#C1086D",
+    "highlight": "#E6B82E",
+    "muted": "#B8B3AA",
+    "soft": "#AC90E4",
+}
+
 COLOR_PALETTE = [
     ("Default", ""),
-    ("White", "#FFFFFF"),
-    ("Blue", "#4285F4"),
-    ("Red", "#FF6B6B"),
-    ("Yellow", "#F9AB00"),
-    ("Green", "#34A853"),
-    ("Orange", "#FF8C00"),
-    ("Teal", "#00BCD4"),
-    ("Purple", "#9C27B0"),
-    ("Pink", "#E91E63"),
+    ("Base", "%base"),
+    ("Primary", "%primary"),
+    ("Secondary", "%secondary"),
+    ("Tertiary", "%tertiary"),
+    ("Subtle", "%subtle"),
+    ("Accent", "%accent"),
+    ("Highlight", "%highlight"),
+    ("Muted", "%muted"),
+    ("Soft", "%soft"),
 ]
+
+
+def _resolve_color(color: str) -> str:
+    """Resolve %token to hex, or pass through hex/empty as-is."""
+    if color.startswith("%"):
+        return COLOR_TOKENS.get(color[1:], "")
+    return color
+
+_COLOR_VALUES = [c for _, c in COLOR_PALETTE]
+_SIZE_SEQUENCE = ["small", "", "large", "xlarge", "xxlarge"]
+_ANCHOR_CYCLE = ["", "topleft", "topcenter"]
+
+_SIGNIFICANT_MODS = (
+    Qt.KeyboardModifier.ShiftModifier
+    | Qt.KeyboardModifier.ControlModifier
+    | Qt.KeyboardModifier.AltModifier
+    | Qt.KeyboardModifier.MetaModifier
+)
+
+_UNDO_LIMIT = 50
 
 
 # ── Mode enum ──────────────────────────────────────────────────
@@ -126,7 +162,7 @@ class ResizeHandle(QGraphicsRectItem):
         hs = HANDLE_SIZE
         super().__init__(-hs / 2, -hs / 2, hs, hs, parent)
         self.corner = corner
-        self.setPen(QPen(QColor("#4285F4"), 1))
+        self.setPen(QPen(QColor("#2F5D5C"), 1))
         self.setBrush(QBrush(QColor("#FFFFFF")))
         self.setCursor(_CORNER_CURSORS[corner])
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
@@ -141,7 +177,6 @@ class BoxItem(QGraphicsRectItem):
         super().__init__(0, 0, box.w, box.h)
         self.box = box
         self.setPos(box.x, box.y)
-        self._apply_color()
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
             | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -162,9 +197,10 @@ class BoxItem(QGraphicsRectItem):
 
         self._label = QGraphicsTextItem(self)
         self._label.setFont(self._box_font())
-        self._label.setDefaultTextColor(QColor("#202124"))
+        self._label.setDefaultTextColor(QColor("#2F3437"))
         self._label.setPlainText(box.label)
         self._label.setTextWidth(box.w - 16)
+        self._apply_color()
         self._position_label()
         self._auto_grow()
 
@@ -173,39 +209,68 @@ class BoxItem(QGraphicsRectItem):
         self._resize_origin = QPointF()
 
     def _apply_color(self):
-        if self.box.color:
-            c = QColor(self.box.color)
-            if c.lightness() > 240:
-                self.setPen(QPen(QColor("#CCCCCC"), BOX_BORDER_WIDTH))
-                self.setBrush(QBrush(QColor("#FFFFFF")))
-            else:
-                self.setPen(QPen(c, BOX_BORDER_WIDTH))
-                fill = QColor(c)
-                fill.setAlpha(60)
-                self.setBrush(QBrush(fill))
+        hex_color = _resolve_color(self.box.color)
+        if hex_color:
+            c = QColor(hex_color)
+            self.setPen(QPen(c.darker(125), BOX_BORDER_WIDTH))
+            self.setBrush(QBrush(c))
+            text_color = "#F2F0EB" if c.lightness() < 150 else "#2F3437"
+            self._label.setDefaultTextColor(QColor(text_color))
         else:
-            self.setPen(QPen(QColor("#000000"), BOX_BORDER_WIDTH))
+            self.setPen(QPen(QColor("#2F3437"), BOX_BORDER_WIDTH))
             self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            self._label.setDefaultTextColor(QColor("#2F3437"))
 
     def set_color(self, color: str):
         self.box.color = color
         self._apply_color()
         self.update()
 
+    # ── Auto layout helpers ──
+
+    def _get_effective_anchor(self) -> str:
+        if self.box.anchor:
+            return self.box.anchor
+        view = self.scene().views()[0] if self.scene() and self.scene().views() else None
+        if view and isinstance(view, WhiteboardView) and view._has_children(self.box.id):
+            return "topleft"
+        return ""
+
+    def _get_effective_textsize(self) -> str:
+        if self.box.textsize:
+            return self.box.textsize
+        view = self.scene().views()[0] if self.scene() and self.scene().views() else None
+        if view and isinstance(view, WhiteboardView) and view._has_children(self.box.id):
+            return "small"
+        return ""
+
     def _box_font(self) -> QFont:
-        return QFont(FONT_FAMILY, BOX_FONT_SIZES.get(self.box.textsize, 13))
+        return QFont(FONT_FAMILY, BOX_FONT_SIZES.get(self._get_effective_textsize(), 13))
 
     def _position_label(self):
         br = self._label.boundingRect()
         w = self.box.w
         h = self.box.h
-        anchor = self.box.anchor
+        anchor = self._get_effective_anchor()
+        doc = self._label.document()
+        opt = QTextOption()
         if anchor == "topleft":
+            opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
             self._label.setPos(8, 8)
         elif anchor == "topcenter":
+            opt.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             self._label.setPos((w - br.width()) / 2, 8)
         else:
+            opt.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             self._label.setPos((w - br.width()) / 2, (h - br.height()) / 2)
+        doc.setDefaultTextOption(opt)
+
+    def refresh_auto_layout(self):
+        """Re-apply font and label position based on current effective values."""
+        self._label.setFont(self._box_font())
+        self._auto_grow()
+        self._position_label()
+        self.update()
 
     def set_anchor(self, anchor: str):
         self.box.anchor = anchor
@@ -293,6 +358,9 @@ class BoxItem(QGraphicsRectItem):
                 self.setFlag(
                     QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
                 )
+                view = self.scene().views()[0] if self.scene() and self.scene().views() else None
+                if view and isinstance(view, WhiteboardView):
+                    view._save_pre_action_snapshot()
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -351,6 +419,7 @@ class BoxItem(QGraphicsRectItem):
             )
             view = self.scene().views()[0] if self.scene() and self.scene().views() else None
             if view and isinstance(view, WhiteboardView):
+                view._commit_pre_action_snapshot()
                 view.mark_dirty()
             event.accept()
             return
@@ -363,7 +432,7 @@ class BoxItem(QGraphicsRectItem):
         painter.drawRoundedRect(self.rect(), BOX_RADIUS, BOX_RADIUS)
 
         if self.isSelected():
-            sel_pen = QPen(QColor("#4285F4"), 2, Qt.PenStyle.DashLine)
+            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = self.rect().adjusted(-3, -3, 3, 3)
@@ -377,7 +446,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         super().__init__(note.text)
         self.note = note
         self.setPos(note.x, note.y)
-        self.setFont(NOTE_FONT)
+        self.setFont(self._note_font())
         self._apply_color()
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -395,7 +464,7 @@ class NoteItem(QGraphicsSimpleTextItem):
     def paint(self, painter: QPainter, option, widget=None):
         super().paint(painter, option, widget)
         if self.isSelected():
-            sel_pen = QPen(QColor("#4285F4"), 2, Qt.PenStyle.DashLine)
+            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             base_rect = QGraphicsSimpleTextItem.boundingRect(self)
@@ -403,14 +472,23 @@ class NoteItem(QGraphicsSimpleTextItem):
             painter.drawRect(sel_rect)
 
     def _apply_color(self):
-        if self.note.color:
-            self.setBrush(QBrush(QColor(self.note.color)))
+        hex_color = _resolve_color(self.note.color)
+        if hex_color:
+            self.setBrush(QBrush(QColor(hex_color)))
         else:
-            self.setBrush(QBrush(QColor("#000000")))
+            self.setBrush(QBrush(QColor("#2F3437")))
+
+    def _note_font(self) -> QFont:
+        return QFont(FONT_FAMILY, NOTE_FONT_SIZES.get(self.note.textsize, 11))
 
     def set_color(self, color: str):
         self.note.color = color
         self._apply_color()
+        self.update()
+
+    def set_textsize(self, textsize: str):
+        self.note.textsize = textsize
+        self.setFont(self._note_font())
         self.update()
 
     def update_text(self, text: str):
@@ -563,7 +641,18 @@ class WhiteboardView(QGraphicsView):
         # Nesting: guard against recursive position propagation
         self._propagating_move = False
 
+        # Undo / Redo
+        self._undo_stack: list[str] = []
+        self._redo_stack: list[str] = []
+        self._pre_move_snapshot: str = ""
+
+        # Copy / Paste clipboard
+        self._clipboard_boxes: list[Box] = []
+        self._clipboard_notes: list[Note] = []
+        self._clipboard_arrows: list[Arrow] = []
+
         self.arrow_update_needed.connect(self._redraw_arrows)
+        self._scene.selectionChanged.connect(self._on_selection_changed)
 
     def drawBackground(self, painter: QPainter, rect: QRectF):
         super().drawBackground(painter, rect)
@@ -572,7 +661,7 @@ class WhiteboardView(QGraphicsView):
         spacing = self.GRID_SPACING
         left = int(rect.left()) - (int(rect.left()) % spacing)
         top = int(rect.top()) - (int(rect.top()) % spacing)
-        painter.setPen(QPen(QColor("#E0E0E0"), 1.5))
+        painter.setPen(QPen(QColor("#E5E3DD"), 1.5))
         x = left
         while x <= rect.right():
             y = top
@@ -747,7 +836,7 @@ class WhiteboardView(QGraphicsView):
                 mid_y = (start.y() + end.y()) / 2
                 label = QGraphicsSimpleTextItem(arrow.label)
                 label.setFont(LABEL_FONT)
-                label.setBrush(QBrush(QColor("#5F6368")))
+                label.setBrush(QBrush(QColor("#2F3437")))
                 br = label.boundingRect()
                 label_x = mid_x - br.width() / 2
                 label_y = mid_y - br.height() / 2
@@ -781,6 +870,11 @@ class WhiteboardView(QGraphicsView):
 
     # ── Nesting helpers ──
 
+    def _has_children(self, box_id: str) -> bool:
+        if not self._board:
+            return False
+        return any(b.parent == box_id for b in self._board.boxes)
+
     def _descendants(self, box_id: str) -> list[BoxItem]:
         """Return all BoxItems that are descendants of box_id."""
         result = []
@@ -806,6 +900,11 @@ class WhiteboardView(QGraphicsView):
     def _update_z_values(self):
         for box_id, item in self._box_items.items():
             item.setZValue(self._box_depth(box_id))
+
+    def _refresh_auto_layout(self, box_id: str):
+        """Refresh auto-layout for a box when its children change."""
+        if box_id in self._box_items:
+            self._box_items[box_id].refresh_auto_layout()
 
     def _check_nesting(self, item: BoxItem):
         """Update parent of a box after it has been moved or resized."""
@@ -845,7 +944,212 @@ class WhiteboardView(QGraphicsView):
 
         if box.parent != old_parent:
             self._update_z_values()
+            if old_parent:
+                self._refresh_auto_layout(old_parent)
+            if box.parent:
+                self._refresh_auto_layout(box.parent)
             self.mark_dirty()
+
+    # ── Undo / Redo ──
+
+    def _push_undo(self):
+        """Save current board state to undo stack (call before mutation)."""
+        if not self._board:
+            return
+        self._undo_stack.append(serialize(self._board))
+        self._redo_stack.clear()
+        if len(self._undo_stack) > _UNDO_LIMIT:
+            self._undo_stack.pop(0)
+
+    def _save_pre_action_snapshot(self):
+        """Save snapshot before a drag/resize gesture."""
+        if self._board:
+            self._pre_move_snapshot = serialize(self._board)
+
+    def _commit_pre_action_snapshot(self):
+        """Push pre-action snapshot to undo stack if state changed."""
+        if self._board and self._pre_move_snapshot:
+            current = serialize(self._board)
+            if current != self._pre_move_snapshot:
+                self._undo_stack.append(self._pre_move_snapshot)
+                self._redo_stack.clear()
+                if len(self._undo_stack) > _UNDO_LIMIT:
+                    self._undo_stack.pop(0)
+            self._pre_move_snapshot = ""
+
+    def _undo(self):
+        if not self._undo_stack or not self._board:
+            return
+        self._redo_stack.append(serialize(self._board))
+        text = self._undo_stack.pop()
+        self._board = parse(text)
+        self._rebuild_scene()
+        window = self.window()
+        if isinstance(window, MainWindow):
+            window._board = self._board
+        self.mark_dirty()
+
+    def _redo(self):
+        if not self._redo_stack or not self._board:
+            return
+        self._undo_stack.append(serialize(self._board))
+        text = self._redo_stack.pop()
+        self._board = parse(text)
+        self._rebuild_scene()
+        window = self.window()
+        if isinstance(window, MainWindow):
+            window._board = self._board
+        self.mark_dirty()
+
+    # ── Copy / Paste ──
+
+    def _copy_selected(self):
+        self._clipboard_boxes.clear()
+        self._clipboard_notes.clear()
+        self._clipboard_arrows.clear()
+
+        selected_box_ids = set()
+        for item in self._scene.selectedItems():
+            if isinstance(item, BoxItem):
+                self._clipboard_boxes.append(copy.deepcopy(item.box))
+                selected_box_ids.add(item.box.id)
+            elif isinstance(item, NoteItem):
+                self._clipboard_notes.append(copy.deepcopy(item.note))
+
+        if self._board:
+            for arrow in self._board.arrows:
+                if arrow.from_id in selected_box_ids and arrow.to_id in selected_box_ids:
+                    self._clipboard_arrows.append(copy.deepcopy(arrow))
+
+    def _paste(self):
+        if not (self._clipboard_boxes or self._clipboard_notes) or not self._board:
+            return
+        self._push_undo()
+
+        # Compute bounding box of clipboard items
+        all_coords: list[tuple[float, float]] = []
+        for b in self._clipboard_boxes:
+            all_coords.append((b.x, b.y))
+        for n in self._clipboard_notes:
+            all_coords.append((n.x, n.y))
+        origin_x = min(c[0] for c in all_coords)
+        origin_y = min(c[1] for c in all_coords)
+
+        # Get mouse cursor position in scene coordinates as paste target
+        cursor_viewport = self.mapFromGlobal(self.cursor().pos())
+        cursor_scene = self.mapToScene(cursor_viewport)
+        dx = cursor_scene.x() - origin_x
+        dy = cursor_scene.y() - origin_y
+
+        id_map: dict[str, str] = {}
+        clipboard_box_ids = {b.id for b in self._clipboard_boxes}
+
+        for orig_box in self._clipboard_boxes:
+            new_box = copy.deepcopy(orig_box)
+            new_id = self._board.next_box_id()
+            id_map[orig_box.id] = new_id
+            new_box.id = new_id
+            new_box.x += dx
+            new_box.y += dy
+            self._board.add_box(new_box)
+
+        # Fix parent references to use new IDs
+        for box in self._board.boxes:
+            if box.id in id_map.values() and box.parent in id_map:
+                box.parent = id_map[box.parent]
+            elif box.id in id_map.values() and box.parent and box.parent not in clipboard_box_ids:
+                pass  # Keep original parent if it exists in the board
+            elif box.id in id_map.values() and box.parent in clipboard_box_ids:
+                box.parent = id_map.get(box.parent, "")
+
+        for orig_note in self._clipboard_notes:
+            new_note = copy.deepcopy(orig_note)
+            new_note.x += dx
+            new_note.y += dy
+            self._board.add_note(new_note)
+
+        for orig_arrow in self._clipboard_arrows:
+            new_arrow = copy.deepcopy(orig_arrow)
+            new_arrow.from_id = id_map.get(orig_arrow.from_id, orig_arrow.from_id)
+            new_arrow.to_id = id_map.get(orig_arrow.to_id, orig_arrow.to_id)
+            self._board.add_arrow(new_arrow)
+
+        self._rebuild_scene()
+
+        # Select newly pasted items
+        new_ids = set(id_map.values())
+        for bid, item in self._box_items.items():
+            if bid in new_ids:
+                item.setSelected(True)
+
+        self.mark_dirty()
+
+    # ── Property shortcuts ──
+
+    def _cycle_color(self, direction: int):
+        self._push_undo()
+        for item in self._scene.selectedItems():
+            if isinstance(item, BoxItem):
+                cur = item.box.color
+                idx = _COLOR_VALUES.index(cur) if cur in _COLOR_VALUES else 0
+                idx = (idx + direction) % len(_COLOR_VALUES)
+                item.set_color(_COLOR_VALUES[idx])
+            elif isinstance(item, NoteItem):
+                cur = item.note.color
+                idx = _COLOR_VALUES.index(cur) if cur in _COLOR_VALUES else 0
+                idx = (idx + direction) % len(_COLOR_VALUES)
+                item.set_color(_COLOR_VALUES[idx])
+        self.mark_dirty()
+
+    def _cycle_textsize(self, direction: int):
+        """direction: +1 = increase (toward large), -1 = decrease (toward small)."""
+        self._push_undo()
+        for item in self._scene.selectedItems():
+            if isinstance(item, BoxItem):
+                cur = item.box.textsize
+                if cur in _SIZE_SEQUENCE:
+                    idx = _SIZE_SEQUENCE.index(cur)
+                else:
+                    idx = 1  # default to medium
+                idx = max(0, min(len(_SIZE_SEQUENCE) - 1, idx + direction))
+                item.set_textsize(_SIZE_SEQUENCE[idx])
+            elif isinstance(item, NoteItem):
+                cur = item.note.textsize
+                if cur in _SIZE_SEQUENCE:
+                    idx = _SIZE_SEQUENCE.index(cur)
+                else:
+                    idx = 1
+                idx = max(0, min(len(_SIZE_SEQUENCE) - 1, idx + direction))
+                item.set_textsize(_SIZE_SEQUENCE[idx])
+        self.mark_dirty()
+
+    def _cycle_anchor(self):
+        self._push_undo()
+        for item in self._scene.selectedItems():
+            if isinstance(item, BoxItem):
+                cur = item.box.anchor
+                if cur in _ANCHOR_CYCLE:
+                    idx = _ANCHOR_CYCLE.index(cur)
+                else:
+                    idx = 0
+                idx = (idx + 1) % len(_ANCHOR_CYCLE)
+                item.set_anchor(_ANCHOR_CYCLE[idx])
+        self.mark_dirty()
+
+    def _snap_to_grid(self):
+        self._push_undo()
+        spacing = self.GRID_SPACING
+        for item in self._scene.selectedItems():
+            if isinstance(item, BoxItem):
+                item.box.x = round(item.box.x / spacing) * spacing
+                item.box.y = round(item.box.y / spacing) * spacing
+                item.setPos(item.box.x, item.box.y)
+            elif isinstance(item, NoteItem):
+                item.note.x = round(item.note.x / spacing) * spacing
+                item.note.y = round(item.note.y / spacing) * spacing
+                item.setPos(item.note.x, item.note.y)
+        self.arrow_update_needed.emit()
+        self.mark_dirty()
 
     # ── Inline text editing ──
 
@@ -867,11 +1171,11 @@ class WhiteboardView(QGraphicsView):
         editor = QGraphicsTextItem(text)
         editor.setFont(font)
         editor.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
-        editor.setDefaultTextColor(QColor("#202124"))
+        editor.setDefaultTextColor(QColor("#2F3437"))
         br = editor.boundingRect()
 
         if isinstance(target, BoxItem):
-            anchor = target.box.anchor
+            anchor = target._get_effective_anchor()
             if anchor == "topleft":
                 editor.setPos(pos.x() + 8, pos.y() + 8)
             elif anchor == "topcenter":
@@ -898,6 +1202,7 @@ class WhiteboardView(QGraphicsView):
     def _commit_editor(self):
         if not self._editor or not self._edit_target:
             return
+        self._push_undo()
         text = self._editor.toPlainText().strip()
         if text:
             if isinstance(self._edit_target, BoxItem):
@@ -928,14 +1233,18 @@ class WhiteboardView(QGraphicsView):
     def _delete_selected(self):
         if not self._board:
             return
+        self._push_undo()
         deleted = False
+        former_parents: set[str] = set()
         for item in list(self._scene.selectedItems()):
             if isinstance(item, BoxItem):
                 box_id = item.box.id
-                # Unparent direct children
+                # Unparent direct children and track former parent
                 for other in self._board.boxes:
                     if other.parent == box_id:
                         other.parent = ""
+                if item.box.parent:
+                    former_parents.add(item.box.parent)
                 # Remove connected arrows
                 for arrow in list(self._board.arrows):
                     if arrow.from_id == box_id or arrow.to_id == box_id:
@@ -952,13 +1261,33 @@ class WhiteboardView(QGraphicsView):
         if deleted:
             self._update_z_values()
             self._redraw_arrows()
+            for pid in former_parents:
+                self._refresh_auto_layout(pid)
             self.mark_dirty()
+
+    # ── Status bar helpers ──
+
+    def _current_zoom(self) -> float:
+        return self.transform().m11()
+
+    def _update_status_zoom(self):
+        window = self.window()
+        if isinstance(window, MainWindow):
+            pct = round(self._current_zoom() * 100)
+            window._status_zoom.setText(f"{pct}%")
+
+    def _on_selection_changed(self):
+        window = self.window()
+        if isinstance(window, MainWindow):
+            count = len(self._scene.selectedItems())
+            window._status_sel.setText(f"{count} selected" if count else "")
 
     # ── Pan / Zoom ──
 
     def wheelEvent(self, event: QWheelEvent):
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
         self.scale(factor, factor)
+        self._update_status_zoom()
 
     def mousePressEvent(self, event):
         # Middle-click pan always works
@@ -981,6 +1310,8 @@ class WhiteboardView(QGraphicsView):
                 self._commit_editor()
 
         if self._mode == Mode.SELECT:
+            # Save snapshot before potential move
+            self._save_pre_action_snapshot()
             self._press_select(event)
         elif self._mode == Mode.PAN:
             self._press_pan(event)
@@ -992,6 +1323,14 @@ class WhiteboardView(QGraphicsView):
             self._press_connect(event)
 
     def mouseMoveEvent(self, event):
+        # Update status bar position
+        scene_pos = self.mapToScene(event.position().toPoint())
+        window = self.window()
+        if isinstance(window, MainWindow):
+            window._status_pos.setText(
+                f"{int(scene_pos.x())}, {int(scene_pos.y())}"
+            )
+
         if self._panning:
             delta = event.position() - self._pan_start
             self._pan_start = event.position()
@@ -1031,6 +1370,7 @@ class WhiteboardView(QGraphicsView):
                 for item in self._scene.selectedItems():
                     if isinstance(item, BoxItem):
                         self._check_nesting(item)
+                self._commit_pre_action_snapshot()
         elif self._mode == Mode.PAN:
             self._release_pan(event)
         elif self._mode == Mode.RECT:
@@ -1090,6 +1430,65 @@ class WhiteboardView(QGraphicsView):
             self._delete_selected()
             event.accept()
             return
+
+        mods = event.modifiers()
+        has_selection = bool(self._scene.selectedItems())
+        no_mod = not (mods & _SIGNIFICANT_MODS)
+
+        # Property shortcuts — SELECT mode with selection, no modifiers
+        if self._mode == Mode.SELECT and has_selection and no_mod:
+            if event.key() == Qt.Key.Key_H:
+                self._cycle_color(-1)
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_L:
+                self._cycle_color(1)
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_J:
+                self._cycle_textsize(-1)
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_K:
+                self._cycle_textsize(1)
+                event.accept()
+                return
+
+        # Shift+A — cycle anchor (SELECT mode with selection)
+        if (event.key() == Qt.Key.Key_A
+                and mods & Qt.KeyboardModifier.ShiftModifier
+                and self._mode == Mode.SELECT and has_selection):
+            self._cycle_anchor()
+            event.accept()
+            return
+
+        # Shift+G — snap to grid (SELECT mode with selection)
+        if (event.key() == Qt.Key.Key_G
+                and mods & Qt.KeyboardModifier.ShiftModifier
+                and self._mode == Mode.SELECT and has_selection):
+            self._snap_to_grid()
+            event.accept()
+            return
+
+        # G without shift — toggle grid
+        if event.key() == Qt.Key.Key_G and no_mod:
+            self.toggle_grid()
+            event.accept()
+            return
+
+        # Mode switching shortcuts (no modifiers)
+        if no_mod:
+            mode_keys = {
+                Qt.Key.Key_V: Mode.SELECT,
+                Qt.Key.Key_H: Mode.PAN,
+                Qt.Key.Key_R: Mode.RECT,
+                Qt.Key.Key_T: Mode.TEXT,
+                Qt.Key.Key_C: Mode.CONNECT,
+            }
+            if event.key() in mode_keys:
+                self.set_mode(mode_keys[event.key()])
+                event.accept()
+                return
 
         super().keyPressEvent(event)
 
@@ -1170,6 +1569,7 @@ class WhiteboardView(QGraphicsView):
 
         self._rect_origin = None
 
+        self._push_undo()
         box_id = self._board.next_box_id()
         box = Box(id=box_id, label="", x=x, y=y, w=w, h=h)
         self._board.add_box(box)
@@ -1185,6 +1585,7 @@ class WhiteboardView(QGraphicsView):
     def _press_text(self, event):
         if not self._board:
             return
+        self._push_undo()
         scene_pos = self.mapToScene(event.position().toPoint())
         note = Note(x=scene_pos.x(), y=scene_pos.y(), text="Note")
         self._board.add_note(note)
@@ -1227,6 +1628,7 @@ class WhiteboardView(QGraphicsView):
         else:
             # Second click — create arrow
             if item is not self._connect_source:
+                self._push_undo()
                 arrow = Arrow(
                     from_id=self._connect_source.box.id,
                     to_id=item.box.id,
@@ -1271,6 +1673,7 @@ class WhiteboardView(QGraphicsView):
         if (isinstance(item, BoxItem)
                 and item is not self._connect_source
                 and self._board):
+            self._push_undo()
             arrow = Arrow(
                 from_id=self._connect_source.box.id,
                 to_id=item.box.id,
@@ -1305,10 +1708,11 @@ class MainWindow(QMainWindow):
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(300)
         self._autosave_timer.timeout.connect(self._autosave)
-        self._writing = False
+        self._last_written = ""
 
         self._setup_toolbar()
         self._setup_actions()
+        self._setup_status_bar()
 
         if file_path:
             self._open_file(Path(file_path))
@@ -1322,17 +1726,16 @@ class MainWindow(QMainWindow):
         group.setExclusive(True)
 
         modes = [
-            ("Select", "V", Mode.SELECT),
-            ("Pan", "H", Mode.PAN),
-            ("Rect", "R", Mode.RECT),
-            ("Text", "T", Mode.TEXT),
-            ("Connect", "C", Mode.CONNECT),
+            ("Select (V)", Mode.SELECT),
+            ("Pan (H)", Mode.PAN),
+            ("Rect (R)", Mode.RECT),
+            ("Text (T)", Mode.TEXT),
+            ("Connect (C)", Mode.CONNECT),
         ]
 
         self._mode_actions: dict[Mode, QAction] = {}
-        for label, shortcut, mode in modes:
-            action = QAction(f"{label} ({shortcut})", self)
-            action.setShortcut(QKeySequence(shortcut))
+        for label, mode in modes:
+            action = QAction(label, self)
             action.setCheckable(True)
             action.triggered.connect(lambda checked, m=mode: self._view.set_mode(m))
             group.addAction(action)
@@ -1346,14 +1749,15 @@ class MainWindow(QMainWindow):
         # Color button
         self._color_action = QAction("Color", self)
         color_menu = QMenu(self)
-        for name, hex_color in COLOR_PALETTE:
+        for name, color_str in COLOR_PALETTE:
             action = color_menu.addAction(name)
+            hex_color = _resolve_color(color_str)
             if hex_color:
                 px = QPixmap(16, 16)
                 px.fill(QColor(hex_color))
                 action.setIcon(QIcon(px))
             action.triggered.connect(
-                lambda checked, c=hex_color: self._apply_color_to_selected(c)
+                lambda checked, c=color_str: self._apply_color_to_selected(c)
             )
         self._color_action.setMenu(color_menu)
         toolbar.addAction(self._color_action)
@@ -1372,7 +1776,7 @@ class MainWindow(QMainWindow):
         # Size dropdown
         self._textsize_action = QAction("Size", self)
         textsize_menu = QMenu(self)
-        for name, value in [("Small", "small"), ("Medium", ""), ("Large", "large")]:
+        for name, value in [("Small", "small"), ("Medium", ""), ("Large", "large"), ("XL", "xlarge"), ("XXL", "xxlarge")]:
             action = textsize_menu.addAction(name)
             action.triggered.connect(
                 lambda checked, s=value: self._apply_textsize_to_selected(s)
@@ -1387,8 +1791,10 @@ class MainWindow(QMainWindow):
         action = self._mode_actions.get(mode)
         if action:
             action.setChecked(True)
+        self._status_mode.setText(mode.value.upper())
 
     def _apply_color_to_selected(self, color: str):
+        self._view._push_undo()
         for item in self._view.scene().selectedItems():
             if isinstance(item, BoxItem):
                 item.set_color(color)
@@ -1397,14 +1803,18 @@ class MainWindow(QMainWindow):
         self._view.mark_dirty()
 
     def _apply_anchor_to_selected(self, anchor: str):
+        self._view._push_undo()
         for item in self._view.scene().selectedItems():
             if isinstance(item, BoxItem):
                 item.set_anchor(anchor)
         self._view.mark_dirty()
 
     def _apply_textsize_to_selected(self, textsize: str):
+        self._view._push_undo()
         for item in self._view.scene().selectedItems():
             if isinstance(item, BoxItem):
+                item.set_textsize(textsize)
+            elif isinstance(item, NoteItem):
                 item.set_textsize(textsize)
         self._view.mark_dirty()
 
@@ -1433,11 +1843,35 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(self.close)
         menu.addAction(quit_action)
 
+        # Edit menu
+        edit_menu = self.menuBar().addMenu("&Edit")
+
+        undo_action = QAction("&Undo", self)
+        undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        undo_action.triggered.connect(self._view._undo)
+        edit_menu.addAction(undo_action)
+
+        redo_action = QAction("&Redo", self)
+        redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        redo_action.triggered.connect(self._view._redo)
+        edit_menu.addAction(redo_action)
+
+        edit_menu.addSeparator()
+
+        copy_action = QAction("&Copy", self)
+        copy_action.setShortcut(QKeySequence.StandardKey.Copy)
+        copy_action.triggered.connect(self._view._copy_selected)
+        edit_menu.addAction(copy_action)
+
+        paste_action = QAction("&Paste", self)
+        paste_action.setShortcut(QKeySequence.StandardKey.Paste)
+        paste_action.triggered.connect(self._view._paste)
+        edit_menu.addAction(paste_action)
+
         # View menu
         view_menu = self.menuBar().addMenu("&View")
 
         grid_action = QAction("Show &Grid", self)
-        grid_action.setShortcut(QKeySequence("G"))
         grid_action.setCheckable(True)
         grid_action.setChecked(True)
         grid_action.triggered.connect(self._view.toggle_grid)
@@ -1446,12 +1880,12 @@ class MainWindow(QMainWindow):
         # Zoom shortcuts
         zoom_in = QAction("Zoom In", self)
         zoom_in.setShortcut(QKeySequence.StandardKey.ZoomIn)
-        zoom_in.triggered.connect(lambda: self._view.scale(1.15, 1.15))
+        zoom_in.triggered.connect(self._zoom_in)
         self.addAction(zoom_in)
 
         zoom_out = QAction("Zoom Out", self)
         zoom_out.setShortcut(QKeySequence.StandardKey.ZoomOut)
-        zoom_out.triggered.connect(lambda: self._view.scale(1 / 1.15, 1 / 1.15))
+        zoom_out.triggered.connect(self._zoom_out)
         self.addAction(zoom_out)
 
         zoom_fit = QAction("Zoom to Fit", self)
@@ -1459,12 +1893,32 @@ class MainWindow(QMainWindow):
         zoom_fit.triggered.connect(self._zoom_fit)
         self.addAction(zoom_fit)
 
+    def _zoom_in(self):
+        self._view.scale(1.15, 1.15)
+        self._view._update_status_zoom()
+
+    def _zoom_out(self):
+        self._view.scale(1 / 1.15, 1 / 1.15)
+        self._view._update_status_zoom()
+
     def _zoom_fit(self):
         if self._board and (self._board.boxes or self._board.notes):
             self._view.fitInView(
                 self._view.scene().itemsBoundingRect().adjusted(-40, -40, 40, 40),
                 Qt.AspectRatioMode.KeepAspectRatio,
             )
+            self._view._update_status_zoom()
+
+    def _setup_status_bar(self):
+        self._status_mode = QLabel("SELECT")
+        self._status_zoom = QLabel("100%")
+        self._status_pos = QLabel("0, 0")
+        self._status_sel = QLabel("")
+
+        self.statusBar().addWidget(self._status_mode)
+        self.statusBar().addPermanentWidget(self._status_sel)
+        self.statusBar().addPermanentWidget(self._status_pos)
+        self.statusBar().addPermanentWidget(self._status_zoom)
 
     def _new_file(self):
         if self._view.dirty and not self._confirm_discard():
@@ -1515,9 +1969,8 @@ class MainWindow(QMainWindow):
         if not self._board or not self._file_path:
             return
         text = serialize(self._board)
-        self._writing = True
+        self._last_written = text
         self._file_path.write_text(text, encoding="utf-8")
-        self._writing = False
         self._view._dirty = False
         if self._file_path:
             self.setWindowTitle(f"Whiteboard — {self._file_path.name}")
@@ -1550,13 +2003,13 @@ class MainWindow(QMainWindow):
             self._watcher = None
 
     def _on_file_changed(self):
-        if self._writing:
-            return
         if not self._file_path or not self._file_path.exists():
             return
         try:
             text = self._file_path.read_text(encoding="utf-8")
         except OSError:
+            return
+        if text == self._last_written:
             return
 
         new_board = parse(text)

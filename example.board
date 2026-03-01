@@ -1,28 +1,51 @@
-# Dusk
+# Task Manager — GUI Mockup & Action Flow
 
-@ box day "Today" 40,40 340x400 #4285F4 ^topleft ~small
-@ box ideas "Ideas shaped" 60,80 130x50 >day
-@ box bugs "Bugs chased" 200,80 160x50 >day
-@ box lines "Lines written" 60,150 130x50 >day
-@ box erased "Lines erased" 200,150 160x50 >day
-@ box tests "Tests green" 60,220 130x50 #34A853 >day
-@ box talked "Conversations" 200,220 160x50 >day
-@ box learned "Things learned" 100,310 200x60 ~large >day
+# ── GUI Mockup ──────────────────────────────────────
 
-@ arrow ideas -> lines
-@ arrow lines -> erased "some"
-@ arrow erased -> tests "until"
-@ arrow bugs -> tests "caught by"
+@ box app "Task Manager App" 20,20 520x400 %muted ^topleft ~small
 
-@ box evening "Now" 460,140 260x200 #9C27B0 ^topleft ~small
-@ box breath "A slow breath" 480,185 200x50 ~large >evening
-@ box quiet "Quiet screen" 480,255 200x50 >evening
+@ box navbar "Navigation Bar" 40,60 480x50 %primary ^topleft ~small >app
+@ box logo "Logo" 50,70 60x30 %base >navbar
+@ box search "Search..." 130,70 200x30 %base >navbar
+@ box avatar "User" 440,70 60x30 %accent >navbar
 
-@ box rest "Rest" 460,400 260x80 #F9AB00
-@ note 480,460 "The work will be here tomorrow."
+@ box sidebar "Sidebar" 40,130 120x270 %secondary ^topleft ~small >app
+@ box nav_inbox "Inbox (3)" 50,170 100x30 %secondary >sidebar
+@ box nav_today "Today" 50,210 100x30 %secondary >sidebar
+@ box nav_proj "Projects" 50,250 100x30 %secondary >sidebar
+@ box nav_arch "Archive" 50,330 100x30 %muted >sidebar
 
-@ arrow day -> evening "letting go"
-@ arrow evening -> rest
+@ box main "Task List" 180,130 320x270 %base ^topleft ~small >app
+@ box task1 "Review PR #42" 200,170 280x40 %tertiary >main
+@ box task2 "Deploy staging" 200,220 280x40 %highlight >main
+@ box task3 "Write API docs" 200,270 280x40 %subtle >main
+@ box task4 "Fix auth bug" 200,320 280x40 %accent >main
 
-@ note 40,480 "Good things take time."
-@ note 40,510 "Good rest makes good things."
+# ── Action Flow ─────────────────────────────────────
+
+@ box user "User" 40,500 120x60 %accent
+@ box ui "UI Layer" 220,500 140x60 %secondary
+@ box api "API Gateway" 420,500 140x60 %primary
+@ box auth "Auth Service" 620,500 140x60 %subtle
+
+@ box store "State Store" 220,620 140x60 %tertiary
+@ box db "PostgreSQL" 420,620 140x60 %primary
+@ box queue "Event Queue" 620,620 140x60 %highlight
+
+@ box notify "Notifications" 420,740 140x60 %accent
+@ box logger "Audit Log" 620,740 140x60 %muted
+
+@ arrow user -> ui "click"
+@ arrow ui -> api "REST"
+@ arrow api -> auth "validate"
+@ arrow auth -> api "token"
+@ arrow api -> db "query"
+@ arrow ui -> store "dispatch"
+@ arrow store -> ui "render"
+@ arrow db -> queue "event"
+@ arrow queue -> notify "push"
+@ arrow queue -> logger "record"
+
+@ note 580,460 "Happy path: create task"
+@ note 50,460 "Entry point"
+@ note 770,620 "Async processing"

@@ -40,6 +40,7 @@ class Note:
     y: float
     text: str
     color: str = ""
+    textsize: str = ""
 
 
 @dataclass
@@ -101,9 +102,9 @@ class Board:
 _RE_BOX = re.compile(
     r'^@\s+box\s+(\S+)\s+"([^"]*)"\s+'
     r'(-?[\d.]+),(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
-    r'(?:\s+(#[0-9A-Fa-f]{6}))?'
+    r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
-    r'(?:\s+~(small|large))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge))?'
     r'(?:\s+>(\S+))?\s*$'
 )
 
@@ -117,7 +118,8 @@ _RE_ARROW_BARE = re.compile(
 
 _RE_NOTE = re.compile(
     r'^@\s+note\s+(-?[\d.]+),(-?[\d.]+)\s+"([^"]*)"'
-    r'(?:\s+(#[0-9A-Fa-f]{6}))?\s*$'
+    r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge))?\s*$'
 )
 
 
@@ -181,6 +183,7 @@ def parse(text: str) -> Board:
                 y=float(m.group(2)),
                 text=m.group(3),
                 color=m.group(4) or "",
+                textsize=m.group(5) or "",
             )
             board.notes.append(note)
             board._lines.append(("note", note))
@@ -231,6 +234,8 @@ def _serialize_note(note: Note) -> str:
     s = f'@ note {x},{y} "{note.text}"'
     if note.color:
         s += f" {note.color}"
+    if note.textsize:
+        s += f" ~{note.textsize}"
     return s
 
 

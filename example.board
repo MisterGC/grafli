@@ -1,17 +1,28 @@
-# Project Architecture
-# file: example.board
+# Dusk
 
-@ box auth "Auth Service" -81.63957918945513,153.49785474162888 200x100
-@ box db "Database" 179.0806280644309,209.31650759136983 200x100
-@ box cache "Redis Cache" -17.815203258188873,-187.47334691259704 160x80 #00BCD4
-@ box api "API Gateway" -107.13698851587992,348.6740205447377 200x100
+@ box day "Today" 40,40 340x400 #4285F4 ^topleft ~small
+@ box ideas "Ideas shaped" 60,80 130x50 >day
+@ box bugs "Bugs chased" 200,80 160x50 >day
+@ box lines "Lines written" 60,150 130x50 >day
+@ box erased "Lines erased" 200,150 160x50 >day
+@ box tests "Tests green" 60,220 130x50 #34A853 >day
+@ box talked "Conversations" 200,220 160x50 >day
+@ box learned "Things learned" 100,310 200x60 ~large >day
 
-@ arrow auth -> db "queries"
-@ arrow auth -> cache "sessions"
-@ arrow api -> auth "authenticate"
+@ arrow ideas -> lines
+@ arrow lines -> erased "some"
+@ arrow erased -> tests "until"
+@ arrow bugs -> tests "caught by"
 
-@ note 292.8630114841201,348.6740205447377 "TODO: Add rate limiting"
-@ box box1 "box1" 385.50549853075205,-20.315616760961742 178.4818652849741x77.18134715025907
-@ box box2 "My cool box and more" 460.5573120022549,183.63256976753564 160x80
-@ box box3 "test" 670.3191964272871,-71.26371182038527 160x80
-@ note 418.58321873800594,98.90199981934916 "This is a test"
+@ box evening "Now" 460,140 260x200 #9C27B0 ^topleft ~small
+@ box breath "A slow breath" 480,185 200x50 ~large >evening
+@ box quiet "Quiet screen" 480,255 200x50 >evening
+
+@ box rest "Rest" 460,400 260x80 #F9AB00
+@ note 480,460 "The work will be here tomorrow."
+
+@ arrow day -> evening "letting go"
+@ arrow evening -> rest
+
+@ note 40,480 "Good things take time."
+@ note 40,510 "Good rest makes good things."

@@ -1,0 +1,40 @@
+# Whiteboard — plain-text diagrams, rendered live
+
+# ── Title ──────────────────────────────────────────
+
+@ box title "Whiteboard" 250,30 300x67 %primary ~xxlarge
+@ note 290,100 ".board files — plain text you can diff, grep, and version" %muted
+
+# ── Feature showcase ───────────────────────────────
+
+@ box features "AccessLayer" 43.81751827827986,140.19085261145057 1048.2770874732855x284.1206328971542 %secondary ^topleft ~xxlarge !flat
+
+@ box f1 " Plain Text Format" 60.658366390461765,210.72533988226905 200x80 %secondary ~large >features
+
+
+# ── How it works ───────────────────────────────────
+
+@ box edit " Edit .board" 14.279329608938525,528.6606145251396 160x70 %secondary
+@ box render " Render live" 351.2486033519553,452.31564245810046 160x70 %tertiary
+@ box save " Autosave" 693.5754189944136,540.7150837988828 160x70 %highlight
+
+@ arrow edit -> render "watches file"
+@ arrow render -> save "on change"
+@ arrow save -> edit "roundtrip"
+
+@ note 80,620 "human-readable" %secondary
+@ note 401.5209497206704,540.9762569832401 "PySide6 canvas" %tertiary
+@ note 728.4902234636871,629.3756983240223 "preserves tokens" %highlight
+
+# ── Example syntax ─────────────────────────────────
+
+@ box syntax " Syntax" 88.96685426118256,748.4947433542051 720x200 %muted ^topleft ~xxlarge
+
+@ box s1 "@ box id \"label\" x,y WxH %color" 60,740 320x40 %base ~small >syntax
+@ box s2 "@ arrow from -> to \"label\"" 60,800 320x40 %base ~small >syntax
+@ box s3 "@ note x,y \"text\" %color" 60,860 320x40 %base ~small >syntax
+
+@ box s4 "%primary  %accent  %highlight" 368.4352917567003,781.8366853674871 340x42 %primary >syntax
+@ box s5 "%secondary  %tertiary  %soft" 394.052049791909,836.4402740804619 340x42 %secondary >syntax
+@ box s6 "%subtle  %muted  %base" 403.4277481159313,897.7796595553224 340x42 %subtle >syntax
+@ note 93.89235402099507,695.0346176816738 "This is meant to visualize the basics of the editor" %primary ~xlarge

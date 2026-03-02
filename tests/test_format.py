@@ -453,3 +453,79 @@ def test_note_token_color_roundtrip():
     text = '@ note 10,20 "hi" %highlight\n'
     board = parse(text)
     assert serialize(board) == text
+
+
+# ── Style field tests ───────────────────────────────────────
+
+def test_parse_box_with_style_flat():
+    text = '@ box layer "Layer" 0,0 400x300 !flat\n'
+    board = parse(text)
+    assert board.boxes[0].style == "flat"
+
+
+def test_parse_box_without_style():
+    text = '@ box node "Node" 0,0 160x80\n'
+    board = parse(text)
+    assert board.boxes[0].style == ""
+
+
+def test_serialize_box_with_style():
+    box = Box(id="a", label="A", x=0, y=0, w=100, h=50, style="flat")
+    board = Board()
+    board.add_box(box)
+    text = serialize(board)
+    assert '@ box a "A" 0,0 100x50 !flat' in text
+
+
+def test_box_style_roundtrip():
+    text = '@ box layer "Layer" 0,0 400x300 !flat\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_box_all_fields_with_style_roundtrip():
+    text = '@ box layer "Layer" 0,0 400x300 %muted ^topleft ~small !flat >root\n'
+    board = parse(text)
+    box = board.boxes[0]
+    assert box.color == "%muted"
+    assert box.anchor == "topleft"
+    assert box.textsize == "small"
+    assert box.style == "flat"
+    assert box.parent == "root"
+    assert serialize(board) == text
+
+
+def test_parse_note_with_style_mono():
+    text = '@ note 100,200 "Label" !mono\n'
+    board = parse(text)
+    assert board.notes[0].style == "mono"
+
+
+def test_parse_note_without_style():
+    text = '@ note 100,200 "Annotation"\n'
+    board = parse(text)
+    assert board.notes[0].style == ""
+
+
+def test_serialize_note_with_style():
+    note = Note(x=10, y=20, text="Label", style="mono")
+    board = Board()
+    board.add_note(note)
+    text = serialize(board)
+    assert '@ note 10,20 "Label" !mono' in text
+
+
+def test_note_style_roundtrip():
+    text = '@ note 100,200 "Label" !mono\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_note_all_fields_with_style_roundtrip():
+    text = '@ note 100,200 "Label" %accent ~large !mono\n'
+    board = parse(text)
+    note = board.notes[0]
+    assert note.color == "%accent"
+    assert note.textsize == "large"
+    assert note.style == "mono"
+    assert serialize(board) == text

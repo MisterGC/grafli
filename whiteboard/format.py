@@ -24,6 +24,7 @@ class Box:
     color: str = ""
     anchor: str = ""      # "topleft", "topcenter", or "" (= center)
     textsize: str = ""    # "small", "large", or "" (= medium)
+    style: str = ""       # "" (node) or "flat"
     parent: str = ""
 
 
@@ -41,6 +42,7 @@ class Note:
     text: str
     color: str = ""
     textsize: str = ""
+    style: str = ""       # "" (handwritten) or "mono"
 
 
 @dataclass
@@ -105,6 +107,7 @@ _RE_BOX = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
     r'(?:\s+~(small|large|xlarge|xxlarge))?'
+    r'(?:\s+!(flat))?'
     r'(?:\s+>(\S+))?\s*$'
 )
 
@@ -119,7 +122,8 @@ _RE_ARROW_BARE = re.compile(
 _RE_NOTE = re.compile(
     r'^@\s+note\s+(-?[\d.]+),(-?[\d.]+)\s+"([^"]*)"'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge))?\s*$'
+    r'(?:\s+~(small|large|xlarge|xxlarge))?'
+    r'(?:\s+!(mono))?\s*$'
 )
 
 
@@ -152,7 +156,8 @@ def parse(text: str) -> Board:
                 color=m.group(7) or "",
                 anchor=m.group(8) or "",
                 textsize=m.group(9) or "",
-                parent=m.group(10) or "",
+                style=m.group(10) or "",
+                parent=m.group(11) or "",
             )
             board.boxes.append(box)
             board._lines.append(("box", box))
@@ -184,6 +189,7 @@ def parse(text: str) -> Board:
                 text=m.group(3),
                 color=m.group(4) or "",
                 textsize=m.group(5) or "",
+                style=m.group(6) or "",
             )
             board.notes.append(note)
             board._lines.append(("note", note))
@@ -216,6 +222,8 @@ def _serialize_box(box: Box) -> str:
         s += f" ^{box.anchor}"
     if box.textsize:
         s += f" ~{box.textsize}"
+    if box.style:
+        s += f" !{box.style}"
     if box.parent:
         s += f" >{box.parent}"
     return s
@@ -236,6 +244,8 @@ def _serialize_note(note: Note) -> str:
         s += f" {note.color}"
     if note.textsize:
         s += f" ~{note.textsize}"
+    if note.style:
+        s += f" !{note.style}"
     return s
 
 

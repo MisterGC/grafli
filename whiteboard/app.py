@@ -21,6 +21,7 @@ from PySide6.QtGui import (
     QBrush,
     QColor,
     QFont,
+    QFontDatabase,
     QIcon,
     QKeySequence,
     QPainter,
@@ -58,17 +59,18 @@ from whiteboard.format import Arrow, Board, Box, Note, parse, serialize
 
 # ── Constants ───────────────────────────────────────────────────
 
-BOX_FILL = QColor("#F2F0EB")
+BOX_FILL = QColor("#E8E4DD")
 BOX_BORDER = QColor("#2F3437")
 ARROW_COLOR = QColor("#2F3437")
-NOTE_COLOR = QColor("#E6B82E")
-GRID_COLOR = QColor("#E5E3DD")
-SCENE_BG = QColor("#F2F0EB")
+NOTE_COLOR = QColor("#D4BA6A")
+GRID_COLOR = QColor("#DBD7CF")
+SCENE_BG = QColor("#E8E4DD")
 
-FONT_FAMILY = "Marker Felt"
+FONT_FAMILY = "JetBrainsMono Nerd Font"
+NOTE_FONT_FAMILY = "Patrick Hand"
 
 BOX_FONT = QFont(FONT_FAMILY, 13)
-NOTE_FONT = QFont(FONT_FAMILY, 11)
+NOTE_FONT = QFont(NOTE_FONT_FAMILY, 11)
 LABEL_FONT = QFont(FONT_FAMILY, 10)
 
 BOX_FONT_SIZES = {"": 13, "small": 10, "large": 18, "xlarge": 24, "xxlarge": 32}
@@ -85,15 +87,15 @@ MIN_BOX_SIZE = 20
 HANDLE_SIZE = 8
 
 COLOR_TOKENS = {
-    "base": "#F2F0EB",
-    "primary": "#2760A1",
-    "secondary": "#43BFF2",
-    "tertiary": "#97BB13",
+    "base": "#E8E4DD",
+    "primary": "#004578",
+    "secondary": "#0178D4",
+    "tertiary": "#4EBF71",
     "subtle": "#4A4A4A",
-    "accent": "#C1086D",
-    "highlight": "#E6B82E",
-    "muted": "#B8B3AA",
-    "soft": "#AC90E4",
+    "accent": "#D4804E",
+    "highlight": "#D4BA6A",
+    "muted": "#B8B3AB",
+    "soft": "#B0A1CA",
 }
 
 COLOR_PALETTE = [
@@ -119,12 +121,20 @@ def _resolve_color(color: str) -> str:
 _COLOR_VALUES = [c for _, c in COLOR_PALETTE]
 _SIZE_SEQUENCE = ["small", "", "large", "xlarge", "xxlarge"]
 _ANCHOR_CYCLE = ["", "topleft", "topcenter"]
+_BOX_STYLE_CYCLE = ["", "flat"]
+_NOTE_STYLE_CYCLE = ["", "mono"]
 
 _SIGNIFICANT_MODS = (
     Qt.KeyboardModifier.ShiftModifier
     | Qt.KeyboardModifier.ControlModifier
     | Qt.KeyboardModifier.AltModifier
     | Qt.KeyboardModifier.MetaModifier
+)
+
+_CTRL_MOD = (
+    Qt.KeyboardModifier.MetaModifier
+    if sys.platform == "darwin"
+    else Qt.KeyboardModifier.ControlModifier
 )
 
 _UNDO_LIMIT = 50
@@ -210,19 +220,33 @@ class BoxItem(QGraphicsRectItem):
 
     def _apply_color(self):
         hex_color = _resolve_color(self.box.color)
+        is_flat = self.box.style == "flat"
         if hex_color:
             c = QColor(hex_color)
-            self.setPen(QPen(c.darker(125), BOX_BORDER_WIDTH))
+            if is_flat:
+                self.setPen(QPen(Qt.PenStyle.NoPen))
+                c.setAlphaF(0.7)
+            else:
+                self.setPen(QPen(c.darker(125), BOX_BORDER_WIDTH))
             self.setBrush(QBrush(c))
-            text_color = "#F2F0EB" if c.lightness() < 150 else "#2F3437"
-            self._label.setDefaultTextColor(QColor(text_color))
         else:
-            self.setPen(QPen(QColor("#2F3437"), BOX_BORDER_WIDTH))
-            self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            self._label.setDefaultTextColor(QColor("#2F3437"))
+            if is_flat:
+                self.setPen(QPen(Qt.PenStyle.NoPen))
+                fill = QColor(SCENE_BG)
+                fill.setAlphaF(0.7)
+                self.setBrush(QBrush(fill))
+            else:
+                self.setPen(QPen(QColor("#2F3437"), BOX_BORDER_WIDTH))
+                self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        self._label.setDefaultTextColor(QColor("#2F3437"))
 
     def set_color(self, color: str):
         self.box.color = color
+        self._apply_color()
+        self.update()
+
+    def set_style(self, style: str):
+        self.box.style = style
         self._apply_color()
         self.update()
 
@@ -429,14 +453,24 @@ class BoxItem(QGraphicsRectItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(self.pen())
         painter.setBrush(self.brush())
-        painter.drawRoundedRect(self.rect(), BOX_RADIUS, BOX_RADIUS)
+        radius = 0 if self.box.style == "flat" else BOX_RADIUS
+        painter.drawRoundedRect(self.rect(), radius, radius)
+
+        # Label background — semi-transparent bright rect for contrast
+        if _resolve_color(self.box.color):
+            label_rect = self._label.mapRectToParent(self._label.boundingRect())
+            bg = QColor("#F2F0EB")
+            bg.setAlphaF(0.6)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(label_rect, 4, 4)
 
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = self.rect().adjusted(-3, -3, 3, 3)
-            painter.drawRoundedRect(sel_rect, BOX_RADIUS, BOX_RADIUS)
+            painter.drawRoundedRect(sel_rect, radius, radius)
 
 
 class NoteItem(QGraphicsSimpleTextItem):
@@ -479,7 +513,8 @@ class NoteItem(QGraphicsSimpleTextItem):
             self.setBrush(QBrush(QColor("#2F3437")))
 
     def _note_font(self) -> QFont:
-        return QFont(FONT_FAMILY, NOTE_FONT_SIZES.get(self.note.textsize, 11))
+        family = FONT_FAMILY if self.note.style == "mono" else NOTE_FONT_FAMILY
+        return QFont(family, NOTE_FONT_SIZES.get(self.note.textsize, 11))
 
     def set_color(self, color: str):
         self.note.color = color
@@ -488,6 +523,11 @@ class NoteItem(QGraphicsSimpleTextItem):
 
     def set_textsize(self, textsize: str):
         self.note.textsize = textsize
+        self.setFont(self._note_font())
+        self.update()
+
+    def set_style(self, style: str):
+        self.note.style = style
         self.setFont(self._note_font())
         self.update()
 
@@ -651,6 +691,12 @@ class WhiteboardView(QGraphicsView):
         self._clipboard_notes: list[Note] = []
         self._clipboard_arrows: list[Arrow] = []
 
+        # Jump-to mode state
+        self._jump_active = False
+        self._jump_labels: list[QGraphicsRectItem | QGraphicsSimpleTextItem] = []
+        self._jump_map: dict[str, BoxItem | NoteItem] = {}
+        self._jump_prefix = ""
+
         self.arrow_update_needed.connect(self._redraw_arrows)
         self._scene.selectionChanged.connect(self._on_selection_changed)
 
@@ -661,7 +707,7 @@ class WhiteboardView(QGraphicsView):
         spacing = self.GRID_SPACING
         left = int(rect.left()) - (int(rect.left()) % spacing)
         top = int(rect.top()) - (int(rect.top()) % spacing)
-        painter.setPen(QPen(QColor("#E5E3DD"), 1.5))
+        painter.setPen(QPen(GRID_COLOR, 1.5))
         x = left
         while x <= rect.right():
             y = top
@@ -734,6 +780,7 @@ class WhiteboardView(QGraphicsView):
 
     def _cancel_interactions(self):
         """Clean up any in-progress mode interactions."""
+        self._clear_jump_labels()
         if self._rect_preview:
             self._scene.removeItem(self._rect_preview)
             self._rect_preview = None
@@ -753,14 +800,14 @@ class WhiteboardView(QGraphicsView):
         window = self.window()
         if isinstance(window, MainWindow):
             if window._file_path:
-                window.setWindowTitle(f"Whiteboard — {window._file_path.name}*")
+                window.setWindowTitle(window._title_for_path(window._file_path, dirty=True))
             window._schedule_autosave()
 
     def mark_clean(self):
         self._dirty = False
         window = self.window()
         if isinstance(window, MainWindow) and window._file_path:
-            window.setWindowTitle(f"Whiteboard — {window._file_path.name}")
+            window.setWindowTitle(window._title_for_path(window._file_path))
 
     def load_board(self, board: Board):
         self._board = board
@@ -1136,6 +1183,21 @@ class WhiteboardView(QGraphicsView):
                 item.set_anchor(_ANCHOR_CYCLE[idx])
         self.mark_dirty()
 
+    def _cycle_style(self):
+        self._push_undo()
+        for item in self._scene.selectedItems():
+            if isinstance(item, BoxItem):
+                cur = item.box.style
+                seq = _BOX_STYLE_CYCLE
+                idx = seq.index(cur) if cur in seq else 0
+                item.set_style(seq[(idx + 1) % len(seq)])
+            elif isinstance(item, NoteItem):
+                cur = item.note.style
+                seq = _NOTE_STYLE_CYCLE
+                idx = seq.index(cur) if cur in seq else 0
+                item.set_style(seq[(idx + 1) % len(seq)])
+        self.mark_dirty()
+
     def _snap_to_grid(self):
         self._push_undo()
         spacing = self.GRID_SPACING
@@ -1302,12 +1364,13 @@ class WhiteboardView(QGraphicsView):
             super().mousePressEvent(event)
             return
 
-        # If editor is active and click is outside it, commit
+        # If editor is active, consume clicks outside it
         if self._editor:
             editor_rect = self._editor.sceneBoundingRect()
             scene_pos = self.mapToScene(event.position().toPoint())
             if not editor_rect.contains(scene_pos):
-                self._commit_editor()
+                event.accept()
+                return
 
         if self._mode == Mode.SELECT:
             # Save snapshot before potential move
@@ -1421,6 +1484,12 @@ class WhiteboardView(QGraphicsView):
             super().keyPressEvent(event)
             return
 
+        # Jump mode handling
+        if self._jump_active:
+            self._handle_jump_key(event)
+            event.accept()
+            return
+
         if event.key() == Qt.Key.Key_Escape:
             self.set_mode(Mode.SELECT)
             event.accept()
@@ -1434,6 +1503,45 @@ class WhiteboardView(QGraphicsView):
         mods = event.modifiers()
         has_selection = bool(self._scene.selectedItems())
         no_mod = not (mods & _SIGNIFICANT_MODS)
+
+        # Zoom with +/-
+        if event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+            self.scale(1.15, 1.15)
+            self._update_status_zoom()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Minus:
+            self.scale(1 / 1.15, 1 / 1.15)
+            self._update_status_zoom()
+            event.accept()
+            return
+
+        # Ctrl+J — jump mode
+        if (event.key() == Qt.Key.Key_J
+                and mods & _CTRL_MOD):
+            self._start_jump_mode()
+            event.accept()
+            return
+
+        # Ctrl+Arrow — create adjacent box
+        if mods & _CTRL_MOD:
+            arrow_dirs = {
+                Qt.Key.Key_Right: "right",
+                Qt.Key.Key_Left: "left",
+                Qt.Key.Key_Up: "up",
+                Qt.Key.Key_Down: "down",
+            }
+            if event.key() in arrow_dirs:
+                self._create_adjacent_box(arrow_dirs[event.key()])
+                event.accept()
+                return
+
+        # Shift+H — cheatsheet
+        if (event.key() == Qt.Key.Key_H
+                and mods & Qt.KeyboardModifier.ShiftModifier):
+            self._show_cheatsheet()
+            event.accept()
+            return
 
         # Property shortcuts — SELECT mode with selection, no modifiers
         if self._mode == Mode.SELECT and has_selection and no_mod:
@@ -1451,6 +1559,10 @@ class WhiteboardView(QGraphicsView):
                 return
             if event.key() == Qt.Key.Key_K:
                 self._cycle_textsize(1)
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_T:
+                self._cycle_style()
                 event.accept()
                 return
 
@@ -1475,6 +1587,26 @@ class WhiteboardView(QGraphicsView):
             self.toggle_grid()
             event.accept()
             return
+
+        # Arrow key panning (no modifiers, SELECT mode, no selection)
+        if no_mod and self._mode == Mode.SELECT and not has_selection:
+            PAN_STEP = 50
+            pan_keys = {
+                Qt.Key.Key_Right: (PAN_STEP, 0),
+                Qt.Key.Key_Left: (-PAN_STEP, 0),
+                Qt.Key.Key_Up: (0, -PAN_STEP),
+                Qt.Key.Key_Down: (0, PAN_STEP),
+            }
+            if event.key() in pan_keys:
+                dx, dy = pan_keys[event.key()]
+                self.horizontalScrollBar().setValue(
+                    self.horizontalScrollBar().value() + dx
+                )
+                self.verticalScrollBar().setValue(
+                    self.verticalScrollBar().value() + dy
+                )
+                event.accept()
+                return
 
         # Mode switching shortcuts (no modifiers)
         if no_mod:
@@ -1578,6 +1710,9 @@ class WhiteboardView(QGraphicsView):
         self._scene.addItem(item)
         self._box_items[box_id] = item
         self.mark_dirty()
+        self.set_mode(Mode.SELECT)
+        item.setSelected(True)
+        self._start_editing(item)
         event.accept()
 
     # ── TEXT mode ──
@@ -1594,7 +1729,8 @@ class WhiteboardView(QGraphicsView):
         self._scene.addItem(item)
         self._note_items.append(item)
         self.mark_dirty()
-
+        self.set_mode(Mode.SELECT)
+        item.setSelected(True)
         self._start_editing(item)
         event.accept()
 
@@ -1688,6 +1824,198 @@ class WhiteboardView(QGraphicsView):
         self._connect_source = None
         event.accept()
 
+    # ── Jump-to mode (Ctrl+J) ──
+
+    def _start_jump_mode(self):
+        if not self._board:
+            return
+        self._clear_jump_labels()
+
+        viewport_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+        visible_items: list[BoxItem | NoteItem] = []
+        for item in self._box_items.values():
+            if viewport_rect.intersects(item.sceneBoundingRect()):
+                visible_items.append(item)
+        for item in self._note_items:
+            if viewport_rect.intersects(item.sceneBoundingRect()):
+                visible_items.append(item)
+
+        if not visible_items:
+            return
+
+        count = len(visible_items)
+        labels: list[str] = []
+        if count <= 26:
+            for i in range(count):
+                labels.append(chr(ord("a") + i))
+        else:
+            for i in range(count):
+                first = chr(ord("a") + i // 26)
+                second = chr(ord("a") + i % 26)
+                labels.append(first + second)
+
+        self._jump_map = {}
+        font = QFont(FONT_FAMILY, 14)
+        font.setBold(True)
+
+        for label_text, item in zip(labels, visible_items):
+            self._jump_map[label_text] = item
+            center = item.sceneBoundingRect().center()
+
+            text_item = QGraphicsSimpleTextItem(label_text)
+            text_item.setFont(font)
+            text_item.setBrush(QBrush(QColor("#FFFFFF")))
+            tr = text_item.boundingRect()
+
+            pad = 3
+            bg = QGraphicsRectItem(
+                center.x() - tr.width() / 2 - pad,
+                center.y() - tr.height() / 2 - pad,
+                tr.width() + 2 * pad,
+                tr.height() + 2 * pad,
+            )
+            bg.setBrush(QBrush(QColor("#C1086D")))
+            bg.setPen(QPen(Qt.PenStyle.NoPen))
+            bg.setZValue(1000)
+            self._scene.addItem(bg)
+            self._jump_labels.append(bg)
+
+            text_item.setPos(
+                center.x() - tr.width() / 2,
+                center.y() - tr.height() / 2,
+            )
+            text_item.setZValue(1001)
+            self._scene.addItem(text_item)
+            self._jump_labels.append(text_item)
+
+        self._jump_active = True
+        self._jump_prefix = ""
+
+    def _handle_jump_key(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self._clear_jump_labels()
+            return
+
+        text = event.text().lower()
+        if not text or not text.isalpha():
+            self._clear_jump_labels()
+            return
+
+        self._jump_prefix += text
+
+        if self._jump_prefix in self._jump_map:
+            target = self._jump_map[self._jump_prefix]
+            self._clear_jump_labels()
+            self._scene.clearSelection()
+            target.setSelected(True)
+            self.centerOn(target)
+            return
+
+        has_match = any(
+            lbl.startswith(self._jump_prefix) for lbl in self._jump_map
+        )
+        if not has_match:
+            self._clear_jump_labels()
+
+    def _clear_jump_labels(self):
+        for item in self._jump_labels:
+            self._scene.removeItem(item)
+        self._jump_labels.clear()
+        self._jump_map.clear()
+        self._jump_prefix = ""
+        self._jump_active = False
+
+    # ── Keyboard box creation (Ctrl+Arrow) ──
+
+    def _create_adjacent_box(self, direction: str):
+        if not self._board:
+            return
+        self._push_undo()
+
+        gap = 40
+        anchor_item = None
+        for item in self._scene.selectedItems():
+            if isinstance(item, BoxItem):
+                anchor_item = item
+                break
+
+        if anchor_item:
+            box = anchor_item.box
+            w, h = box.w, box.h
+            if direction == "right":
+                x = box.x + box.w + gap
+                y = box.y
+            elif direction == "left":
+                x = box.x - w - gap
+                y = box.y
+            elif direction == "up":
+                x = box.x
+                y = box.y - h - gap
+            else:
+                x = box.x
+                y = box.y + box.h + gap
+        else:
+            center = self.mapToScene(self.viewport().rect().center())
+            w = DEFAULT_BOX_W
+            h = DEFAULT_BOX_H
+            x = center.x() - w / 2
+            y = center.y() - h / 2
+
+        box_id = self._board.next_box_id()
+        new_box = Box(id=box_id, label="", x=x, y=y, w=w, h=h)
+        self._board.add_box(new_box)
+
+        new_item = BoxItem(new_box)
+        self._scene.addItem(new_item)
+        self._box_items[box_id] = new_item
+
+        if anchor_item:
+            arrow = Arrow(from_id=anchor_item.box.id, to_id=box_id)
+            self._board.add_arrow(arrow)
+            self._redraw_arrows()
+
+        self.mark_dirty()
+        self.set_mode(Mode.SELECT)
+        self._scene.clearSelection()
+        new_item.setSelected(True)
+        self._start_editing(new_item)
+
+    # ── Cheatsheet (Shift+H) ──
+
+    def _show_cheatsheet(self):
+        shortcuts = [
+            ("V", "Select mode"),
+            ("R", "Create box (one-shot)"),
+            ("T", "Create note (one-shot)"),
+            ("C", "Connect arrow (one-shot)"),
+            ("H", "Pan mode (no selection)"),
+            ("h / l", "Cycle color (with selection)"),
+            ("j / k", "Cycle text size (with selection)"),
+            ("Shift+A", "Cycle anchor"),
+            ("Shift+G", "Snap to grid"),
+            ("G", "Toggle grid"),
+            ("+ / -", "Zoom in / out"),
+            ("Arrow keys", "Pan viewport"),
+            ("Ctrl+Arrow", "Create adjacent box"),
+            ("Ctrl+J", "Jump to shape"),
+            ("Shift+H", "This cheatsheet"),
+            ("Delete", "Delete selected"),
+            ("Double-click", "Edit text"),
+            ("Enter", "Accept edit"),
+            ("Escape", "Cancel edit / back to SELECT"),
+        ]
+        rows = "".join(
+            f"<tr><td style='padding-right:16px'><b>{key}</b></td>"
+            f"<td>{desc}</td></tr>"
+            for key, desc in shortcuts
+        )
+        html = f"<table cellpadding='2'>{rows}</table>"
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Keyboard Shortcuts")
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        msg.setText(html)
+        msg.exec()
+
 
 # ── Main window ─────────────────────────────────────────────────
 
@@ -1705,6 +2033,7 @@ class MainWindow(QMainWindow):
         self._watcher: JsonSafeWatcher | None = None
 
         self._autosave_timer = QTimer(self)
+
         self._autosave_timer.setSingleShot(True)
         self._autosave_timer.setInterval(300)
         self._autosave_timer.timeout.connect(self._autosave)
@@ -1716,6 +2045,12 @@ class MainWindow(QMainWindow):
 
         if file_path:
             self._open_file(Path(file_path))
+
+    def _title_for_path(self, path: Path | None, dirty: bool = False) -> str:
+        if path is None:
+            return "Whiteboard — untitled"
+        label = f"{path.parent.name}/{path.name}"
+        return f"Whiteboard — {label}{'*' if dirty else ''}"
 
     def _setup_toolbar(self):
         toolbar = QToolBar("Tools", self)
@@ -1928,7 +2263,7 @@ class MainWindow(QMainWindow):
         self._stop_watching()
         self._view.load_board(self._board)
         self._view.mark_clean()
-        self.setWindowTitle("Whiteboard — untitled")
+        self.setWindowTitle(self._title_for_path(None))
 
     def _open_dialog(self):
         if self._view.dirty and not self._confirm_discard():
@@ -1954,7 +2289,7 @@ class MainWindow(QMainWindow):
         self._board = parse(text)
         self._view.load_board(self._board)
         self._view.mark_clean()
-        self.setWindowTitle(f"Whiteboard — {path.name}")
+        self.setWindowTitle(self._title_for_path(path))
         self._start_watching()
 
     def _schedule_autosave(self):
@@ -1973,7 +2308,7 @@ class MainWindow(QMainWindow):
         self._file_path.write_text(text, encoding="utf-8")
         self._view._dirty = False
         if self._file_path:
-            self.setWindowTitle(f"Whiteboard — {self._file_path.name}")
+            self.setWindowTitle(self._title_for_path(self._file_path))
 
     def _save_file(self):
         if not self._board:
@@ -2058,9 +2393,18 @@ class MainWindow(QMainWindow):
 
 # ── Entry point ─────────────────────────────────────────────────
 
+def _register_bundled_fonts():
+    fonts_dir = Path(__file__).parent / "fonts"
+    for name in ("PatrickHand-Regular.ttf", "JetBrainsMonoNerdFont-Regular.ttf"):
+        path = fonts_dir / name
+        if path.exists():
+            QFontDatabase.addApplicationFont(str(path))
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Whiteboard")
+    _register_bundled_fonts()
 
     file_path = sys.argv[1] if len(sys.argv) > 1 else None
     window = MainWindow(file_path)

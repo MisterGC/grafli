@@ -529,3 +529,298 @@ def test_note_all_fields_with_style_roundtrip():
     assert note.textsize == "large"
     assert note.style == "mono"
     assert serialize(board) == text
+
+
+# ── Arrow style tests ──────────────────────────────────────
+
+def test_parse_arrow_dashed():
+    text = '@ arrow a -> b "optional" !dashed\n'
+    board = parse(text)
+    assert board.arrows[0].style == "dashed"
+    assert board.arrows[0].label == "optional"
+    assert not board.arrows[0].head_from
+    assert board.arrows[0].head_to
+
+
+def test_parse_arrow_dotted():
+    text = '@ arrow a -> b !dotted\n'
+    board = parse(text)
+    assert board.arrows[0].style == "dotted"
+    assert board.arrows[0].label == ""
+
+
+def test_parse_arrow_thick():
+    text = '@ arrow a -> b !thick\n'
+    board = parse(text)
+    assert board.arrows[0].style == "thick"
+
+
+def test_parse_arrow_bidi():
+    text = '@ arrow a <-> b "syncs"\n'
+    board = parse(text)
+    assert board.arrows[0].head_from is True
+    assert board.arrows[0].head_to is True
+    assert board.arrows[0].label == "syncs"
+
+
+def test_parse_arrow_bidi_with_style():
+    text = '@ arrow a <-> b "data" !dotted\n'
+    board = parse(text)
+    assert board.arrows[0].head_from is True
+    assert board.arrows[0].head_to is True
+    assert board.arrows[0].style == "dotted"
+    assert board.arrows[0].label == "data"
+
+
+def test_parse_arrow_backward():
+    text = '@ arrow a <- b "pulls"\n'
+    board = parse(text)
+    assert board.arrows[0].head_from is True
+    assert board.arrows[0].head_to is False
+    assert board.arrows[0].label == "pulls"
+
+
+def test_parse_arrow_no_heads():
+    text = '@ arrow a -- b "link"\n'
+    board = parse(text)
+    assert board.arrows[0].head_from is False
+    assert board.arrows[0].head_to is False
+    assert board.arrows[0].label == "link"
+
+
+def test_parse_arrow_bare_forward():
+    text = '@ arrow a -> b\n'
+    board = parse(text)
+    assert board.arrows[0].label == ""
+    assert board.arrows[0].style == ""
+    assert board.arrows[0].head_from is False
+    assert board.arrows[0].head_to is True
+
+
+def test_serialize_arrow_bidi():
+    arrow = Arrow(from_id="a", to_id="b", label="syncs", head_from=True, head_to=True)
+    board = Board()
+    board.add_arrow(arrow)
+    text = serialize(board)
+    assert '@ arrow a <-> b "syncs"' in text
+
+
+def test_serialize_arrow_style():
+    arrow = Arrow(from_id="a", to_id="b", label="opt", style="dashed")
+    board = Board()
+    board.add_arrow(arrow)
+    text = serialize(board)
+    assert '@ arrow a -> b "opt" !dashed' in text
+
+
+def test_serialize_arrow_backward():
+    arrow = Arrow(from_id="a", to_id="b", label="pulls", head_from=True, head_to=False)
+    board = Board()
+    board.add_arrow(arrow)
+    text = serialize(board)
+    assert '@ arrow a <- b "pulls"' in text
+
+
+def test_serialize_arrow_no_heads():
+    arrow = Arrow(from_id="a", to_id="b", label="link", head_from=False, head_to=False)
+    board = Board()
+    board.add_arrow(arrow)
+    text = serialize(board)
+    assert '@ arrow a -- b "link"' in text
+
+
+def test_serialize_arrow_bidi_style():
+    arrow = Arrow(from_id="a", to_id="b", style="thick", head_from=True, head_to=True)
+    board = Board()
+    board.add_arrow(arrow)
+    text = serialize(board)
+    assert '@ arrow a <-> b !thick' in text
+
+
+def test_arrow_style_roundtrip():
+    text = '@ arrow a -> b "optional" !dashed\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_bidi_roundtrip():
+    text = '@ arrow a <-> b "syncs"\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_bidi_style_roundtrip():
+    text = '@ arrow a <-> b "data" !dotted\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_bare_style_roundtrip():
+    text = '@ arrow a -> b !thick\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_bidi_bare_roundtrip():
+    text = '@ arrow a <-> b\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_backward_roundtrip():
+    text = '@ arrow a <- b "pulls"\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_backward_bare_roundtrip():
+    text = '@ arrow a <- b\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_no_heads_roundtrip():
+    text = '@ arrow a -- b "link"\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_no_heads_bare_roundtrip():
+    text = '@ arrow a -- b\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_backward_style_roundtrip():
+    text = '@ arrow a <- b "pulls" !dashed\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_no_heads_style_roundtrip():
+    text = '@ arrow a -- b !dotted\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+# ── Annotation tests ───────────────────────────────────────
+
+def test_parse_box_annotation():
+    text = '@ box b1 "API" 100,200 200x100  # should this be async?\n'
+    board = parse(text)
+    assert board.boxes[0].annotation == "should this be async?"
+
+
+def test_parse_box_without_annotation():
+    text = '@ box b1 "API" 100,200 200x100\n'
+    board = parse(text)
+    assert board.boxes[0].annotation == ""
+
+
+def test_parse_arrow_annotation():
+    text = '@ arrow a -> b "calls"  # review direction\n'
+    board = parse(text)
+    assert board.arrows[0].annotation == "review direction"
+
+
+def test_parse_note_annotation():
+    text = '@ note 50,300 "entry"  # move this\n'
+    board = parse(text)
+    assert board.notes[0].annotation == "move this"
+
+
+def test_serialize_box_annotation():
+    box = Box(id="b1", label="API", x=100, y=200, w=200, h=100,
+              annotation="should this be async?")
+    board = Board()
+    board.add_box(box)
+    text = serialize(board)
+    assert '@ box b1 "API" 100,200 200x100  # should this be async?' in text
+
+
+def test_serialize_arrow_annotation():
+    arrow = Arrow(from_id="a", to_id="b", label="calls",
+                  annotation="review direction")
+    board = Board()
+    board.add_arrow(arrow)
+    text = serialize(board)
+    assert '@ arrow a -> b "calls"  # review direction' in text
+
+
+def test_serialize_note_annotation():
+    note = Note(x=50, y=300, text="entry", annotation="move this")
+    board = Board()
+    board.add_note(note)
+    text = serialize(board)
+    assert '@ note 50,300 "entry"  # move this' in text
+
+
+def test_box_annotation_roundtrip():
+    text = '@ box b1 "API" 100,200 200x100  # should this be async?\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_annotation_roundtrip():
+    text = '@ arrow a -> b "calls"  # review direction\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_note_annotation_roundtrip():
+    text = '@ note 50,300 "entry"  # move this\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_bidi_style_annotation_roundtrip():
+    text = '@ arrow a <-> b "data" !dotted  # check latency\n'
+    board = parse(text)
+    arrow = board.arrows[0]
+    assert arrow.head_from is True
+    assert arrow.head_to is True
+    assert arrow.style == "dotted"
+    assert arrow.annotation == "check latency"
+    assert serialize(board) == text
+
+
+def test_box_all_fields_with_annotation_roundtrip():
+    text = '@ box web "Web" 60,70 180x80 %secondary ^topleft ~small !flat >root  # needs review\n'
+    board = parse(text)
+    box = board.boxes[0]
+    assert box.annotation == "needs review"
+    assert serialize(board) == text
+
+
+def test_note_all_fields_with_annotation_roundtrip():
+    text = '@ note 100,200 "Label" %accent ~large !mono  # move up\n'
+    board = parse(text)
+    note = board.notes[0]
+    assert note.annotation == "move up"
+    assert serialize(board) == text
+
+
+# ── xxxlarge font tier tests ──────────────────────────────
+
+def test_parse_box_xxxlarge():
+    text = '@ box title "Title" 60,70 180x80 ~xxxlarge\n'
+    board = parse(text)
+    assert board.boxes[0].textsize == "xxxlarge"
+
+
+def test_parse_note_xxxlarge():
+    text = '@ note 100,200 "◇" ~xxxlarge\n'
+    board = parse(text)
+    assert board.notes[0].textsize == "xxxlarge"
+
+
+def test_box_xxxlarge_roundtrip():
+    text = '@ box title "Title" 60,70 180x80 ~xxxlarge\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_note_xxxlarge_roundtrip():
+    text = '@ note 100,200 "◇" ~xxxlarge\n'
+    board = parse(text)
+    assert serialize(board) == text

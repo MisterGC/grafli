@@ -66,6 +66,7 @@ ARROW_COLOR = QColor("#2F3437")
 NOTE_COLOR = QColor("#D4BA6A")
 GRID_COLOR = QColor("#CDC8BF")
 SCENE_BG = QColor("#E8E4DD")
+CONTENT_BORDER_COLOR = QColor("#D5D0C8")
 
 FONT_FAMILY = "JetBrainsMono Nerd Font"
 NOTE_FONT_FAMILY = "Patrick Hand"
@@ -762,19 +763,27 @@ class WhiteboardView(QGraphicsView):
 
     def drawBackground(self, painter: QPainter, rect: QRectF):
         super().drawBackground(painter, rect)
-        if not self._grid_visible:
-            return
-        spacing = self.GRID_SPACING
-        left = int(rect.left()) - (int(rect.left()) % spacing)
-        top = int(rect.top()) - (int(rect.top()) % spacing)
-        painter.setPen(QPen(GRID_COLOR, 2.0))
-        x = left
-        while x <= rect.right():
-            y = top
-            while y <= rect.bottom():
-                painter.drawPoint(int(x), int(y))
-                y += spacing
-            x += spacing
+        if self._grid_visible:
+            spacing = self.GRID_SPACING
+            left = int(rect.left()) - (int(rect.left()) % spacing)
+            top = int(rect.top()) - (int(rect.top()) % spacing)
+            painter.setPen(QPen(GRID_COLOR, 2.0))
+            x = left
+            while x <= rect.right():
+                y = top
+                while y <= rect.bottom():
+                    painter.drawPoint(int(x), int(y))
+                    y += spacing
+                x += spacing
+
+        # Content-area border — always drawn as an orientation aid
+        items_rect = self._scene.itemsBoundingRect()
+        if not items_rect.isNull():
+            border_rect = items_rect.adjusted(-30, -30, 30, 30)
+            pen = QPen(CONTENT_BORDER_COLOR, 1.5, Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(border_rect, 12, 12)
 
     def toggle_grid(self):
         self._grid_visible = not self._grid_visible
@@ -912,12 +921,20 @@ class WhiteboardView(QGraphicsView):
             if window._file_path:
                 window.setWindowTitle(window._title_for_path(window._file_path, dirty=True))
             window._schedule_autosave()
+        self._update_scene_rect()
 
     def mark_clean(self):
         self._dirty = False
         window = self.window()
         if isinstance(window, MainWindow) and window._file_path:
             window.setWindowTitle(window._title_for_path(window._file_path))
+
+    def _update_scene_rect(self):
+        items_rect = self._scene.itemsBoundingRect()
+        if items_rect.isNull():
+            return
+        inflated = items_rect.adjusted(-2000, -2000, 2000, 2000)
+        self._scene.setSceneRect(inflated)
 
     def load_board(self, board: Board):
         self._board = board
@@ -957,6 +974,8 @@ class WhiteboardView(QGraphicsView):
             item.refresh_auto_layout()
 
         self._redraw_arrows()
+        self._update_z_values()
+        self._update_scene_rect()
 
     def _redraw_arrows(self):
         for item in self._arrow_items:
@@ -1153,8 +1172,18 @@ class WhiteboardView(QGraphicsView):
         return depth
 
     def _update_z_values(self):
+        max_depth = 0
         for box_id, item in self._box_items.items():
-            item.setZValue(self._box_depth(box_id))
+            d = self._box_depth(box_id)
+            item.setZValue(d)
+            if d > max_depth:
+                max_depth = d
+        note_z = max_depth + 1
+        for item in self._note_items:
+            item.setZValue(note_z)
+        arrow_z = max_depth + 2
+        for item in self._arrow_items:
+            item.setZValue(arrow_z)
 
     def _refresh_auto_layout(self, box_id: str):
         """Refresh auto-layout for a box when its children change."""
@@ -1507,6 +1536,7 @@ class WhiteboardView(QGraphicsView):
             editor.setPos(target.scenePos())
 
         self._scene.addItem(editor)
+        editor.setZValue(1000)
         editor.setFocus()
         cursor = editor.textCursor()
         cursor.select(QTextCursor.SelectionType.Document)
@@ -2482,8 +2512,16 @@ class MainWindow(QMainWindow):
         self._setup_actions()
         self._setup_status_bar()
 
+        self._pending_zoom_fit = bool(file_path)
+
         if file_path:
             self._open_file(Path(file_path))
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._pending_zoom_fit:
+            self._pending_zoom_fit = False
+            QTimer.singleShot(0, self._zoom_fit)
 
     def _title_for_path(self, path: Path | None, dirty: bool = False) -> str:
         if path is None:
@@ -2848,9 +2886,6 @@ def main():
     file_path = sys.argv[1] if len(sys.argv) > 1 else None
     window = MainWindow(file_path)
     window.show()
-
-    if file_path:
-        QTimer.singleShot(100, window._zoom_fit)
 
     sys.exit(app.exec())
 

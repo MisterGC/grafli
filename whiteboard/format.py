@@ -114,7 +114,7 @@ class Board:
 
 _RE_BOX = re.compile(
     r'^@\s+box\s+(\S+)\s+"([^"]*)"\s+'
-    r'(-?[\d.]+),(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
+    r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
@@ -133,7 +133,7 @@ _RE_ARROW = re.compile(
 )
 
 _RE_NOTE = re.compile(
-    r'^@\s+note\s+(-?[\d.]+),(-?[\d.]+)\s+"([^"]*)"'
+    r'^@\s+note\s+(-?[\d.]+),\s*(-?[\d.]+)\s+"([^"]*)"'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
     r'(?:\s+!(mono))?'

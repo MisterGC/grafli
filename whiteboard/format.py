@@ -3,8 +3,13 @@
 Format spec:
   # comment or title
   @ box <id> "<label>" <x>,<y> <w>x<h>
-  @ arrow <from_id> -> <to_id> "<label>"   (label optional)
+  @ arrow <from_id> -> <to_id> "<label>"          (forward)
+  @ arrow <from_id> <- <to_id> "<label>"          (backward)
+  @ arrow <from_id> <-> <to_id> "<label>"         (bidirectional)
+  @ arrow <from_id> -- <to_id> "<label>"          (no heads)
+  @ arrow <from_id> -> <to_id> "label" !dashed    (arrow styles: dashed/dotted/thick)
   @ note <x>,<y> "<text>"
+  Any element line may end with  # annotation text
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ class Box:
     textsize: str = ""    # "small", "large", or "" (= medium)
     style: str = ""       # "" (node) or "flat"
     parent: str = ""
+    annotation: str = ""
 
 
 @dataclass
@@ -33,6 +39,10 @@ class Arrow:
     from_id: str
     to_id: str
     label: str = ""
+    style: str = ""       # "dashed", "dotted", "thick", or "" (solid)
+    head_from: bool = False  # arrowhead at from_id end
+    head_to: bool = True     # arrowhead at to_id end
+    annotation: str = ""
 
 
 @dataclass
@@ -43,6 +53,7 @@ class Note:
     color: str = ""
     textsize: str = ""
     style: str = ""       # "" (handwritten) or "mono"
+    annotation: str = ""
 
 
 @dataclass
@@ -106,24 +117,28 @@ _RE_BOX = re.compile(
     r'(-?[\d.]+),(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
     r'(?:\s+!(flat))?'
-    r'(?:\s+>(\S+))?\s*$'
+    r'(?:\s+>(\S+))?'
+    r'(?:\s+#\s*(.+?))?'
+    r'\s*$'
 )
 
-_RE_ARROW_LABEL = re.compile(
-    r'^@\s+arrow\s+(\S+)\s+->\s+(\S+)\s+"([^"]*)"\s*$'
-)
-
-_RE_ARROW_BARE = re.compile(
-    r'^@\s+arrow\s+(\S+)\s+->\s+(\S+)\s*$'
+_RE_ARROW = re.compile(
+    r'^@\s+arrow\s+(\S+)\s+(<->|->|<-|--)\s+(\S+)'
+    r'(?:\s+"([^"]*)")?'
+    r'(?:\s+!(dashed|dotted|thick))?'
+    r'(?:\s+#\s*(.+?))?'
+    r'\s*$'
 )
 
 _RE_NOTE = re.compile(
     r'^@\s+note\s+(-?[\d.]+),(-?[\d.]+)\s+"([^"]*)"'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge))?'
-    r'(?:\s+!(mono))?\s*$'
+    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
+    r'(?:\s+!(mono))?'
+    r'(?:\s+#\s*(.+?))?'
+    r'\s*$'
 )
 
 
@@ -158,25 +173,24 @@ def parse(text: str) -> Board:
                 textsize=m.group(9) or "",
                 style=m.group(10) or "",
                 parent=m.group(11) or "",
+                annotation=m.group(12) or "",
             )
             board.boxes.append(box)
             board._lines.append(("box", box))
             continue
 
-        m = _RE_ARROW_LABEL.match(stripped)
+        m = _RE_ARROW.match(stripped)
         if m:
+            op = m.group(2)
             arrow = Arrow(
                 from_id=m.group(1),
-                to_id=m.group(2),
-                label=m.group(3),
+                to_id=m.group(3),
+                label=m.group(4) or "",
+                style=m.group(5) or "",
+                head_from=op in ("<->", "<-"),
+                head_to=op in ("<->", "->"),
+                annotation=m.group(6) or "",
             )
-            board.arrows.append(arrow)
-            board._lines.append(("arrow", arrow))
-            continue
-
-        m = _RE_ARROW_BARE.match(stripped)
-        if m:
-            arrow = Arrow(from_id=m.group(1), to_id=m.group(2))
             board.arrows.append(arrow)
             board._lines.append(("arrow", arrow))
             continue
@@ -190,6 +204,7 @@ def parse(text: str) -> Board:
                 color=m.group(4) or "",
                 textsize=m.group(5) or "",
                 style=m.group(6) or "",
+                annotation=m.group(7) or "",
             )
             board.notes.append(note)
             board._lines.append(("note", note))
@@ -226,13 +241,27 @@ def _serialize_box(box: Box) -> str:
         s += f" !{box.style}"
     if box.parent:
         s += f" >{box.parent}"
+    if box.annotation:
+        s += f"  # {box.annotation}"
     return s
 
 
 def _serialize_arrow(arrow: Arrow) -> str:
-    base = f"@ arrow {arrow.from_id} -> {arrow.to_id}"
+    if arrow.head_from and arrow.head_to:
+        op = "<->"
+    elif arrow.head_from:
+        op = "<-"
+    elif arrow.head_to:
+        op = "->"
+    else:
+        op = "--"
+    base = f"@ arrow {arrow.from_id} {op} {arrow.to_id}"
     if arrow.label:
-        return f'{base} "{arrow.label}"'
+        base += f' "{arrow.label}"'
+    if arrow.style:
+        base += f" !{arrow.style}"
+    if arrow.annotation:
+        base += f"  # {arrow.annotation}"
     return base
 
 
@@ -246,6 +275,8 @@ def _serialize_note(note: Note) -> str:
         s += f" ~{note.textsize}"
     if note.style:
         s += f" !{note.style}"
+    if note.annotation:
+        s += f"  # {note.annotation}"
     return s
 
 

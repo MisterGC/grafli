@@ -63,7 +63,7 @@ BOX_FILL = QColor("#E8E4DD")
 BOX_BORDER = QColor("#2F3437")
 ARROW_COLOR = QColor("#2F3437")
 NOTE_COLOR = QColor("#D4BA6A")
-GRID_COLOR = QColor("#DBD7CF")
+GRID_COLOR = QColor("#CDC8BF")
 SCENE_BG = QColor("#E8E4DD")
 
 FONT_FAMILY = "JetBrainsMono Nerd Font"
@@ -73,8 +73,8 @@ BOX_FONT = QFont(FONT_FAMILY, 13)
 NOTE_FONT = QFont(NOTE_FONT_FAMILY, 11)
 LABEL_FONT = QFont(FONT_FAMILY, 10)
 
-BOX_FONT_SIZES = {"": 13, "small": 10, "large": 18, "xlarge": 24, "xxlarge": 32}
-NOTE_FONT_SIZES = {"": 11, "small": 9, "large": 15, "xlarge": 21, "xxlarge": 28}
+BOX_FONT_SIZES = {"": 13, "small": 10, "large": 18, "xlarge": 24, "xxlarge": 32, "xxxlarge": 44}
+NOTE_FONT_SIZES = {"": 11, "small": 9, "large": 15, "xlarge": 21, "xxlarge": 28, "xxxlarge": 40}
 
 BOX_RADIUS = 8
 BOX_BORDER_WIDTH = 2
@@ -119,10 +119,11 @@ def _resolve_color(color: str) -> str:
     return color
 
 _COLOR_VALUES = [c for _, c in COLOR_PALETTE]
-_SIZE_SEQUENCE = ["small", "", "large", "xlarge", "xxlarge"]
+_SIZE_SEQUENCE = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge"]
 _ANCHOR_CYCLE = ["", "topleft", "topcenter"]
 _BOX_STYLE_CYCLE = ["", "flat"]
 _NOTE_STYLE_CYCLE = ["", "mono"]
+_ARROW_STYLE_CYCLE = ["", "thick", "dashed", "dotted"]
 
 _SIGNIFICANT_MODS = (
     Qt.KeyboardModifier.ShiftModifier
@@ -213,6 +214,9 @@ class BoxItem(QGraphicsRectItem):
         self._apply_color()
         self._position_label()
         self._auto_grow()
+
+        if box.annotation:
+            self.setToolTip(box.annotation)
 
         self._update_handles()
         self._resize_corner = -1
@@ -338,7 +342,7 @@ class BoxItem(QGraphicsRectItem):
             h.setVisible(visible)
 
     def _corner_at(self, pos: QPointF) -> int | None:
-        hit = HANDLE_SIZE + 4
+        hit = HANDLE_SIZE + 8
         r = self.rect()
         corners = [r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight()]
         for i, cp in enumerate(corners):
@@ -347,7 +351,16 @@ class BoxItem(QGraphicsRectItem):
         return None
 
     def itemChange(self, change, value):
-        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            view = self.scene().views()[0] if self.scene() and self.scene().views() else None
+            if view and isinstance(view, WhiteboardView) and view._grid_visible:
+                spacing = view.GRID_SPACING
+                new_pos = value
+                return QPointF(
+                    round(new_pos.x() / spacing) * spacing,
+                    round(new_pos.y() / spacing) * spacing,
+                )
+        elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             dx = self.pos().x() - self.box.x
             dy = self.pos().y() - self.box.y
             self.box.x = self.pos().x()
@@ -372,10 +385,9 @@ class BoxItem(QGraphicsRectItem):
         return r
 
     def mousePressEvent(self, event):
-        if (event.button() == Qt.MouseButton.LeftButton
-                and self.isSelected()):
+        if event.button() == Qt.MouseButton.LeftButton:
             corner = self._corner_at(event.pos())
-            if corner is not None:
+            if corner is not None and self.isSelected():
                 self._resizing = True
                 self._resize_corner = corner
                 self._resize_origin = event.pos()
@@ -465,6 +477,13 @@ class BoxItem(QGraphicsRectItem):
             painter.setBrush(QBrush(bg))
             painter.drawRoundedRect(label_rect, 4, 4)
 
+        if self.box.annotation:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor("#0178D4")))
+            painter.drawEllipse(
+                QPointF(self.rect().right() - 10, self.rect().top() + 10), 4, 4
+            )
+
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
@@ -488,6 +507,8 @@ class NoteItem(QGraphicsSimpleTextItem):
             | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
         self.setCursor(Qt.CursorShape.SizeAllCursor)
+        if note.annotation:
+            self.setToolTip(note.annotation)
 
     def boundingRect(self):
         r = super().boundingRect()
@@ -497,6 +518,13 @@ class NoteItem(QGraphicsSimpleTextItem):
 
     def paint(self, painter: QPainter, option, widget=None):
         super().paint(painter, option, widget)
+        if self.note.annotation:
+            base_rect = QGraphicsSimpleTextItem.boundingRect(self)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor("#0178D4")))
+            painter.drawEllipse(
+                QPointF(base_rect.right() + 2, base_rect.top()), 4, 4
+            )
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
@@ -536,7 +564,16 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.setText(text)
 
     def itemChange(self, change, value):
-        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            view = self.scene().views()[0] if self.scene() and self.scene().views() else None
+            if view and isinstance(view, WhiteboardView) and view._grid_visible:
+                spacing = view.GRID_SPACING
+                new_pos = value
+                return QPointF(
+                    round(new_pos.x() / spacing) * spacing,
+                    round(new_pos.y() / spacing) * spacing,
+                )
+        elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.note.x = self.pos().x()
             self.note.y = self.pos().y()
             view = self.scene().views()[0] if self.scene() and self.scene().views() else None
@@ -691,11 +728,19 @@ class WhiteboardView(QGraphicsView):
         self._clipboard_notes: list[Note] = []
         self._clipboard_arrows: list[Arrow] = []
 
+        # Reparenting drag highlight
+        self._highlight_parent: BoxItem | None = None
+        self._highlight_orig_pen: QPen | None = None
+
         # Jump-to mode state
         self._jump_active = False
         self._jump_labels: list[QGraphicsRectItem | QGraphicsSimpleTextItem] = []
-        self._jump_map: dict[str, BoxItem | NoteItem] = {}
+        self._jump_map: dict[str, BoxItem | NoteItem | Arrow] = {}
         self._jump_prefix = ""
+
+        # Arrow selection state
+        self._selected_arrow: Arrow | None = None
+        self._selected_arrow_items: list[QGraphicsItem] = []
 
         self.arrow_update_needed.connect(self._redraw_arrows)
         self._scene.selectionChanged.connect(self._on_selection_changed)
@@ -707,7 +752,7 @@ class WhiteboardView(QGraphicsView):
         spacing = self.GRID_SPACING
         left = int(rect.left()) - (int(rect.left()) % spacing)
         top = int(rect.top()) - (int(rect.top()) % spacing)
-        painter.setPen(QPen(GRID_COLOR, 1.5))
+        painter.setPen(QPen(GRID_COLOR, 2.0))
         x = left
         while x <= rect.right():
             y = top
@@ -781,6 +826,7 @@ class WhiteboardView(QGraphicsView):
     def _cancel_interactions(self):
         """Clean up any in-progress mode interactions."""
         self._clear_jump_labels()
+        self._deselect_arrow()
         if self._rect_preview:
             self._scene.removeItem(self._rect_preview)
             self._rect_preview = None
@@ -790,6 +836,55 @@ class WhiteboardView(QGraphicsView):
             self._connect_line = None
             self._connect_source = None
         self._commit_editor()
+
+    # ── Arrow selection ──
+
+    def _select_arrow(self, arrow: Arrow):
+        self._deselect_arrow()
+        self._scene.clearSelection()
+        self._selected_arrow = arrow
+        sel_color = QColor("#2F5D5C")
+        for gfx in self._arrow_items:
+            if gfx.data(0) is arrow:
+                self._selected_arrow_items.append(gfx)
+                if isinstance(gfx, QGraphicsLineItem):
+                    old_pen = gfx.pen()
+                    pen = QPen(sel_color, old_pen.widthF())
+                    pen.setStyle(old_pen.style())
+                    pen.setCapStyle(old_pen.capStyle())
+                    gfx.setPen(pen)
+                elif isinstance(gfx, QGraphicsPolygonItem):
+                    gfx.setPen(QPen(sel_color, 1))
+                    gfx.setBrush(QBrush(sel_color))
+                elif isinstance(gfx, QGraphicsSimpleTextItem):
+                    gfx.setBrush(QBrush(sel_color))
+
+    def _deselect_arrow(self):
+        if not self._selected_arrow:
+            return
+        for gfx in self._selected_arrow_items:
+            if isinstance(gfx, QGraphicsLineItem):
+                old_pen = gfx.pen()
+                pen = QPen(ARROW_COLOR, old_pen.widthF())
+                pen.setStyle(old_pen.style())
+                pen.setCapStyle(old_pen.capStyle())
+                gfx.setPen(pen)
+            elif isinstance(gfx, QGraphicsPolygonItem):
+                gfx.setPen(QPen(ARROW_COLOR, 1))
+                gfx.setBrush(QBrush(ARROW_COLOR))
+            elif isinstance(gfx, QGraphicsSimpleTextItem):
+                gfx.setBrush(QBrush(QColor("#2F3437")))
+        self._selected_arrow = None
+        self._selected_arrow_items.clear()
+
+    def _find_existing_arrow(self, id_a: str, id_b: str) -> Arrow | None:
+        """Find an arrow between the unordered pair {id_a, id_b}."""
+        if not self._board:
+            return None
+        for arrow in self._board.arrows:
+            if {arrow.from_id, arrow.to_id} == {id_a, id_b}:
+                return arrow
+        return None
 
     @property
     def dirty(self) -> bool:
@@ -823,6 +918,8 @@ class WhiteboardView(QGraphicsView):
         self._rect_preview = None
         self._connect_line = None
         self._connect_source = None
+        self._selected_arrow = None
+        self._selected_arrow_items.clear()
 
         if not self._board:
             return
@@ -839,6 +936,11 @@ class WhiteboardView(QGraphicsView):
             self._note_items.append(item)
 
         self._update_z_values()
+
+        # Refresh auto-layout now that all parent-child relationships exist
+        for item in self._box_items.values():
+            item.refresh_auto_layout()
+
         self._redraw_arrows()
 
     def _redraw_arrows(self):
@@ -849,14 +951,57 @@ class WhiteboardView(QGraphicsView):
         if not self._board:
             return
 
-        pen = QPen(ARROW_COLOR, ARROW_WIDTH)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        # Merge opposite arrow pairs (A->B + B->A) into one line.
+        # Build directed lookup: (from, to) -> arrow
+        directed: dict[tuple[str, str], Arrow] = {}
+        merged: set[int] = set()  # indices of arrows consumed by merge
+        # Each entry: (from_box_id, to_box_id, draw_head_to, draw_head_from, fwd_arrow, rev_arrow|None)
+        render_list: list[tuple[str, str, bool, bool, Arrow, Arrow | None]] = []
 
-        for arrow in self._board.arrows:
-            from_box = self._board.box_by_id(arrow.from_id)
-            to_box = self._board.box_by_id(arrow.to_id)
+        for i, arrow in enumerate(self._board.arrows):
+            directed[(arrow.from_id, arrow.to_id)] = arrow
+
+        for i, arrow in enumerate(self._board.arrows):
+            if i in merged:
+                continue
+            reverse_key = (arrow.to_id, arrow.from_id)
+            reverse = directed.get(reverse_key)
+            if (
+                reverse is not None
+                and reverse is not arrow
+                and not (arrow.head_from and arrow.head_to)
+                and not (reverse.head_from and reverse.head_to)
+                and id(reverse) not in {id(self._board.arrows[j]) for j in merged}
+            ):
+                # Merge: combine head flags from both arrows
+                merged.add(self._board.arrows.index(reverse))
+                render_list.append((
+                    arrow.from_id, arrow.to_id,
+                    arrow.head_to or reverse.head_from,
+                    arrow.head_from or reverse.head_to,
+                    arrow, reverse,
+                ))
+            else:
+                render_list.append((
+                    arrow.from_id, arrow.to_id,
+                    arrow.head_to, arrow.head_from,
+                    arrow, None,
+                ))
+
+        for from_id, to_id, draw_head_to, draw_head_from, fwd, rev in render_list:
+            from_box = self._board.box_by_id(from_id)
+            to_box = self._board.box_by_id(to_id)
             if not from_box or not to_box:
                 continue
+
+            pen = QPen(ARROW_COLOR, ARROW_WIDTH)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            if fwd.style == "dashed":
+                pen.setStyle(Qt.PenStyle.DashLine)
+            elif fwd.style == "dotted":
+                pen.setStyle(Qt.PenStyle.DotLine)
+            elif fwd.style == "thick":
+                pen.setWidthF(ARROW_WIDTH * 2)
 
             from_center = QPointF(
                 from_box.x + from_box.w / 2, from_box.y + from_box.h / 2
@@ -868,22 +1013,54 @@ class WhiteboardView(QGraphicsView):
             start = _box_edge_point(from_box, to_center)
             end = _box_edge_point(to_box, from_center)
 
-            # Arrowhead
             dx = end.x() - start.x()
             dy = end.y() - start.y()
-            angle = math.atan2(dy, dx)
-            head = QGraphicsPolygonItem(_arrowhead_polygon(end, angle))
-            head.setPen(QPen(ARROW_COLOR, 1))
-            head.setBrush(QBrush(ARROW_COLOR))
-            self._scene.addItem(head)
-            self._arrow_items.append(head)
 
-            if arrow.label:
+            # Forward arrowhead (at to_id end)
+            if draw_head_to:
+                angle = math.atan2(dy, dx)
+                head = QGraphicsPolygonItem(_arrowhead_polygon(end, angle))
+                head.setPen(QPen(ARROW_COLOR, 1))
+                head.setBrush(QBrush(ARROW_COLOR))
+                head.setData(0, fwd)
+                self._scene.addItem(head)
+                self._arrow_items.append(head)
+
+            # Backward arrowhead (at from_id end)
+            if draw_head_from:
+                back_angle = math.atan2(-dy, -dx)
+                back_head = QGraphicsPolygonItem(
+                    _arrowhead_polygon(start, back_angle)
+                )
+                back_head.setPen(QPen(ARROW_COLOR, 1))
+                back_head.setBrush(QBrush(ARROW_COLOR))
+                back_head.setData(0, fwd)
+                self._scene.addItem(back_head)
+                self._arrow_items.append(back_head)
+
+            # Collect labels: for merged pairs show both, stacked vertically
+            label_texts: list[str] = []
+            label_tooltips: list[str] = []
+            if fwd.label:
+                label_texts.append(fwd.label)
+            if fwd.annotation:
+                label_tooltips.append(fwd.annotation)
+            if rev and rev.label:
+                label_texts.append(rev.label)
+            if rev and rev.annotation:
+                label_tooltips.append(rev.annotation)
+
+            if label_texts:
                 mid_x = (start.x() + end.x()) / 2
                 mid_y = (start.y() + end.y()) / 2
-                label = QGraphicsSimpleTextItem(arrow.label)
+
+                combined = "\n".join(label_texts)
+                label = QGraphicsSimpleTextItem(combined)
                 label.setFont(LABEL_FONT)
                 label.setBrush(QBrush(QColor("#2F3437")))
+                label.setData(0, fwd)
+                if label_tooltips:
+                    label.setToolTip("\n".join(label_tooltips))
                 br = label.boundingRect()
                 label_x = mid_x - br.width() / 2
                 label_y = mid_y - br.height() / 2
@@ -900,10 +1077,12 @@ class WhiteboardView(QGraphicsView):
                 line1 = self._scene.addLine(
                     start.x(), start.y(), seg1_end.x(), seg1_end.y(), pen
                 )
+                line1.setData(0, fwd)
                 self._arrow_items.append(line1)
                 line2 = self._scene.addLine(
                     seg2_start.x(), seg2_start.y(), end.x(), end.y(), pen
                 )
+                line2.setData(0, fwd)
                 self._arrow_items.append(line2)
 
                 label.setPos(label_x, label_y)
@@ -913,6 +1092,14 @@ class WhiteboardView(QGraphicsView):
                 line = self._scene.addLine(
                     start.x(), start.y(), end.x(), end.y(), pen
                 )
+                line.setData(0, fwd)
+                tooltip_parts = []
+                if fwd.annotation:
+                    tooltip_parts.append(fwd.annotation)
+                if rev and rev.annotation:
+                    tooltip_parts.append(rev.annotation)
+                if tooltip_parts:
+                    line.setToolTip("\n".join(tooltip_parts))
                 self._arrow_items.append(line)
 
     # ── Nesting helpers ──
@@ -996,6 +1183,47 @@ class WhiteboardView(QGraphicsView):
             if box.parent:
                 self._refresh_auto_layout(box.parent)
             self.mark_dirty()
+
+    def _update_reparent_highlight(self):
+        """Highlight potential parent box during drag."""
+        selected = [i for i in self._scene.selectedItems() if isinstance(i, BoxItem)]
+        if len(selected) != 1:
+            self._clear_reparent_highlight()
+            return
+
+        item = selected[0]
+        box = item.box
+        box_rect = QRectF(box.x, box.y, box.w, box.h)
+        desc_ids = {d.box.id for d in self._descendants(box.id)}
+
+        best_parent = None
+        best_area = float('inf')
+        for other_id, other_item in self._box_items.items():
+            if other_id == box.id or other_id in desc_ids:
+                continue
+            other = other_item.box
+            other_rect = QRectF(other.x, other.y, other.w, other.h)
+            if other_rect.contains(box_rect):
+                area = other.w * other.h
+                if area < best_area:
+                    best_area = area
+                    best_parent = other_item
+
+        if best_parent is self._highlight_parent:
+            return
+
+        self._clear_reparent_highlight()
+        if best_parent:
+            self._highlight_orig_pen = best_parent.pen()
+            pen = QPen(QColor("#2F5D5C"), 3, Qt.PenStyle.DashLine)
+            best_parent.setPen(pen)
+            self._highlight_parent = best_parent
+
+    def _clear_reparent_highlight(self):
+        if self._highlight_parent and self._highlight_orig_pen is not None:
+            self._highlight_parent.setPen(self._highlight_orig_pen)
+            self._highlight_parent = None
+            self._highlight_orig_pen = None
 
     # ── Undo / Redo ──
 
@@ -1227,7 +1455,7 @@ class WhiteboardView(QGraphicsView):
             target._label.setVisible(False)
         else:
             text = target.note.text
-            font = NOTE_FONT
+            font = target._note_font()
             target.setVisible(False)
 
         editor = QGraphicsTextItem(text)
@@ -1251,8 +1479,7 @@ class WhiteboardView(QGraphicsView):
                     pos.y() + rect.height() / 2 - br.height() / 2,
                 )
         else:
-            center = target.scenePos()
-            editor.setPos(center.x() - br.width() / 2, center.y() - br.height() / 2)
+            editor.setPos(target.scenePos())
 
         self._scene.addItem(editor)
         editor.setFocus()
@@ -1408,6 +1635,7 @@ class WhiteboardView(QGraphicsView):
 
         if self._mode == Mode.SELECT:
             super().mouseMoveEvent(event)
+            self._update_reparent_highlight()
         elif self._mode == Mode.PAN:
             self._move_pan(event)
         elif self._mode == Mode.RECT:
@@ -1428,6 +1656,7 @@ class WhiteboardView(QGraphicsView):
             return
 
         if self._mode == Mode.SELECT:
+            self._clear_reparent_highlight()
             super().mouseReleaseEvent(event)
             if event.button() == Qt.MouseButton.LeftButton:
                 for item in self._scene.selectedItems():
@@ -1491,14 +1720,53 @@ class WhiteboardView(QGraphicsView):
             return
 
         if event.key() == Qt.Key.Key_Escape:
+            if self._selected_arrow:
+                self._deselect_arrow()
+                event.accept()
+                return
+            self._scene.clearSelection()
             self.set_mode(Mode.SELECT)
             event.accept()
             return
 
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            if self._selected_arrow:
+                self._push_undo()
+                self._board.remove_arrow(self._selected_arrow)
+                self._selected_arrow = None
+                self._selected_arrow_items.clear()
+                self._redraw_arrows()
+                self.mark_dirty()
+                event.accept()
+                return
             self._delete_selected()
             event.accept()
             return
+
+        # Arrow editing with cursor keys when arrow is selected
+        if self._selected_arrow:
+            no_mod_check = not (event.modifiers() & _SIGNIFICANT_MODS)
+            if no_mod_check and event.key() in (
+                Qt.Key.Key_Left, Qt.Key.Key_Right,
+                Qt.Key.Key_Up, Qt.Key.Key_Down,
+            ):
+                self._push_undo()
+                arrow = self._selected_arrow
+                if event.key() == Qt.Key.Key_Left:
+                    arrow.head_from = not arrow.head_from
+                elif event.key() == Qt.Key.Key_Right:
+                    arrow.head_to = not arrow.head_to
+                elif event.key() == Qt.Key.Key_Up:
+                    idx = _ARROW_STYLE_CYCLE.index(arrow.style) if arrow.style in _ARROW_STYLE_CYCLE else 0
+                    arrow.style = _ARROW_STYLE_CYCLE[(idx + 1) % len(_ARROW_STYLE_CYCLE)]
+                elif event.key() == Qt.Key.Key_Down:
+                    idx = _ARROW_STYLE_CYCLE.index(arrow.style) if arrow.style in _ARROW_STYLE_CYCLE else 0
+                    arrow.style = _ARROW_STYLE_CYCLE[(idx - 1) % len(_ARROW_STYLE_CYCLE)]
+                self._redraw_arrows()
+                self._select_arrow(arrow)
+                self.mark_dirty()
+                event.accept()
+                return
 
         mods = event.modifiers()
         has_selection = bool(self._scene.selectedItems())
@@ -1565,6 +1833,13 @@ class WhiteboardView(QGraphicsView):
                 self._cycle_style()
                 event.accept()
                 return
+            if event.key() == Qt.Key.Key_E:
+                for item in self._scene.selectedItems():
+                    if isinstance(item, (BoxItem, NoteItem)):
+                        self._start_editing(item)
+                        break
+                event.accept()
+                return
 
         # Shift+A — cycle anchor (SELECT mode with selection)
         if (event.key() == Qt.Key.Key_A
@@ -1627,6 +1902,17 @@ class WhiteboardView(QGraphicsView):
     # ── SELECT mode ──
 
     def _press_select(self, event):
+        scene_pos = self.mapToScene(event.position().toPoint())
+        item = self._scene.itemAt(scene_pos, self.transform())
+        # Check if clicked on an arrow graphics item
+        if isinstance(item, (QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsSimpleTextItem)):
+            arrow_data = item.data(0)
+            if isinstance(arrow_data, Arrow):
+                self._select_arrow(arrow_data)
+                event.accept()
+                return
+        # Clicking elsewhere deselects arrow
+        self._deselect_arrow()
         super().mousePressEvent(event)
 
     # ── PAN mode ──
@@ -1666,6 +1952,7 @@ class WhiteboardView(QGraphicsView):
         self._rect_preview = self._scene.addRect(
             QRectF(self._rect_origin, self._rect_origin), pen
         )
+        self._rect_preview.setBrush(QBrush(QColor(0x2F, 0x34, 0x37, 30)))
         event.accept()
 
     def _move_rect(self, event):
@@ -1762,16 +2049,23 @@ class WhiteboardView(QGraphicsView):
                 center.x(), center.y(), scene_pos.x(), scene_pos.y(), pen
             )
         else:
-            # Second click — create arrow
+            # Second click — create arrow or select existing
             if item is not self._connect_source:
-                self._push_undo()
-                arrow = Arrow(
-                    from_id=self._connect_source.box.id,
-                    to_id=item.box.id,
+                existing = self._find_existing_arrow(
+                    self._connect_source.box.id, item.box.id,
                 )
-                self._board.add_arrow(arrow)
-                self._redraw_arrows()
-                self.mark_dirty()
+                if existing:
+                    self.set_mode(Mode.SELECT)
+                    self._select_arrow(existing)
+                else:
+                    self._push_undo()
+                    arrow = Arrow(
+                        from_id=self._connect_source.box.id,
+                        to_id=item.box.id,
+                    )
+                    self._board.add_arrow(arrow)
+                    self._redraw_arrows()
+                    self.mark_dirty()
 
             if self._connect_line:
                 self._scene.removeItem(self._connect_line)
@@ -1809,14 +2103,21 @@ class WhiteboardView(QGraphicsView):
         if (isinstance(item, BoxItem)
                 and item is not self._connect_source
                 and self._board):
-            self._push_undo()
-            arrow = Arrow(
-                from_id=self._connect_source.box.id,
-                to_id=item.box.id,
+            existing = self._find_existing_arrow(
+                self._connect_source.box.id, item.box.id,
             )
-            self._board.add_arrow(arrow)
-            self._redraw_arrows()
-            self.mark_dirty()
+            if existing:
+                self.set_mode(Mode.SELECT)
+                self._select_arrow(existing)
+            else:
+                self._push_undo()
+                arrow = Arrow(
+                    from_id=self._connect_source.box.id,
+                    to_id=item.box.id,
+                )
+                self._board.add_arrow(arrow)
+                self._redraw_arrows()
+                self.mark_dirty()
 
         if self._connect_line:
             self._scene.removeItem(self._connect_line)
@@ -1832,18 +2133,30 @@ class WhiteboardView(QGraphicsView):
         self._clear_jump_labels()
 
         viewport_rect = self.mapToScene(self.viewport().rect()).boundingRect()
-        visible_items: list[BoxItem | NoteItem] = []
+        # Collect jump targets: boxes, notes, and arrows (with midpoints)
+        targets: list[tuple[BoxItem | NoteItem | Arrow, QPointF]] = []
         for item in self._box_items.values():
             if viewport_rect.intersects(item.sceneBoundingRect()):
-                visible_items.append(item)
+                targets.append((item, item.sceneBoundingRect().center()))
         for item in self._note_items:
             if viewport_rect.intersects(item.sceneBoundingRect()):
-                visible_items.append(item)
+                targets.append((item, item.sceneBoundingRect().center()))
+        # Arrow midpoints
+        for arrow in self._board.arrows:
+            from_box = self._board.box_by_id(arrow.from_id)
+            to_box = self._board.box_by_id(arrow.to_id)
+            if from_box and to_box:
+                mid = QPointF(
+                    (from_box.x + from_box.w / 2 + to_box.x + to_box.w / 2) / 2,
+                    (from_box.y + from_box.h / 2 + to_box.y + to_box.h / 2) / 2,
+                )
+                if viewport_rect.contains(mid):
+                    targets.append((arrow, mid))
 
-        if not visible_items:
+        if not targets:
             return
 
-        count = len(visible_items)
+        count = len(targets)
         labels: list[str] = []
         if count <= 26:
             for i in range(count):
@@ -1858,9 +2171,8 @@ class WhiteboardView(QGraphicsView):
         font = QFont(FONT_FAMILY, 14)
         font.setBold(True)
 
-        for label_text, item in zip(labels, visible_items):
-            self._jump_map[label_text] = item
-            center = item.sceneBoundingRect().center()
+        for label_text, (target, center) in zip(labels, targets):
+            self._jump_map[label_text] = target
 
             text_item = QGraphicsSimpleTextItem(label_text)
             text_item.setFont(font)
@@ -1907,8 +2219,19 @@ class WhiteboardView(QGraphicsView):
             target = self._jump_map[self._jump_prefix]
             self._clear_jump_labels()
             self._scene.clearSelection()
-            target.setSelected(True)
-            self.centerOn(target)
+            if isinstance(target, Arrow):
+                self._select_arrow(target)
+                from_box = self._board.box_by_id(target.from_id) if self._board else None
+                to_box = self._board.box_by_id(target.to_id) if self._board else None
+                if from_box and to_box:
+                    mid = QPointF(
+                        (from_box.x + from_box.w / 2 + to_box.x + to_box.w / 2) / 2,
+                        (from_box.y + from_box.h / 2 + to_box.y + to_box.h / 2) / 2,
+                    )
+                    self.centerOn(mid)
+            else:
+                target.setSelected(True)
+                self.centerOn(target)
             return
 
         has_match = any(
@@ -1978,7 +2301,6 @@ class WhiteboardView(QGraphicsView):
         self.set_mode(Mode.SELECT)
         self._scene.clearSelection()
         new_item.setSelected(True)
-        self._start_editing(new_item)
 
     # ── Cheatsheet (Shift+H) ──
 
@@ -1997,9 +2319,12 @@ class WhiteboardView(QGraphicsView):
             ("+ / -", "Zoom in / out"),
             ("Arrow keys", "Pan viewport"),
             ("Ctrl+Arrow", "Create adjacent box"),
-            ("Ctrl+J", "Jump to shape"),
+            ("Ctrl+J", "Jump to shape / arrow"),
+            ("\u2190 / \u2192", "Toggle arrowheads (arrow selected)"),
+            ("\u2191 / \u2193", "Cycle arrow style (arrow selected)"),
             ("Shift+H", "This cheatsheet"),
-            ("Delete", "Delete selected"),
+            ("E", "Edit selected element"),
+            ("Delete", "Delete selected / arrow"),
             ("Double-click", "Edit text"),
             ("Enter", "Accept edit"),
             ("Escape", "Cancel edit / back to SELECT"),

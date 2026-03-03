@@ -1318,24 +1318,28 @@ class WhiteboardView(QGraphicsView):
                     self._clipboard_arrows.append(copy.deepcopy(arrow))
 
     def _paste(self):
+        cursor_viewport = self.mapFromGlobal(self.cursor().pos())
+        cursor_scene = self.mapToScene(cursor_viewport)
+        self._paste_at(cursor_scene)
+
+    def _paste_at(self, center: QPointF):
         if not (self._clipboard_boxes or self._clipboard_notes) or not self._board:
             return
         self._push_undo()
 
-        # Compute bounding box of clipboard items
-        all_coords: list[tuple[float, float]] = []
+        # Compute bounding box center of clipboard items
+        all_xs: list[float] = []
+        all_ys: list[float] = []
         for b in self._clipboard_boxes:
-            all_coords.append((b.x, b.y))
+            all_xs += [b.x, b.x + b.w]
+            all_ys += [b.y, b.y + b.h]
         for n in self._clipboard_notes:
-            all_coords.append((n.x, n.y))
-        origin_x = min(c[0] for c in all_coords)
-        origin_y = min(c[1] for c in all_coords)
-
-        # Get mouse cursor position in scene coordinates as paste target
-        cursor_viewport = self.mapFromGlobal(self.cursor().pos())
-        cursor_scene = self.mapToScene(cursor_viewport)
-        dx = cursor_scene.x() - origin_x
-        dy = cursor_scene.y() - origin_y
+            all_xs.append(n.x)
+            all_ys.append(n.y)
+        clip_cx = (min(all_xs) + max(all_xs)) / 2
+        clip_cy = (min(all_ys) + max(all_ys)) / 2
+        dx = center.x() - clip_cx
+        dy = center.y() - clip_cy
 
         id_map: dict[str, str] = {}
         clipboard_box_ids = {b.id for b in self._clipboard_boxes}
@@ -1965,13 +1969,23 @@ class WhiteboardView(QGraphicsView):
     def _press_select(self, event):
         scene_pos = self.mapToScene(event.position().toPoint())
         item = self._scene.itemAt(scene_pos, self.transform())
-        # Resolve child items to parent BoxItem for shift+drag check
+        # Resolve child items to parent BoxItem/NoteItem
         resolved = item
-        if isinstance(resolved, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(resolved.parentItem(), BoxItem):
+        if isinstance(resolved, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(resolved.parentItem(), (BoxItem, NoteItem)):
             resolved = resolved.parentItem()
 
-        # Shift+click on a BoxItem starts connector drag
-        if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) and isinstance(resolved, BoxItem):
+        # Shift+click toggles selection on individual items
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            if isinstance(resolved, (BoxItem, NoteItem)):
+                resolved.setSelected(not resolved.isSelected())
+                event.accept()
+                return
+            # Shift+click on empty space: preserve current selection
+            event.accept()
+            return
+
+        # Alt+click on a BoxItem starts connector drag
+        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and isinstance(resolved, BoxItem):
             self._connect_source = resolved
             center = QPointF(
                 resolved.box.x + resolved.box.w / 2,
@@ -1983,6 +1997,13 @@ class WhiteboardView(QGraphicsView):
             )
             event.accept()
             return
+
+        # Alt+click on empty space: paste clipboard at position
+        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and not isinstance(resolved, BoxItem):
+            if self._clipboard_boxes or self._clipboard_notes:
+                self._paste_at(scene_pos)
+                event.accept()
+                return
 
         # Check if clicked on an arrow graphics item
         if isinstance(item, (ArrowLineItem, QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsSimpleTextItem)):
@@ -2415,6 +2436,9 @@ class WhiteboardView(QGraphicsView):
             ("Shift+H", "This cheatsheet"),
             ("E", "Edit selected element"),
             ("Delete", "Delete selected / arrow"),
+            ("Shift+Click", "Toggle selection"),
+            ("Alt+Drag", "Connect boxes (from SELECT)"),
+            ("Alt+Click", "Paste at position"),
             ("Double-click", "Edit text"),
             ("Enter", "Accept edit"),
             ("Escape", "Cancel edit / back to SELECT"),

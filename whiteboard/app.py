@@ -26,6 +26,7 @@ from PySide6.QtGui import (
     QKeySequence,
     QPainter,
     QPainterPath,
+    QPainterPathStroker,
     QPen,
     QPixmap,
     QPolygonF,
@@ -582,6 +583,20 @@ class NoteItem(QGraphicsSimpleTextItem):
         return super().itemChange(change, value)
 
 
+class ArrowLineItem(QGraphicsLineItem):
+    """Line item with a wider hit area for easier click-to-select."""
+
+    _HIT_WIDTH = 12
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        path.moveTo(self.line().p1())
+        path.lineTo(self.line().p2())
+        stroker = QPainterPathStroker()
+        stroker.setWidth(self._HIT_WIDTH)
+        return stroker.createStroke(path)
+
+
 # ── Arrow drawing helpers ───────────────────────────────────────
 
 def _box_edge_point(box: Box, target: QPointF) -> QPointF:
@@ -843,13 +858,13 @@ class WhiteboardView(QGraphicsView):
         self._deselect_arrow()
         self._scene.clearSelection()
         self._selected_arrow = arrow
-        sel_color = QColor("#2F5D5C")
+        sel_color = QColor("#0178D4")
         for gfx in self._arrow_items:
             if gfx.data(0) is arrow:
                 self._selected_arrow_items.append(gfx)
-                if isinstance(gfx, QGraphicsLineItem):
+                if isinstance(gfx, (QGraphicsLineItem, ArrowLineItem)):
                     old_pen = gfx.pen()
-                    pen = QPen(sel_color, old_pen.widthF())
+                    pen = QPen(sel_color, old_pen.widthF() + 1)
                     pen.setStyle(old_pen.style())
                     pen.setCapStyle(old_pen.capStyle())
                     gfx.setPen(pen)
@@ -863,9 +878,9 @@ class WhiteboardView(QGraphicsView):
         if not self._selected_arrow:
             return
         for gfx in self._selected_arrow_items:
-            if isinstance(gfx, QGraphicsLineItem):
+            if isinstance(gfx, (QGraphicsLineItem, ArrowLineItem)):
                 old_pen = gfx.pen()
-                pen = QPen(ARROW_COLOR, old_pen.widthF())
+                pen = QPen(ARROW_COLOR, old_pen.widthF() - 1)
                 pen.setStyle(old_pen.style())
                 pen.setCapStyle(old_pen.capStyle())
                 gfx.setPen(pen)
@@ -1074,24 +1089,29 @@ class WhiteboardView(QGraphicsView):
 
                 seg1_end, seg2_start = _line_rect_clip(start, end, gap)
 
-                line1 = self._scene.addLine(
-                    start.x(), start.y(), seg1_end.x(), seg1_end.y(), pen
+                line1 = ArrowLineItem(
+                    start.x(), start.y(), seg1_end.x(), seg1_end.y()
                 )
+                line1.setPen(pen)
                 line1.setData(0, fwd)
+                self._scene.addItem(line1)
                 self._arrow_items.append(line1)
-                line2 = self._scene.addLine(
-                    seg2_start.x(), seg2_start.y(), end.x(), end.y(), pen
+                line2 = ArrowLineItem(
+                    seg2_start.x(), seg2_start.y(), end.x(), end.y()
                 )
+                line2.setPen(pen)
                 line2.setData(0, fwd)
+                self._scene.addItem(line2)
                 self._arrow_items.append(line2)
 
                 label.setPos(label_x, label_y)
                 self._scene.addItem(label)
                 self._arrow_items.append(label)
             else:
-                line = self._scene.addLine(
-                    start.x(), start.y(), end.x(), end.y(), pen
+                line = ArrowLineItem(
+                    start.x(), start.y(), end.x(), end.y()
                 )
+                line.setPen(pen)
                 line.setData(0, fwd)
                 tooltip_parts = []
                 if fwd.annotation:
@@ -1100,6 +1120,7 @@ class WhiteboardView(QGraphicsView):
                     tooltip_parts.append(rev.annotation)
                 if tooltip_parts:
                     line.setToolTip("\n".join(tooltip_parts))
+                self._scene.addItem(line)
                 self._arrow_items.append(line)
 
     # ── Nesting helpers ──
@@ -1634,6 +1655,17 @@ class WhiteboardView(QGraphicsView):
             return
 
         if self._mode == Mode.SELECT:
+            if self._connect_source and self._connect_line:
+                src = self._connect_source
+                center = QPointF(
+                    src.box.x + src.box.w / 2,
+                    src.box.y + src.box.h / 2,
+                )
+                self._connect_line.setLine(
+                    center.x(), center.y(), scene_pos.x(), scene_pos.y()
+                )
+                event.accept()
+                return
             super().mouseMoveEvent(event)
             self._update_reparent_highlight()
         elif self._mode == Mode.PAN:
@@ -1656,6 +1688,35 @@ class WhiteboardView(QGraphicsView):
             return
 
         if self._mode == Mode.SELECT:
+            if self._connect_source and event.button() == Qt.MouseButton.LeftButton:
+                # Finish shift+drag connector
+                if self._connect_line:
+                    self._scene.removeItem(self._connect_line)
+                    self._connect_line = None
+                scene_pos = self.mapToScene(event.position().toPoint())
+                item = self._scene.itemAt(scene_pos, self.transform())
+                if isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), BoxItem):
+                    item = item.parentItem()
+                if (isinstance(item, BoxItem)
+                        and item is not self._connect_source
+                        and self._board):
+                    existing = self._find_existing_arrow(
+                        self._connect_source.box.id, item.box.id,
+                    )
+                    if existing:
+                        self._select_arrow(existing)
+                    else:
+                        self._push_undo()
+                        arrow = Arrow(
+                            from_id=self._connect_source.box.id,
+                            to_id=item.box.id,
+                        )
+                        self._board.add_arrow(arrow)
+                        self._redraw_arrows()
+                        self.mark_dirty()
+                self._connect_source = None
+                event.accept()
+                return
             self._clear_reparent_highlight()
             super().mouseReleaseEvent(event)
             if event.button() == Qt.MouseButton.LeftButton:
@@ -1904,8 +1965,27 @@ class WhiteboardView(QGraphicsView):
     def _press_select(self, event):
         scene_pos = self.mapToScene(event.position().toPoint())
         item = self._scene.itemAt(scene_pos, self.transform())
+        # Resolve child items to parent BoxItem for shift+drag check
+        resolved = item
+        if isinstance(resolved, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(resolved.parentItem(), BoxItem):
+            resolved = resolved.parentItem()
+
+        # Shift+click on a BoxItem starts connector drag
+        if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) and isinstance(resolved, BoxItem):
+            self._connect_source = resolved
+            center = QPointF(
+                resolved.box.x + resolved.box.w / 2,
+                resolved.box.y + resolved.box.h / 2,
+            )
+            pen = QPen(ARROW_COLOR, ARROW_WIDTH, Qt.PenStyle.DashLine)
+            self._connect_line = self._scene.addLine(
+                center.x(), center.y(), scene_pos.x(), scene_pos.y(), pen
+            )
+            event.accept()
+            return
+
         # Check if clicked on an arrow graphics item
-        if isinstance(item, (QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsSimpleTextItem)):
+        if isinstance(item, (ArrowLineItem, QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsSimpleTextItem)):
             arrow_data = item.data(0)
             if isinstance(arrow_data, Arrow):
                 self._select_arrow(arrow_data)
@@ -2026,6 +2106,13 @@ class WhiteboardView(QGraphicsView):
     def _press_connect(self, event):
         if not self._board:
             return
+
+        # Remove preview line before itemAt() so it doesn't block target
+        saved_line = self._connect_line
+        if self._connect_line:
+            self._scene.removeItem(self._connect_line)
+            self._connect_line = None
+
         scene_pos = self.mapToScene(event.position().toPoint())
         item = self._scene.itemAt(scene_pos, self.transform())
 
@@ -2034,6 +2121,10 @@ class WhiteboardView(QGraphicsView):
             item = item.parentItem()
 
         if not isinstance(item, BoxItem):
+            # Restore preview line if we had one and missed a target
+            if saved_line and self._connect_source:
+                self._connect_line = saved_line
+                self._scene.addItem(self._connect_line)
             event.accept()
             return
 
@@ -2067,9 +2158,6 @@ class WhiteboardView(QGraphicsView):
                     self._redraw_arrows()
                     self.mark_dirty()
 
-            if self._connect_line:
-                self._scene.removeItem(self._connect_line)
-                self._connect_line = None
             self._connect_source = None
 
         event.accept()
@@ -2093,6 +2181,11 @@ class WhiteboardView(QGraphicsView):
         if not self._connect_source:
             event.accept()
             return
+
+        # Remove preview line first so it doesn't intercept itemAt()
+        if self._connect_line:
+            self._scene.removeItem(self._connect_line)
+            self._connect_line = None
 
         scene_pos = self.mapToScene(event.position().toPoint())
         item = self._scene.itemAt(scene_pos, self.transform())
@@ -2119,9 +2212,6 @@ class WhiteboardView(QGraphicsView):
                 self._redraw_arrows()
                 self.mark_dirty()
 
-        if self._connect_line:
-            self._scene.removeItem(self._connect_line)
-            self._connect_line = None
         self._connect_source = None
         event.accept()
 

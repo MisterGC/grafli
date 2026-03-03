@@ -159,25 +159,33 @@ _CORNER_TL = 0
 _CORNER_TR = 1
 _CORNER_BL = 2
 _CORNER_BR = 3
+_EDGE_T = 4
+_EDGE_R = 5
+_EDGE_B = 6
+_EDGE_L = 7
 
-_CORNER_CURSORS = {
+_HANDLE_CURSORS = {
     _CORNER_TL: Qt.CursorShape.SizeFDiagCursor,
     _CORNER_TR: Qt.CursorShape.SizeBDiagCursor,
     _CORNER_BL: Qt.CursorShape.SizeBDiagCursor,
     _CORNER_BR: Qt.CursorShape.SizeFDiagCursor,
+    _EDGE_T: Qt.CursorShape.SizeVerCursor,
+    _EDGE_B: Qt.CursorShape.SizeVerCursor,
+    _EDGE_L: Qt.CursorShape.SizeHorCursor,
+    _EDGE_R: Qt.CursorShape.SizeHorCursor,
 }
 
 
 class ResizeHandle(QGraphicsRectItem):
-    """Small corner handle for resizing a BoxItem."""
+    """Small handle for resizing a BoxItem (corner or edge)."""
 
-    def __init__(self, corner: int, parent: QGraphicsRectItem):
+    def __init__(self, handle_id: int, parent: QGraphicsRectItem):
         hs = HANDLE_SIZE
         super().__init__(-hs / 2, -hs / 2, hs, hs, parent)
-        self.corner = corner
+        self.corner = handle_id
         self.setPen(QPen(QColor("#2F5D5C"), 1))
         self.setBrush(QBrush(QColor("#FFFFFF")))
-        self.setCursor(_CORNER_CURSORS[corner])
+        self.setCursor(_HANDLE_CURSORS[handle_id])
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
         self.setVisible(False)
@@ -205,6 +213,10 @@ class BoxItem(QGraphicsRectItem):
             ResizeHandle(_CORNER_TR, self),
             ResizeHandle(_CORNER_BL, self),
             ResizeHandle(_CORNER_BR, self),
+            ResizeHandle(_EDGE_T, self),
+            ResizeHandle(_EDGE_R, self),
+            ResizeHandle(_EDGE_B, self),
+            ResizeHandle(_EDGE_L, self),
         ]
         self._resizing = False
 
@@ -338,18 +350,37 @@ class BoxItem(QGraphicsRectItem):
         self._handles[_CORNER_TR].setPos(r.topRight())
         self._handles[_CORNER_BL].setPos(r.bottomLeft())
         self._handles[_CORNER_BR].setPos(r.bottomRight())
+        cx = (r.left() + r.right()) / 2
+        cy = (r.top() + r.bottom()) / 2
+        self._handles[_EDGE_T].setPos(cx, r.top())
+        self._handles[_EDGE_R].setPos(r.right(), cy)
+        self._handles[_EDGE_B].setPos(cx, r.bottom())
+        self._handles[_EDGE_L].setPos(r.left(), cy)
 
     def _show_handles(self, visible: bool):
         for h in self._handles:
             h.setVisible(visible)
 
-    def _corner_at(self, pos: QPointF) -> int | None:
+    def _handle_at(self, pos: QPointF) -> int | None:
         hit = HANDLE_SIZE + 8
         r = self.rect()
+        # Check corners first (priority over edges)
         corners = [r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight()]
         for i, cp in enumerate(corners):
             if abs(pos.x() - cp.x()) < hit and abs(pos.y() - cp.y()) < hit:
                 return i
+        # Check edge midpoints
+        cx = (r.left() + r.right()) / 2
+        cy = (r.top() + r.bottom()) / 2
+        edges = [
+            (_EDGE_T, QPointF(cx, r.top())),
+            (_EDGE_R, QPointF(r.right(), cy)),
+            (_EDGE_B, QPointF(cx, r.bottom())),
+            (_EDGE_L, QPointF(r.left(), cy)),
+        ]
+        for eid, ep in edges:
+            if abs(pos.x() - ep.x()) < hit and abs(pos.y() - ep.y()) < hit:
+                return eid
         return None
 
     def itemChange(self, change, value):
@@ -388,7 +419,7 @@ class BoxItem(QGraphicsRectItem):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            corner = self._corner_at(event.pos())
+            corner = self._handle_at(event.pos())
             if corner is not None and self.isSelected():
                 self._resizing = True
                 self._resize_corner = corner
@@ -419,14 +450,22 @@ class BoxItem(QGraphicsRectItem):
                 x += dx; w -= dx; h += dy
             elif c == _CORNER_BR:
                 w += dx; h += dy
+            elif c == _EDGE_T:
+                y += dy; h -= dy
+            elif c == _EDGE_B:
+                h += dy
+            elif c == _EDGE_L:
+                x += dx; w -= dx
+            elif c == _EDGE_R:
+                w += dx
 
             # Clamp to minimum size
             if w < MIN_BOX_SIZE:
-                if c in (_CORNER_TL, _CORNER_BL):
+                if c in (_CORNER_TL, _CORNER_BL, _EDGE_L):
                     x -= MIN_BOX_SIZE - w
                 w = MIN_BOX_SIZE
             if h < MIN_BOX_SIZE:
-                if c in (_CORNER_TL, _CORNER_TR):
+                if c in (_CORNER_TL, _CORNER_TR, _EDGE_T):
                     y -= MIN_BOX_SIZE - h
                 h = MIN_BOX_SIZE
 
@@ -781,6 +820,11 @@ class WhiteboardView(QGraphicsView):
         self._selected_arrow: Arrow | None = None
         self._selected_arrow_items: list[QGraphicsItem] = []
 
+        # Vim-like box mode (style / dimension)
+        self._box_mode: str = ""          # "", "style", "dimension"
+        self._mode_badge: QGraphicsTextItem | None = None
+        self._mode_badge_bg: QGraphicsRectItem | None = None
+
         self.arrow_update_needed.connect(self._redraw_arrows)
         self._scene.selectionChanged.connect(self._on_selection_changed)
 
@@ -872,6 +916,7 @@ class WhiteboardView(QGraphicsView):
 
     def _cancel_interactions(self):
         """Clean up any in-progress mode interactions."""
+        self._clear_box_mode()
         self._clear_jump_labels()
         self._deselect_arrow()
         if self._rect_preview:
@@ -1520,6 +1565,73 @@ class WhiteboardView(QGraphicsView):
         self.arrow_update_needed.emit()
         self.mark_dirty()
 
+    # ── Box mode (vim-like style / dimension) ──
+
+    def _set_box_mode(self, mode: str):
+        self._box_mode = mode
+        # Remove old badge
+        if self._mode_badge:
+            if self._mode_badge_bg:
+                self._scene.removeItem(self._mode_badge_bg)
+                self._mode_badge_bg = None
+            self._scene.removeItem(self._mode_badge)
+            self._mode_badge = None
+        if not mode:
+            return
+        # Create badge above the first selected box
+        target = None
+        for item in self._scene.selectedItems():
+            if isinstance(item, (BoxItem, NoteItem)):
+                target = item
+                break
+        if not target:
+            return
+        # Background rect
+        bg = QGraphicsRectItem()
+        bg_color = QColor("#2F3437")
+        bg_color.setAlphaF(0.8)
+        bg.setBrush(QBrush(bg_color))
+        bg.setPen(QPen(Qt.PenStyle.NoPen))
+        bg.setZValue(9998)
+        self._scene.addItem(bg)
+        self._mode_badge_bg = bg
+        # Text
+        label_text = "STYLE" if mode == "style" else "DIM"
+        badge = QGraphicsTextItem(label_text)
+        font = QFont(FONT_FAMILY, 9)
+        badge.setFont(font)
+        badge.setDefaultTextColor(QColor("#FFFFFF"))
+        badge.setZValue(9999)
+        self._scene.addItem(badge)
+        self._mode_badge = badge
+        self._update_mode_badge_pos()
+
+    def _update_mode_badge_pos(self):
+        if not self._mode_badge:
+            return
+        target = None
+        for item in self._scene.selectedItems():
+            if isinstance(item, (BoxItem, NoteItem)):
+                target = item
+                break
+        if not target:
+            return
+        br = target.sceneBoundingRect()
+        text_br = self._mode_badge.boundingRect()
+        bx = br.center().x() - text_br.width() / 2
+        by = br.top() - text_br.height() - 4
+        self._mode_badge.setPos(bx, by)
+        if self._mode_badge_bg:
+            pad = 4
+            self._mode_badge_bg.setRect(
+                bx - pad, by - pad,
+                text_br.width() + pad * 2,
+                text_br.height() + pad * 2,
+            )
+
+    def _clear_box_mode(self):
+        self._set_box_mode("")
+
     # ── Inline text editing ──
 
     def _start_editing(self, target: BoxItem | NoteItem):
@@ -1646,6 +1758,7 @@ class WhiteboardView(QGraphicsView):
             window._status_zoom.setText(f"{pct}%")
 
     def _on_selection_changed(self):
+        self._clear_box_mode()
         window = self.window()
         if isinstance(window, MainWindow):
             count = len(self._scene.selectedItems())
@@ -1840,6 +1953,10 @@ class WhiteboardView(QGraphicsView):
             return
 
         if event.key() == Qt.Key.Key_Escape:
+            if self._box_mode:
+                self._clear_box_mode()
+                event.accept()
+                return
             if self._selected_arrow:
                 self._deselect_arrow()
                 event.accept()
@@ -1907,6 +2024,7 @@ class WhiteboardView(QGraphicsView):
         # Ctrl+J — jump mode
         if (event.key() == Qt.Key.Key_J
                 and mods & _CTRL_MOD):
+            self._clear_box_mode()
             self._start_jump_mode()
             event.accept()
             return
@@ -1924,42 +2042,164 @@ class WhiteboardView(QGraphicsView):
                 event.accept()
                 return
 
-        # Shift+H — cheatsheet
+        # Shift+H — cheatsheet (only when no box mode active)
         if (event.key() == Qt.Key.Key_H
-                and mods & Qt.KeyboardModifier.ShiftModifier):
+                and mods & Qt.KeyboardModifier.ShiftModifier
+                and not self._box_mode):
             self._show_cheatsheet()
             event.accept()
             return
 
-        # Property shortcuts — SELECT mode with selection, no modifiers
-        if self._mode == Mode.SELECT and has_selection and no_mod:
-            if event.key() == Qt.Key.Key_H:
-                self._cycle_color(-1)
-                event.accept()
-                return
-            if event.key() == Qt.Key.Key_L:
-                self._cycle_color(1)
-                event.accept()
-                return
-            if event.key() == Qt.Key.Key_J:
-                self._cycle_textsize(-1)
-                event.accept()
-                return
-            if event.key() == Qt.Key.Key_K:
-                self._cycle_textsize(1)
-                event.accept()
-                return
-            if event.key() == Qt.Key.Key_T:
-                self._cycle_style()
-                event.accept()
-                return
-            if event.key() == Qt.Key.Key_E:
-                for item in self._scene.selectedItems():
-                    if isinstance(item, (BoxItem, NoteItem)):
-                        self._start_editing(item)
-                        break
-                event.accept()
-                return
+        # Vim-like box modes — SELECT mode with selection
+        if self._mode == Mode.SELECT and has_selection:
+            shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+            only_shift = shift and not (mods & ~Qt.KeyboardModifier.ShiftModifier & _SIGNIFICANT_MODS)
+
+            if self._grid_visible:
+                step = self.GRID_SPACING
+                big_step = self.GRID_SPACING * 5
+            else:
+                step = 1
+                big_step = 10
+
+            # ── Default mode: hjkl moves, s/d enter sub-modes ──
+            if self._box_mode == "":
+                move_dirs = {
+                    Qt.Key.Key_H: (-1, 0),
+                    Qt.Key.Key_J: (0, 1),
+                    Qt.Key.Key_K: (0, -1),
+                    Qt.Key.Key_L: (1, 0),
+                }
+                if event.key() in move_dirs and (no_mod or only_shift):
+                    dx_dir, dy_dir = move_dirs[event.key()]
+                    amount = big_step if shift else step
+                    dx = dx_dir * amount
+                    dy = dy_dir * amount
+                    self._push_undo()
+                    for item in self._scene.selectedItems():
+                        if isinstance(item, BoxItem):
+                            item.box.x += dx
+                            item.box.y += dy
+                            item.setPos(item.box.x, item.box.y)
+                        elif isinstance(item, NoteItem):
+                            item.note.x += dx
+                            item.note.y += dy
+                            item.setPos(item.note.x, item.note.y)
+                    self._update_mode_badge_pos()
+                    self.arrow_update_needed.emit()
+                    self.mark_dirty()
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_S and no_mod:
+                    self._set_box_mode("style")
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_D and no_mod:
+                    self._set_box_mode("dimension")
+                    event.accept()
+                    return
+
+            # ── Style mode: hjkl cycles color/size ──
+            elif self._box_mode == "style":
+                if event.key() == Qt.Key.Key_H and no_mod:
+                    self._cycle_color(-1)
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_L and no_mod:
+                    self._cycle_color(1)
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_J and no_mod:
+                    self._cycle_textsize(-1)
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_K and no_mod:
+                    self._cycle_textsize(1)
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_D and no_mod:
+                    self._set_box_mode("dimension")
+                    event.accept()
+                    return
+
+            # ── Dimension mode: hjkl shrinks, Shift+hjkl grows ──
+            elif self._box_mode == "dimension":
+                dim_key = event.key() in (
+                    Qt.Key.Key_H, Qt.Key.Key_J,
+                    Qt.Key.Key_K, Qt.Key.Key_L,
+                )
+                if dim_key and (no_mod or only_shift):
+                    self._push_undo()
+                    for item in self._scene.selectedItems():
+                        if not isinstance(item, BoxItem):
+                            continue
+                        x, y, w, h = item.box.x, item.box.y, item.box.w, item.box.h
+                        if shift:
+                            # Grow
+                            if event.key() == Qt.Key.Key_H:
+                                x -= step; w += step
+                            elif event.key() == Qt.Key.Key_J:
+                                h += step
+                            elif event.key() == Qt.Key.Key_K:
+                                y -= step; h += step
+                            elif event.key() == Qt.Key.Key_L:
+                                w += step
+                        else:
+                            # Shrink
+                            if event.key() == Qt.Key.Key_H:
+                                if w - step >= MIN_BOX_SIZE:
+                                    w -= step
+                                else:
+                                    continue
+                            elif event.key() == Qt.Key.Key_J:
+                                if h - step >= MIN_BOX_SIZE:
+                                    h -= step
+                                else:
+                                    continue
+                            elif event.key() == Qt.Key.Key_K:
+                                if h - step >= MIN_BOX_SIZE:
+                                    y += step; h -= step
+                                else:
+                                    continue
+                            elif event.key() == Qt.Key.Key_L:
+                                if w - step >= MIN_BOX_SIZE:
+                                    x += step; w -= step
+                                else:
+                                    continue
+                        item.box.x = x
+                        item.box.y = y
+                        item.box.w = w
+                        item.box.h = h
+                        item.setPos(x, y)
+                        item.setRect(0, 0, w, h)
+                        item._label.setTextWidth(w - 16)
+                        item._position_label()
+                        item._update_handles()
+                    self._update_mode_badge_pos()
+                    self.arrow_update_needed.emit()
+                    self.mark_dirty()
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_S and no_mod:
+                    self._set_box_mode("style")
+                    event.accept()
+                    return
+
+            # Non-modal keys that work regardless of box mode
+            if no_mod:
+                if event.key() == Qt.Key.Key_T:
+                    self._clear_box_mode()
+                    self._cycle_style()
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_E:
+                    self._clear_box_mode()
+                    for item in self._scene.selectedItems():
+                        if isinstance(item, (BoxItem, NoteItem)):
+                            self._start_editing(item)
+                            break
+                    event.accept()
+                    return
 
         # Shift+A — cycle anchor (SELECT mode with selection)
         if (event.key() == Qt.Key.Key_A

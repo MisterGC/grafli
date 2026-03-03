@@ -513,12 +513,20 @@ class NoteItem(QGraphicsSimpleTextItem):
             self.setToolTip(note.annotation)
 
     def boundingRect(self):
-        r = super().boundingRect()
-        if self.isSelected():
-            return r.adjusted(-4, -4, 4, 4)
-        return r
+        return super().boundingRect().adjusted(-4, -4, 4, 4)
 
     def paint(self, painter: QPainter, option, widget=None):
+        # Semi-transparent background for readability
+        pad = 4
+        base_rect = QGraphicsSimpleTextItem.boundingRect(self)
+        bg_rect = base_rect.adjusted(-pad, -pad, pad, pad)
+        bg = QColor("#F2F0EB")
+        bg.setAlphaF(0.1)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(bg_rect, 4, 4)
+
         super().paint(painter, option, widget)
         if self.note.annotation:
             base_rect = QGraphicsSimpleTextItem.boundingRect(self)
@@ -582,6 +590,21 @@ class NoteItem(QGraphicsSimpleTextItem):
             if view and isinstance(view, WhiteboardView):
                 view.mark_dirty()
         return super().itemChange(change, value)
+
+
+class LabelItem(QGraphicsSimpleTextItem):
+    """Arrow label with semi-transparent background."""
+
+    def paint(self, painter: QPainter, option, widget=None):
+        pad = 4
+        bg_rect = self.boundingRect().adjusted(-pad, -pad, pad, pad)
+        bg = QColor("#F2F0EB")
+        bg.setAlphaF(0.1)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(bg_rect, 4, 4)
+        super().paint(painter, option, widget)
 
 
 class ArrowLineItem(QGraphicsLineItem):
@@ -1089,7 +1112,7 @@ class WhiteboardView(QGraphicsView):
                 mid_y = (start.y() + end.y()) / 2
 
                 combined = "\n".join(label_texts)
-                label = QGraphicsSimpleTextItem(combined)
+                label = LabelItem(combined)
                 label.setFont(LABEL_FONT)
                 label.setBrush(QBrush(QColor("#2F3437")))
                 label.setData(0, fwd)
@@ -1141,6 +1164,8 @@ class WhiteboardView(QGraphicsView):
                     line.setToolTip("\n".join(tooltip_parts))
                 self._scene.addItem(line)
                 self._arrow_items.append(line)
+
+        self._update_z_values()
 
     # ── Nesting helpers ──
 

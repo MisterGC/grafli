@@ -40,6 +40,7 @@ class Arrow:
     to_id: str
     label: str = ""
     style: str = ""       # "dashed", "dotted", "thick", or "" (solid)
+    textsize: str = ""    # "small", "large", "xlarge", "xxlarge", "xxxlarge", or "" (default)
     head_from: bool = False  # arrowhead at from_id end
     head_to: bool = True     # arrowhead at to_id end
     annotation: str = ""
@@ -148,6 +149,7 @@ _RE_ARROW = re.compile(
     r'^@\s+arrow\s+(\S+)\s+(<->|->|<-|--)\s+(\S+)'
     r'(?:\s+"([^"]*)")?'
     r'(?:\s+!(dashed|dotted|thick))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
 )
@@ -207,9 +209,10 @@ def parse(text: str) -> Board:
                 to_id=m.group(3),
                 label=m.group(4) or "",
                 style=m.group(5) or "",
+                textsize=m.group(6) or "",
                 head_from=op in ("<->", "<-"),
                 head_to=op in ("<->", "->"),
-                annotation=m.group(6) or "",
+                annotation=m.group(7) or "",
             )
             board.arrows.append(arrow)
             board._lines.append(("arrow", arrow))
@@ -286,6 +289,8 @@ def _serialize_arrow(arrow: Arrow) -> str:
         base += f' "{arrow.label}"'
     if arrow.style:
         base += f" !{arrow.style}"
+    if arrow.textsize:
+        base += f" ~{arrow.textsize}"
     if arrow.annotation:
         base += f"  # {arrow.annotation}"
     return base

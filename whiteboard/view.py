@@ -41,6 +41,7 @@ from whiteboard.constants import (
     ANNOTATION_ARROW_COLOR,
     ANNOTATION_ARROW_WIDTH,
     ARROW_COLOR,
+    ARROW_LABEL_FONT_SIZES,
     ARROW_WIDTH,
     BOX_BORDER,
     COLOR_PALETTE,
@@ -49,7 +50,6 @@ from whiteboard.constants import (
     DEFAULT_BOX_W,
     FONT_FAMILY,
     GRID_COLOR,
-    LABEL_FONT,
     MIN_BOX_SIZE,
     NOTE_COLOR,
     SCENE_BG,
@@ -57,6 +57,7 @@ from whiteboard.constants import (
     _ARROW_STYLE_CYCLE,
     _CTRL_MOD,
     _SIGNIFICANT_MODS,
+    _SIZE_SEQUENCE,
     _resolve_color,
 )
 from whiteboard.format import Arrow, Board, Box, Note, parse, serialize
@@ -141,6 +142,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
 
         # Vim-like box mode (style / dimension)
         self._box_mode: str = ""          # "", "style", "dimension"
+        self._arrow_mode: str = ""        # "", "style"
         self._mode_badge: QGraphicsTextItem | None = None
         self._mode_badge_bg: QGraphicsRectItem | None = None
 
@@ -271,10 +273,15 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
 
     # ── Arrow selection ──
 
-    def _select_arrow(self, arrow: Arrow):
-        self._deselect_arrow()
+    def _select_arrow(self, arrow: Arrow, keep_mode: bool = False):
+        if keep_mode:
+            # Lightweight re-select: just refresh graphics items
+            self._selected_arrow_items.clear()
+            self._selected_arrow = arrow
+        else:
+            self._deselect_arrow()
+            self._selected_arrow = arrow
         self._scene.clearSelection()
-        self._selected_arrow = arrow
         sel_color = QColor("#0178D4")
         for gfx in self._arrow_items:
             if gfx.data(0) is arrow:
@@ -294,6 +301,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
     def _deselect_arrow(self):
         if not self._selected_arrow:
             return
+        self._clear_arrow_mode()
         self._selected_arrow = None
         self._selected_arrow_items.clear()
         self._redraw_arrows()
@@ -551,7 +559,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
 
                 combined = "\n".join(label_texts)
                 label = LabelItem(combined)
-                label.setFont(LABEL_FONT)
+                label.setFont(QFont(FONT_FAMILY, ARROW_LABEL_FONT_SIZES.get(fwd.textsize, 10)))
                 label.setBrush(QBrush(QColor("#2F3437")))
                 label.setData(0, fwd)
                 if label_tooltips:
@@ -809,6 +817,77 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
     def _clear_box_mode(self):
         self._set_box_mode("")
 
+    # ── Arrow mode (vim-like style) ──
+
+    def _arrow_label_midpoint(self) -> QPointF | None:
+        """Return scene midpoint of the selected arrow's line."""
+        arrow = self._selected_arrow
+        if not arrow or not self._board:
+            return None
+        fb = self._board.box_by_id(arrow.from_id)
+        tb = self._board.box_by_id(arrow.to_id)
+        if not fb or not tb:
+            return None
+        sx = fb.x + fb.w / 2
+        sy = fb.y + fb.h / 2
+        ex = tb.x + tb.w / 2
+        ey = tb.y + tb.h / 2
+        return QPointF((sx + ex) / 2, (sy + ey) / 2)
+
+    def _set_arrow_mode(self, mode: str):
+        self._arrow_mode = mode
+        # Remove old badge
+        if self._mode_badge:
+            if self._mode_badge_bg:
+                self._scene.removeItem(self._mode_badge_bg)
+                self._mode_badge_bg = None
+            self._scene.removeItem(self._mode_badge)
+            self._mode_badge = None
+        if not mode:
+            return
+        mid = self._arrow_label_midpoint()
+        if not mid:
+            return
+        # Background rect
+        bg = QGraphicsRectItem()
+        bg_color = QColor("#2F3437")
+        bg_color.setAlphaF(0.8)
+        bg.setBrush(QBrush(bg_color))
+        bg.setPen(QPen(Qt.PenStyle.NoPen))
+        bg.setZValue(9998)
+        self._scene.addItem(bg)
+        self._mode_badge_bg = bg
+        # Text
+        badge = QGraphicsTextItem("STYLE")
+        font = QFont(FONT_FAMILY, 9)
+        badge.setFont(font)
+        badge.setDefaultTextColor(QColor("#FFFFFF"))
+        badge.setZValue(9999)
+        self._scene.addItem(badge)
+        self._mode_badge = badge
+        self._update_arrow_mode_badge_pos()
+
+    def _update_arrow_mode_badge_pos(self):
+        if not self._mode_badge or not self._arrow_mode:
+            return
+        mid = self._arrow_label_midpoint()
+        if not mid:
+            return
+        text_br = self._mode_badge.boundingRect()
+        bx = mid.x() - text_br.width() / 2
+        by = mid.y() - text_br.height() - 12
+        self._mode_badge.setPos(bx, by)
+        if self._mode_badge_bg:
+            pad = 4
+            self._mode_badge_bg.setRect(
+                bx - pad, by - pad,
+                text_br.width() + pad * 2,
+                text_br.height() + pad * 2,
+            )
+
+    def _clear_arrow_mode(self):
+        self._set_arrow_mode("")
+
     # ── Inline text editing ──
 
     def _start_editing(self, target: BoxItem | NoteItem):
@@ -857,11 +936,51 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         editor.setTextCursor(cursor)
         self._editor = editor
 
+    def _start_editing_arrow(self, arrow: Arrow):
+        self._commit_editor()
+        self._edit_target = arrow
+        self._clear_arrow_mode()
+
+        mid = self._arrow_label_midpoint()
+        if not mid:
+            return
+
+        font = QFont(FONT_FAMILY, ARROW_LABEL_FONT_SIZES.get(arrow.textsize, 10))
+        editor = QGraphicsTextItem(arrow.label)
+        editor.setFont(font)
+        editor.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+        editor.setDefaultTextColor(QColor("#2F3437"))
+        br = editor.boundingRect()
+        editor.setPos(mid.x() - br.width() / 2, mid.y() - br.height() / 2)
+
+        # Hide existing label items for this arrow
+        for gfx in self._selected_arrow_items:
+            if isinstance(gfx, QGraphicsSimpleTextItem):
+                gfx.setVisible(False)
+
+        self._scene.addItem(editor)
+        editor.setZValue(1000)
+        editor.setFocus()
+        cursor = editor.textCursor()
+        cursor.select(QTextCursor.SelectionType.Document)
+        editor.setTextCursor(cursor)
+        self._editor = editor
+
     def _commit_editor(self):
         if not self._editor or not self._edit_target:
             return
         self._push_undo()
         text = self._editor.toPlainText().strip()
+        if isinstance(self._edit_target, Arrow):
+            self._edit_target.label = text
+            self.mark_dirty()
+            self._scene.removeItem(self._editor)
+            self._editor = None
+            arrow = self._edit_target
+            self._edit_target = None
+            self._redraw_arrows()
+            self._select_arrow(arrow)
+            return
         if text:
             if isinstance(self._edit_target, BoxItem):
                 self._edit_target.update_label(text)
@@ -878,6 +997,14 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
 
     def _cancel_editor(self):
         if self._editor:
+            if isinstance(self._edit_target, Arrow):
+                self._scene.removeItem(self._editor)
+                self._editor = None
+                arrow = self._edit_target
+                self._edit_target = None
+                self._redraw_arrows()
+                self._select_arrow(arrow)
+                return
             if isinstance(self._edit_target, BoxItem):
                 self._edit_target._label.setVisible(True)
             elif isinstance(self._edit_target, NoteItem):
@@ -1134,6 +1261,10 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                 self._clear_box_mode()
                 event.accept()
                 return
+            if self._arrow_mode:
+                self._clear_arrow_mode()
+                event.accept()
+                return
             if self._selected_arrow:
                 self._deselect_arrow()
                 event.accept()
@@ -1146,6 +1277,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             if self._selected_arrow:
                 self._push_undo()
+                self._clear_arrow_mode()
                 self._board.remove_arrow(self._selected_arrow)
                 self._selected_arrow = None
                 self._selected_arrow_items.clear()
@@ -1157,30 +1289,57 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        # Arrow editing with cursor keys when arrow is selected
+        # Arrow editing when arrow is selected
         if self._selected_arrow:
-            no_mod_check = not (event.modifiers() & _SIGNIFICANT_MODS)
-            if no_mod_check and event.key() in (
-                Qt.Key.Key_Left, Qt.Key.Key_Right,
-                Qt.Key.Key_Up, Qt.Key.Key_Down,
-            ):
-                self._push_undo()
-                arrow = self._selected_arrow
-                if event.key() == Qt.Key.Key_Left:
-                    arrow.head_from = not arrow.head_from
-                elif event.key() == Qt.Key.Key_Right:
-                    arrow.head_to = not arrow.head_to
-                elif event.key() == Qt.Key.Key_Up:
-                    idx = _ARROW_STYLE_CYCLE.index(arrow.style) if arrow.style in _ARROW_STYLE_CYCLE else 0
-                    arrow.style = _ARROW_STYLE_CYCLE[(idx + 1) % len(_ARROW_STYLE_CYCLE)]
-                elif event.key() == Qt.Key.Key_Down:
-                    idx = _ARROW_STYLE_CYCLE.index(arrow.style) if arrow.style in _ARROW_STYLE_CYCLE else 0
-                    arrow.style = _ARROW_STYLE_CYCLE[(idx - 1) % len(_ARROW_STYLE_CYCLE)]
-                self._redraw_arrows()
-                self._select_arrow(arrow)
-                self.mark_dirty()
+            mods_a = event.modifiers()
+            no_mod_a = not (mods_a & _SIGNIFICANT_MODS)
+            key = event.key()
+
+            # e — edit arrow label
+            if no_mod_a and key == Qt.Key.Key_E:
+                self._start_editing_arrow(self._selected_arrow)
                 event.accept()
                 return
+
+            # s — enter arrow style mode
+            if no_mod_a and key == Qt.Key.Key_S:
+                self._set_arrow_mode("style")
+                event.accept()
+                return
+
+            # Style mode keys
+            if self._arrow_mode == "style":
+                shift_only = (mods_a & _SIGNIFICANT_MODS) == Qt.KeyboardModifier.ShiftModifier
+                if (no_mod_a and key in (
+                    Qt.Key.Key_H, Qt.Key.Key_L,
+                    Qt.Key.Key_J, Qt.Key.Key_K,
+                )) or (shift_only and key in (
+                    Qt.Key.Key_J, Qt.Key.Key_K,
+                )):
+                    self._push_undo()
+                    arrow = self._selected_arrow
+                    if no_mod_a and key == Qt.Key.Key_H:
+                        arrow.head_from = not arrow.head_from
+                    elif no_mod_a and key == Qt.Key.Key_L:
+                        arrow.head_to = not arrow.head_to
+                    elif no_mod_a and key == Qt.Key.Key_J:
+                        idx = _SIZE_SEQUENCE.index(arrow.textsize) if arrow.textsize in _SIZE_SEQUENCE else 0
+                        arrow.textsize = _SIZE_SEQUENCE[min(idx + 1, len(_SIZE_SEQUENCE) - 1)]
+                    elif no_mod_a and key == Qt.Key.Key_K:
+                        idx = _SIZE_SEQUENCE.index(arrow.textsize) if arrow.textsize in _SIZE_SEQUENCE else 0
+                        arrow.textsize = _SIZE_SEQUENCE[max(idx - 1, 0)]
+                    elif shift_only and key == Qt.Key.Key_J:
+                        idx = _ARROW_STYLE_CYCLE.index(arrow.style) if arrow.style in _ARROW_STYLE_CYCLE else 0
+                        arrow.style = _ARROW_STYLE_CYCLE[(idx + 1) % len(_ARROW_STYLE_CYCLE)]
+                    elif shift_only and key == Qt.Key.Key_K:
+                        idx = _ARROW_STYLE_CYCLE.index(arrow.style) if arrow.style in _ARROW_STYLE_CYCLE else 0
+                        arrow.style = _ARROW_STYLE_CYCLE[(idx - 1) % len(_ARROW_STYLE_CYCLE)]
+                    self._redraw_arrows()
+                    self._select_arrow(arrow, keep_mode=True)
+                    self._update_arrow_mode_badge_pos()
+                    self.mark_dirty()
+                    event.accept()
+                    return
 
         mods = event.modifiers()
         has_selection = bool(self._scene.selectedItems())
@@ -2187,8 +2346,11 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             ("G", "Toggle grid"),
             ("M", "Toggle minimap"),
             # Arrow (selected)
-            ("\u2190 / \u2192", "Toggle arrowheads"),
-            ("\u2191 / \u2193", "Cycle arrow style"),
+            ("e", "Edit arrow label"),
+            ("s", "Enter arrow style mode"),
+            ("h / l", "Toggle arrowheads"),
+            ("j / k", "Arrow label size"),
+            ("\u21e7J / \u21e7K", "Cycle arrow style"),
             # Other
             ("Shift+Click", "Toggle selection"),
             ("Shift+H", "This cheatsheet"),

@@ -866,3 +866,44 @@ def test_note_id_roundtrip():
     text = '@ note myNote 100,200 "hello"\n'
     board = parse(text)
     assert serialize(board) == text
+
+
+# ── Arrow textsize tests ─────────────────────────────────
+
+def test_parse_arrow_with_textsize():
+    text = '@ arrow a -> b "calls" ~large\n'
+    board = parse(text)
+    assert board.arrows[0].textsize == "large"
+    assert board.arrows[0].label == "calls"
+
+
+def test_parse_arrow_without_textsize():
+    text = '@ arrow a -> b "calls"\n'
+    board = parse(text)
+    assert board.arrows[0].textsize == ""
+
+
+def test_serialize_arrow_with_textsize():
+    arrow = Arrow(from_id="a", to_id="b", label="calls", textsize="xlarge")
+    board = Board()
+    board.add_arrow(arrow)
+    text = serialize(board)
+    assert '@ arrow a -> b "calls" ~xlarge' in text
+
+
+def test_arrow_textsize_roundtrip():
+    text = '@ arrow a -> b "calls" ~large\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_arrow_all_fields_roundtrip():
+    text = '@ arrow a <-> b "data" !dashed ~xxlarge  # check latency\n'
+    board = parse(text)
+    arrow = board.arrows[0]
+    assert arrow.style == "dashed"
+    assert arrow.textsize == "xxlarge"
+    assert arrow.annotation == "check latency"
+    assert arrow.head_from is True
+    assert arrow.head_to is True
+    assert serialize(board) == text

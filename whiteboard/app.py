@@ -85,7 +85,6 @@ class MainWindow(QMainWindow):
 
         modes = [
             ("Select (V)", Mode.SELECT),
-            ("Pan (H)", Mode.PAN),
             ("Rect (R)", Mode.RECT),
             ("Text (T)", Mode.TEXT),
             ("Connect (C)", Mode.CONNECT),

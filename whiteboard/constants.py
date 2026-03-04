@@ -117,7 +117,6 @@ _UNDO_LIMIT = 50
 
 class Mode(enum.Enum):
     SELECT = "select"
-    PAN = "pan"
     RECT = "rect"
     TEXT = "text"
     CONNECT = "connect"

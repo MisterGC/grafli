@@ -154,6 +154,14 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._anim_start_zoom: float = 1.0
         self._anim_end_zoom: float = 1.0
 
+        # Search state
+        self._search_active = False
+        self._search_text = ""
+        self._search_matches: list[BoxItem | NoteItem] = []
+        self._search_index = 0
+        self._search_label: QGraphicsTextItem | None = None
+        self._search_label_bg: QGraphicsRectItem | None = None
+
         self.arrow_update_needed.connect(self._redraw_arrows)
         self._scene.selectionChanged.connect(self._on_selection_changed)
 
@@ -202,10 +210,6 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
             self.setCursor(Qt.CursorShape.ArrowCursor)
             self._set_items_movable(True)
-        elif mode == Mode.PAN:
-            self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
-            self._set_items_movable(False)
         elif mode == Mode.RECT:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
@@ -251,6 +255,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         """Clean up any in-progress mode interactions."""
         self._clear_box_mode()
         self._clear_jump_labels()
+        self._cancel_search()
         self._deselect_arrow()
         if self._rect_preview:
             self._scene.removeItem(self._rect_preview)
@@ -934,8 +939,6 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             # Save snapshot before potential move
             self._save_pre_action_snapshot()
             self._press_select(event)
-        elif self._mode == Mode.PAN:
-            self._press_pan(event)
         elif self._mode == Mode.RECT:
             self._press_rect(event)
         elif self._mode == Mode.TEXT:
@@ -978,8 +981,6 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                 return
             super().mouseMoveEvent(event)
             self._update_reparent_highlight()
-        elif self._mode == Mode.PAN:
-            self._move_pan(event)
         elif self._mode == Mode.RECT:
             self._move_rect(event)
         elif self._mode == Mode.CONNECT:
@@ -990,10 +991,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = False
-            if self._mode == Mode.PAN:
-                self.setCursor(Qt.CursorShape.OpenHandCursor)
-            else:
-                self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
             event.accept()
             return
 
@@ -1034,8 +1032,6 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                     if isinstance(item, BoxItem):
                         self._check_nesting(item)
                 self._commit_pre_action_snapshot()
-        elif self._mode == Mode.PAN:
-            self._release_pan(event)
         elif self._mode == Mode.RECT:
             self._release_rect(event)
         elif self._mode == Mode.CONNECT:
@@ -1082,6 +1078,12 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                 return
             # Let the editor handle the key
             super().keyPressEvent(event)
+            return
+
+        # Search mode handling
+        if self._search_active:
+            self._handle_search_key(event)
+            event.accept()
             return
 
         # Jump mode handling
@@ -1146,6 +1148,41 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         mods = event.modifiers()
         has_selection = bool(self._scene.selectedItems())
         no_mod = not (mods & _SIGNIFICANT_MODS)
+
+        # Vim aliases — u (undo), Ctrl+R (redo), x (delete), o/O (adjacent box)
+        if event.key() == Qt.Key.Key_U and no_mod:
+            self._undo()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_R and mods & _CTRL_MOD:
+            self._redo()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_X and no_mod:
+            if self._selected_arrow:
+                self._push_undo()
+                self._board.remove_arrow(self._selected_arrow)
+                self._selected_arrow = None
+                self._selected_arrow_items.clear()
+                self._redraw_arrows()
+                self.mark_dirty()
+            else:
+                self._delete_selected()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_O and no_mod:
+            self._create_adjacent_box("down")
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_O and mods & Qt.KeyboardModifier.ShiftModifier:
+            self._create_adjacent_box("up")
+            event.accept()
+            return
+        # / — search by label
+        if event.key() == Qt.Key.Key_Slash and no_mod:
+            self._start_search()
+            event.accept()
+            return
 
         # Zoom with +/-
         if event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
@@ -1411,7 +1448,6 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         if no_mod:
             mode_keys = {
                 Qt.Key.Key_V: Mode.SELECT,
-                Qt.Key.Key_H: Mode.PAN,
                 Qt.Key.Key_R: Mode.RECT,
                 Qt.Key.Key_T: Mode.TEXT,
                 Qt.Key.Key_C: Mode.CONNECT,
@@ -1474,33 +1510,6 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         # Clicking elsewhere deselects arrow
         self._deselect_arrow()
         super().mousePressEvent(event)
-
-    # ── PAN mode ──
-
-    def _press_pan(self, event):
-        self._panning = True
-        self._pan_start = event.position()
-        self.setCursor(Qt.CursorShape.ClosedHandCursor)
-        event.accept()
-
-    def _move_pan(self, event):
-        if self._panning:
-            delta = event.position() - self._pan_start
-            self._pan_start = event.position()
-            self.horizontalScrollBar().setValue(
-                self.horizontalScrollBar().value() - int(delta.x())
-            )
-            self.verticalScrollBar().setValue(
-                self.verticalScrollBar().value() - int(delta.y())
-            )
-            event.accept()
-        else:
-            super().mouseMoveEvent(event)
-
-    def _release_pan(self, event):
-        self._panning = False
-        self.setCursor(Qt.CursorShape.OpenHandCursor)
-        event.accept()
 
     # ── RECT mode ──
 
@@ -1818,6 +1827,124 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._jump_prefix = ""
         self._jump_active = False
 
+    # ── Search by label (/) ──
+
+    def _start_search(self):
+        self._search_active = True
+        self._search_text = ""
+        self._search_matches.clear()
+        self._search_index = 0
+        self._update_search_badge()
+
+    def _handle_search_key(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self._cancel_search()
+            return
+        if event.key() == Qt.Key.Key_Return:
+            self._accept_search()
+            return
+        if event.key() == Qt.Key.Key_Backspace:
+            self._search_text = self._search_text[:-1]
+        elif event.key() == Qt.Key.Key_Tab:
+            # Cycle to next match
+            if self._search_matches:
+                self._search_index = (self._search_index + 1) % len(self._search_matches)
+                self._highlight_search_match()
+            return
+        else:
+            ch = event.text()
+            if ch and ch.isprintable():
+                self._search_text += ch
+        self._update_search_results()
+        self._update_search_badge()
+
+    def _update_search_results(self):
+        self._search_matches.clear()
+        self._search_index = 0
+        if not self._search_text:
+            self._scene.clearSelection()
+            return
+        query = self._search_text.lower()
+        for item in self._box_items.values():
+            if query in item.box.label.lower() or query in item.box.id.lower():
+                self._search_matches.append(item)
+        for item in self._note_items:
+            if query in item.note.text.lower():
+                self._search_matches.append(item)
+        self._highlight_search_match()
+
+    def _highlight_search_match(self):
+        self._scene.clearSelection()
+        if self._search_matches:
+            target = self._search_matches[self._search_index]
+            target.setSelected(True)
+            self.centerOn(target)
+
+    def _accept_search(self):
+        if self._search_matches:
+            target = self._search_matches[self._search_index]
+            self._cancel_search()
+            self._scene.clearSelection()
+            target.setSelected(True)
+            if isinstance(target, BoxItem):
+                b = target.box
+                r = QRectF(b.x, b.y, b.w, b.h).adjusted(-60, -60, 60, 60)
+            else:
+                r = target.sceneBoundingRect().adjusted(-60, -60, 60, 60)
+            self._animate_to_rect(r)
+        else:
+            self._cancel_search()
+
+    def _cancel_search(self):
+        self._search_active = False
+        self._search_text = ""
+        self._search_matches.clear()
+        self._remove_search_badge()
+
+    def _update_search_badge(self):
+        self._remove_search_badge()
+        vp = self.viewport().rect()
+        # Map viewport top-center to scene coordinates for badge placement
+        scene_top = self.mapToScene(QPointF(vp.width() / 2, 10).toPoint())
+
+        count = len(self._search_matches)
+        display = f"/{self._search_text}"
+        if self._search_text:
+            display += f"  [{count} match{'es' if count != 1 else ''}]"
+
+        badge = QGraphicsTextItem(display)
+        font = QFont(FONT_FAMILY, 12)
+        badge.setFont(font)
+        badge.setDefaultTextColor(QColor("#FFFFFF"))
+        badge.setZValue(10001)
+        br = badge.boundingRect()
+
+        bg = QGraphicsRectItem()
+        bg_color = QColor("#2F3437")
+        bg_color.setAlphaF(0.9)
+        bg.setBrush(QBrush(bg_color))
+        bg.setPen(QPen(Qt.PenStyle.NoPen))
+        bg.setZValue(10000)
+
+        bx = scene_top.x() - br.width() / 2
+        by = scene_top.y()
+        badge.setPos(bx, by)
+        pad = 6
+        bg.setRect(bx - pad, by - pad, br.width() + pad * 2, br.height() + pad * 2)
+
+        self._scene.addItem(bg)
+        self._scene.addItem(badge)
+        self._search_label = badge
+        self._search_label_bg = bg
+
+    def _remove_search_badge(self):
+        if self._search_label:
+            self._scene.removeItem(self._search_label)
+            self._search_label = None
+        if self._search_label_bg:
+            self._scene.removeItem(self._search_label_bg)
+            self._search_label_bg = None
+
     # ── Keyboard box creation (Ctrl+Arrow) ──
 
     def _create_adjacent_box(self, direction: str):
@@ -1996,35 +2123,51 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
 
     def _show_cheatsheet(self):
         shortcuts = [
+            # Modes
             ("V", "Select mode"),
             ("R", "Create box (one-shot)"),
             ("T", "Create note (one-shot)"),
             ("C", "Connect arrow (one-shot)"),
-            ("H", "Pan mode (no selection)"),
-            ("h / l", "Cycle color (with selection)"),
-            ("j / k", "Cycle text size (with selection)"),
-            ("Shift+A", "Cycle anchor"),
-            ("Shift+G", "Snap to grid"),
-            ("G", "Toggle grid"),
-            ("M", "Toggle minimap"),
+            # Navigation
+            ("Arrow keys", "Pan viewport"),
+            ("Middle-drag", "Pan anywhere"),
+            ("+ / -", "Zoom in / out"),
             ("Z", "Zoom to selection"),
             ("Shift+Z", "Zoom to fit all"),
             ("P", "Select parent (zoom if needed)"),
-            ("+ / -", "Zoom in / out"),
-            ("Arrow keys", "Pan viewport"),
-            ("Ctrl+Arrow", "Create adjacent box"),
             ("Ctrl+J", "Jump to shape / arrow"),
-            ("\u2190 / \u2192", "Toggle arrowheads (arrow selected)"),
-            ("\u2191 / \u2193", "Cycle arrow style (arrow selected)"),
-            ("Shift+H", "This cheatsheet"),
+            ("/", "Search by label"),
+            # Editing
             ("E", "Edit selected element"),
-            ("Delete", "Delete selected / arrow"),
-            ("Shift+Click", "Toggle selection"),
-            ("Alt+Drag", "Connect boxes (from SELECT)"),
-            ("Alt+Click", "Paste at position"),
             ("Double-click", "Edit text"),
             ("Enter", "Accept edit"),
-            ("Escape", "Cancel edit / back to SELECT"),
+            ("u", "Undo"),
+            ("Ctrl+R", "Redo"),
+            ("x", "Delete selected / arrow"),
+            ("Delete", "Delete selected / arrow"),
+            # Creation
+            ("o", "Create box below"),
+            ("O", "Create box above"),
+            ("Ctrl+Arrow", "Create adjacent box"),
+            ("Alt+Drag", "Connect boxes (from SELECT)"),
+            ("Alt+Click", "Paste at position"),
+            # Style (with selection)
+            ("h / l", "Cycle color"),
+            ("j / k", "Cycle text size"),
+            ("s", "Enter style mode"),
+            ("d", "Enter dimension mode"),
+            ("Shift+A", "Cycle anchor"),
+            ("Shift+G", "Snap to grid"),
+            # View
+            ("G", "Toggle grid"),
+            ("M", "Toggle minimap"),
+            # Arrow (selected)
+            ("\u2190 / \u2192", "Toggle arrowheads"),
+            ("\u2191 / \u2193", "Cycle arrow style"),
+            # Other
+            ("Shift+Click", "Toggle selection"),
+            ("Shift+H", "This cheatsheet"),
+            ("Escape", "Cancel / back to SELECT"),
         ]
         rows = "".join(
             f"<tr><td style='padding-right:16px'><b>{key}</b></td>"

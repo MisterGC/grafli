@@ -358,6 +358,8 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._connect_source = None
         self._selected_arrow = None
         self._selected_arrow_items.clear()
+        self._highlight_parent = None
+        self._highlight_orig_pen = None
 
         if not self._board:
             return
@@ -699,9 +701,12 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
 
     def _clear_reparent_highlight(self):
         if self._highlight_parent and self._highlight_orig_pen is not None:
-            self._highlight_parent.setPen(self._highlight_orig_pen)
-            self._highlight_parent = None
-            self._highlight_orig_pen = None
+            try:
+                self._highlight_parent.setPen(self._highlight_orig_pen)
+            except RuntimeError:
+                pass  # C++ object already deleted (scene rebuild)
+        self._highlight_parent = None
+        self._highlight_orig_pen = None
 
     # ── Box mode (vim-like style / dimension) ──
 

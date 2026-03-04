@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import signal
 import sys
 from pathlib import Path
 
@@ -432,6 +433,13 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Whiteboard")
     _register_bundled_fonts()
+
+    # Let Ctrl+C quit the app cleanly
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
+    # Timer gives Python a chance to process the signal inside Qt's loop
+    tick = QTimer()
+    tick.start(200)
+    tick.timeout.connect(lambda: None)
 
     file_path = sys.argv[1] if len(sys.argv) > 1 else None
     window = MainWindow(file_path)

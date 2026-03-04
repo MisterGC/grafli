@@ -126,7 +126,6 @@ _ANCHOR_CYCLE = ["", "topleft", "topcenter"]
 _BOX_STYLE_CYCLE = ["", "flat"]
 _NOTE_STYLE_CYCLE = ["", "mono"]
 _ARROW_STYLE_CYCLE = ["", "thick", "dashed", "dotted"]
-
 _SIGNIFICANT_MODS = (
     Qt.KeyboardModifier.ShiftModifier
     | Qt.KeyboardModifier.ControlModifier
@@ -731,6 +730,41 @@ def _line_rect_clip(p1: QPointF, p2: QPointF, rect: QRectF) -> tuple[QPointF, QP
     return enter_pt, exit_pt
 
 
+def _aligned_edge_points(
+    from_box: Box, to_box: Box,
+) -> tuple[QPointF, QPointF] | None:
+    """Return edge-to-edge points when boxes share horizontal or vertical range.
+
+    Returns a (start, end) pair for a straight H or V segment, or None when
+    the boxes are diagonal (caller falls back to center-to-center logic).
+    """
+    fcy = from_box.y + from_box.h / 2
+    tcy = to_box.y + to_box.h / 2
+    fcx = from_box.x + from_box.w / 2
+    tcx = to_box.x + to_box.w / 2
+
+    x_lo = max(from_box.x, to_box.x)
+    x_hi = min(from_box.x + from_box.w, to_box.x + to_box.w)
+    y_lo = max(from_box.y, to_box.y)
+    y_hi = min(from_box.y + from_box.h, to_box.y + to_box.h)
+
+    if x_lo < x_hi:
+        # Horizontal overlap → straight vertical line
+        mx = (x_lo + x_hi) / 2
+        sy = from_box.y + from_box.h if fcy < tcy else from_box.y
+        ey = to_box.y if fcy < tcy else to_box.y + to_box.h
+        return QPointF(mx, sy), QPointF(mx, ey)
+
+    if y_lo < y_hi:
+        # Vertical overlap → straight horizontal line
+        my = (y_lo + y_hi) / 2
+        sx = from_box.x + from_box.w if fcx < tcx else from_box.x
+        ex = to_box.x if fcx < tcx else to_box.x + to_box.w
+        return QPointF(sx, my), QPointF(ex, my)
+
+    return None
+
+
 def _arrowhead_polygon(tip: QPointF, angle: float) -> QPolygonF:
     """Create arrowhead triangle at tip pointing in direction angle (radians)."""
     s = ARROWHEAD_SIZE
@@ -1118,15 +1152,19 @@ class WhiteboardView(QGraphicsView):
             elif fwd.style == "thick":
                 pen.setWidthF(ARROW_WIDTH * 2)
 
-            from_center = QPointF(
-                from_box.x + from_box.w / 2, from_box.y + from_box.h / 2
-            )
-            to_center = QPointF(
-                to_box.x + to_box.w / 2, to_box.y + to_box.h / 2
-            )
-
-            start = _box_edge_point(from_box, to_center)
-            end = _box_edge_point(to_box, from_center)
+            # Calculate start/end points
+            aligned = _aligned_edge_points(from_box, to_box)
+            if aligned:
+                start, end = aligned
+            else:
+                from_center = QPointF(
+                    from_box.x + from_box.w / 2, from_box.y + from_box.h / 2
+                )
+                to_center = QPointF(
+                    to_box.x + to_box.w / 2, to_box.y + to_box.h / 2
+                )
+                start = _box_edge_point(from_box, to_center)
+                end = _box_edge_point(to_box, from_center)
 
             dx = end.x() - start.x()
             dy = end.y() - start.y()
@@ -1165,7 +1203,9 @@ class WhiteboardView(QGraphicsView):
             if rev and rev.annotation:
                 label_tooltips.append(rev.annotation)
 
-            if label_texts:
+            total_len = math.hypot(dx, dy)
+            has_label = False
+            if label_texts and total_len > 0:
                 mid_x = (start.x() + end.x()) / 2
                 mid_y = (start.y() + end.y()) / 2
 
@@ -1180,15 +1220,20 @@ class WhiteboardView(QGraphicsView):
                 label_x = mid_x - br.width() / 2
                 label_y = mid_y - br.height() / 2
 
-                # Gap rect around label with padding
                 pad = 4
                 gap = QRectF(
                     label_x - pad, label_y - pad,
                     br.width() + 2 * pad, br.height() + 2 * pad,
                 )
 
-                seg1_end, seg2_start = _line_rect_clip(start, end, gap)
+                label.setPos(label_x, label_y)
+                self._scene.addItem(label)
+                self._arrow_items.append(label)
+                has_label = True
 
+            # Draw line (split around label gap if needed)
+            if has_label:
+                seg1_end, seg2_start = _line_rect_clip(start, end, gap)
                 line1 = ArrowLineItem(
                     start.x(), start.y(), seg1_end.x(), seg1_end.y()
                 )
@@ -1203,10 +1248,6 @@ class WhiteboardView(QGraphicsView):
                 line2.setData(0, fwd)
                 self._scene.addItem(line2)
                 self._arrow_items.append(line2)
-
-                label.setPos(label_x, label_y)
-                self._scene.addItem(label)
-                self._arrow_items.append(label)
             else:
                 line = ArrowLineItem(
                     start.x(), start.y(), end.x(), end.y()

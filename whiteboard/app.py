@@ -1024,11 +1024,24 @@ class WhiteboardView(QGraphicsView):
         if not self._board:
             return
 
+        dupe_ids: list[str] = []
         for box in self._board.boxes:
             item = BoxItem(box)
             self._scene.addItem(item)
+            if box.id in self._box_items:
+                self._scene.removeItem(self._box_items[box.id])
+                dupe_ids.append(box.id)
             self._box_items[box.id] = item
             item._auto_grow()
+
+        window = self.window()
+        if hasattr(window, "_status_warn"):
+            if dupe_ids:
+                window._status_warn.setText(
+                    f"Duplicate IDs: {', '.join(dupe_ids)}"
+                )
+            else:
+                window._status_warn.setText("")
 
         for note in self._board.notes:
             item = NoteItem(note)
@@ -2992,7 +3005,11 @@ class MainWindow(QMainWindow):
         self._status_pos = QLabel("0, 0")
         self._status_sel = QLabel("")
 
+        self._status_warn = QLabel("")
+        self._status_warn.setStyleSheet("color: #e04040; font-weight: bold;")
+
         self.statusBar().addWidget(self._status_mode)
+        self.statusBar().addPermanentWidget(self._status_warn)
         self.statusBar().addPermanentWidget(self._status_sel)
         self.statusBar().addPermanentWidget(self._status_pos)
         self.statusBar().addPermanentWidget(self._status_zoom)

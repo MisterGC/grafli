@@ -8,7 +8,7 @@ Format spec:
   @ arrow <from_id> <-> <to_id> "<label>"         (bidirectional)
   @ arrow <from_id> -- <to_id> "<label>"          (no heads)
   @ arrow <from_id> -> <to_id> "label" !dashed    (arrow styles: dashed/dotted/thick)
-  @ note <x>,<y> "<text>"
+  @ note <id> <x>,<y> "<text>"
   Any element line may end with  # annotation text
 """
 
@@ -47,6 +47,7 @@ class Arrow:
 
 @dataclass
 class Note:
+    id: str
     x: float
     y: float
     text: str
@@ -74,6 +75,12 @@ class Board:
                 return b
         return None
 
+    def note_by_id(self, note_id: str) -> Note | None:
+        for n in self.notes:
+            if n.id == note_id:
+                return n
+        return None
+
     def next_box_id(self) -> str:
         """Return the next available box<N> identifier."""
         max_n = 0
@@ -85,6 +92,17 @@ class Board:
                     pass
         return f"box{max_n + 1}"
 
+    def next_note_id(self) -> str:
+        """Return the next available n<N> identifier."""
+        max_n = 0
+        for n in self.notes:
+            if n.id.startswith("n"):
+                try:
+                    max_n = max(max_n, int(n.id[1:]))
+                except ValueError:
+                    pass
+        return f"n{max_n + 1}"
+
     def add_box(self, box: Box) -> None:
         self.boxes.append(box)
         self._lines.append(("box", box))
@@ -94,6 +112,8 @@ class Board:
         self._lines.append(("arrow", arrow))
 
     def add_note(self, note: Note) -> None:
+        if not note.id:
+            note.id = self.next_note_id()
         self.notes.append(note)
         self._lines.append(("note", note))
 
@@ -133,7 +153,7 @@ _RE_ARROW = re.compile(
 )
 
 _RE_NOTE = re.compile(
-    r'^@\s+note\s+(-?[\d.]+),\s*(-?[\d.]+)\s+"([^"]*)"'
+    r'^@\s+note\s+(?:([a-zA-Z_]\S*)\s+)?(-?[\d.]+),\s*(-?[\d.]+)\s+"([^"]*)"'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
     r'(?:\s+!(mono))?'
@@ -198,13 +218,14 @@ def parse(text: str) -> Board:
         m = _RE_NOTE.match(stripped)
         if m:
             note = Note(
-                x=float(m.group(1)),
-                y=float(m.group(2)),
-                text=m.group(3),
-                color=m.group(4) or "",
-                textsize=m.group(5) or "",
-                style=m.group(6) or "",
-                annotation=m.group(7) or "",
+                id=m.group(1) or "",
+                x=float(m.group(2)),
+                y=float(m.group(3)),
+                text=m.group(4),
+                color=m.group(5) or "",
+                textsize=m.group(6) or "",
+                style=m.group(7) or "",
+                annotation=m.group(8) or "",
             )
             board.notes.append(note)
             board._lines.append(("note", note))
@@ -213,6 +234,11 @@ def parse(text: str) -> Board:
         # Unknown line — preserve as comment
         board.comments.append(stripped)
         board._lines.append(("comment", stripped))
+
+    # Backfill IDs for legacy notes that had no ID
+    for note in board.notes:
+        if not note.id:
+            note.id = board.next_note_id()
 
     return board
 
@@ -268,7 +294,7 @@ def _serialize_arrow(arrow: Arrow) -> str:
 def _serialize_note(note: Note) -> str:
     x = int(note.x) if note.x == int(note.x) else note.x
     y = int(note.y) if note.y == int(note.y) else note.y
-    s = f'@ note {x},{y} "{note.text}"'
+    s = f'@ note {note.id} {x},{y} "{note.text}"'
     if note.color:
         s += f" {note.color}"
     if note.textsize:

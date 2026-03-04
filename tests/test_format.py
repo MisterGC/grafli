@@ -26,7 +26,7 @@ SAMPLE = """\
 @ arrow auth -> cache "sessions"
 @ arrow db -> cache
 
-@ note 300,400 "TODO: Add rate limiting"
+@ note n1 300,400 "TODO: Add rate limiting"
 """
 
 
@@ -54,6 +54,7 @@ def test_parse_arrows():
 def test_parse_notes():
     board = parse(SAMPLE)
     assert len(board.notes) == 1
+    assert board.notes[0].id == "n1"
     assert board.notes[0].x == 300
     assert board.notes[0].y == 400
     assert board.notes[0].text == "TODO: Add rate limiting"
@@ -76,11 +77,11 @@ def test_serialize_from_scratch():
     board = Board()
     board.boxes.append(Box(id="a", label="Box A", x=10, y=20, w=100, h=50))
     board.arrows.append(Arrow(from_id="a", to_id="a", label="self"))
-    board.notes.append(Note(x=0, y=0, text="hello"))
+    board.notes.append(Note(id="n1", x=0, y=0, text="hello"))
     text = serialize(board)
     assert '@ box a "Box A" 10,20 100x50' in text
     assert '@ arrow a -> a "self"' in text
-    assert '@ note 0,0 "hello"' in text
+    assert '@ note n1 0,0 "hello"' in text
 
 
 def test_file_roundtrip(tmp_path: Path):
@@ -116,7 +117,7 @@ def test_float_coordinates():
 
 
 def test_negative_coordinates():
-    text = '@ box n "Neg" -50,-100 200x100\n@ note -10,-20 "offscreen"\n'
+    text = '@ box n "Neg" -50,-100 200x100\n@ note n1 -10,-20 "offscreen"\n'
     board = parse(text)
     assert board.boxes[0].x == -50
     assert board.notes[0].x == -10
@@ -193,9 +194,10 @@ def test_add_arrow():
 def test_add_note():
     board = parse(SAMPLE)
     n = len(board.notes)
-    note = Note(x=500, y=500, text="new note")
+    note = Note(id="", x=500, y=500, text="new note")
     board.add_note(note)
     assert len(board.notes) == n + 1
+    assert note.id != ""  # auto-assigned
     assert any(k == "note" and v is note for k, v in board._lines)
 
 
@@ -393,27 +395,27 @@ def test_textsize_and_parent_roundtrip():
 # ── Note color tests ─────────────────────────────────────────
 
 def test_parse_note_with_color():
-    text = '@ note 100,200 "hello" #FF6B6B\n'
+    text = '@ note n1 100,200 "hello" #FF6B6B\n'
     board = parse(text)
     assert board.notes[0].color == "#FF6B6B"
 
 
 def test_parse_note_without_color():
-    text = '@ note 100,200 "hello"\n'
+    text = '@ note n1 100,200 "hello"\n'
     board = parse(text)
     assert board.notes[0].color == ""
 
 
 def test_serialize_note_with_color():
-    note = Note(x=10, y=20, text="hi", color="#4285F4")
+    note = Note(id="n1", x=10, y=20, text="hi", color="#4285F4")
     board = Board()
     board.add_note(note)
     text = serialize(board)
-    assert '@ note 10,20 "hi" #4285F4' in text
+    assert '@ note n1 10,20 "hi" #4285F4' in text
 
 
 def test_note_color_roundtrip():
-    text = '@ note 10,20 "hi" #FF6B6B\n'
+    text = '@ note n1 10,20 "hi" #FF6B6B\n'
     board = parse(text)
     assert serialize(board) == text
 
@@ -427,7 +429,7 @@ def test_parse_box_with_token_color():
 
 
 def test_parse_note_with_token_color():
-    text = '@ note 100,200 "hello" %accent\n'
+    text = '@ note n1 100,200 "hello" %accent\n'
     board = parse(text)
     assert board.notes[0].color == "%accent"
 
@@ -450,7 +452,7 @@ def test_all_fields_with_token_color():
 
 
 def test_note_token_color_roundtrip():
-    text = '@ note 10,20 "hi" %highlight\n'
+    text = '@ note n1 10,20 "hi" %highlight\n'
     board = parse(text)
     assert serialize(board) == text
 
@@ -496,33 +498,33 @@ def test_box_all_fields_with_style_roundtrip():
 
 
 def test_parse_note_with_style_mono():
-    text = '@ note 100,200 "Label" !mono\n'
+    text = '@ note n1 100,200 "Label" !mono\n'
     board = parse(text)
     assert board.notes[0].style == "mono"
 
 
 def test_parse_note_without_style():
-    text = '@ note 100,200 "Annotation"\n'
+    text = '@ note n1 100,200 "Annotation"\n'
     board = parse(text)
     assert board.notes[0].style == ""
 
 
 def test_serialize_note_with_style():
-    note = Note(x=10, y=20, text="Label", style="mono")
+    note = Note(id="n1", x=10, y=20, text="Label", style="mono")
     board = Board()
     board.add_note(note)
     text = serialize(board)
-    assert '@ note 10,20 "Label" !mono' in text
+    assert '@ note n1 10,20 "Label" !mono' in text
 
 
 def test_note_style_roundtrip():
-    text = '@ note 100,200 "Label" !mono\n'
+    text = '@ note n1 100,200 "Label" !mono\n'
     board = parse(text)
     assert serialize(board) == text
 
 
 def test_note_all_fields_with_style_roundtrip():
-    text = '@ note 100,200 "Label" %accent ~large !mono\n'
+    text = '@ note n1 100,200 "Label" %accent ~large !mono\n'
     board = parse(text)
     note = board.notes[0]
     assert note.color == "%accent"
@@ -724,7 +726,7 @@ def test_parse_arrow_annotation():
 
 
 def test_parse_note_annotation():
-    text = '@ note 50,300 "entry"  # move this\n'
+    text = '@ note n1 50,300 "entry"  # move this\n'
     board = parse(text)
     assert board.notes[0].annotation == "move this"
 
@@ -748,11 +750,11 @@ def test_serialize_arrow_annotation():
 
 
 def test_serialize_note_annotation():
-    note = Note(x=50, y=300, text="entry", annotation="move this")
+    note = Note(id="n1", x=50, y=300, text="entry", annotation="move this")
     board = Board()
     board.add_note(note)
     text = serialize(board)
-    assert '@ note 50,300 "entry"  # move this' in text
+    assert '@ note n1 50,300 "entry"  # move this' in text
 
 
 def test_box_annotation_roundtrip():
@@ -768,7 +770,7 @@ def test_arrow_annotation_roundtrip():
 
 
 def test_note_annotation_roundtrip():
-    text = '@ note 50,300 "entry"  # move this\n'
+    text = '@ note n1 50,300 "entry"  # move this\n'
     board = parse(text)
     assert serialize(board) == text
 
@@ -793,7 +795,7 @@ def test_box_all_fields_with_annotation_roundtrip():
 
 
 def test_note_all_fields_with_annotation_roundtrip():
-    text = '@ note 100,200 "Label" %accent ~large !mono  # move up\n'
+    text = '@ note n1 100,200 "Label" %accent ~large !mono  # move up\n'
     board = parse(text)
     note = board.notes[0]
     assert note.annotation == "move up"
@@ -809,7 +811,7 @@ def test_parse_box_xxxlarge():
 
 
 def test_parse_note_xxxlarge():
-    text = '@ note 100,200 "◇" ~xxxlarge\n'
+    text = '@ note n1 100,200 "◇" ~xxxlarge\n'
     board = parse(text)
     assert board.notes[0].textsize == "xxxlarge"
 
@@ -821,6 +823,46 @@ def test_box_xxxlarge_roundtrip():
 
 
 def test_note_xxxlarge_roundtrip():
-    text = '@ note 100,200 "◇" ~xxxlarge\n'
+    text = '@ note n1 100,200 "◇" ~xxxlarge\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+# ── Note ID tests ───────────────────────────────────────
+
+def test_parse_note_with_id():
+    text = '@ note myNote 100,200 "hello"\n'
+    board = parse(text)
+    assert board.notes[0].id == "myNote"
+
+
+def test_parse_note_without_id_backfills():
+    text = '@ note 100,200 "hello"\n'
+    board = parse(text)
+    assert board.notes[0].id == "n1"
+
+
+def test_note_by_id():
+    board = parse(SAMPLE)
+    note = board.note_by_id("n1")
+    assert note is not None
+    assert note.text == "TODO: Add rate limiting"
+    assert board.note_by_id("nonexistent") is None
+
+
+def test_next_note_id_empty():
+    board = Board()
+    assert board.next_note_id() == "n1"
+
+
+def test_next_note_id_existing():
+    board = parse(SAMPLE)
+    assert board.next_note_id() == "n2"
+    board.add_note(Note(id="n5", x=0, y=0, text="x"))
+    assert board.next_note_id() == "n6"
+
+
+def test_note_id_roundtrip():
+    text = '@ note myNote 100,200 "hello"\n'
     board = parse(text)
     assert serialize(board) == text

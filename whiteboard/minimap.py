@@ -40,11 +40,10 @@ class MinimapMixin:
         for box in self._board.boxes:
             rects.append(QRectF(box.x, box.y, box.w, box.h))
         for note in self._board.notes:
-            for ni in self._note_items:
-                if ni.note is note:
-                    br = ni.boundingRect()
-                    rects.append(QRectF(note.x, note.y, br.width(), br.height()))
-                    break
+            ni = self._note_items.get(note.id)
+            if ni:
+                br = ni.boundingRect()
+                rects.append(QRectF(note.x, note.y, br.width(), br.height()))
         if not rects:
             return
         scene_rect = rects[0]

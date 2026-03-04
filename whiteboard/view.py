@@ -35,9 +35,11 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from whiteboard.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_point, _line_rect_clip
+from whiteboard.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_point, _line_rect_clip, _rect_edge_point
 from whiteboard.commands import CommandsMixin
 from whiteboard.constants import (
+    ANNOTATION_ARROW_COLOR,
+    ANNOTATION_ARROW_WIDTH,
     ARROW_COLOR,
     ARROW_WIDTH,
     BOX_BORDER,
@@ -88,7 +90,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._board: Board | None = None
         self._box_items: dict[str, BoxItem] = {}
         self._arrow_items: list[QGraphicsLineItem | QGraphicsPolygonItem | QGraphicsSimpleTextItem] = []
-        self._note_items: list[NoteItem] = []
+        self._note_items: dict[str, NoteItem] = {}
         self._dirty = False
 
         # Pan state (middle-click always works)
@@ -103,7 +105,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._rect_origin: QPointF | None = None
 
         # CONNECT mode state
-        self._connect_source: BoxItem | None = None
+        self._connect_source: BoxItem | NoteItem | None = None
         self._connect_line: QGraphicsLineItem | None = None
 
         # Inline text editor
@@ -237,7 +239,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                     & ~QGraphicsItem.GraphicsItemFlag.ItemIsMovable
                     & ~QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
                 )
-        for item in self._note_items:
+        for item in self._note_items.values():
             if movable:
                 item.setFlags(
                     item.flags()
@@ -292,20 +294,9 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
     def _deselect_arrow(self):
         if not self._selected_arrow:
             return
-        for gfx in self._selected_arrow_items:
-            if isinstance(gfx, (QGraphicsLineItem, ArrowLineItem)):
-                old_pen = gfx.pen()
-                pen = QPen(ARROW_COLOR, old_pen.widthF() - 1)
-                pen.setStyle(old_pen.style())
-                pen.setCapStyle(old_pen.capStyle())
-                gfx.setPen(pen)
-            elif isinstance(gfx, QGraphicsPolygonItem):
-                gfx.setPen(QPen(ARROW_COLOR, 1))
-                gfx.setBrush(QBrush(ARROW_COLOR))
-            elif isinstance(gfx, QGraphicsSimpleTextItem):
-                gfx.setBrush(QBrush(QColor("#2F3437")))
         self._selected_arrow = None
         self._selected_arrow_items.clear()
+        self._redraw_arrows()
 
     def _find_existing_arrow(self, id_a: str, id_b: str) -> Arrow | None:
         """Find an arrow between the unordered pair {id_a, id_b}."""
@@ -315,6 +306,29 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             if {arrow.from_id, arrow.to_id} == {id_a, id_b}:
                 return arrow
         return None
+
+    def _item_id(self, item: BoxItem | NoteItem) -> str:
+        if isinstance(item, BoxItem):
+            return item.box.id
+        return item.note.id
+
+    def _item_center(self, item: BoxItem | NoteItem) -> QPointF:
+        if isinstance(item, BoxItem):
+            return QPointF(
+                item.box.x + item.box.w / 2,
+                item.box.y + item.box.h / 2,
+            )
+        return item.sceneBoundingRect().center()
+
+    def _elem_rect(self, elem: Box | Note) -> tuple[float, float, float, float]:
+        """Return (x, y, w, h) for a Box or Note."""
+        if isinstance(elem, Box):
+            return (elem.x, elem.y, elem.w, elem.h)
+        note_item = self._note_items.get(elem.id)
+        if note_item:
+            r = note_item.sceneBoundingRect()
+            return (r.x(), r.y(), r.width(), r.height())
+        return (elem.x, elem.y, 40, 20)
 
     @property
     def dirty(self) -> bool:
@@ -386,7 +400,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         for note in self._board.notes:
             item = NoteItem(note)
             self._scene.addItem(item)
-            self._note_items.append(item)
+            self._note_items[note.id] = item
 
         self._update_z_values()
 
@@ -444,33 +458,53 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                 ))
 
         for from_id, to_id, draw_head_to, draw_head_from, fwd, rev in render_list:
-            from_box = self._board.box_by_id(from_id)
-            to_box = self._board.box_by_id(to_id)
-            if not from_box or not to_box:
+            from_elem = self._board.box_by_id(from_id) or self._board.note_by_id(from_id)
+            to_elem = self._board.box_by_id(to_id) or self._board.note_by_id(to_id)
+            if not from_elem or not to_elem:
                 continue
 
-            pen = QPen(ARROW_COLOR, ARROW_WIDTH)
+            is_annotation = isinstance(from_elem, Note) or isinstance(to_elem, Note)
+            both_boxes = isinstance(from_elem, Box) and isinstance(to_elem, Box)
+
+            if is_annotation:
+                arrow_color = ANNOTATION_ARROW_COLOR
+                arrow_width = ANNOTATION_ARROW_WIDTH
+                draw_head_to = False
+                draw_head_from = False
+            else:
+                arrow_color = ARROW_COLOR
+                arrow_width = ARROW_WIDTH
+
+            pen = QPen(arrow_color, arrow_width)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             if fwd.style == "dashed":
                 pen.setStyle(Qt.PenStyle.DashLine)
             elif fwd.style == "dotted":
                 pen.setStyle(Qt.PenStyle.DotLine)
             elif fwd.style == "thick":
-                pen.setWidthF(ARROW_WIDTH * 2)
+                pen.setWidthF(arrow_width * 2)
 
             # Calculate start/end points
-            aligned = _aligned_edge_points(from_box, to_box)
-            if aligned:
-                start, end = aligned
+            if both_boxes:
+                aligned = _aligned_edge_points(from_elem, to_elem)
+                if aligned:
+                    start, end = aligned
+                else:
+                    from_center = QPointF(
+                        from_elem.x + from_elem.w / 2, from_elem.y + from_elem.h / 2
+                    )
+                    to_center = QPointF(
+                        to_elem.x + to_elem.w / 2, to_elem.y + to_elem.h / 2
+                    )
+                    start = _box_edge_point(from_elem, to_center)
+                    end = _box_edge_point(to_elem, from_center)
             else:
-                from_center = QPointF(
-                    from_box.x + from_box.w / 2, from_box.y + from_box.h / 2
-                )
-                to_center = QPointF(
-                    to_box.x + to_box.w / 2, to_box.y + to_box.h / 2
-                )
-                start = _box_edge_point(from_box, to_center)
-                end = _box_edge_point(to_box, from_center)
+                from_r = self._elem_rect(from_elem)
+                to_r = self._elem_rect(to_elem)
+                from_center = QPointF(from_r[0] + from_r[2] / 2, from_r[1] + from_r[3] / 2)
+                to_center = QPointF(to_r[0] + to_r[2] / 2, to_r[1] + to_r[3] / 2)
+                start = _rect_edge_point(*from_r, to_center)
+                end = _rect_edge_point(*to_r, from_center)
 
             dx = end.x() - start.x()
             dy = end.y() - start.y()
@@ -479,8 +513,8 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             if draw_head_to:
                 angle = math.atan2(dy, dx)
                 head = QGraphicsPolygonItem(_arrowhead_polygon(end, angle))
-                head.setPen(QPen(ARROW_COLOR, 1))
-                head.setBrush(QBrush(ARROW_COLOR))
+                head.setPen(QPen(arrow_color, 1))
+                head.setBrush(QBrush(arrow_color))
                 head.setData(0, fwd)
                 self._scene.addItem(head)
                 self._arrow_items.append(head)
@@ -491,8 +525,8 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                 back_head = QGraphicsPolygonItem(
                     _arrowhead_polygon(start, back_angle)
                 )
-                back_head.setPen(QPen(ARROW_COLOR, 1))
-                back_head.setBrush(QBrush(ARROW_COLOR))
+                back_head.setPen(QPen(arrow_color, 1))
+                back_head.setBrush(QBrush(arrow_color))
                 back_head.setData(0, fwd)
                 self._scene.addItem(back_head)
                 self._arrow_items.append(back_head)
@@ -609,7 +643,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             if d > max_depth:
                 max_depth = d
         note_z = max_depth + 1
-        for item in self._note_items:
+        for item in self._note_items.values():
             item.setZValue(note_z)
         arrow_z = max_depth + 2
         for item in self._arrow_items:
@@ -878,8 +912,13 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                 self._scene.removeItem(item)
                 deleted = True
             elif isinstance(item, NoteItem):
+                note_id = item.note.id
+                # Remove connected arrows
+                for arrow in list(self._board.arrows):
+                    if arrow.from_id == note_id or arrow.to_id == note_id:
+                        self._board.remove_arrow(arrow)
                 self._board.remove_note(item.note)
-                self._note_items.remove(item)
+                self._note_items.pop(note_id, None)
                 self._scene.removeItem(item)
                 deleted = True
         if deleted:
@@ -974,11 +1013,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
 
         if self._mode == Mode.SELECT:
             if self._connect_source and self._connect_line:
-                src = self._connect_source
-                center = QPointF(
-                    src.box.x + src.box.w / 2,
-                    src.box.y + src.box.h / 2,
-                )
+                center = self._item_center(self._connect_source)
                 self._connect_line.setLine(
                     center.x(), center.y(), scene_pos.x(), scene_pos.y()
                 )
@@ -1008,22 +1043,19 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                     self._connect_line = None
                 scene_pos = self.mapToScene(event.position().toPoint())
                 item = self._scene.itemAt(scene_pos, self.transform())
-                if isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), BoxItem):
+                if isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
                     item = item.parentItem()
-                if (isinstance(item, BoxItem)
+                if (isinstance(item, (BoxItem, NoteItem))
                         and item is not self._connect_source
                         and self._board):
-                    existing = self._find_existing_arrow(
-                        self._connect_source.box.id, item.box.id,
-                    )
+                    src_id = self._item_id(self._connect_source)
+                    tgt_id = self._item_id(item)
+                    existing = self._find_existing_arrow(src_id, tgt_id)
                     if existing:
                         self._select_arrow(existing)
                     else:
                         self._push_undo()
-                        arrow = Arrow(
-                            from_id=self._connect_source.box.id,
-                            to_id=item.box.id,
-                        )
+                        arrow = Arrow(from_id=src_id, to_id=tgt_id)
                         self._board.add_arrow(arrow)
                         self._redraw_arrows()
                         self.mark_dirty()
@@ -1484,13 +1516,10 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        # Alt+click on a BoxItem starts connector drag
-        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and isinstance(resolved, BoxItem):
+        # Alt+click on a BoxItem/NoteItem starts connector drag
+        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and isinstance(resolved, (BoxItem, NoteItem)):
             self._connect_source = resolved
-            center = QPointF(
-                resolved.box.x + resolved.box.w / 2,
-                resolved.box.y + resolved.box.h / 2,
-            )
+            center = self._item_center(resolved)
             pen = QPen(ARROW_COLOR, ARROW_WIDTH, Qt.PenStyle.DashLine)
             self._connect_line = self._scene.addLine(
                 center.x(), center.y(), scene_pos.x(), scene_pos.y(), pen
@@ -1499,7 +1528,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             return
 
         # Alt+click on empty space: paste clipboard at position
-        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and not isinstance(resolved, BoxItem):
+        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and not isinstance(resolved, (BoxItem, NoteItem)):
             if self._clipboard_boxes or self._clipboard_notes:
                 self._paste_at(scene_pos)
                 event.accept()
@@ -1583,12 +1612,12 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             return
         self._push_undo()
         scene_pos = self.mapToScene(event.position().toPoint())
-        note = Note(x=scene_pos.x(), y=scene_pos.y(), text="Note")
+        note = Note(id="", x=scene_pos.x(), y=scene_pos.y(), text="Note")
         self._board.add_note(note)
 
         item = NoteItem(note)
         self._scene.addItem(item)
-        self._note_items.append(item)
+        self._note_items[note.id] = item
         self.mark_dirty()
         self.set_mode(Mode.SELECT)
         item.setSelected(True)
@@ -1610,11 +1639,11 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         item = self._scene.itemAt(scene_pos, self.transform())
 
-        # Click on child item → get parent BoxItem
-        if isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), BoxItem):
+        # Click on child item → get parent BoxItem/NoteItem
+        if isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
             item = item.parentItem()
 
-        if not isinstance(item, BoxItem):
+        if not isinstance(item, (BoxItem, NoteItem)):
             # Restore preview line if we had one and missed a target
             if saved_line and self._connect_source:
                 self._connect_line = saved_line
@@ -1625,10 +1654,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         if not self._connect_source:
             # First click — set source
             self._connect_source = item
-            center = QPointF(
-                item.box.x + item.box.w / 2,
-                item.box.y + item.box.h / 2,
-            )
+            center = self._item_center(item)
             pen = QPen(ARROW_COLOR, ARROW_WIDTH, Qt.PenStyle.DashLine)
             self._connect_line = self._scene.addLine(
                 center.x(), center.y(), scene_pos.x(), scene_pos.y(), pen
@@ -1636,18 +1662,15 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         else:
             # Second click — create arrow or select existing
             if item is not self._connect_source:
-                existing = self._find_existing_arrow(
-                    self._connect_source.box.id, item.box.id,
-                )
+                src_id = self._item_id(self._connect_source)
+                tgt_id = self._item_id(item)
+                existing = self._find_existing_arrow(src_id, tgt_id)
                 if existing:
                     self.set_mode(Mode.SELECT)
                     self._select_arrow(existing)
                 else:
                     self._push_undo()
-                    arrow = Arrow(
-                        from_id=self._connect_source.box.id,
-                        to_id=item.box.id,
-                    )
+                    arrow = Arrow(from_id=src_id, to_id=tgt_id)
                     self._board.add_arrow(arrow)
                     self._redraw_arrows()
                     self.mark_dirty()
@@ -1659,11 +1682,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
     def _move_connect(self, event):
         if self._connect_line and self._connect_source:
             scene_pos = self.mapToScene(event.position().toPoint())
-            src = self._connect_source
-            center = QPointF(
-                src.box.x + src.box.w / 2,
-                src.box.y + src.box.h / 2,
-            )
+            center = self._item_center(self._connect_source)
             self._connect_line.setLine(
                 center.x(), center.y(), scene_pos.x(), scene_pos.y()
             )
@@ -1684,24 +1703,21 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         item = self._scene.itemAt(scene_pos, self.transform())
 
-        if isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), BoxItem):
+        if isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
             item = item.parentItem()
 
-        if (isinstance(item, BoxItem)
+        if (isinstance(item, (BoxItem, NoteItem))
                 and item is not self._connect_source
                 and self._board):
-            existing = self._find_existing_arrow(
-                self._connect_source.box.id, item.box.id,
-            )
+            src_id = self._item_id(self._connect_source)
+            tgt_id = self._item_id(item)
+            existing = self._find_existing_arrow(src_id, tgt_id)
             if existing:
                 self.set_mode(Mode.SELECT)
                 self._select_arrow(existing)
             else:
                 self._push_undo()
-                arrow = Arrow(
-                    from_id=self._connect_source.box.id,
-                    to_id=item.box.id,
-                )
+                arrow = Arrow(from_id=src_id, to_id=tgt_id)
                 self._board.add_arrow(arrow)
                 self._redraw_arrows()
                 self.mark_dirty()
@@ -1722,17 +1738,19 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         for item in self._box_items.values():
             if viewport_rect.intersects(item.sceneBoundingRect()):
                 targets.append((item, item.sceneBoundingRect().center()))
-        for item in self._note_items:
+        for item in self._note_items.values():
             if viewport_rect.intersects(item.sceneBoundingRect()):
                 targets.append((item, item.sceneBoundingRect().center()))
         # Arrow midpoints
         for arrow in self._board.arrows:
-            from_box = self._board.box_by_id(arrow.from_id)
-            to_box = self._board.box_by_id(arrow.to_id)
-            if from_box and to_box:
+            from_elem = self._board.box_by_id(arrow.from_id) or self._board.note_by_id(arrow.from_id)
+            to_elem = self._board.box_by_id(arrow.to_id) or self._board.note_by_id(arrow.to_id)
+            if from_elem and to_elem:
+                fr = self._elem_rect(from_elem)
+                tr = self._elem_rect(to_elem)
                 mid = QPointF(
-                    (from_box.x + from_box.w / 2 + to_box.x + to_box.w / 2) / 2,
-                    (from_box.y + from_box.h / 2 + to_box.y + to_box.h / 2) / 2,
+                    (fr[0] + fr[2] / 2 + tr[0] + tr[2] / 2) / 2,
+                    (fr[1] + fr[3] / 2 + tr[1] + tr[3] / 2) / 2,
                 )
                 if viewport_rect.contains(mid):
                     targets.append((arrow, mid))
@@ -1752,7 +1770,12 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                 labels.append(first + second)
 
         self._jump_map = {}
-        font = QFont(FONT_FAMILY, 14)
+        zoom = self._current_zoom()
+        base_size = 14
+        min_screen_px = 14
+        scene_size = min(base_size * 3, max(base_size, min_screen_px / zoom))
+
+        font = QFont(FONT_FAMILY, round(scene_size))
         font.setBold(True)
 
         for label_text, (target, center) in zip(labels, targets):
@@ -1763,7 +1786,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             text_item.setBrush(QBrush(QColor("#FFFFFF")))
             tr = text_item.boundingRect()
 
-            pad = 3
+            pad = 3 * scene_size / base_size
             bg = QGraphicsRectItem(
                 center.x() - tr.width() / 2 - pad,
                 center.y() - tr.height() / 2 - pad,
@@ -1776,10 +1799,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             self._scene.addItem(bg)
             self._jump_labels.append(bg)
 
-            text_item.setPos(
-                center.x() - tr.width() / 2,
-                center.y() - tr.height() / 2,
-            )
+            text_item.setPos(center.x() - tr.width() / 2, center.y() - tr.height() / 2)
             text_item.setZValue(1001)
             self._scene.addItem(text_item)
             self._jump_labels.append(text_item)
@@ -1873,7 +1893,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         for item in self._box_items.values():
             if query in item.box.label.lower() or query in item.box.id.lower():
                 self._search_matches.append(item)
-        for item in self._note_items:
+        for item in self._note_items.values():
             if query in item.note.text.lower():
                 self._search_matches.append(item)
         self._highlight_search_match()

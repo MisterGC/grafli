@@ -86,16 +86,19 @@ class CommandsMixin:
         self._clipboard_arrows.clear()
 
         selected_box_ids = set()
+        selected_note_ids = set()
         for item in self._scene.selectedItems():
             if isinstance(item, BoxItem):
                 self._clipboard_boxes.append(copy.deepcopy(item.box))
                 selected_box_ids.add(item.box.id)
             elif isinstance(item, NoteItem):
                 self._clipboard_notes.append(copy.deepcopy(item.note))
+                selected_note_ids.add(item.note.id)
 
+        selected_ids = selected_box_ids | selected_note_ids
         if self._board:
             for arrow in self._board.arrows:
-                if arrow.from_id in selected_box_ids and arrow.to_id in selected_box_ids:
+                if arrow.from_id in selected_ids and arrow.to_id in selected_ids:
                     self._clipboard_arrows.append(copy.deepcopy(arrow))
 
     def _paste(self):
@@ -143,24 +146,33 @@ class CommandsMixin:
             elif box.id in id_map.values() and box.parent in clipboard_box_ids:
                 box.parent = id_map.get(box.parent, "")
 
+        note_id_map: dict[str, str] = {}
         for orig_note in self._clipboard_notes:
             new_note = copy.deepcopy(orig_note)
+            new_nid = self._board.next_note_id()
+            note_id_map[orig_note.id] = new_nid
+            new_note.id = new_nid
             new_note.x += dx
             new_note.y += dy
             self._board.add_note(new_note)
 
+        combined_map = {**id_map, **note_id_map}
         for orig_arrow in self._clipboard_arrows:
             new_arrow = copy.deepcopy(orig_arrow)
-            new_arrow.from_id = id_map.get(orig_arrow.from_id, orig_arrow.from_id)
-            new_arrow.to_id = id_map.get(orig_arrow.to_id, orig_arrow.to_id)
+            new_arrow.from_id = combined_map.get(orig_arrow.from_id, orig_arrow.from_id)
+            new_arrow.to_id = combined_map.get(orig_arrow.to_id, orig_arrow.to_id)
             self._board.add_arrow(new_arrow)
 
         self._rebuild_scene()
 
         # Select newly pasted items
-        new_ids = set(id_map.values())
+        new_box_ids = set(id_map.values())
+        new_note_ids = set(note_id_map.values())
         for bid, item in self._box_items.items():
-            if bid in new_ids:
+            if bid in new_box_ids:
+                item.setSelected(True)
+        for nid, item in self._note_items.items():
+            if nid in new_note_ids:
                 item.setSelected(True)
 
         self.mark_dirty()

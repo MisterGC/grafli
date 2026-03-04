@@ -11,18 +11,18 @@ from whiteboard.constants import ARROWHEAD_SIZE
 from whiteboard.format import Box
 
 
-def _box_edge_point(box: Box, target: QPointF) -> QPointF:
-    """Find the point on box's edge closest to target along the line
-    from box center to target."""
-    cx = box.x + box.w / 2
-    cy = box.y + box.h / 2
+def _rect_edge_point(x: float, y: float, w: float, h: float, target: QPointF) -> QPointF:
+    """Find the point on a rectangle's edge closest to target along the line
+    from the rectangle's center to target."""
+    cx = x + w / 2
+    cy = y + h / 2
     dx = target.x() - cx
     dy = target.y() - cy
 
     if dx == 0 and dy == 0:
         return QPointF(cx, cy)
 
-    hw, hh = box.w / 2, box.h / 2
+    hw, hh = w / 2, h / 2
 
     # Scale factor to reach the rectangle edge
     scales = []
@@ -33,6 +33,12 @@ def _box_edge_point(box: Box, target: QPointF) -> QPointF:
     t = min(scales) if scales else 1.0
 
     return QPointF(cx + dx * t, cy + dy * t)
+
+
+def _box_edge_point(box: Box, target: QPointF) -> QPointF:
+    """Find the point on box's edge closest to target along the line
+    from box center to target."""
+    return _rect_edge_point(box.x, box.y, box.w, box.h, target)
 
 
 def _line_rect_clip(p1: QPointF, p2: QPointF, rect: QRectF) -> tuple[QPointF, QPointF]:

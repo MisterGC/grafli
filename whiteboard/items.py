@@ -402,13 +402,6 @@ class BoxItem(QGraphicsRectItem):
             painter.setBrush(QBrush(bg))
             painter.drawRoundedRect(label_rect, 4, 4)
 
-        if self.box.annotation:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor("#0178D4")))
-            painter.drawEllipse(
-                QPointF(self.rect().right() - 10, self.rect().top() + 10), 4, 4
-            )
-
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
@@ -451,13 +444,6 @@ class NoteItem(QGraphicsSimpleTextItem):
         painter.drawRoundedRect(bg_rect, 4, 4)
 
         super().paint(painter, option, widget)
-        if self.note.annotation:
-            base_rect = QGraphicsSimpleTextItem.boundingRect(self)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor("#0178D4")))
-            painter.drawEllipse(
-                QPointF(base_rect.right() + 2, base_rect.top()), 4, 4
-            )
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
@@ -510,6 +496,8 @@ class NoteItem(QGraphicsSimpleTextItem):
             self.note.x = self.pos().x()
             self.note.y = self.pos().y()
             view = _get_view(self)
+            if view and hasattr(view, 'arrow_update_needed'):
+                view.arrow_update_needed.emit()
             if view and hasattr(view, 'mark_dirty'):
                 view.mark_dirty()
         return super().itemChange(change, value)

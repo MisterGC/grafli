@@ -9,9 +9,11 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import (
+    QEasingCurve,
     QPointF,
     QRectF,
     Qt,
+    QTimeLine,
     QTimer,
     Signal,
 )
@@ -30,6 +32,7 @@ from PySide6.QtGui import (
     QPen,
     QPixmap,
     QPolygonF,
+    QTransform,
     QTextCursor,
     QTextOption,
     QWheelEvent,
@@ -87,6 +90,13 @@ DEFAULT_BOX_W = 160
 DEFAULT_BOX_H = 80
 MIN_BOX_SIZE = 20
 HANDLE_SIZE = 8
+
+MINIMAP_MAX_W = 180
+MINIMAP_MAX_H = 120
+MINIMAP_MARGIN = 12
+MINIMAP_BG = QColor(40, 40, 40, 180)
+MINIMAP_VIEWPORT_COLOR = QColor(255, 255, 255, 60)
+MINIMAP_BORDER_COLOR = QColor(80, 80, 80, 200)
 
 COLOR_TOKENS = {
     "base": "#E8E4DD",
@@ -859,6 +869,18 @@ class WhiteboardView(QGraphicsView):
         self._mode_badge: QGraphicsTextItem | None = None
         self._mode_badge_bg: QGraphicsRectItem | None = None
 
+        # Minimap
+        self._minimap_visible: bool = True
+        self._minimap_rect: QRectF = QRectF()
+        self._minimap_scene_rect: QRectF = QRectF()
+
+        # Animated zoom
+        self._zoom_timeline: QTimeLine | None = None
+        self._anim_start_center: QPointF = QPointF()
+        self._anim_end_center: QPointF = QPointF()
+        self._anim_start_zoom: float = 1.0
+        self._anim_end_zoom: float = 1.0
+
         self.arrow_update_needed.connect(self._redraw_arrows)
         self._scene.selectionChanged.connect(self._on_selection_changed)
 
@@ -885,6 +907,88 @@ class WhiteboardView(QGraphicsView):
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(border_rect, 12, 12)
+
+    def drawForeground(self, painter: QPainter, rect: QRectF):
+        super().drawForeground(painter, rect)
+        if not self._minimap_visible or not self._board:
+            return
+        if not self._board.boxes and not self._board.notes:
+            return
+
+        painter.resetTransform()
+        vp = self.viewport().rect()
+
+        # Compute scene bounding rect of all boxes + notes with padding
+        rects = []
+        for box in self._board.boxes:
+            rects.append(QRectF(box.x, box.y, box.w, box.h))
+        for note in self._board.notes:
+            for ni in self._note_items:
+                if ni.note is note:
+                    br = ni.boundingRect()
+                    rects.append(QRectF(note.x, note.y, br.width(), br.height()))
+                    break
+        if not rects:
+            return
+        scene_rect = rects[0]
+        for r in rects[1:]:
+            scene_rect = scene_rect.united(r)
+        scene_rect = scene_rect.adjusted(-40, -40, 40, 40)
+        self._minimap_scene_rect = scene_rect
+
+        # Fit into minimap dimensions preserving aspect ratio
+        aspect = scene_rect.width() / max(scene_rect.height(), 1)
+        if aspect > MINIMAP_MAX_W / MINIMAP_MAX_H:
+            mw = MINIMAP_MAX_W
+            mh = mw / max(aspect, 0.01)
+        else:
+            mh = MINIMAP_MAX_H
+            mw = mh * aspect
+        mx = vp.width() - mw - MINIMAP_MARGIN
+        my = vp.height() - mh - MINIMAP_MARGIN
+        self._minimap_rect = QRectF(mx, my, mw, mh)
+
+        # Background
+        painter.setPen(QPen(MINIMAP_BORDER_COLOR, 1))
+        painter.setBrush(QBrush(MINIMAP_BG))
+        painter.drawRoundedRect(self._minimap_rect, 4, 4)
+
+        # Scale factors
+        sx = mw / scene_rect.width()
+        sy = mh / scene_rect.height()
+
+        # Draw boxes
+        painter.setPen(Qt.PenStyle.NoPen)
+        for box in self._board.boxes:
+            color_hex = _resolve_color(box.color) if box.color else ""
+            if color_hex:
+                c = QColor(color_hex)
+            else:
+                c = QColor(BOX_BORDER)
+            painter.setBrush(QBrush(c))
+            bx = mx + (box.x - scene_rect.x()) * sx
+            by = my + (box.y - scene_rect.y()) * sy
+            bw = max(box.w * sx, 2)
+            bh = max(box.h * sy, 2)
+            painter.drawRect(QRectF(bx, by, bw, bh))
+
+        # Draw notes as small markers
+        for note in self._board.notes:
+            painter.setBrush(QBrush(NOTE_COLOR))
+            nx = mx + (note.x - scene_rect.x()) * sx
+            ny = my + (note.y - scene_rect.y()) * sy
+            painter.drawRect(QRectF(nx, ny, max(3, 20 * sx), max(3, 20 * sy)))
+
+        # Viewport indicator
+        vp_scene = self.mapToScene(vp).boundingRect()
+        vx = mx + (vp_scene.x() - scene_rect.x()) * sx
+        vy = my + (vp_scene.y() - scene_rect.y()) * sy
+        vw = vp_scene.width() * sx
+        vh = vp_scene.height() * sy
+        vp_rect = QRectF(vx, vy, vw, vh).intersected(self._minimap_rect)
+        painter.setBrush(QBrush(MINIMAP_VIEWPORT_COLOR))
+        painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
+        painter.drawRect(vp_rect)
 
     def toggle_grid(self):
         self._grid_visible = not self._grid_visible
@@ -1838,6 +1942,20 @@ class WhiteboardView(QGraphicsView):
             super().mousePressEvent(event)
             return
 
+        # Minimap click-to-navigate
+        if (self._minimap_visible
+                and not self._minimap_rect.isNull()
+                and self._minimap_rect.contains(event.position())):
+            sr = self._minimap_scene_rect
+            mr = self._minimap_rect
+            rx = (event.position().x() - mr.x()) / mr.width()
+            ry = (event.position().y() - mr.y()) / mr.height()
+            target = QPointF(sr.x() + rx * sr.width(),
+                             sr.y() + ry * sr.height())
+            self.centerOn(target)
+            event.accept()
+            return
+
         # If editor is active, consume clicks outside it
         if self._editor:
             editor_rect = self._editor.sceneBoundingRect()
@@ -1915,7 +2033,7 @@ class WhiteboardView(QGraphicsView):
 
         if self._mode == Mode.SELECT:
             if self._connect_source and event.button() == Qt.MouseButton.LeftButton:
-                # Finish shift+drag connector
+                # Finish alt+drag connector
                 if self._connect_line:
                     self._scene.removeItem(self._connect_line)
                     self._connect_line = None
@@ -2296,6 +2414,32 @@ class WhiteboardView(QGraphicsView):
                 )
                 event.accept()
                 return
+
+        # M — toggle minimap
+        if event.key() == Qt.Key.Key_M and no_mod:
+            self._minimap_visible = not self._minimap_visible
+            self.viewport().update()
+            event.accept()
+            return
+
+        # Z — zoom to selection (no-op if nothing selected)
+        if event.key() == Qt.Key.Key_Z and no_mod:
+            self._zoom_to_selection()
+            event.accept()
+            return
+
+        # Shift+Z — zoom to fit all
+        if (event.key() == Qt.Key.Key_Z
+                and mods & Qt.KeyboardModifier.ShiftModifier):
+            self._zoom_to_fit()
+            event.accept()
+            return
+
+        # P — select parent box (zoom if needed)
+        if event.key() == Qt.Key.Key_P and no_mod:
+            self._select_parent_and_zoom()
+            event.accept()
+            return
 
         # Mode switching shortcuts (no modifiers)
         if no_mod:
@@ -2762,6 +2906,126 @@ class WhiteboardView(QGraphicsView):
         self._scene.clearSelection()
         new_item.setSelected(True)
 
+    # ── Animated zoom ──
+
+    def _animate_to_rect(self, target_rect: QRectF):
+        """Smoothly animate zoom and pan to show target_rect."""
+        if self._zoom_timeline is not None:
+            self._zoom_timeline.stop()
+            self._zoom_timeline = None
+
+        vp = self.viewport().rect()
+        start_zoom = self.transform().m11()
+        start_center = self.mapToScene(vp.center())
+
+        target_zoom = min(vp.width() / max(target_rect.width(), 1),
+                          vp.height() / max(target_rect.height(), 1))
+        # Clamp to reasonable bounds
+        target_zoom = max(0.05, min(target_zoom, 10.0))
+        end_center = target_rect.center()
+
+        self._anim_start_zoom = start_zoom
+        self._anim_end_zoom = target_zoom
+        self._anim_start_center = start_center
+        self._anim_end_center = end_center
+
+        tl = QTimeLine(250, self)
+        tl.setUpdateInterval(16)
+        tl.setEasingCurve(QEasingCurve.Type.OutCubic)
+        tl.valueChanged.connect(self._on_zoom_anim_step)
+        tl.finished.connect(self._on_zoom_anim_finished)
+        self._zoom_timeline = tl
+        tl.start()
+
+    def _on_zoom_anim_step(self, value: float):
+        z = self._anim_start_zoom + (self._anim_end_zoom - self._anim_start_zoom) * value
+        cx = self._anim_start_center.x() + (self._anim_end_center.x() - self._anim_start_center.x()) * value
+        cy = self._anim_start_center.y() + (self._anim_end_center.y() - self._anim_start_center.y()) * value
+        self.setTransform(QTransform().scale(z, z))
+        self.centerOn(QPointF(cx, cy))
+
+    def _on_zoom_anim_finished(self):
+        self._zoom_timeline = None
+        self._update_status_zoom()
+
+    def _zoom_to_selection(self):
+        """z key: zoom to selected items. No-op if nothing selected."""
+        if not self._board:
+            return
+
+        padding = 60
+
+        # Check if an arrow is selected
+        if self._selected_arrow:
+            arrow = self._selected_arrow
+            rects = []
+            for bid in (arrow.from_id, arrow.to_id):
+                if bid in self._box_items:
+                    b = self._box_items[bid].box
+                    rects.append(QRectF(b.x, b.y, b.w, b.h))
+            if rects:
+                target = rects[0]
+                for r in rects[1:]:
+                    target = target.united(r)
+                self._animate_to_rect(target.adjusted(-padding, -padding, padding, padding))
+                return
+
+        # Check for selected boxes/notes
+        selected = self._scene.selectedItems()
+        if selected:
+            rects = []
+            for item in selected:
+                if isinstance(item, BoxItem):
+                    b = item.box
+                    rects.append(QRectF(b.x, b.y, b.w, b.h))
+                elif isinstance(item, NoteItem):
+                    rects.append(QRectF(item.note.x, item.note.y,
+                                        item.boundingRect().width(),
+                                        item.boundingRect().height()))
+            if rects:
+                target = rects[0]
+                for r in rects[1:]:
+                    target = target.united(r)
+                self._animate_to_rect(target.adjusted(-padding, -padding, padding, padding))
+
+    def _zoom_to_fit(self):
+        """Shift+Z key: zoom to fit entire diagram."""
+        if not self._board:
+            return
+        items_rect = self._scene.itemsBoundingRect()
+        if not items_rect.isNull():
+            self._animate_to_rect(items_rect.adjusted(-40, -40, 40, 40))
+
+    def _select_parent_and_zoom(self):
+        """P key: select parent box, zoom to it if not fully visible."""
+        if not self._board:
+            return
+
+        # Single box selection only
+        selected = self._scene.selectedItems()
+        if len(selected) != 1 or not isinstance(selected[0], BoxItem):
+            return
+
+        box = selected[0].box
+        if not box.parent:
+            return
+
+        parent_item = self._box_items.get(box.parent)
+        if not parent_item:
+            return
+
+        # Select parent
+        self._scene.clearSelection()
+        parent_item.setSelected(True)
+
+        # Zoom only if parent is not fully visible
+        pb = parent_item.box
+        parent_rect = QRectF(pb.x, pb.y, pb.w, pb.h)
+        vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
+        if not vp_scene.contains(parent_rect):
+            padding = 60
+            self._animate_to_rect(parent_rect.adjusted(-padding, -padding, padding, padding))
+
     # ── Cheatsheet (Shift+H) ──
 
     def _show_cheatsheet(self):
@@ -2776,6 +3040,10 @@ class WhiteboardView(QGraphicsView):
             ("Shift+A", "Cycle anchor"),
             ("Shift+G", "Snap to grid"),
             ("G", "Toggle grid"),
+            ("M", "Toggle minimap"),
+            ("Z", "Zoom to selection"),
+            ("Shift+Z", "Zoom to fit all"),
+            ("P", "Select parent (zoom if needed)"),
             ("+ / -", "Zoom in / out"),
             ("Arrow keys", "Pan viewport"),
             ("Ctrl+Arrow", "Create adjacent box"),
@@ -2840,7 +3108,7 @@ class MainWindow(QMainWindow):
         super().showEvent(event)
         if self._pending_zoom_fit:
             self._pending_zoom_fit = False
-            QTimer.singleShot(0, self._zoom_fit)
+            QTimer.singleShot(0, lambda: self._zoom_fit(animate=False))
 
     def _title_for_path(self, path: Path | None, dirty: bool = False) -> str:
         if path is None:
@@ -3032,13 +3300,14 @@ class MainWindow(QMainWindow):
         self._view.scale(1 / 1.15, 1 / 1.15)
         self._view._update_status_zoom()
 
-    def _zoom_fit(self):
+    def _zoom_fit(self, animate: bool = True):
         if self._board and (self._board.boxes or self._board.notes):
-            self._view.fitInView(
-                self._view.scene().itemsBoundingRect().adjusted(-40, -40, 40, 40),
-                Qt.AspectRatioMode.KeepAspectRatio,
-            )
-            self._view._update_status_zoom()
+            rect = self._view.scene().itemsBoundingRect().adjusted(-40, -40, 40, 40)
+            if animate:
+                self._view._animate_to_rect(rect)
+            else:
+                self._view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+                self._view._update_status_zoom()
 
     def _setup_status_bar(self):
         self._status_mode = QLabel("SELECT")

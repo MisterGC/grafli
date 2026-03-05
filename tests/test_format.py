@@ -907,3 +907,66 @@ def test_arrow_all_fields_roundtrip():
     assert arrow.head_from is True
     assert arrow.head_to is True
     assert serialize(board) == text
+
+
+# ── Note newline tests ─────────────────────────────────────
+
+def test_parse_note_with_newlines():
+    text = r'@ note n1 100,200 "line one\nline two"' + "\n"
+    board = parse(text)
+    assert board.notes[0].text == "line one\nline two"
+
+
+def test_serialize_note_with_newlines():
+    note = Note(id="n1", x=100, y=200, text="line one\nline two")
+    board = Board()
+    board.add_note(note)
+    text = serialize(board)
+    assert r'@ note n1 100,200 "line one\nline two"' in text
+
+
+def test_note_newline_roundtrip():
+    text = r'@ note n1 100,200 "first\nsecond\nthird"' + "\n"
+    board = parse(text)
+    assert board.notes[0].text == "first\nsecond\nthird"
+    assert serialize(board) == text
+
+
+# ── Note parent tests ──────────────────────────────────────
+
+def test_parse_note_with_parent():
+    text = '@ note n1 100,200 "hello" >container\n'
+    board = parse(text)
+    assert board.notes[0].parent == "container"
+
+
+def test_parse_note_without_parent():
+    text = '@ note n1 100,200 "hello"\n'
+    board = parse(text)
+    assert board.notes[0].parent == ""
+
+
+def test_serialize_note_with_parent():
+    note = Note(id="n1", x=10, y=20, text="hi", parent="box1")
+    board = Board()
+    board.add_note(note)
+    text = serialize(board)
+    assert '@ note n1 10,20 "hi" >box1' in text
+
+
+def test_note_parent_roundtrip():
+    text = '@ note n1 100,200 "hello" >container\n'
+    board = parse(text)
+    assert serialize(board) == text
+
+
+def test_note_all_fields_with_parent_roundtrip():
+    text = '@ note n1 100,200 "hello" %accent ~large !mono >box1  # annotation\n'
+    board = parse(text)
+    note = board.notes[0]
+    assert note.color == "%accent"
+    assert note.textsize == "large"
+    assert note.style == "mono"
+    assert note.parent == "box1"
+    assert note.annotation == "annotation"
+    assert serialize(board) == text

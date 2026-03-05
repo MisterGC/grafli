@@ -8,7 +8,7 @@ Format spec:
   @ arrow <from_id> <-> <to_id> "<label>"         (bidirectional)
   @ arrow <from_id> -- <to_id> "<label>"          (no heads)
   @ arrow <from_id> -> <to_id> "label" !dashed    (arrow styles: dashed/dotted/thick)
-  @ note <id> <x>,<y> "<text>"
+  @ note <id> <x>,<y> "<text>"                      (\\n for newlines)
   Any element line may end with  # annotation text
 """
 
@@ -55,6 +55,7 @@ class Note:
     color: str = ""
     textsize: str = ""
     style: str = ""       # "" (handwritten) or "mono"
+    parent: str = ""
     annotation: str = ""
 
 
@@ -159,6 +160,7 @@ _RE_NOTE = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
     r'(?:\s+!(mono))?'
+    r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
 )
@@ -224,11 +226,12 @@ def parse(text: str) -> Board:
                 id=m.group(1) or "",
                 x=float(m.group(2)),
                 y=float(m.group(3)),
-                text=m.group(4),
+                text=m.group(4).replace("\\n", "\n"),
                 color=m.group(5) or "",
                 textsize=m.group(6) or "",
                 style=m.group(7) or "",
-                annotation=m.group(8) or "",
+                parent=m.group(8) or "",
+                annotation=m.group(9) or "",
             )
             board.notes.append(note)
             board._lines.append(("note", note))
@@ -299,13 +302,16 @@ def _serialize_arrow(arrow: Arrow) -> str:
 def _serialize_note(note: Note) -> str:
     x = int(note.x) if note.x == int(note.x) else note.x
     y = int(note.y) if note.y == int(note.y) else note.y
-    s = f'@ note {note.id} {x},{y} "{note.text}"'
+    escaped_text = note.text.replace("\n", "\\n")
+    s = f'@ note {note.id} {x},{y} "{escaped_text}"'
     if note.color:
         s += f" {note.color}"
     if note.textsize:
         s += f" ~{note.textsize}"
     if note.style:
         s += f" !{note.style}"
+    if note.parent:
+        s += f" >{note.parent}"
     if note.annotation:
         s += f"  # {note.annotation}"
     return s

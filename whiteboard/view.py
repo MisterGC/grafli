@@ -61,7 +61,7 @@ from whiteboard.constants import (
     _resolve_color,
 )
 from whiteboard.format import Arrow, Board, Box, Note, parse, serialize
-from whiteboard.items import ArrowLineItem, BoxItem, LabelItem, NoteItem, ResizeHandle
+from whiteboard.items import ArrowLineItem, BoxItem, BoxLabelItem, LabelItem, NoteItem, ResizeHandle
 from whiteboard.minimap import MinimapMixin
 
 
@@ -158,6 +158,13 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._anim_start_zoom: float = 1.0
         self._anim_end_zoom: float = 1.0
 
+        # Progressive zoom state (z key levels)
+        self._zoom_z_level: int = 0
+        self._zoom_z_rect: QRectF | None = None
+
+        # Sticky creation mode
+        self._sticky_mode: bool = False
+
         # Search state
         self._search_active = False
         self._search_text = ""
@@ -208,6 +215,8 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
     def set_mode(self, mode: Mode):
         self._cancel_interactions()
         self._mode = mode
+        if mode == Mode.SELECT:
+            self._sticky_mode = False
         self.mode_changed.emit(mode)
 
         if mode == Mode.SELECT:
@@ -390,7 +399,9 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         for box in self._board.boxes:
             item = BoxItem(box)
             self._scene.addItem(item)
+            self._scene.addItem(item._label)
             if box.id in self._box_items:
+                self._scene.removeItem(self._box_items[box.id]._label)
                 self._scene.removeItem(self._box_items[box.id])
                 dupe_ids.append(box.id)
             self._box_items[box.id] = item
@@ -619,15 +630,19 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
     def _has_children(self, box_id: str) -> bool:
         if not self._board:
             return False
-        return any(b.parent == box_id for b in self._board.boxes)
+        return (any(b.parent == box_id for b in self._board.boxes)
+                or any(n.parent == box_id for n in self._board.notes))
 
-    def _descendants(self, box_id: str) -> list[BoxItem]:
-        """Return all BoxItems that are descendants of box_id."""
-        result = []
+    def _descendants(self, box_id: str) -> list[BoxItem | NoteItem]:
+        """Return all BoxItems and NoteItems that are descendants of box_id."""
+        result: list[BoxItem | NoteItem] = []
         for bid, item in self._box_items.items():
             if item.box.parent == box_id:
                 result.append(item)
                 result.extend(self._descendants(bid))
+        for nid, item in self._note_items.items():
+            if item.note.parent == box_id:
+                result.append(item)
         return result
 
     def _box_depth(self, box_id: str) -> int:
@@ -650,82 +665,112 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             item.setZValue(d)
             if d > max_depth:
                 max_depth = d
-        note_z = max_depth + 1
-        for item in self._note_items.values():
-            item.setZValue(note_z)
-        arrow_z = max_depth + 2
+        # Arrow lines/heads: max_depth + 1
+        arrow_line_z = max_depth + 1
+        # Notes and arrow labels: max_depth + 2
+        note_z = max_depth + 2
+        for note_item in self._note_items.values():
+            if note_item.note.parent:
+                pd = self._box_depth(note_item.note.parent) + 1
+                note_item.setZValue(max(pd, note_z))
+            else:
+                note_item.setZValue(note_z)
         for item in self._arrow_items:
-            item.setZValue(arrow_z)
+            if isinstance(item, LabelItem):
+                item.setZValue(note_z)
+            else:
+                item.setZValue(arrow_line_z)
+        # Box labels: max_depth + 3 (always on top of arrows)
+        box_label_z = max_depth + 3
+        for box_item in self._box_items.values():
+            box_item._label.setZValue(box_label_z)
 
     def _refresh_auto_layout(self, box_id: str):
         """Refresh auto-layout for a box when its children change."""
         if box_id in self._box_items:
             self._box_items[box_id].refresh_auto_layout()
 
-    def _check_nesting(self, item: BoxItem):
-        """Update parent of a box after it has been moved or resized."""
+    def _check_nesting(self, item: BoxItem | NoteItem):
+        """Update parent of a box or note after it has been moved or resized."""
         if not self._board:
             return
-        box = item.box
-        box_rect = QRectF(box.x, box.y, box.w, box.h)
-        desc_ids = {d.box.id for d in self._descendants(box.id)}
+
+        is_box = isinstance(item, BoxItem)
+        if is_box:
+            box = item.box
+            item_rect = QRectF(box.x, box.y, box.w, box.h)
+            item_id = box.id
+            desc_ids = {d.box.id for d in self._descendants(box.id) if isinstance(d, BoxItem)}
+        else:
+            note = item.note
+            sr = item.sceneBoundingRect()
+            item_rect = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
+            item_id = note.id
+            desc_ids = set()
 
         best_parent = None
         best_area = float('inf')
         for other_id, other_item in self._box_items.items():
-            if other_id == box.id or other_id in desc_ids:
+            if other_id == item_id or other_id in desc_ids:
                 continue
             other = other_item.box
             other_rect = QRectF(other.x, other.y, other.w, other.h)
-            if other_rect.contains(box_rect):
+            if other_rect.contains(item_rect):
                 area = other.w * other.h
                 if area < best_area:
                     best_area = area
                     best_parent = other_id
 
-        old_parent = box.parent
+        elem = item.box if is_box else item.note
+        old_parent = elem.parent
         if best_parent:
-            box.parent = best_parent
-        elif box.parent:
-            parent_box = self._board.box_by_id(box.parent)
+            elem.parent = best_parent
+        elif elem.parent:
+            parent_box = self._board.box_by_id(elem.parent)
             if parent_box:
                 parent_rect = QRectF(
                     parent_box.x, parent_box.y,
                     parent_box.w, parent_box.h,
                 )
-                if not parent_rect.contains(box_rect):
-                    box.parent = ""
+                if not parent_rect.contains(item_rect):
+                    elem.parent = ""
             else:
-                box.parent = ""
+                elem.parent = ""
 
-        if box.parent != old_parent:
+        if elem.parent != old_parent:
             self._update_z_values()
             if old_parent:
                 self._refresh_auto_layout(old_parent)
-            if box.parent:
-                self._refresh_auto_layout(box.parent)
+            if elem.parent:
+                self._refresh_auto_layout(elem.parent)
             self.mark_dirty()
 
     def _update_reparent_highlight(self):
         """Highlight potential parent box during drag."""
-        selected = [i for i in self._scene.selectedItems() if isinstance(i, BoxItem)]
+        selected = [i for i in self._scene.selectedItems() if isinstance(i, (BoxItem, NoteItem))]
         if len(selected) != 1:
             self._clear_reparent_highlight()
             return
 
         item = selected[0]
-        box = item.box
-        box_rect = QRectF(box.x, box.y, box.w, box.h)
-        desc_ids = {d.box.id for d in self._descendants(box.id)}
+        if isinstance(item, BoxItem):
+            item_rect = QRectF(item.box.x, item.box.y, item.box.w, item.box.h)
+            item_id = item.box.id
+            desc_ids = {d.box.id for d in self._descendants(item.box.id) if isinstance(d, BoxItem)}
+        else:
+            sr = item.sceneBoundingRect()
+            item_rect = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
+            item_id = item.note.id
+            desc_ids = set()
 
         best_parent = None
         best_area = float('inf')
         for other_id, other_item in self._box_items.items():
-            if other_id == box.id or other_id in desc_ids:
+            if other_id == item_id or other_id in desc_ids:
                 continue
             other = other_item.box
             other_rect = QRectF(other.x, other.y, other.w, other.h)
-            if other_rect.contains(box_rect):
+            if other_rect.contains(item_rect):
                 area = other.w * other.h
                 if area < best_area:
                     best_area = area
@@ -1028,6 +1073,9 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                 for other in self._board.boxes:
                     if other.parent == box_id:
                         other.parent = ""
+                for other in self._board.notes:
+                    if other.parent == box_id:
+                        other.parent = ""
                 if item.box.parent:
                     former_parents.add(item.box.parent)
                 # Remove connected arrows
@@ -1036,10 +1084,13 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                         self._board.remove_arrow(arrow)
                 self._board.remove_box(item.box)
                 self._box_items.pop(box_id, None)
+                self._scene.removeItem(item._label)
                 self._scene.removeItem(item)
                 deleted = True
             elif isinstance(item, NoteItem):
                 note_id = item.note.id
+                if item.note.parent:
+                    former_parents.add(item.note.parent)
                 # Remove connected arrows
                 for arrow in list(self._board.arrows):
                     if arrow.from_id == note_id or arrow.to_id == note_id:
@@ -1068,6 +1119,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
 
     def _on_selection_changed(self):
         self._clear_box_mode()
+        self._zoom_z_level = 0
         window = self.window()
         if hasattr(window, '_status_sel'):
             count = len(self._scene.selectedItems())
@@ -1170,7 +1222,9 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                     self._connect_line = None
                 scene_pos = self.mapToScene(event.position().toPoint())
                 item = self._scene.itemAt(scene_pos, self.transform())
-                if isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
+                if isinstance(item, BoxLabelItem):
+                    item = item._box_item
+                elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
                     item = item.parentItem()
                 if (isinstance(item, (BoxItem, NoteItem))
                         and item is not self._connect_source
@@ -1193,7 +1247,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             super().mouseReleaseEvent(event)
             if event.button() == Qt.MouseButton.LeftButton:
                 for item in self._scene.selectedItems():
-                    if isinstance(item, BoxItem):
+                    if isinstance(item, (BoxItem, NoteItem)):
                         self._check_nesting(item)
                 self._commit_pre_action_snapshot()
         elif self._mode == Mode.RECT:
@@ -1215,7 +1269,9 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         item = self._scene.itemAt(scene_pos, self.transform())
 
         # Resolve child items to their parent BoxItem
-        if isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), BoxItem):
+        if isinstance(item, BoxLabelItem):
+            item = item._box_item
+        elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), BoxItem):
             item = item.parentItem()
 
         if isinstance(item, BoxItem):
@@ -1651,15 +1707,29 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
+        # Sticky creation modes (Shift+N, Shift+T)
+        shift_only = (mods & _SIGNIFICANT_MODS) == Qt.KeyboardModifier.ShiftModifier
+        if shift_only and event.key() == Qt.Key.Key_N:
+            self._sticky_mode = True
+            self.set_mode(Mode.RECT)
+            event.accept()
+            return
+        if shift_only and event.key() == Qt.Key.Key_T:
+            self._sticky_mode = True
+            self.set_mode(Mode.TEXT)
+            event.accept()
+            return
+
         # Mode switching shortcuts (no modifiers)
         if no_mod:
             mode_keys = {
                 Qt.Key.Key_V: Mode.SELECT,
-                Qt.Key.Key_R: Mode.RECT,
+                Qt.Key.Key_N: Mode.RECT,
                 Qt.Key.Key_T: Mode.TEXT,
                 Qt.Key.Key_C: Mode.CONNECT,
             }
             if event.key() in mode_keys:
+                self._sticky_mode = False
                 self.set_mode(mode_keys[event.key()])
                 event.accept()
                 return
@@ -1673,7 +1743,9 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         item = self._scene.itemAt(scene_pos, self.transform())
         # Resolve child items to parent BoxItem/NoteItem
         resolved = item
-        if isinstance(resolved, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(resolved.parentItem(), (BoxItem, NoteItem)):
+        if isinstance(resolved, BoxLabelItem):
+            resolved = resolved._box_item
+        elif isinstance(resolved, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(resolved.parentItem(), (BoxItem, NoteItem)):
             resolved = resolved.parentItem()
 
         # Shift+click toggles selection on individual items
@@ -1770,9 +1842,12 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._scene.addItem(item)
         self._box_items[box_id] = item
         self.mark_dirty()
-        self.set_mode(Mode.SELECT)
-        item.setSelected(True)
-        self._start_editing(item)
+        if self._sticky_mode:
+            item.setSelected(True)
+        else:
+            self.set_mode(Mode.SELECT)
+            item.setSelected(True)
+            self._start_editing(item)
         event.accept()
 
     # ── TEXT mode ──
@@ -1789,9 +1864,12 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._scene.addItem(item)
         self._note_items[note.id] = item
         self.mark_dirty()
-        self.set_mode(Mode.SELECT)
-        item.setSelected(True)
-        self._start_editing(item)
+        if self._sticky_mode:
+            item.setSelected(True)
+        else:
+            self.set_mode(Mode.SELECT)
+            item.setSelected(True)
+            self._start_editing(item)
         event.accept()
 
     # ── CONNECT mode ──
@@ -1810,7 +1888,9 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         item = self._scene.itemAt(scene_pos, self.transform())
 
         # Click on child item → get parent BoxItem/NoteItem
-        if isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
+        if isinstance(item, BoxLabelItem):
+            item = item._box_item
+        elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
             item = item.parentItem()
 
         if not isinstance(item, (BoxItem, NoteItem)):
@@ -1873,7 +1953,9 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         item = self._scene.itemAt(scene_pos, self.transform())
 
-        if isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
+        if isinstance(item, BoxLabelItem):
+            item = item._box_item
+        elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
             item = item.parentItem()
 
         if (isinstance(item, (BoxItem, NoteItem))
@@ -1951,9 +2033,22 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         for label_text, (target, center) in zip(labels, targets):
             self._jump_map[label_text] = target
 
+            # Determine label background from the target element's color
+            if isinstance(target, (BoxItem, NoteItem)):
+                bg_color = target.brush().color()
+                if bg_color.alphaF() < 0.1:
+                    bg_color = QColor("#C1086D")
+                else:
+                    bg_color = bg_color.darker(130)
+            else:
+                bg_color = QColor("#C1086D")
+
+            lum = bg_color.redF() * 0.299 + bg_color.greenF() * 0.587 + bg_color.blueF() * 0.114
+            text_color = "#FFFFFF" if lum < 0.5 else "#2F3437"
+
             text_item = QGraphicsSimpleTextItem(label_text)
             text_item.setFont(font)
-            text_item.setBrush(QBrush(QColor("#FFFFFF")))
+            text_item.setBrush(QBrush(QColor(text_color)))
             tr = text_item.boundingRect()
 
             pad = 3 * scene_size / base_size
@@ -1963,7 +2058,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                 tr.width() + 2 * pad,
                 tr.height() + 2 * pad,
             )
-            bg.setBrush(QBrush(QColor("#C1086D")))
+            bg.setBrush(QBrush(bg_color))
             bg.setPen(QPen(Qt.PenStyle.NoPen))
             bg.setZValue(1000)
             self._scene.addItem(bg)
@@ -2083,10 +2178,11 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             target.setSelected(True)
             if isinstance(target, BoxItem):
                 b = target.box
-                r = QRectF(b.x, b.y, b.w, b.h).adjusted(-60, -60, 60, 60)
+                r = QRectF(b.x, b.y, b.w, b.h)
             else:
-                r = target.sceneBoundingRect().adjusted(-60, -60, 60, 60)
-            self._animate_to_rect(r)
+                r = target.sceneBoundingRect()
+            padding = max(60, r.width() * 0.15, r.height() * 0.15)
+            self._animate_to_rect(r.adjusted(-padding, -padding, padding, padding))
         else:
             self._cancel_search()
 
@@ -2237,11 +2333,20 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._update_status_zoom()
 
     def _zoom_to_selection(self):
-        """z key: zoom to selected items. No-op if nothing selected."""
+        """z key: progressive zoom — selection → 2x context → fit all."""
         if not self._board:
             return
 
-        padding = 60
+        self._zoom_z_level += 1
+
+        # Level 3: fit all, then cycle back to selection on next press
+        if self._zoom_z_level >= 3:
+            self._zoom_to_fit()
+            self._zoom_z_level = 0
+            return
+
+        # Build the base selection rect
+        base_rect: QRectF | None = None
 
         # Check if an arrow is selected
         if self._selected_arrow:
@@ -2252,29 +2357,38 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
                     b = self._box_items[bid].box
                     rects.append(QRectF(b.x, b.y, b.w, b.h))
             if rects:
-                target = rects[0]
+                base_rect = rects[0]
                 for r in rects[1:]:
-                    target = target.united(r)
-                self._animate_to_rect(target.adjusted(-padding, -padding, padding, padding))
-                return
+                    base_rect = base_rect.united(r)
+        else:
+            # Check for selected boxes/notes
+            selected = self._scene.selectedItems()
+            if selected:
+                rects = []
+                for item in selected:
+                    if isinstance(item, BoxItem):
+                        b = item.box
+                        rects.append(QRectF(b.x, b.y, b.w, b.h))
+                    elif isinstance(item, NoteItem):
+                        rects.append(QRectF(item.note.x, item.note.y,
+                                            item.boundingRect().width(),
+                                            item.boundingRect().height()))
+                if rects:
+                    base_rect = rects[0]
+                    for r in rects[1:]:
+                        base_rect = base_rect.united(r)
 
-        # Check for selected boxes/notes
-        selected = self._scene.selectedItems()
-        if selected:
-            rects = []
-            for item in selected:
-                if isinstance(item, BoxItem):
-                    b = item.box
-                    rects.append(QRectF(b.x, b.y, b.w, b.h))
-                elif isinstance(item, NoteItem):
-                    rects.append(QRectF(item.note.x, item.note.y,
-                                        item.boundingRect().width(),
-                                        item.boundingRect().height()))
-            if rects:
-                target = rects[0]
-                for r in rects[1:]:
-                    target = target.united(r)
-                self._animate_to_rect(target.adjusted(-padding, -padding, padding, padding))
+        if not base_rect:
+            self._zoom_z_level = 0
+            return
+
+        padding = max(60, base_rect.width() * 0.15, base_rect.height() * 0.15)
+
+        # Level 2: double the padding for more context
+        if self._zoom_z_level == 2:
+            padding *= 2
+
+        self._animate_to_rect(base_rect.adjusted(-padding, -padding, padding, padding))
 
     def _zoom_to_fit(self):
         """Shift+Z key: zoom to fit entire diagram."""
@@ -2312,7 +2426,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         parent_rect = QRectF(pb.x, pb.y, pb.w, pb.h)
         vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
         if not vp_scene.contains(parent_rect):
-            padding = 60
+            padding = max(60, parent_rect.width() * 0.15, parent_rect.height() * 0.15)
             self._animate_to_rect(parent_rect.adjusted(-padding, -padding, padding, padding))
 
     def _cycle_sibling(self, direction: int):
@@ -2342,7 +2456,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         target_rect = QRectF(target.x, target.y, target.w, target.h)
         vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
         if not vp_scene.contains(target_rect):
-            padding = 60
+            padding = max(60, target_rect.width() * 0.15, target_rect.height() * 0.15)
             self._animate_to_rect(target_rect.adjusted(-padding, -padding, padding, padding))
 
     # ── Cheatsheet (Shift+H) ──
@@ -2351,14 +2465,14 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
         shortcuts = [
             # Modes
             ("V", "Select mode"),
-            ("R", "Create box (one-shot)"),
-            ("T", "Create note (one-shot)"),
+            ("N / \u21e7N", "Create node (one-shot / sticky)"),
+            ("T / \u21e7T", "Create note (one-shot / sticky)"),
             ("C", "Connect arrow (one-shot)"),
             # Navigation
             ("Arrow keys", "Pan viewport"),
             ("Middle-drag", "Pan anywhere"),
             ("+ / -", "Zoom in / out"),
-            ("Z", "Zoom to selection"),
+            ("Z", "Zoom to selection (progressive)"),
             ("Shift+Z", "Zoom to fit all"),
             ("P", "Select parent (zoom if needed)"),
             ("Tab / \u21e7Tab", "Cycle siblings"),

@@ -75,6 +75,29 @@ class ResizeHandle(QGraphicsRectItem):
         self.setVisible(False)
 
 
+class BoxLabelItem(QGraphicsTextItem):
+    """Scene-level label for a BoxItem, renders above arrows."""
+
+    def __init__(self, box_item: BoxItem):
+        super().__init__()
+        self._box_item = box_item
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        self.setAcceptHoverEvents(False)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        if _resolve_color(self._box_item.box.color):
+            bg_rect = self.boundingRect()
+            bg = QColor("#F2F0EB")
+            bg.setAlphaF(0.6)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(bg_rect, 4, 4)
+        super().paint(painter, option, widget)
+
+
 class BoxItem(QGraphicsRectItem):
     """A draggable box with centered label text."""
 
@@ -88,6 +111,7 @@ class BoxItem(QGraphicsRectItem):
             | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
         self.setCursor(Qt.CursorShape.SizeAllCursor)
+        self.setAcceptHoverEvents(True)
 
         self._min_h = box.h
 
@@ -104,7 +128,7 @@ class BoxItem(QGraphicsRectItem):
         ]
         self._resizing = False
 
-        self._label = QGraphicsTextItem(self)
+        self._label = BoxLabelItem(self)
         self._label.setFont(self._box_font())
         self._label.setDefaultTextColor(QColor("#2F3437"))
         self._label.setPlainText(box.label)
@@ -177,18 +201,20 @@ class BoxItem(QGraphicsRectItem):
         br = self._label.boundingRect()
         w = self.box.w
         h = self.box.h
+        bx = self.pos().x()
+        by = self.pos().y()
         anchor = self._get_effective_anchor()
         doc = self._label.document()
         opt = QTextOption()
         if anchor == "topleft":
             opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
-            self._label.setPos(8, 8)
+            self._label.setPos(bx + 8, by + 8)
         elif anchor == "topcenter":
             opt.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            self._label.setPos((w - br.width()) / 2, 8)
+            self._label.setPos(bx + (w - br.width()) / 2, by + 8)
         else:
             opt.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            self._label.setPos((w - br.width()) / 2, (h - br.height()) / 2)
+            self._label.setPos(bx + (w - br.width()) / 2, by + (h - br.height()) / 2)
         doc.setDefaultTextOption(opt)
 
     def refresh_auto_layout(self):
@@ -242,29 +268,40 @@ class BoxItem(QGraphicsRectItem):
         self._handles[_EDGE_L].setPos(r.left(), cy)
 
     def _show_handles(self, visible: bool):
-        for h in self._handles:
-            h.setVisible(visible)
+        pass  # resize is via border proximity, no visible handles needed
 
     def _handle_at(self, pos: QPointF) -> int | None:
-        hit = HANDLE_SIZE + 8
         r = self.rect()
-        # Check corners first (priority over edges)
-        corners = [r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight()]
-        for i, cp in enumerate(corners):
-            if abs(pos.x() - cp.x()) < hit and abs(pos.y() - cp.y()) < hit:
-                return i
-        # Check edge midpoints
-        cx = (r.left() + r.right()) / 2
-        cy = (r.top() + r.bottom()) / 2
-        edges = [
-            (_EDGE_T, QPointF(cx, r.top())),
-            (_EDGE_R, QPointF(r.right(), cy)),
-            (_EDGE_B, QPointF(cx, r.bottom())),
-            (_EDGE_L, QPointF(r.left(), cy)),
-        ]
-        for eid, ep in edges:
-            if abs(pos.x() - ep.x()) < hit and abs(pos.y() - ep.y()) < hit:
-                return eid
+        margin = 10
+
+        near_l = abs(pos.x() - r.left()) < margin
+        near_r = abs(pos.x() - r.right()) < margin
+        near_t = abs(pos.y() - r.top()) < margin
+        near_b = abs(pos.y() - r.bottom()) < margin
+
+        in_x = r.left() - margin < pos.x() < r.right() + margin
+        in_y = r.top() - margin < pos.y() < r.bottom() + margin
+
+        # Corners (both edges near)
+        if near_l and near_t:
+            return _CORNER_TL
+        if near_r and near_t:
+            return _CORNER_TR
+        if near_l and near_b:
+            return _CORNER_BL
+        if near_r and near_b:
+            return _CORNER_BR
+
+        # Edges (one edge near, within extent of the other axis)
+        if near_t and in_x:
+            return _EDGE_T
+        if near_b and in_x:
+            return _EDGE_B
+        if near_l and in_y:
+            return _EDGE_L
+        if near_r and in_y:
+            return _EDGE_R
+
         return None
 
     def itemChange(self, change, value):
@@ -282,6 +319,7 @@ class BoxItem(QGraphicsRectItem):
             dy = self.pos().y() - self.box.y
             self.box.x = self.pos().x()
             self.box.y = self.pos().y()
+            self._position_label()
             view = _get_view(self)
             if view and hasattr(view, '_propagating_move'):
                 if not view._propagating_move:
@@ -298,7 +336,7 @@ class BoxItem(QGraphicsRectItem):
     def boundingRect(self):
         r = super().boundingRect()
         if self.isSelected():
-            return r.adjusted(-4, -4, 4, 4)
+            return r.adjusted(-6, -6, 6, 6)
         return r
 
     def mousePressEvent(self, event):
@@ -386,6 +424,21 @@ class BoxItem(QGraphicsRectItem):
             return
         super().mouseReleaseEvent(event)
 
+    def hoverMoveEvent(self, event):
+        if self.isSelected():
+            handle = self._handle_at(event.pos())
+            if handle is not None:
+                self.setCursor(_HANDLE_CURSORS[handle])
+            else:
+                self.unsetCursor()
+        else:
+            self.unsetCursor()
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        self.unsetCursor()
+        super().hoverLeaveEvent(event)
+
     def paint(self, painter: QPainter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(self.pen())
@@ -393,20 +446,16 @@ class BoxItem(QGraphicsRectItem):
         radius = 0 if self.box.style == "flat" else BOX_RADIUS
         painter.drawRoundedRect(self.rect(), radius, radius)
 
-        # Label background — semi-transparent bright rect for contrast
-        if _resolve_color(self.box.color):
-            label_rect = self._label.mapRectToParent(self._label.boundingRect())
-            bg = QColor("#F2F0EB")
-            bg.setAlphaF(0.6)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(bg))
-            painter.drawRoundedRect(label_rect, 4, 4)
-
         if self.isSelected():
-            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
-            painter.setPen(sel_pen)
+            sel_rect = self.rect().adjusted(-4, -4, 4, 4)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            sel_rect = self.rect().adjusted(-3, -3, 3, 3)
+            shadow = QColor("#000000")
+            shadow.setAlphaF(0.25)
+            painter.setPen(QPen(shadow, 7, Qt.PenStyle.SolidLine))
+            painter.drawRoundedRect(sel_rect, radius, radius)
+            sel_color = QColor("#D4BA6A")
+            sel_color.setAlphaF(0.85)
+            painter.setPen(QPen(sel_color, 4, Qt.PenStyle.SolidLine))
             painter.drawRoundedRect(sel_rect, radius, radius)
 
 
@@ -437,7 +486,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         base_rect = QGraphicsSimpleTextItem.boundingRect(self)
         bg_rect = base_rect.adjusted(-pad, -pad, pad, pad)
         bg = QColor("#F2F0EB")
-        bg.setAlphaF(0.1)
+        bg.setAlphaF(0.6)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(bg))
@@ -510,7 +559,7 @@ class LabelItem(QGraphicsSimpleTextItem):
         pad = 4
         bg_rect = self.boundingRect().adjusted(-pad, -pad, pad, pad)
         bg = QColor("#F2F0EB")
-        bg.setAlphaF(0.1)
+        bg.setAlphaF(0.6)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(bg))

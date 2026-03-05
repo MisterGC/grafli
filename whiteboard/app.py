@@ -319,6 +319,7 @@ class MainWindow(QMainWindow):
         self._view.mark_clean()
         self.setWindowTitle(self._title_for_path(path))
         self._start_watching()
+        self._zoom_fit(animate=False)
 
     def _schedule_autosave(self):
         if self._file_path:

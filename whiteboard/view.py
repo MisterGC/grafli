@@ -1634,6 +1634,17 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
+        # Tab / Shift+Tab — cycle siblings
+        if event.key() == Qt.Key.Key_Tab and has_selection:
+            sel = self._scene.selectedItems()
+            if len(sel) == 1 and isinstance(sel[0], BoxItem):
+                if mods & Qt.KeyboardModifier.ShiftModifier:
+                    self._cycle_sibling(-1)
+                else:
+                    self._cycle_sibling(1)
+                event.accept()
+                return
+
         # P — select parent box (zoom if needed)
         if event.key() == Qt.Key.Key_P and no_mod:
             self._select_parent_and_zoom()
@@ -2285,6 +2296,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
 
         box = selected[0].box
         if not box.parent:
+            self._zoom_to_fit()
             return
 
         parent_item = self._box_items.get(box.parent)
@@ -2303,6 +2315,36 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             padding = 60
             self._animate_to_rect(parent_rect.adjusted(-padding, -padding, padding, padding))
 
+    def _cycle_sibling(self, direction: int):
+        """Tab / Shift+Tab: cycle through sibling boxes of the same kind."""
+        if not self._board:
+            return
+        selected = self._scene.selectedItems()
+        if len(selected) != 1 or not isinstance(selected[0], BoxItem):
+            return
+        box = selected[0].box
+        is_parent = self._has_children(box.id)
+        siblings = [
+            b for b in self._board.boxes
+            if b.parent == box.parent
+            and self._has_children(b.id) == is_parent
+        ]
+        siblings.sort(key=lambda b: (b.y, b.x))
+        if len(siblings) <= 1:
+            return
+        idx = next(i for i, b in enumerate(siblings) if b.id == box.id)
+        target = siblings[(idx + direction) % len(siblings)]
+        target_item = self._box_items.get(target.id)
+        if not target_item:
+            return
+        self._scene.clearSelection()
+        target_item.setSelected(True)
+        target_rect = QRectF(target.x, target.y, target.w, target.h)
+        vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
+        if not vp_scene.contains(target_rect):
+            padding = 60
+            self._animate_to_rect(target_rect.adjusted(-padding, -padding, padding, padding))
+
     # ── Cheatsheet (Shift+H) ──
 
     def _show_cheatsheet(self):
@@ -2319,6 +2361,7 @@ class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
             ("Z", "Zoom to selection"),
             ("Shift+Z", "Zoom to fit all"),
             ("P", "Select parent (zoom if needed)"),
+            ("Tab / \u21e7Tab", "Cycle siblings"),
             ("Ctrl+J", "Jump to shape / arrow"),
             ("/", "Search by label"),
             # Editing

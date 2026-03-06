@@ -1,12 +1,26 @@
 [project]
-name = "whiteboard"
+name = "grafli"
 version = "0.1.0"
-description = "Lightweight desktop whiteboard with plain-text .board files"
+description = "Lightweight diagram tool with vim keybindings and plain-text .grafli files"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = ["PySide6>=6.7"]
+keywords = ["diagram", "whiteboard", "vim", "architecture", "plain-text"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics :: Editors",
+]
 
 [project.scripts]
-whiteboard = "whiteboard.app:main"
+grafli = "grafli.app:main"
+
+[project.urls]
+Repository = "https://github.com/mistergc/grafli"
+Issues = "https://github.com/mistergc/grafli/issues"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

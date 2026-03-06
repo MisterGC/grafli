@@ -32,7 +32,10 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
     QGraphicsTextItem,
     QGraphicsView,
-    QMessageBox,
+    QDialog,
+    QPushButton,
+    QTextBrowser,
+    QVBoxLayout,
 )
 
 from grafli.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_point, _line_rect_clip, _rect_edge_point
@@ -3134,71 +3137,123 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
     # ── Cheatsheet (Shift+H) ──
 
     def _show_cheatsheet(self):
-        shortcuts = [
-            # Modes
-            ("V", "Select mode"),
-            ("N / \u21e7N", "Create node (one-shot / sticky)"),
-            ("T / \u21e7T", "Create note (one-shot / sticky)"),
-            ("C", "Connect arrow (one-shot)"),
-            # Navigation
-            ("Arrow keys", "Pan viewport"),
-            ("Middle-drag", "Pan anywhere"),
-            ("+ / -", "Zoom in / out"),
-            ("Z", "Zoom to selection (progressive)"),
-            ("Shift+Z", "Zoom to fit all"),
-            ("P", "Select parent (zoom if needed)"),
-            ("F", "Select first child"),
-            ("Tab / \u21e7Tab", "Cycle siblings"),
-            ("Ctrl+J", "Jump to any item (global)"),
-            ("Ctrl+O / Ctrl+I", "Nav history back / forward"),
-            ("Alt (hold)", "Graph nav: follow connectors"),
-            ("/", "Search by label"),
-            # Editing
-            ("E", "Edit selected element"),
-            ("Double-click", "Edit text"),
-            ("Enter", "Accept edit"),
-            ("u", "Undo"),
-            ("Ctrl+R", "Redo"),
-            ("x", "Delete selected / arrow"),
-            ("Delete", "Delete selected / arrow"),
-            # Creation
-            ("o", "Create box below"),
-            ("O", "Create box above"),
-            ("Ctrl+Arrow", "Create adjacent box"),
-            ("Ctrl+hkl", "Create connected box (left/up/right)"),
-            ("\u21e7Ctrl+hkl", "Create connected note (left/up/right)"),
-            ("Alt+Drag", "Connect boxes (from SELECT)"),
-            ("Alt+Click", "Paste at position"),
-            # Style (with selection)
-            ("h / l", "Cycle color"),
-            ("j / k", "Cycle text size"),
-            ("s", "Enter style mode"),
-            ("d", "Enter dimension mode"),
-            ("Shift+A", "Cycle anchor"),
-            ("Shift+G", "Snap to grid"),
-            # View
-            ("G", "Toggle grid"),
-            ("M", "Toggle minimap"),
-            # Arrow (selected)
-            ("e", "Edit arrow label"),
-            ("s", "Enter arrow style mode"),
-            ("h / l", "Toggle arrowheads"),
-            ("j / k", "Arrow label size"),
-            ("\u21e7J / \u21e7K", "Cycle arrow style"),
-            # Other
-            ("Shift+Click", "Toggle selection"),
-            ("Shift+H", "This cheatsheet"),
-            ("Escape", "Cancel / back to SELECT"),
+        groups = [
+            ("Modes", [
+                ("V", "Select mode"),
+                ("N / \u21e7N", "Create node (one-shot / sticky)"),
+                ("T / \u21e7T", "Create note (one-shot / sticky)"),
+                ("C", "Connect arrow (one-shot)"),
+            ]),
+            ("Navigate", [
+                ("Arrow keys", "Pan viewport"),
+                ("Middle-drag", "Pan anywhere"),
+                ("+ / -", "Zoom in / out"),
+                ("Z", "Zoom to selection (progressive)"),
+                ("Shift+Z", "Zoom to fit all"),
+                ("P", "Select parent (zoom if needed)"),
+                ("F", "Select first child"),
+                ("Tab / \u21e7Tab", "Cycle siblings"),
+                ("Ctrl+J", "Jump to any item (global)"),
+                ("Ctrl+O / Ctrl+I", "Nav history back / forward"),
+                ("Alt (hold)", "Graph nav: follow connectors"),
+            ]),
+            ("Edit", [
+                ("E / Dbl-click", "Edit selected element"),
+                ("Enter", "Accept edit"),
+                ("u", "Undo"),
+                ("Ctrl+R", "Redo"),
+                ("x / Delete", "Delete selected / arrow"),
+            ]),
+            ("Create", [
+                ("o / O", "Create box below / above"),
+                ("Ctrl+Arrow", "Create adjacent box"),
+                ("Ctrl+hkl", "Create connected box (left/up/right)"),
+                ("\u21e7Ctrl+hkl", "Create connected note (left/up/right)"),
+                ("Alt+Drag", "Connect boxes (from SELECT)"),
+                ("Alt+Click", "Paste at position"),
+                ("/", "Search by label"),
+            ]),
+            ("Style", [
+                ("h / l", "Cycle color"),
+                ("j / k", "Cycle text size"),
+                ("s", "Enter style mode"),
+                ("d", "Enter dimension mode"),
+                ("Shift+A", "Cycle anchor"),
+                ("Shift+G", "Snap to grid"),
+            ]),
+            ("Focus", [
+                ("B", "Subgraph focus (cycle direction)"),
+                ("\u21e7B", "Toggle focus depth (full/1-hop)"),
+            ]),
+            ("View", [
+                ("G", "Toggle grid"),
+                ("M", "Toggle minimap"),
+            ]),
+            ("Arrow", [
+                ("e", "Edit arrow label"),
+                ("s", "Enter arrow style mode"),
+                ("h / l", "Toggle arrowheads"),
+                ("j / k", "Arrow label size"),
+                ("\u21e7J / \u21e7K", "Cycle arrow style"),
+            ]),
+            ("Other", [
+                ("Shift+Click", "Toggle selection"),
+                ("Shift+H", "This cheatsheet"),
+                ("Escape", "Cancel / back to SELECT"),
+            ]),
         ]
-        rows = "".join(
-            f"<tr><td style='padding-right:16px'><b>{key}</b></td>"
-            f"<td>{desc}</td></tr>"
-            for key, desc in shortcuts
+
+        columns = [
+            ["Modes", "Navigate"],
+            ["Edit", "Create", "Focus", "View"],
+            ["Style", "Arrow", "Other"],
+        ]
+        group_map = {name: entries for name, entries in groups}
+
+        hdr = (
+            "color:#6A9FB5;font-weight:bold;"
+            "padding-top:8px;padding-bottom:2px"
         )
-        html = f"<table cellpadding='2'>{rows}</table>"
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Keyboard Shortcuts")
-        msg.setTextFormat(Qt.TextFormat.RichText)
-        msg.setText(html)
-        msg.exec()
+
+        def _render_column(group_names):
+            rows = []
+            for name in group_names:
+                rows.append(
+                    f"<tr><td colspan='2' style='{hdr}'>"
+                    f"{name.upper()}</td></tr>"
+                )
+                for key, desc in group_map[name]:
+                    rows.append(
+                        f"<tr>"
+                        f"<td style='padding-right:12px;white-space:nowrap'>"
+                        f"<b>{key}</b></td>"
+                        f"<td>{desc}</td></tr>"
+                    )
+            return f"<table cellpadding='1'>{''.join(rows)}</table>"
+
+        col_html = "</td><td width='24'></td><td valign='top'>".join(
+            _render_column(col) for col in columns
+        )
+        html = (
+            "<table><tr>"
+            f"<td valign='top'>{col_html}</td>"
+            "</tr></table>"
+        )
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Keyboard Shortcuts")
+        dlg.setFixedWidth(820)
+
+        browser = QTextBrowser(dlg)
+        browser.setOpenLinks(False)
+        browser.setHtml(html)
+
+        btn = QPushButton("Close", dlg)
+        btn.clicked.connect(dlg.accept)
+
+        layout = QVBoxLayout(dlg)
+        layout.addWidget(browser)
+        layout.addWidget(btn)
+
+        dlg.exec()
 

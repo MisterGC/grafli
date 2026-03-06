@@ -273,6 +273,8 @@ class MainWindow(QMainWindow):
 
     def _setup_status_bar(self):
         self._status_mode = QLabel("SELECT")
+        self._status_breadcrumb = QLabel("")
+        self._status_breadcrumb.setStyleSheet("color: #888888;")
         self._status_zoom = QLabel("100%")
         self._status_pos = QLabel("0, 0")
         self._status_sel = QLabel("")
@@ -281,6 +283,7 @@ class MainWindow(QMainWindow):
         self._status_warn.setStyleSheet("color: #e04040; font-weight: bold;")
 
         self.statusBar().addWidget(self._status_mode)
+        self.statusBar().addWidget(self._status_breadcrumb)
         self.statusBar().addPermanentWidget(self._status_warn)
         self.statusBar().addPermanentWidget(self._status_sel)
         self.statusBar().addPermanentWidget(self._status_pos)

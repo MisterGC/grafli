@@ -165,6 +165,17 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         # Sticky creation mode
         self._sticky_mode: bool = False
 
+        # Navigation jumplist (Ctrl+O / Ctrl+I)
+        self._nav_stack: list[QRectF] = []
+        self._nav_index: int = -1
+        self._NAV_STACK_CAP = 50
+
+        # Graph navigation (Alt held)
+        self._graph_nav_active = False
+        self._graph_nav_labels: list[QGraphicsRectItem | QGraphicsSimpleTextItem] = []
+        self._graph_nav_map: dict[str, str] = {}  # label key -> target node id
+        self._graph_nav_warning: list[QGraphicsItem] = []
+
         # Search state
         self._search_active = False
         self._search_text = ""
@@ -270,6 +281,7 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._clear_jump_labels()
         self._cancel_search()
         self._deselect_arrow()
+        self._exit_graph_nav()
         if self._rect_preview:
             self._scene.removeItem(self._rect_preview)
             self._rect_preview = None
@@ -1124,6 +1136,33 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         if hasattr(window, '_status_sel'):
             count = len(self._scene.selectedItems())
             window._status_sel.setText(f"{count} selected" if count else "")
+        self._update_breadcrumb()
+
+    def _update_breadcrumb(self):
+        """Update status bar breadcrumb showing ancestry path."""
+        window = self.window()
+        if not hasattr(window, '_status_breadcrumb'):
+            return
+        selected = self._scene.selectedItems()
+        if len(selected) != 1 or not isinstance(selected[0], BoxItem) or not self._board:
+            window._status_breadcrumb.setText("")
+            return
+        box = selected[0].box
+        path: list[str] = [box.label or box.id]
+        current = box.parent
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            parent_box = self._board.box_by_id(current)
+            if not parent_box:
+                break
+            path.append(parent_box.label or parent_box.id)
+            current = parent_box.parent
+        path.reverse()
+        text = " > ".join(path)
+        if len(text) > 60:
+            text = "... " + text[-(60 - 4):]
+        window._status_breadcrumb.setText(text)
 
     # ── Pan / Zoom ──
 
@@ -1300,6 +1339,12 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             super().keyPressEvent(event)
             return
 
+        # Graph nav mode handling (Alt held)
+        if self._graph_nav_active:
+            self._handle_graph_nav_key(event)
+            event.accept()
+            return
+
         # Search mode handling
         if self._search_active:
             self._handle_search_key(event)
@@ -1455,6 +1500,42 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             self._start_jump_mode()
             event.accept()
             return
+
+        # Ctrl+O — nav back
+        if event.key() == Qt.Key.Key_O and mods & _CTRL_MOD:
+            self._nav_back()
+            event.accept()
+            return
+
+        # Ctrl+I — nav forward
+        if event.key() == Qt.Key.Key_I and mods & _CTRL_MOD:
+            self._nav_forward()
+            event.accept()
+            return
+
+        # Alt — enter graph nav mode (single node selected)
+        if event.key() == Qt.Key.Key_Alt:
+            sel = self._scene.selectedItems()
+            if len(sel) == 1 and isinstance(sel[0], BoxItem):
+                self._enter_graph_nav(sel[0])
+                event.accept()
+                return
+
+        # Ctrl+hkl — create connected box, Ctrl+Shift+hkl — create connected note
+        if mods & _CTRL_MOD:
+            hjkl_dirs = {
+                Qt.Key.Key_H: "left",
+                Qt.Key.Key_K: "up",
+                Qt.Key.Key_L: "right",
+            }
+            if event.key() in hjkl_dirs:
+                direction = hjkl_dirs[event.key()]
+                if mods & Qt.KeyboardModifier.ShiftModifier:
+                    self._create_adjacent_note(direction)
+                else:
+                    self._create_adjacent_box(direction)
+                event.accept()
+                return
 
         # Ctrl+Arrow — create adjacent box
         if mods & _CTRL_MOD:
@@ -1707,6 +1788,12 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
+        # F — select first child of current box
+        if event.key() == Qt.Key.Key_F and no_mod:
+            self._select_first_child()
+            event.accept()
+            return
+
         # Sticky creation modes (Shift+N, Shift+T)
         shift_only = (mods & _SIGNIFICANT_MODS) == Qt.KeyboardModifier.ShiftModifier
         if shift_only and event.key() == Qt.Key.Key_N:
@@ -1735,6 +1822,13 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
                 return
 
         super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key.Key_Alt and self._graph_nav_active:
+            self._exit_graph_nav()
+            event.accept()
+            return
+        super().keyReleaseEvent(event)
 
     # ── SELECT mode ──
 
@@ -1985,14 +2079,24 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._clear_jump_labels()
 
         viewport_rect = self.mapToScene(self.viewport().rect()).boundingRect()
-        # Collect jump targets: boxes, notes, and arrows (with midpoints)
-        targets: list[tuple[BoxItem | NoteItem | Arrow, QPointF]] = []
+        vp_center = viewport_rect.center()
+
+        # Collect ALL jump targets, split into visible and off-screen
+        visible: list[tuple[BoxItem | NoteItem | Arrow, QPointF]] = []
+        offscreen: list[tuple[BoxItem | NoteItem | Arrow, QPointF]] = []
+
         for item in self._box_items.values():
+            center = item.sceneBoundingRect().center()
             if viewport_rect.intersects(item.sceneBoundingRect()):
-                targets.append((item, item.sceneBoundingRect().center()))
+                visible.append((item, center))
+            else:
+                offscreen.append((item, center))
         for item in self._note_items.values():
+            center = item.sceneBoundingRect().center()
             if viewport_rect.intersects(item.sceneBoundingRect()):
-                targets.append((item, item.sceneBoundingRect().center()))
+                visible.append((item, center))
+            else:
+                offscreen.append((item, center))
         # Arrow midpoints
         for arrow in self._board.arrows:
             from_elem = self._board.box_by_id(arrow.from_id) or self._board.note_by_id(arrow.from_id)
@@ -2005,72 +2109,145 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
                     (fr[1] + fr[3] / 2 + tr[1] + tr[3] / 2) / 2,
                 )
                 if viewport_rect.contains(mid):
-                    targets.append((arrow, mid))
+                    visible.append((arrow, mid))
+                else:
+                    offscreen.append((arrow, mid))
 
-        if not targets:
+        # Sort off-screen by distance from viewport center
+        offscreen.sort(key=lambda t: (
+            (t[1].x() - vp_center.x()) ** 2 + (t[1].y() - vp_center.y()) ** 2
+        ))
+
+        if not visible and not offscreen:
             return
 
-        count = len(targets)
-        labels: list[str] = []
-        if count <= 26:
-            for i in range(count):
-                labels.append(chr(ord("a") + i))
-        else:
-            for i in range(count):
-                first = chr(ord("a") + i // 26)
-                second = chr(ord("a") + i % 26)
-                labels.append(first + second)
-
+        # Assign labels: single letters to visible, two letters to off-screen
+        single_letters = [chr(ord("a") + i) for i in range(26)]
         self._jump_map = {}
+
+        # Visible items get single-letter labels first
+        vis_labels: list[str] = []
+        for i in range(min(len(visible), 26)):
+            vis_labels.append(single_letters[i])
+
+        # Off-screen get two-letter labels
+        off_labels: list[str] = []
+        remaining_first = single_letters[len(vis_labels):]  # unused single letters as first char
+        if not remaining_first:
+            remaining_first = single_letters  # wrap around if all 26 used
+        label_idx = 0
+        for _ in range(len(offscreen)):
+            first = remaining_first[label_idx // 26 % len(remaining_first)]
+            second = single_letters[label_idx % 26]
+            off_labels.append(first + second)
+            label_idx += 1
+
         zoom = self._current_zoom()
         base_size = 14
         min_screen_px = 14
         scene_size = min(base_size * 3, max(base_size, min_screen_px / zoom))
-
         font = QFont(FONT_FAMILY, round(scene_size))
         font.setBold(True)
 
-        for label_text, (target, center) in zip(labels, targets):
+        # Render visible labels on the canvas
+        for label_text, (target, center) in zip(vis_labels, visible):
+            self._jump_map[label_text] = target
+            self._render_jump_label(label_text, target, center, font, scene_size, base_size)
+
+        # Register off-screen targets (no canvas labels)
+        for label_text, (target, _center) in zip(off_labels, offscreen):
             self._jump_map[label_text] = target
 
-            # Determine label background from the target element's color
-            if isinstance(target, (BoxItem, NoteItem)):
-                bg_color = target.brush().color()
-                if bg_color.alphaF() < 0.1:
-                    bg_color = QColor("#C1086D")
-                else:
-                    bg_color = bg_color.darker(130)
-            else:
-                bg_color = QColor("#C1086D")
-
-            lum = bg_color.redF() * 0.299 + bg_color.greenF() * 0.587 + bg_color.blueF() * 0.114
-            text_color = "#FFFFFF" if lum < 0.5 else "#2F3437"
-
-            text_item = QGraphicsSimpleTextItem(label_text)
-            text_item.setFont(font)
-            text_item.setBrush(QBrush(QColor(text_color)))
-            tr = text_item.boundingRect()
-
-            pad = 3 * scene_size / base_size
-            bg = QGraphicsRectItem(
-                center.x() - tr.width() / 2 - pad,
-                center.y() - tr.height() / 2 - pad,
-                tr.width() + 2 * pad,
-                tr.height() + 2 * pad,
-            )
-            bg.setBrush(QBrush(bg_color))
-            bg.setPen(QPen(Qt.PenStyle.NoPen))
-            bg.setZValue(1000)
-            self._scene.addItem(bg)
-            self._jump_labels.append(bg)
-
-            text_item.setPos(center.x() - tr.width() / 2, center.y() - tr.height() / 2)
-            text_item.setZValue(1001)
-            self._scene.addItem(text_item)
-            self._jump_labels.append(text_item)
+        # Show off-screen badge list at viewport bottom
+        if offscreen:
+            self._render_offscreen_badge(off_labels, offscreen)
 
         self._jump_active = True
         self._jump_prefix = ""
+
+    def _render_jump_label(self, label_text, target, center, font, scene_size, base_size):
+        """Render a single jump label on the canvas."""
+        if isinstance(target, (BoxItem, NoteItem)):
+            bg_color = target.brush().color()
+            if bg_color.alphaF() < 0.1:
+                bg_color = QColor("#C1086D")
+            else:
+                bg_color = bg_color.darker(130)
+        else:
+            bg_color = QColor("#C1086D")
+
+        lum = bg_color.redF() * 0.299 + bg_color.greenF() * 0.587 + bg_color.blueF() * 0.114
+        text_color = "#FFFFFF" if lum < 0.5 else "#2F3437"
+
+        text_item = QGraphicsSimpleTextItem(label_text)
+        text_item.setFont(font)
+        text_item.setBrush(QBrush(QColor(text_color)))
+        tr = text_item.boundingRect()
+
+        pad = 3 * scene_size / base_size
+        bg = QGraphicsRectItem(
+            center.x() - tr.width() / 2 - pad,
+            center.y() - tr.height() / 2 - pad,
+            tr.width() + 2 * pad,
+            tr.height() + 2 * pad,
+        )
+        bg.setBrush(QBrush(bg_color))
+        bg.setPen(QPen(Qt.PenStyle.NoPen))
+        bg.setZValue(1000)
+        self._scene.addItem(bg)
+        self._jump_labels.append(bg)
+
+        text_item.setPos(center.x() - tr.width() / 2, center.y() - tr.height() / 2)
+        text_item.setZValue(1001)
+        self._scene.addItem(text_item)
+        self._jump_labels.append(text_item)
+
+    def _render_offscreen_badge(self, off_labels, offscreen):
+        """Show compact badge list of off-screen targets at viewport bottom."""
+        vp = self.viewport().rect()
+        scene_bottom = self.mapToScene(QPointF(vp.width() / 2, vp.height() - 30).toPoint())
+
+        parts: list[str] = []
+        for label_text, (target, _center) in zip(off_labels, offscreen):
+            if isinstance(target, (BoxItem, NoteItem)):
+                if isinstance(target, BoxItem):
+                    name = target.box.label or target.box.id
+                else:
+                    name = target.note.text[:15]
+            else:
+                name = f"{target.from_id}\u2192{target.to_id}"
+            parts.append(f"[{label_text}] {name}")
+            if len(parts) >= 10:
+                remaining = len(offscreen) - 10
+                if remaining > 0:
+                    parts.append(f"...+{remaining}")
+                break
+
+        display = "  ".join(parts)
+        badge = QGraphicsTextItem(display)
+        font = QFont(FONT_FAMILY, 9)
+        badge.setFont(font)
+        badge.setDefaultTextColor(QColor("#FFFFFF"))
+        badge.setZValue(10001)
+        br = badge.boundingRect()
+
+        bg = QGraphicsRectItem()
+        bg_color = QColor("#2F3437")
+        bg_color.setAlphaF(0.85)
+        bg.setBrush(QBrush(bg_color))
+        bg.setPen(QPen(Qt.PenStyle.NoPen))
+        bg.setZValue(10000)
+
+        bx = scene_bottom.x() - br.width() / 2
+        by = scene_bottom.y()
+        badge.setPos(bx, by)
+        pad = 6
+        bg.setRect(bx - pad, by - pad, br.width() + pad * 2, br.height() + pad * 2)
+
+        self._scene.addItem(bg)
+        self._scene.addItem(badge)
+        self._jump_labels.append(bg)
+        self._jump_labels.append(badge)
 
     def _handle_jump_key(self, event):
         if event.key() == Qt.Key.Key_Escape:
@@ -2086,6 +2263,7 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
 
         if self._jump_prefix in self._jump_map:
             target = self._jump_map[self._jump_prefix]
+            self._push_nav_snapshot()
             self._clear_jump_labels()
             self._scene.clearSelection()
             if isinstance(target, Arrow):
@@ -2097,10 +2275,26 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
                         (from_box.x + from_box.w / 2 + to_box.x + to_box.w / 2) / 2,
                         (from_box.y + from_box.h / 2 + to_box.y + to_box.h / 2) / 2,
                     )
-                    self.centerOn(mid)
+                    vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
+                    if not vp_scene.contains(mid):
+                        r = QRectF(mid.x() - 50, mid.y() - 50, 100, 100)
+                        self._animate_to_rect(r.adjusted(-60, -60, 60, 60))
+                    else:
+                        self.centerOn(mid)
             else:
                 target.setSelected(True)
-                self.centerOn(target)
+                # Animate to off-screen targets
+                if isinstance(target, BoxItem):
+                    b = target.box
+                    target_rect = QRectF(b.x, b.y, b.w, b.h)
+                else:
+                    target_rect = target.sceneBoundingRect()
+                vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
+                if not vp_scene.contains(target_rect):
+                    padding = max(60, target_rect.width() * 0.15, target_rect.height() * 0.15)
+                    self._animate_to_rect(target_rect.adjusted(-padding, -padding, padding, padding))
+                else:
+                    self.centerOn(target)
             return
 
         has_match = any(
@@ -2172,6 +2366,7 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
 
     def _accept_search(self):
         if self._search_matches:
+            self._push_nav_snapshot()
             target = self._search_matches[self._search_index]
             self._cancel_search()
             self._scene.clearSelection()
@@ -2289,6 +2484,57 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self.set_mode(Mode.SELECT)
         self._scene.clearSelection()
         new_item.setSelected(True)
+        self._start_editing(new_item)
+
+    def _create_adjacent_note(self, direction: str):
+        """Ctrl+Shift+hkl: create a connected annotation note."""
+        if not self._board:
+            return
+        self._push_undo()
+
+        gap = 40
+        anchor_item = None
+        for item in self._scene.selectedItems():
+            if isinstance(item, (BoxItem, NoteItem)):
+                anchor_item = item
+                break
+
+        if anchor_item:
+            br = anchor_item.sceneBoundingRect()
+            if direction == "right":
+                x = br.right() + gap
+                y = br.y()
+            elif direction == "left":
+                x = br.left() - gap - 80
+                y = br.y()
+            elif direction == "up":
+                x = br.x()
+                y = br.top() - gap - 30
+            else:
+                x = br.x()
+                y = br.bottom() + gap
+        else:
+            center = self.mapToScene(self.viewport().rect().center())
+            x = center.x()
+            y = center.y()
+
+        note = Note(id="", x=x, y=y, text="Note")
+        self._board.add_note(note)
+        note_item = NoteItem(note)
+        self._scene.addItem(note_item)
+        self._note_items[note.id] = note_item
+
+        if anchor_item:
+            src_id = self._item_id(anchor_item)
+            arrow = Arrow(from_id=src_id, to_id=note.id)
+            self._board.add_arrow(arrow)
+            self._redraw_arrows()
+
+        self.mark_dirty()
+        self.set_mode(Mode.SELECT)
+        self._scene.clearSelection()
+        note_item.setSelected(True)
+        self._start_editing(note_item)
 
     # ── Animated zoom ──
 
@@ -2337,6 +2583,7 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         if not self._board:
             return
 
+        self._push_nav_snapshot()
         self._zoom_z_level += 1
 
         # Level 3: fit all, then cycle back to selection on next press
@@ -2398,6 +2645,49 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         if not items_rect.isNull():
             self._animate_to_rect(items_rect.adjusted(-40, -40, 40, 40))
 
+    # ── Navigation jumplist (Ctrl+O / Ctrl+I) ──
+
+    def _push_nav_snapshot(self):
+        """Capture current viewport rect before a navigation action."""
+        vp_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+        # Deduplicate near-identical consecutive positions
+        if self._nav_index >= 0 and self._nav_index < len(self._nav_stack):
+            prev = self._nav_stack[self._nav_index]
+            dx = abs(prev.center().x() - vp_rect.center().x())
+            dy = abs(prev.center().y() - vp_rect.center().y())
+            if dx < 5 and dy < 5:
+                return
+        # Truncate forward history
+        self._nav_stack = self._nav_stack[:self._nav_index + 1]
+        self._nav_stack.append(vp_rect)
+        if len(self._nav_stack) > self._NAV_STACK_CAP:
+            self._nav_stack.pop(0)
+        self._nav_index = len(self._nav_stack) - 1
+
+    def _nav_back(self):
+        """Ctrl+O: jump to previous viewport in nav stack."""
+        if self._nav_index <= 0:
+            return
+        # Save current position if at the end
+        if self._nav_index == len(self._nav_stack) - 1:
+            vp_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+            prev = self._nav_stack[self._nav_index]
+            dx = abs(prev.center().x() - vp_rect.center().x())
+            dy = abs(prev.center().y() - vp_rect.center().y())
+            if dx >= 5 or dy >= 5:
+                self._nav_stack.append(vp_rect)
+                # Don't change _nav_index yet, we just appended current
+                # so the back target stays the same
+        self._nav_index -= 1
+        self._animate_to_rect(self._nav_stack[self._nav_index])
+
+    def _nav_forward(self):
+        """Ctrl+I: jump to next viewport in nav stack."""
+        if self._nav_index >= len(self._nav_stack) - 1:
+            return
+        self._nav_index += 1
+        self._animate_to_rect(self._nav_stack[self._nav_index])
+
     def _select_parent_and_zoom(self):
         """P key: select parent box, zoom to it if not fully visible."""
         if not self._board:
@@ -2408,6 +2698,7 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         if len(selected) != 1 or not isinstance(selected[0], BoxItem):
             return
 
+        self._push_nav_snapshot()
         box = selected[0].box
         if not box.parent:
             self._zoom_to_fit()
@@ -2429,19 +2720,46 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             padding = max(60, parent_rect.width() * 0.15, parent_rect.height() * 0.15)
             self._animate_to_rect(parent_rect.adjusted(-padding, -padding, padding, padding))
 
-    def _cycle_sibling(self, direction: int):
-        """Tab / Shift+Tab: cycle through sibling boxes of the same kind."""
+    def _select_first_child(self):
+        """F key: select first child of current box, sorted by (y, x)."""
         if not self._board:
             return
         selected = self._scene.selectedItems()
         if len(selected) != 1 or not isinstance(selected[0], BoxItem):
             return
         box = selected[0].box
-        is_parent = self._has_children(box.id)
+        children = [
+            b for b in self._board.boxes
+            if b.parent == box.id
+        ]
+        if not children:
+            return
+        self._push_nav_snapshot()
+        children.sort(key=lambda b: (b.y, b.x))
+        target = children[0]
+        target_item = self._box_items.get(target.id)
+        if not target_item:
+            return
+        self._scene.clearSelection()
+        target_item.setSelected(True)
+        target_rect = QRectF(target.x, target.y, target.w, target.h)
+        vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
+        if not vp_scene.contains(target_rect):
+            padding = max(60, target_rect.width() * 0.15, target_rect.height() * 0.15)
+            self._animate_to_rect(target_rect.adjusted(-padding, -padding, padding, padding))
+
+    def _cycle_sibling(self, direction: int):
+        """Tab / Shift+Tab: cycle through ALL sibling boxes at same level."""
+        if not self._board:
+            return
+        selected = self._scene.selectedItems()
+        if len(selected) != 1 or not isinstance(selected[0], BoxItem):
+            return
+        self._push_nav_snapshot()
+        box = selected[0].box
         siblings = [
             b for b in self._board.boxes
             if b.parent == box.parent
-            and self._has_children(b.id) == is_parent
         ]
         siblings.sort(key=lambda b: (b.y, b.x))
         if len(siblings) <= 1:
@@ -2459,6 +2777,177 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             padding = max(60, target_rect.width() * 0.15, target_rect.height() * 0.15)
             self._animate_to_rect(target_rect.adjusted(-padding, -padding, padding, padding))
 
+    # ── Graph navigation (Alt held) ──
+
+    _GRAPH_NAV_KEYS = "hjkluiop"
+
+    def _enter_graph_nav(self, source_item: BoxItem):
+        """Show jump labels on connectors from the selected node."""
+        if not self._board:
+            return
+        self._exit_graph_nav()  # clean up any previous state
+        node_id = source_item.box.id
+        viewport_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+
+        # Find connectors to other nodes (not annotation notes)
+        targets: list[tuple[str, Arrow]] = []  # (target_id, arrow)
+        for arrow in self._board.arrows:
+            target_id = None
+            if arrow.from_id == node_id:
+                target_id = arrow.to_id
+            elif arrow.to_id == node_id:
+                target_id = arrow.from_id
+            if target_id is None:
+                continue
+            # Skip annotation notes — only follow to boxes
+            if not self._board.box_by_id(target_id):
+                continue
+            # Only connectors visible in viewport
+            target_item = self._box_items.get(target_id)
+            if not target_item:
+                continue
+            # Check if the connector midpoint is in viewport
+            src_box = source_item.box
+            tgt_box = target_item.box
+            mid = QPointF(
+                (src_box.x + src_box.w / 2 + tgt_box.x + tgt_box.w / 2) / 2,
+                (src_box.y + src_box.h / 2 + tgt_box.y + tgt_box.h / 2) / 2,
+            )
+            if viewport_rect.contains(mid):
+                targets.append((target_id, arrow))
+
+        if len(targets) > 8:
+            # Show warning overlay on selected node
+            self._show_graph_nav_warning(source_item)
+            self._graph_nav_active = True
+            return
+
+        if not targets:
+            self._graph_nav_active = True
+            return
+
+        zoom = self._current_zoom()
+        base_size = 14
+        min_screen_px = 14
+        scene_size = min(base_size * 3, max(base_size, min_screen_px / zoom))
+        font = QFont(FONT_FAMILY, round(scene_size))
+        font.setBold(True)
+
+        self._graph_nav_map.clear()
+        for i, (target_id, arrow) in enumerate(targets):
+            if i >= len(self._GRAPH_NAV_KEYS):
+                break
+            label_key = self._GRAPH_NAV_KEYS[i]
+            self._graph_nav_map[label_key] = target_id
+
+            # Position label at connector midpoint
+            src_box = source_item.box
+            tgt_box = self._box_items[target_id].box
+            mid = QPointF(
+                (src_box.x + src_box.w / 2 + tgt_box.x + tgt_box.w / 2) / 2,
+                (src_box.y + src_box.h / 2 + tgt_box.y + tgt_box.h / 2) / 2,
+            )
+
+            bg_color = QColor("#C1086D")
+            text_item = QGraphicsSimpleTextItem(label_key)
+            text_item.setFont(font)
+            text_item.setBrush(QBrush(QColor("#FFFFFF")))
+            tr = text_item.boundingRect()
+
+            pad = 3 * scene_size / base_size
+            bg = QGraphicsRectItem(
+                mid.x() - tr.width() / 2 - pad,
+                mid.y() - tr.height() / 2 - pad,
+                tr.width() + 2 * pad,
+                tr.height() + 2 * pad,
+            )
+            bg.setBrush(QBrush(bg_color))
+            bg.setPen(QPen(Qt.PenStyle.NoPen))
+            bg.setZValue(10000)
+            self._scene.addItem(bg)
+            self._graph_nav_labels.append(bg)
+
+            text_item.setPos(mid.x() - tr.width() / 2, mid.y() - tr.height() / 2)
+            text_item.setZValue(10001)
+            self._scene.addItem(text_item)
+            self._graph_nav_labels.append(text_item)
+
+        self._graph_nav_active = True
+
+    def _show_graph_nav_warning(self, source_item: BoxItem):
+        """Show warning overlay when node has too many connectors."""
+        zoom = self._current_zoom()
+        scene_size = min(42, max(14, 14 / zoom))
+        font = QFont(FONT_FAMILY, round(scene_size * 0.6))
+
+        br = source_item.sceneBoundingRect()
+        text_item = QGraphicsSimpleTextItem("\u26a0 Too many connectors")
+        text_item.setFont(font)
+        text_item.setBrush(QBrush(QColor("#FFFFFF")))
+        tr = text_item.boundingRect()
+
+        pad = 6
+        bg = QGraphicsRectItem(
+            br.center().x() - tr.width() / 2 - pad,
+            br.top() - tr.height() - pad * 3,
+            tr.width() + 2 * pad,
+            tr.height() + 2 * pad,
+        )
+        bg_color = QColor("#e04040")
+        bg_color.setAlphaF(0.9)
+        bg.setBrush(QBrush(bg_color))
+        bg.setPen(QPen(Qt.PenStyle.NoPen))
+        bg.setZValue(10000)
+        self._scene.addItem(bg)
+        self._graph_nav_warning.append(bg)
+
+        text_item.setPos(
+            br.center().x() - tr.width() / 2,
+            br.top() - tr.height() - pad * 2,
+        )
+        text_item.setZValue(10001)
+        self._scene.addItem(text_item)
+        self._graph_nav_warning.append(text_item)
+
+    def _handle_graph_nav_key(self, event):
+        """Handle key press while in graph nav mode (Alt held)."""
+        if event.key() == Qt.Key.Key_Alt:
+            # Alt is still held, ignore repeat
+            return
+        text = event.text().lower()
+        if text in self._graph_nav_map:
+            target_id = self._graph_nav_map[text]
+            target_item = self._box_items.get(target_id)
+            if target_item:
+                self._push_nav_snapshot()
+                self._scene.clearSelection()
+                target_item.setSelected(True)
+                # Zoom if target not fully visible
+                tgt = target_item.box
+                target_rect = QRectF(tgt.x, tgt.y, tgt.w, tgt.h)
+                vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
+                if not vp_scene.contains(target_rect):
+                    padding = max(60, target_rect.width() * 0.15, target_rect.height() * 0.15)
+                    self._animate_to_rect(target_rect.adjusted(-padding, -padding, padding, padding))
+                # Recompute labels from new position (chainable)
+                self._clear_graph_nav_labels()
+                self._enter_graph_nav(target_item)
+
+    def _exit_graph_nav(self):
+        """Exit graph nav mode, remove all labels."""
+        self._clear_graph_nav_labels()
+        self._graph_nav_active = False
+
+    def _clear_graph_nav_labels(self):
+        """Remove graph nav label graphics items."""
+        for item in self._graph_nav_labels:
+            self._scene.removeItem(item)
+        self._graph_nav_labels.clear()
+        self._graph_nav_map.clear()
+        for item in self._graph_nav_warning:
+            self._scene.removeItem(item)
+        self._graph_nav_warning.clear()
+
     # ── Cheatsheet (Shift+H) ──
 
     def _show_cheatsheet(self):
@@ -2475,8 +2964,11 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             ("Z", "Zoom to selection (progressive)"),
             ("Shift+Z", "Zoom to fit all"),
             ("P", "Select parent (zoom if needed)"),
+            ("F", "Select first child"),
             ("Tab / \u21e7Tab", "Cycle siblings"),
-            ("Ctrl+J", "Jump to shape / arrow"),
+            ("Ctrl+J", "Jump to any item (global)"),
+            ("Ctrl+O / Ctrl+I", "Nav history back / forward"),
+            ("Alt (hold)", "Graph nav: follow connectors"),
             ("/", "Search by label"),
             # Editing
             ("E", "Edit selected element"),
@@ -2490,6 +2982,8 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             ("o", "Create box below"),
             ("O", "Create box above"),
             ("Ctrl+Arrow", "Create adjacent box"),
+            ("Ctrl+hkl", "Create connected box (left/up/right)"),
+            ("\u21e7Ctrl+hkl", "Create connected note (left/up/right)"),
             ("Alt+Drag", "Connect boxes (from SELECT)"),
             ("Alt+Click", "Paste at position"),
             # Style (with selection)

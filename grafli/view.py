@@ -176,6 +176,12 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._graph_nav_map: dict[str, str] = {}  # label key -> target node id
         self._graph_nav_warning: list[QGraphicsItem] = []
 
+        # Subgraph focus filter state
+        self._focus_active: bool = False
+        self._focus_node_id: str | None = None
+        self._focus_direction: str = "all"   # "all", "forward", "backward"
+        self._focus_depth: int = 0           # 0 = unlimited, 1 = 1-hop
+
         # Search state
         self._search_active = False
         self._search_text = ""
@@ -282,6 +288,7 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._cancel_search()
         self._deselect_arrow()
         self._exit_graph_nav()
+        self._clear_focus_filter()
         if self._rect_preview:
             self._scene.removeItem(self._rect_preview)
             self._rect_preview = None
@@ -403,6 +410,11 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._selected_arrow_items.clear()
         self._highlight_parent = None
         self._highlight_orig_pen = None
+        self._focus_active = False
+        self._focus_node_id = None
+        self._focus_direction = "all"
+        self._focus_depth = 0
+        self._update_focus_status()
 
         if not self._board:
             return
@@ -636,6 +648,123 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
                 self._arrow_items.append(line)
 
         self._update_z_values()
+
+        if self._focus_active:
+            self._apply_focus_filter()
+
+    # ── Subgraph focus filter ──
+
+    def _compute_focus_keep_set(
+        self, node_id: str, direction: str, depth: int
+    ) -> tuple[set[str], set[str]]:
+        """BFS from node_id following arrows per direction/depth.
+
+        Returns (keep_box_ids, keep_note_ids).
+        """
+        if not self._board:
+            return set(), set()
+
+        keep_boxes: set[str] = {node_id}
+        frontier: set[str] = {node_id}
+        hops = 0
+
+        while frontier:
+            if depth > 0 and hops >= depth:
+                break
+            next_frontier: set[str] = set()
+            for arrow in self._board.arrows:
+                # Only follow box-to-box arrows
+                if not self._board.box_by_id(arrow.from_id):
+                    continue
+                if not self._board.box_by_id(arrow.to_id):
+                    continue
+                if direction in ("all", "forward"):
+                    if arrow.from_id in frontier and arrow.to_id not in keep_boxes:
+                        next_frontier.add(arrow.to_id)
+                if direction in ("all", "backward"):
+                    if arrow.to_id in frontier and arrow.from_id not in keep_boxes:
+                        next_frontier.add(arrow.from_id)
+            keep_boxes |= next_frontier
+            frontier = next_frontier
+            hops += 1
+
+        # Second pass: collect notes connected to any kept box
+        keep_notes: set[str] = set()
+        for arrow in self._board.arrows:
+            note = self._board.note_by_id(arrow.from_id)
+            if note and arrow.to_id in keep_boxes:
+                keep_notes.add(note.id)
+                continue
+            note = self._board.note_by_id(arrow.to_id)
+            if note and arrow.from_id in keep_boxes:
+                keep_notes.add(note.id)
+
+        return keep_boxes, keep_notes
+
+    def _apply_focus_filter(self):
+        """Set opacity on all items based on current focus state."""
+        if not self._focus_active or not self._focus_node_id:
+            return
+
+        keep_boxes, keep_notes = self._compute_focus_keep_set(
+            self._focus_node_id, self._focus_direction, self._focus_depth
+        )
+
+        # Boxes
+        for box_id, item in self._box_items.items():
+            opacity = 1.0 if box_id in keep_boxes else 0.08
+            item.setOpacity(opacity)
+            item._label.setOpacity(opacity)
+
+        # Notes
+        for note_id, item in self._note_items.items():
+            opacity = 1.0 if note_id in keep_notes else 0.08
+            item.setOpacity(opacity)
+
+        # Arrow graphics
+        for gfx in self._arrow_items:
+            arrow = gfx.data(0)
+            if not isinstance(arrow, Arrow):
+                continue
+            from_in = arrow.from_id in keep_boxes or arrow.from_id in keep_notes
+            to_in = arrow.to_id in keep_boxes or arrow.to_id in keep_notes
+            if from_in and to_in:
+                gfx.setOpacity(1.0)
+            elif from_in or to_in:
+                gfx.setOpacity(0.25)
+            else:
+                gfx.setOpacity(0.08)
+
+        self._update_focus_status()
+
+    def _clear_focus_filter(self):
+        """Reset focus state and restore all opacity to 1.0."""
+        self._focus_active = False
+        self._focus_node_id = None
+        self._focus_direction = "all"
+        self._focus_depth = 0
+
+        for item in self._box_items.values():
+            item.setOpacity(1.0)
+            item._label.setOpacity(1.0)
+        for item in self._note_items.values():
+            item.setOpacity(1.0)
+        for gfx in self._arrow_items:
+            gfx.setOpacity(1.0)
+
+        self._update_focus_status()
+
+    def _update_focus_status(self):
+        """Update window._status_focus label."""
+        window = self.window()
+        if not hasattr(window, '_status_focus'):
+            return
+        if not self._focus_active:
+            window._status_focus.setText("")
+            return
+        dir_label = {"all": "all", "forward": "fwd", "backward": "bwd"}[self._focus_direction]
+        depth_label = "1-hop" if self._focus_depth == 1 else "full"
+        window._status_focus.setText(f"FOCUS:{dir_label} {depth_label}")
 
     # ── Nesting helpers ──
 
@@ -1138,6 +1267,19 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             window._status_sel.setText(f"{count} selected" if count else "")
         self._update_breadcrumb()
 
+        # Recompute focus filter when selection changes
+        if self._focus_active and not self._search_active:
+            selected = self._scene.selectedItems()
+            if len(selected) == 1 and isinstance(selected[0], BoxItem):
+                new_id = selected[0].box.id
+                if new_id != self._focus_node_id:
+                    self._focus_node_id = new_id
+                    self._focus_direction = "all"
+                    self._focus_depth = 0
+                    self._apply_focus_filter()
+            elif not selected:
+                self._clear_focus_filter()
+
     def _update_breadcrumb(self):
         """Update status bar breadcrumb showing ancestry path."""
         window = self.window()
@@ -1358,6 +1500,10 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             return
 
         if event.key() == Qt.Key.Key_Escape:
+            if self._focus_active:
+                self._clear_focus_filter()
+                event.accept()
+                return
             if self._box_mode:
                 self._clear_box_mode()
                 event.accept()
@@ -1794,8 +1940,45 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        # Sticky creation modes (Shift+N, Shift+T)
+        # B — subgraph focus filter
+        if event.key() == Qt.Key.Key_B and no_mod:
+            selected = self._scene.selectedItems()
+            if self._focus_active:
+                if len(selected) == 1 and isinstance(selected[0], BoxItem):
+                    sel_id = selected[0].box.id
+                    if sel_id == self._focus_node_id:
+                        # Cycle direction: all -> forward -> backward -> all
+                        cycle = {"all": "forward", "forward": "backward", "backward": "all"}
+                        self._focus_direction = cycle[self._focus_direction]
+                    else:
+                        # Recompute for new node
+                        self._focus_node_id = sel_id
+                        self._focus_direction = "all"
+                        self._focus_depth = 0
+                    self._apply_focus_filter()
+                else:
+                    # Nothing selected -> exit
+                    self._clear_focus_filter()
+            else:
+                if len(selected) == 1 and isinstance(selected[0], BoxItem):
+                    self._focus_active = True
+                    self._focus_node_id = selected[0].box.id
+                    self._focus_direction = "all"
+                    self._focus_depth = 0
+                    self._apply_focus_filter()
+            event.accept()
+            return
+
+        # Shift+B — toggle focus depth (unlimited ↔ 1-hop)
         shift_only = (mods & _SIGNIFICANT_MODS) == Qt.KeyboardModifier.ShiftModifier
+        if shift_only and event.key() == Qt.Key.Key_B:
+            if self._focus_active:
+                self._focus_depth = 0 if self._focus_depth == 1 else 1
+                self._apply_focus_filter()
+            event.accept()
+            return
+
+        # Sticky creation modes (Shift+N, Shift+T)
         if shift_only and event.key() == Qt.Key.Key_N:
             self._sticky_mode = True
             self.set_mode(Mode.RECT)

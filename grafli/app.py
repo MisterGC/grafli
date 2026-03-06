@@ -279,11 +279,15 @@ class MainWindow(QMainWindow):
         self._status_pos = QLabel("0, 0")
         self._status_sel = QLabel("")
 
+        self._status_focus = QLabel("")
+        self._status_focus.setStyleSheet("color: #6A9FB5; font-weight: bold;")
+
         self._status_warn = QLabel("")
         self._status_warn.setStyleSheet("color: #e04040; font-weight: bold;")
 
         self.statusBar().addWidget(self._status_mode)
         self.statusBar().addWidget(self._status_breadcrumb)
+        self.statusBar().addWidget(self._status_focus)
         self.statusBar().addPermanentWidget(self._status_warn)
         self.statusBar().addPermanentWidget(self._status_sel)
         self.statusBar().addPermanentWidget(self._status_pos)

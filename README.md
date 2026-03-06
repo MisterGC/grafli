@@ -19,6 +19,7 @@ Files are human-readable `.grafli` text files that play well with version contro
 - **Navigation history** — `Ctrl+O` / `Ctrl+I` to jump back/forward through viewport history (vim-style jumplist).
 - **Breadcrumb** — status bar shows ancestry path (`root > parent > child`) when a box is selected.
 - **Undo/redo, copy/paste** — full history with up to 50 undo states.
+- **Subgraph focus** — press `B` on a selected node to dim unrelated items and highlight the connected subgraph. Cycle direction (all/forward/backward) with repeated `B`, toggle depth with `Shift+B`.
 - **Minimap** — toggle an overview map with `M`.
 - **File watching** — external edits are detected and merged automatically.
 - **Auto-save** — changes are persisted within 300ms.
@@ -74,6 +75,7 @@ Arrow operators: `->` right, `<-` left, `<->` both, `--` none.
 | `e` | Edit label inline |
 | `/` | Search |
 | `Ctrl+J` | Jump mode (all items) |
+| `B` / `Shift+B` | Subgraph focus (cycle direction / toggle depth) |
 | `Z` / `Shift+Z` | Zoom to selection / fit all |
 | `u` / `Ctrl+R` | Undo / redo |
 | `Shift+H` | Show full keybinding cheatsheet |

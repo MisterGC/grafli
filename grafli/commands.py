@@ -1,4 +1,4 @@
-"""Undo/redo, clipboard, and styling cycle commands (mixin for WhiteboardView)."""
+"""Undo/redo, clipboard, and styling cycle commands (mixin for GrafliView)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import copy
 
 from PySide6.QtCore import QPointF
 
-from whiteboard.constants import (
+from grafli.constants import (
     _ANCHOR_CYCLE,
     _BOX_STYLE_CYCLE,
     _COLOR_VALUES,
@@ -14,8 +14,8 @@ from whiteboard.constants import (
     _SIZE_SEQUENCE,
     _UNDO_LIMIT,
 )
-from whiteboard.format import Arrow, Box, Note, parse, serialize
-from whiteboard.items import BoxItem, NoteItem
+from grafli.format import Arrow, Box, Note, parse, serialize
+from grafli.items import BoxItem, NoteItem
 
 
 class CommandsMixin:

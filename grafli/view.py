@@ -1,4 +1,4 @@
-"""WhiteboardView — the main canvas view for the whiteboard app."""
+"""GrafliView — the main canvas view for the whiteboard app."""
 
 from __future__ import annotations
 
@@ -35,9 +35,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from whiteboard.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_point, _line_rect_clip, _rect_edge_point
-from whiteboard.commands import CommandsMixin
-from whiteboard.constants import (
+from grafli.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_point, _line_rect_clip, _rect_edge_point
+from grafli.commands import CommandsMixin
+from grafli.constants import (
     ANNOTATION_ARROW_COLOR,
     ANNOTATION_ARROW_WIDTH,
     ARROW_COLOR,
@@ -60,14 +60,14 @@ from whiteboard.constants import (
     _SIZE_SEQUENCE,
     _resolve_color,
 )
-from whiteboard.format import Arrow, Board, Box, Note, parse, serialize
-from whiteboard.items import ArrowLineItem, BoxItem, BoxLabelItem, LabelItem, NoteItem, ResizeHandle
-from whiteboard.minimap import MinimapMixin
+from grafli.format import Arrow, Board, Box, Note, parse, serialize
+from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, LabelItem, NoteItem, ResizeHandle
+from grafli.minimap import MinimapMixin
 
 
 # ── Canvas view ─────────────────────────────────────────────────
 
-class WhiteboardView(CommandsMixin, MinimapMixin, QGraphicsView):
+class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
     """QGraphicsView with pan/zoom and file-backed board rendering."""
 
     arrow_update_needed = Signal()

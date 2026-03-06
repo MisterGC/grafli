@@ -1,6 +1,7 @@
-"""Parser and serializer for the .board whiteboard format.
+"""Parser and serializer for the .grafli format.
 
 Format spec:
+  #!grafli v1                                      (file header, first line)
   # comment or title
   @ box <id> "<label>" <x>,<y> <w>x<h>
   @ arrow <from_id> -> <to_id> "<label>"          (forward)
@@ -16,6 +17,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+
+HEADER = "#!grafli v1"
 
 
 @dataclass
@@ -169,13 +172,17 @@ _RE_NOTE = re.compile(
 # ── Parser ──────────────────────────────────────────────────────
 
 def parse(text: str) -> Board:
-    """Parse a .board file string into a Board object."""
+    """Parse a .grafli file string into a Board object."""
     board = Board()
     for line in text.splitlines():
         stripped = line.strip()
 
         if not stripped:
             board._lines.append(("blank", None))
+            continue
+
+        if stripped == HEADER:
+            board._lines.append(("header", stripped))
             continue
 
         if stripped.startswith("#"):
@@ -250,7 +257,7 @@ def parse(text: str) -> Board:
 
 
 def parse_file(path: str) -> Board:
-    """Parse a .board file from disk."""
+    """Parse a .grafli file from disk."""
     with open(path, encoding="utf-8") as f:
         return parse(f.read())
 
@@ -318,15 +325,18 @@ def _serialize_note(note: Note) -> str:
 
 
 def serialize(board: Board) -> str:
-    """Serialize a Board object back to .board format.
+    """Serialize a Board object back to .grafli format.
 
+    Always emits the #!grafli v1 header as the first line.
     If the board was parsed (has _lines), preserves original ordering.
     Otherwise, outputs comments, then boxes, arrows, notes.
     """
     if board._lines:
-        parts = []
+        parts = [HEADER]
         for kind, obj in board._lines:
-            if kind == "blank":
+            if kind == "header":
+                continue
+            elif kind == "blank":
                 parts.append("")
             elif kind == "comment":
                 parts.append(obj)
@@ -338,7 +348,7 @@ def serialize(board: Board) -> str:
                 parts.append(_serialize_note(obj))
         return "\n".join(parts) + "\n"
 
-    parts = []
+    parts = [HEADER]
     for c in board.comments:
         parts.append(c)
     if board.comments and (board.boxes or board.arrows or board.notes):
@@ -353,6 +363,6 @@ def serialize(board: Board) -> str:
 
 
 def serialize_to_file(board: Board, path: str) -> None:
-    """Write a Board to a .board file on disk."""
+    """Write a Board to a .grafli file on disk."""
     with open(path, "w", encoding="utf-8") as f:
         f.write(serialize(board))

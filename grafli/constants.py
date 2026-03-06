@@ -1,4 +1,4 @@
-"""Shared constants, enums, and helpers for the whiteboard app."""
+"""Shared constants, enums, and helpers for the grafli app."""
 
 from __future__ import annotations
 

@@ -1,3 +1,4 @@
+#!grafli v1
 # Address Form — GUI Mockup
 
 @ box window "Address Form" 40,30 460x580 #4285F4 ^topleft ~small

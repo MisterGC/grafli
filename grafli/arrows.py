@@ -7,8 +7,8 @@ import math
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QPolygonF
 
-from whiteboard.constants import ARROWHEAD_SIZE
-from whiteboard.format import Box
+from grafli.constants import ARROWHEAD_SIZE
+from grafli.format import Box
 
 
 def _rect_edge_point(x: float, y: float, w: float, h: float, target: QPointF) -> QPointF:

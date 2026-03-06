@@ -1,4 +1,4 @@
-"""Graphics items for the whiteboard: boxes, notes, labels, arrows, handles."""
+"""Graphics items for grafli: boxes, notes, labels, arrows, handles."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem,
 )
 
-from whiteboard.constants import (
+from grafli.constants import (
     BOX_BORDER_WIDTH,
     BOX_FONT_SIZES,
     BOX_RADIUS,
@@ -24,7 +24,7 @@ from whiteboard.constants import (
     SCENE_BG,
     _resolve_color,
 )
-from whiteboard.format import Box, Note
+from grafli.format import Box, Note
 
 # ── Handle IDs ───────────────────────────────────────────────────
 

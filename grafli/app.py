@@ -1,4 +1,4 @@
-"""Whiteboard desktop app — MainWindow and entry point."""
+"""Grafli desktop app — MainWindow and entry point."""
 
 from __future__ import annotations
 
@@ -26,11 +26,11 @@ from PySide6.QtWidgets import (
     QToolBar,
 )
 
-from whiteboard.constants import COLOR_PALETTE, Mode, _resolve_color
-from whiteboard.filewatcher import JsonSafeWatcher
-from whiteboard.format import Board, parse, serialize
-from whiteboard.items import BoxItem, NoteItem
-from whiteboard.view import WhiteboardView
+from grafli.constants import COLOR_PALETTE, Mode, _resolve_color
+from grafli.filewatcher import JsonSafeWatcher
+from grafli.format import Board, parse, serialize
+from grafli.items import BoxItem, NoteItem
+from grafli.view import GrafliView
 
 
 # ── Main window ─────────────────────────────────────────────────
@@ -38,10 +38,10 @@ from whiteboard.view import WhiteboardView
 class MainWindow(QMainWindow):
     def __init__(self, file_path: str | None = None):
         super().__init__()
-        self.setWindowTitle("Whiteboard")
+        self.setWindowTitle("Grafli")
         self.resize(1200, 800)
 
-        self._view = WhiteboardView(self)
+        self._view = GrafliView(self)
         self.setCentralWidget(self._view)
 
         self._file_path: Path | None = None
@@ -72,9 +72,9 @@ class MainWindow(QMainWindow):
 
     def _title_for_path(self, path: Path | None, dirty: bool = False) -> str:
         if path is None:
-            return "Whiteboard — untitled"
+            return "Grafli — untitled"
         label = f"{path.parent.name}/{path.name}"
-        return f"Whiteboard — {label}{'*' if dirty else ''}"
+        return f"Grafli — {label}{'*' if dirty else ''}"
 
     def _setup_toolbar(self):
         toolbar = QToolBar("Tools", self)
@@ -86,7 +86,7 @@ class MainWindow(QMainWindow):
 
         modes = [
             ("Select (V)", Mode.SELECT),
-            ("Rect (R)", Mode.RECT),
+            ("Rect (N)", Mode.RECT),
             ("Text (T)", Mode.TEXT),
             ("Connect (C)", Mode.CONNECT),
         ]
@@ -149,7 +149,10 @@ class MainWindow(QMainWindow):
         action = self._mode_actions.get(mode)
         if action:
             action.setChecked(True)
-        self._status_mode.setText(mode.value.upper())
+        label = mode.value.upper()
+        if self._view._sticky_mode and mode in (Mode.RECT, Mode.TEXT):
+            label += "+"
+        self._status_mode.setText(label)
 
     def _apply_color_to_selected(self, color: str):
         self._view._push_undo()
@@ -297,7 +300,7 @@ class MainWindow(QMainWindow):
         if self._view.dirty and not self._confirm_discard():
             return
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open Board", "", "Board Files (*.board);;All Files (*)"
+            self, "Open File", "", "Grafli files (*.grafli);;Legacy board files (*.board);;All Files (*)"
         )
         if path:
             self._open_file(Path(path))
@@ -305,7 +308,7 @@ class MainWindow(QMainWindow):
     def _open_file(self, path: Path):
         if not path.exists():
             # Create an empty board file
-            path.write_text("# Untitled Board\n")
+            path.write_text("#!grafli v1\n# Untitled\n")
 
         try:
             text = path.read_text(encoding="utf-8")
@@ -344,7 +347,7 @@ class MainWindow(QMainWindow):
             return
         if not self._file_path:
             path, _ = QFileDialog.getSaveFileName(
-                self, "Save Board", "", "Board Files (*.board);;All Files (*)"
+                self, "Save File", "", "Grafli files (*.grafli);;All Files (*)"
             )
             if not path:
                 return
@@ -432,7 +435,7 @@ def _register_bundled_fonts():
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("Whiteboard")
+    app.setApplicationName("Grafli")
     _register_bundled_fonts()
 
     # Let Ctrl+C quit the app cleanly

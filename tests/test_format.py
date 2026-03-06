@@ -1,9 +1,10 @@
-"""Tests for whiteboard.format — .board file parsing and serialization."""
+"""Tests for grafli.format — .grafli file parsing and serialization."""
 
 import tempfile
 from pathlib import Path
 
-from whiteboard.format import (
+from grafli.format import (
+    HEADER,
     Arrow,
     Board,
     Box,
@@ -15,8 +16,9 @@ from whiteboard.format import (
 )
 
 SAMPLE = """\
+#!grafli v1
 # Project Architecture
-# file: arch.board
+# file: arch.grafli
 
 @ box auth "Auth Service" 100,200 200x100
 @ box db "Database" 400,200 200x100
@@ -27,6 +29,12 @@ SAMPLE = """\
 @ arrow db -> cache
 
 @ note n1 300,400 "TODO: Add rate limiting"
+"""
+
+SAMPLE_LEGACY = """\
+# Project Architecture
+
+@ box auth "Auth Service" 100,200 200x100
 """
 
 
@@ -63,7 +71,7 @@ def test_parse_notes():
 def test_parse_comments():
     board = parse(SAMPLE)
     assert any("Project Architecture" in c for c in board.comments)
-    assert any("file: arch.board" in c for c in board.comments)
+    assert any("file: arch.grafli" in c for c in board.comments)
 
 
 def test_roundtrip():
@@ -85,7 +93,7 @@ def test_serialize_from_scratch():
 
 
 def test_file_roundtrip(tmp_path: Path):
-    path = tmp_path / "test.board"
+    path = tmp_path / "test.grafli"
     path.write_text(SAMPLE)
     board = parse_file(str(path))
     serialize_to_file(board, str(path))
@@ -97,7 +105,15 @@ def test_empty_file():
     assert board.boxes == []
     assert board.arrows == []
     assert board.notes == []
-    assert serialize(board) == "\n"
+    assert serialize(board) == HEADER + "\n"
+
+
+def test_legacy_file_gets_header():
+    """Legacy .board files without header get the header on serialize."""
+    board = parse(SAMPLE_LEGACY)
+    result = serialize(board)
+    assert result.startswith(HEADER + "\n")
+    assert "Auth Service" in result
 
 
 def test_box_by_id_missing():
@@ -151,7 +167,7 @@ def test_serialize_box_with_color():
 def test_color_roundtrip():
     text = '@ box a "A" 10,20 100x50 #AABBCC\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── next_box_id tests ──────────────────────────────────────────
@@ -268,13 +284,13 @@ def test_serialize_box_with_color_and_parent():
 def test_parent_roundtrip():
     text = '@ box web "Web App" 60,70 180x80 >frontend\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_parent_color_roundtrip():
     text = '@ box web "Web App" 60,70 180x80 #4285F4 >frontend\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Anchor field tests ───────────────────────────────────────
@@ -308,7 +324,7 @@ def test_serialize_box_with_anchor():
 def test_anchor_roundtrip():
     text = '@ box title "Title" 60,70 180x80 ^topcenter\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Textsize field tests ─────────────────────────────────────
@@ -342,7 +358,7 @@ def test_serialize_box_with_textsize():
 def test_textsize_roundtrip():
     text = '@ box title "Title" 60,70 180x80 ~small\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Combined optional field tests ────────────────────────────
@@ -371,25 +387,25 @@ def test_serialize_all_optional_fields():
 def test_all_optional_fields_roundtrip():
     text = '@ box web "Web App" 60,70 180x80 #4285F4 ^topleft ~small >frontend\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_color_and_anchor_roundtrip():
     text = '@ box a "A" 10,20 100x50 #AABBCC ^topcenter\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_anchor_and_parent_roundtrip():
     text = '@ box a "A" 10,20 100x50 ^topleft >container\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_textsize_and_parent_roundtrip():
     text = '@ box a "A" 10,20 100x50 ~large >container\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Note color tests ─────────────────────────────────────────
@@ -417,7 +433,7 @@ def test_serialize_note_with_color():
 def test_note_color_roundtrip():
     text = '@ note n1 10,20 "hi" #FF6B6B\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Token color tests ────────────────────────────────────────
@@ -437,7 +453,7 @@ def test_parse_note_with_token_color():
 def test_token_color_roundtrip():
     text = '@ box a "A" 10,20 100x50 %primary\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_all_fields_with_token_color():
@@ -448,13 +464,13 @@ def test_all_fields_with_token_color():
     assert box.anchor == "topleft"
     assert box.textsize == "small"
     assert box.parent == "frontend"
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_note_token_color_roundtrip():
     text = '@ note n1 10,20 "hi" %highlight\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Style field tests ───────────────────────────────────────
@@ -482,7 +498,7 @@ def test_serialize_box_with_style():
 def test_box_style_roundtrip():
     text = '@ box layer "Layer" 0,0 400x300 !flat\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_box_all_fields_with_style_roundtrip():
@@ -494,7 +510,7 @@ def test_box_all_fields_with_style_roundtrip():
     assert box.textsize == "small"
     assert box.style == "flat"
     assert box.parent == "root"
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_parse_note_with_style_mono():
@@ -520,7 +536,7 @@ def test_serialize_note_with_style():
 def test_note_style_roundtrip():
     text = '@ note n1 100,200 "Label" !mono\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_note_all_fields_with_style_roundtrip():
@@ -530,7 +546,7 @@ def test_note_all_fields_with_style_roundtrip():
     assert note.color == "%accent"
     assert note.textsize == "large"
     assert note.style == "mono"
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Arrow style tests ──────────────────────────────────────
@@ -642,67 +658,67 @@ def test_serialize_arrow_bidi_style():
 def test_arrow_style_roundtrip():
     text = '@ arrow a -> b "optional" !dashed\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_bidi_roundtrip():
     text = '@ arrow a <-> b "syncs"\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_bidi_style_roundtrip():
     text = '@ arrow a <-> b "data" !dotted\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_bare_style_roundtrip():
     text = '@ arrow a -> b !thick\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_bidi_bare_roundtrip():
     text = '@ arrow a <-> b\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_backward_roundtrip():
     text = '@ arrow a <- b "pulls"\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_backward_bare_roundtrip():
     text = '@ arrow a <- b\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_no_heads_roundtrip():
     text = '@ arrow a -- b "link"\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_no_heads_bare_roundtrip():
     text = '@ arrow a -- b\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_backward_style_roundtrip():
     text = '@ arrow a <- b "pulls" !dashed\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_no_heads_style_roundtrip():
     text = '@ arrow a -- b !dotted\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Annotation tests ───────────────────────────────────────
@@ -760,19 +776,19 @@ def test_serialize_note_annotation():
 def test_box_annotation_roundtrip():
     text = '@ box b1 "API" 100,200 200x100  # should this be async?\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_annotation_roundtrip():
     text = '@ arrow a -> b "calls"  # review direction\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_note_annotation_roundtrip():
     text = '@ note n1 50,300 "entry"  # move this\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_bidi_style_annotation_roundtrip():
@@ -783,7 +799,7 @@ def test_arrow_bidi_style_annotation_roundtrip():
     assert arrow.head_to is True
     assert arrow.style == "dotted"
     assert arrow.annotation == "check latency"
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_box_all_fields_with_annotation_roundtrip():
@@ -791,7 +807,7 @@ def test_box_all_fields_with_annotation_roundtrip():
     board = parse(text)
     box = board.boxes[0]
     assert box.annotation == "needs review"
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_note_all_fields_with_annotation_roundtrip():
@@ -799,7 +815,7 @@ def test_note_all_fields_with_annotation_roundtrip():
     board = parse(text)
     note = board.notes[0]
     assert note.annotation == "move up"
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── xxxlarge font tier tests ──────────────────────────────
@@ -819,13 +835,13 @@ def test_parse_note_xxxlarge():
 def test_box_xxxlarge_roundtrip():
     text = '@ box title "Title" 60,70 180x80 ~xxxlarge\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_note_xxxlarge_roundtrip():
     text = '@ note n1 100,200 "◇" ~xxxlarge\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Note ID tests ───────────────────────────────────────
@@ -865,7 +881,7 @@ def test_next_note_id_existing():
 def test_note_id_roundtrip():
     text = '@ note myNote 100,200 "hello"\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Arrow textsize tests ─────────────────────────────────
@@ -894,7 +910,7 @@ def test_serialize_arrow_with_textsize():
 def test_arrow_textsize_roundtrip():
     text = '@ arrow a -> b "calls" ~large\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_arrow_all_fields_roundtrip():
@@ -906,7 +922,7 @@ def test_arrow_all_fields_roundtrip():
     assert arrow.annotation == "check latency"
     assert arrow.head_from is True
     assert arrow.head_to is True
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Note newline tests ─────────────────────────────────────
@@ -929,7 +945,7 @@ def test_note_newline_roundtrip():
     text = r'@ note n1 100,200 "first\nsecond\nthird"' + "\n"
     board = parse(text)
     assert board.notes[0].text == "first\nsecond\nthird"
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 # ── Note parent tests ──────────────────────────────────────
@@ -957,7 +973,7 @@ def test_serialize_note_with_parent():
 def test_note_parent_roundtrip():
     text = '@ note n1 100,200 "hello" >container\n'
     board = parse(text)
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text
 
 
 def test_note_all_fields_with_parent_roundtrip():
@@ -969,4 +985,4 @@ def test_note_all_fields_with_parent_roundtrip():
     assert note.style == "mono"
     assert note.parent == "box1"
     assert note.annotation == "annotation"
-    assert serialize(board) == text
+    assert serialize(board) == HEADER + "\n" + text

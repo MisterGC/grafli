@@ -1,11 +1,11 @@
-"""Minimap rendering mixin for WhiteboardView."""
+"""Minimap rendering mixin for GrafliView."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPen
 
-from whiteboard.constants import (
+from grafli.constants import (
     BOX_BORDER,
     MINIMAP_BG,
     MINIMAP_BORDER_COLOR,

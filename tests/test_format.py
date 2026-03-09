@@ -986,3 +986,26 @@ def test_note_all_fields_with_parent_roundtrip():
     assert note.parent == "box1"
     assert note.annotation == "annotation"
     assert serialize(board) == HEADER + "\n" + text
+
+
+# ── Box newline tests ─────────────────────────────────────
+
+def test_parse_box_with_newlines():
+    text = r'@ box b1 "line one\nline two" 100,200 200x100' + "\n"
+    board = parse(text)
+    assert board.boxes[0].label == "line one\nline two"
+
+
+def test_serialize_box_with_newlines():
+    box = Box(id="b1", label="line one\nline two", x=100, y=200, w=200, h=100)
+    board = Board()
+    board.add_box(box)
+    text = serialize(board)
+    assert r'@ box b1 "line one\nline two" 100,200 200x100' in text
+
+
+def test_box_newline_roundtrip():
+    text = r'@ box b1 "first\nsecond\nthird" 100,200 200x100' + "\n"
+    board = parse(text)
+    assert board.boxes[0].label == "first\nsecond\nthird"
+    assert serialize(board) == HEADER + "\n" + text

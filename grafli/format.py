@@ -3,7 +3,7 @@
 Format spec:
   #!grafli v1                                      (file header, first line)
   # comment or title
-  @ box <id> "<label>" <x>,<y> <w>x<h>
+  @ box <id> "<label>" <x>,<y> <w>x<h>            (\\n for newlines)
   @ arrow <from_id> -> <to_id> "<label>"          (forward)
   @ arrow <from_id> <- <to_id> "<label>"          (backward)
   @ arrow <from_id> <-> <to_id> "<label>"         (bidirectional)
@@ -194,7 +194,7 @@ def parse(text: str) -> Board:
         if m:
             box = Box(
                 id=m.group(1),
-                label=m.group(2),
+                label=m.group(2).replace("\\n", "\n"),
                 x=float(m.group(3)),
                 y=float(m.group(4)),
                 w=float(m.group(5)),
@@ -269,7 +269,8 @@ def _serialize_box(box: Box) -> str:
     y = int(box.y) if box.y == int(box.y) else box.y
     w = int(box.w) if box.w == int(box.w) else box.w
     h = int(box.h) if box.h == int(box.h) else box.h
-    s = f'@ box {box.id} "{box.label}" {x},{y} {w}x{h}'
+    escaped_label = box.label.replace("\n", "\\n")
+    s = f'@ box {box.id} "{escaped_label}" {x},{y} {w}x{h}'
     if box.color:
         s += f" {box.color}"
     if box.anchor:

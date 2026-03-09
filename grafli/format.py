@@ -4,11 +4,12 @@ Format spec:
   #!grafli v1                                      (file header, first line)
   # comment or title
   @ box <id> "<label>" <x>,<y> <w>x<h>            (\\n for newlines)
-  @ arrow <from_id> -> <to_id> "<label>"          (forward)
-  @ arrow <from_id> <- <to_id> "<label>"          (backward)
-  @ arrow <from_id> <-> <to_id> "<label>"         (bidirectional)
-  @ arrow <from_id> -- <to_id> "<label>"          (no heads)
-  @ arrow <from_id> -> <to_id> "label" !dashed    (arrow styles: dashed/dotted/thick)
+  @ arrow <from_id> -> <to_id> "<label>"           (forward)
+  @ arrow <from_id> <- <to_id> "<label>"           (backward)
+  @ arrow <from_id> <-> <to_id> "<label>"          (bidirectional)
+  @ arrow <from_id> -- <to_id> "<label>"           (no heads)
+  @ arrow <from_id> -> <to_id> "label" @<dx>,<dy>  (label offset)
+  @ arrow <from_id> -> <to_id> "label" !dashed     (arrow styles: dashed/dotted/thick)
   @ note <id> <x>,<y> "<text>"                      (\\n for newlines)
   Any element line may end with  # annotation text
 """
@@ -42,6 +43,8 @@ class Arrow:
     from_id: str
     to_id: str
     label: str = ""
+    label_dx: float = 0.0
+    label_dy: float = 0.0
     style: str = ""       # "dashed", "dotted", "thick", or "" (solid)
     textsize: str = ""    # "small", "large", "xlarge", "xxlarge", "xxxlarge", or "" (default)
     head_from: bool = False  # arrowhead at from_id end
@@ -152,6 +155,7 @@ _RE_BOX = re.compile(
 _RE_ARROW = re.compile(
     r'^@\s+arrow\s+(\S+)\s+(<->|->|<-|--)\s+(\S+)'
     r'(?:\s+"([^"]*)")?'
+    r'(?:\s+@(-?[\d.]+),(-?[\d.]+))?'
     r'(?:\s+!(dashed|dotted|thick))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
     r'(?:\s+#\s*(.+?))?'
@@ -217,11 +221,13 @@ def parse(text: str) -> Board:
                 from_id=m.group(1),
                 to_id=m.group(3),
                 label=m.group(4) or "",
-                style=m.group(5) or "",
-                textsize=m.group(6) or "",
+                label_dx=float(m.group(5)) if m.group(5) else 0.0,
+                label_dy=float(m.group(6)) if m.group(6) else 0.0,
+                style=m.group(7) or "",
+                textsize=m.group(8) or "",
                 head_from=op in ("<->", "<-"),
                 head_to=op in ("<->", "->"),
-                annotation=m.group(7) or "",
+                annotation=m.group(9) or "",
             )
             board.arrows.append(arrow)
             board._lines.append(("arrow", arrow))
@@ -298,6 +304,10 @@ def _serialize_arrow(arrow: Arrow) -> str:
     base = f"@ arrow {arrow.from_id} {op} {arrow.to_id}"
     if arrow.label:
         base += f' "{arrow.label}"'
+    if arrow.label_dx or arrow.label_dy:
+        dx = int(arrow.label_dx) if arrow.label_dx == int(arrow.label_dx) else arrow.label_dx
+        dy = int(arrow.label_dy) if arrow.label_dy == int(arrow.label_dy) else arrow.label_dy
+        base += f" @{dx},{dy}"
     if arrow.style:
         base += f" !{arrow.style}"
     if arrow.textsize:

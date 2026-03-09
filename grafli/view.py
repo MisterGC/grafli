@@ -143,6 +143,11 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._selected_arrow: Arrow | None = None
         self._selected_arrow_items: list[QGraphicsItem] = []
 
+        # Arrow label drag state
+        self._label_drag_arrow: Arrow | None = None
+        self._label_drag_start: QPointF | None = None
+        self._label_drag_orig_offset: tuple[float, float] = (0.0, 0.0)
+
         # Vim-like box mode (style / dimension)
         self._box_mode: str = ""          # "", "style", "dimension"
         self._arrow_mode: str = ""        # "", "style"
@@ -603,8 +608,8 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
                 if label_tooltips:
                     label.setToolTip("\n".join(label_tooltips))
                 br = label.boundingRect()
-                label_x = mid_x - br.width() / 2
-                label_y = mid_y - br.height() / 2
+                label_x = mid_x - br.width() / 2 + fwd.label_dx
+                label_y = mid_y - br.height() / 2 + fwd.label_dy
 
                 pad = 4
                 gap = QRectF(
@@ -620,20 +625,31 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             # Draw line (split around label gap if needed)
             if has_label:
                 seg1_end, seg2_start = _line_rect_clip(start, end, gap)
-                line1 = ArrowLineItem(
-                    start.x(), start.y(), seg1_end.x(), seg1_end.y()
-                )
-                line1.setPen(pen)
-                line1.setData(0, fwd)
-                self._scene.addItem(line1)
-                self._arrow_items.append(line1)
-                line2 = ArrowLineItem(
-                    seg2_start.x(), seg2_start.y(), end.x(), end.y()
-                )
-                line2.setPen(pen)
-                line2.setData(0, fwd)
-                self._scene.addItem(line2)
-                self._arrow_items.append(line2)
+                # If gap doesn't intersect the line, draw one unbroken line
+                if ((seg1_end - start).manhattanLength() < 1
+                        and (end - seg2_start).manhattanLength() < 1):
+                    line = ArrowLineItem(
+                        start.x(), start.y(), end.x(), end.y()
+                    )
+                    line.setPen(pen)
+                    line.setData(0, fwd)
+                    self._scene.addItem(line)
+                    self._arrow_items.append(line)
+                else:
+                    line1 = ArrowLineItem(
+                        start.x(), start.y(), seg1_end.x(), seg1_end.y()
+                    )
+                    line1.setPen(pen)
+                    line1.setData(0, fwd)
+                    self._scene.addItem(line1)
+                    self._arrow_items.append(line1)
+                    line2 = ArrowLineItem(
+                        seg2_start.x(), seg2_start.y(), end.x(), end.y()
+                    )
+                    line2.setPen(pen)
+                    line2.setData(0, fwd)
+                    self._scene.addItem(line2)
+                    self._arrow_items.append(line2)
             else:
                 line = ArrowLineItem(
                     start.x(), start.y(), end.x(), end.y()
@@ -1140,7 +1156,10 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         editor.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         editor.setDefaultTextColor(QColor("#2F3437"))
         br = editor.boundingRect()
-        editor.setPos(mid.x() - br.width() / 2, mid.y() - br.height() / 2)
+        editor.setPos(
+            mid.x() - br.width() / 2 + arrow.label_dx,
+            mid.y() - br.height() / 2 + arrow.label_dy,
+        )
 
         # Hide existing label items for this arrow
         for gfx in self._selected_arrow_items:
@@ -1375,6 +1394,15 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             return
 
         if self._mode == Mode.SELECT:
+            if self._label_drag_arrow and self._label_drag_start:
+                delta = scene_pos - self._label_drag_start
+                self._label_drag_arrow.label_dx = self._label_drag_orig_offset[0] + delta.x()
+                self._label_drag_arrow.label_dy = self._label_drag_orig_offset[1] + delta.y()
+                self._redraw_arrows()
+                if self._label_drag_arrow is self._selected_arrow:
+                    self._select_arrow(self._label_drag_arrow, keep_mode=True)
+                event.accept()
+                return
             if self._connect_source and self._connect_line:
                 center = self._item_center(self._connect_source)
                 self._connect_line.setLine(
@@ -1399,6 +1427,12 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             return
 
         if self._mode == Mode.SELECT:
+            if self._label_drag_arrow and event.button() == Qt.MouseButton.LeftButton:
+                self._label_drag_arrow = None
+                self._label_drag_start = None
+                self.mark_dirty()
+                event.accept()
+                return
             if self._connect_source and event.button() == Qt.MouseButton.LeftButton:
                 # Finish alt+drag connector
                 if self._connect_line:
@@ -1548,6 +1582,18 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             # e — edit arrow label
             if no_mod_a and key == Qt.Key.Key_E:
                 self._start_editing_arrow(self._selected_arrow)
+                event.accept()
+                return
+
+            # 0 — reset label offset
+            if no_mod_a and key == Qt.Key.Key_0:
+                if self._selected_arrow.label_dx or self._selected_arrow.label_dy:
+                    self._push_undo()
+                    self._selected_arrow.label_dx = 0.0
+                    self._selected_arrow.label_dy = 0.0
+                    self._redraw_arrows()
+                    self._select_arrow(self._selected_arrow, keep_mode=True)
+                    self.mark_dirty()
                 event.accept()
                 return
 
@@ -2060,6 +2106,15 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         if isinstance(item, (ArrowLineItem, QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsSimpleTextItem)):
             arrow_data = item.data(0)
             if isinstance(arrow_data, Arrow):
+                # Second click on label of already-selected arrow → start label drag
+                if (isinstance(item, QGraphicsSimpleTextItem)
+                        and arrow_data is self._selected_arrow):
+                    self._push_undo()
+                    self._label_drag_arrow = arrow_data
+                    self._label_drag_start = scene_pos
+                    self._label_drag_orig_offset = (arrow_data.label_dx, arrow_data.label_dy)
+                    event.accept()
+                    return
                 self._select_arrow(arrow_data)
                 event.accept()
                 return

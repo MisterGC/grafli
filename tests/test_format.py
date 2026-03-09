@@ -1009,3 +1009,58 @@ def test_box_newline_roundtrip():
     board = parse(text)
     assert board.boxes[0].label == "first\nsecond\nthird"
     assert serialize(board) == HEADER + "\n" + text
+
+
+# ── Arrow label offset tests ─────────────────────────────
+
+def test_parse_arrow_label_offset():
+    text = '@ arrow a -> b "calls" @10,20\n'
+    board = parse(text)
+    assert board.arrows[0].label == "calls"
+    assert board.arrows[0].label_dx == 10.0
+    assert board.arrows[0].label_dy == 20.0
+
+
+def test_serialize_arrow_label_offset():
+    arrow = Arrow(from_id="a", to_id="b", label="calls", label_dx=10.0, label_dy=20.0)
+    board = Board()
+    board.add_arrow(arrow)
+    text = serialize(board)
+    assert '@ arrow a -> b "calls" @10,20' in text
+
+
+def test_arrow_label_offset_roundtrip():
+    text = '@ arrow a -> b "calls" @10,20\n'
+    board = parse(text)
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_label_offset_zero_omitted():
+    arrow = Arrow(from_id="a", to_id="b", label="calls", label_dx=0.0, label_dy=0.0)
+    board = Board()
+    board.add_arrow(arrow)
+    text = serialize(board)
+    assert '@ arrow a -> b "calls"' in text
+    assert "@0,0" not in text
+
+
+def test_arrow_all_fields_with_offset_roundtrip():
+    text = '@ arrow a <-> b "data" @-5,12.5 !dashed ~xxlarge  # check latency\n'
+    board = parse(text)
+    arrow = board.arrows[0]
+    assert arrow.label_dx == -5.0
+    assert arrow.label_dy == 12.5
+    assert arrow.style == "dashed"
+    assert arrow.textsize == "xxlarge"
+    assert arrow.annotation == "check latency"
+    assert arrow.head_from is True
+    assert arrow.head_to is True
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_label_offset_negative():
+    text = '@ arrow a -> b "calls" @-15,-25\n'
+    board = parse(text)
+    assert board.arrows[0].label_dx == -15.0
+    assert board.arrows[0].label_dy == -25.0
+    assert serialize(board) == HEADER + "\n" + text

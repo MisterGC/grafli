@@ -158,6 +158,8 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._minimap_visible: bool = True
         self._minimap_rect: QRectF = QRectF()
         self._minimap_scene_rect: QRectF = QRectF()
+        self._minimap_dragging: bool = False
+        self._minimap_drag_offset: QPointF = QPointF()
 
         # Animated zoom
         self._zoom_timeline: QTimeLine | None = None
@@ -1348,8 +1350,8 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             super().mousePressEvent(event)
             return
 
-        # Minimap click-to-navigate
-        if self._minimap_click(event.position()):
+        # Minimap click-to-navigate / drag
+        if self._minimap_press(event.position()):
             event.accept()
             return
 
@@ -1380,6 +1382,11 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             window._status_pos.setText(
                 f"{int(scene_pos.x())}, {int(scene_pos.y())}"
             )
+
+        # Minimap viewport drag
+        if self._minimap_move(event.position()):
+            event.accept()
+            return
 
         if self._panning:
             delta = event.position() - self._pan_start
@@ -1420,6 +1427,11 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        # Minimap drag end
+        if self._minimap_release():
+            event.accept()
+            return
+
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)

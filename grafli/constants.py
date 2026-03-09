@@ -83,8 +83,8 @@ HANDLE_SIZE = 8
 
 # ── Minimap ──────────────────────────────────────────────────────
 
-MINIMAP_MAX_W = 180
-MINIMAP_MAX_H = 120
+MINIMAP_MAX_W = 360
+MINIMAP_MAX_H = 240
 MINIMAP_MARGIN = 12
 MINIMAP_BG = QColor(40, 40, 40, 180)
 MINIMAP_VIEWPORT_COLOR = QColor(255, 255, 255, 60)

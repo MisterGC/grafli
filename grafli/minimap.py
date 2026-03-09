@@ -106,17 +106,63 @@ class MinimapMixin:
         painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
         painter.drawRect(vp_rect)
 
-    def _minimap_click(self, event_position) -> bool:
-        """Handle click-to-navigate on minimap. Returns True if consumed."""
-        if (self._minimap_visible
+    def _minimap_viewport_rect(self) -> QRectF:
+        """Compute the viewport indicator rect in minimap (widget) coords."""
+        mr = self._minimap_rect
+        sr = self._minimap_scene_rect
+        if mr.isNull() or sr.isNull():
+            return QRectF()
+        sx = mr.width() / sr.width()
+        sy = mr.height() / sr.height()
+        vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
+        vx = mr.x() + (vp_scene.x() - sr.x()) * sx
+        vy = mr.y() + (vp_scene.y() - sr.y()) * sy
+        vw = vp_scene.width() * sx
+        vh = vp_scene.height() * sy
+        return QRectF(vx, vy, vw, vh).intersected(mr)
+
+    def _minimap_to_scene(self, minimap_pos: QPointF) -> QPointF:
+        """Map a minimap widget position to scene coordinates."""
+        mr = self._minimap_rect
+        sr = self._minimap_scene_rect
+        rx = (minimap_pos.x() - mr.x()) / mr.width()
+        ry = (minimap_pos.y() - mr.y()) / mr.height()
+        return QPointF(sr.x() + rx * sr.width(),
+                       sr.y() + ry * sr.height())
+
+    def _minimap_press(self, event_position) -> bool:
+        """Handle press on minimap: drag viewport or click-to-jump."""
+        if not (self._minimap_visible
                 and not self._minimap_rect.isNull()
                 and self._minimap_rect.contains(event_position)):
-            sr = self._minimap_scene_rect
-            mr = self._minimap_rect
-            rx = (event_position.x() - mr.x()) / mr.width()
-            ry = (event_position.y() - mr.y()) / mr.height()
-            target = QPointF(sr.x() + rx * sr.width(),
-                             sr.y() + ry * sr.height())
-            self.centerOn(target)
-            return True
-        return False
+            return False
+
+        vp_ind = self._minimap_viewport_rect()
+        if not vp_ind.isNull() and vp_ind.contains(event_position):
+            self._minimap_dragging = True
+            center = vp_ind.center()
+            self._minimap_drag_offset = QPointF(
+                event_position.x() - center.x(),
+                event_position.y() - center.y(),
+            )
+        else:
+            self.centerOn(self._minimap_to_scene(event_position))
+        return True
+
+    def _minimap_move(self, event_position) -> bool:
+        """Handle drag on minimap viewport indicator."""
+        if not self._minimap_dragging:
+            return False
+        adjusted = QPointF(
+            event_position.x() - self._minimap_drag_offset.x(),
+            event_position.y() - self._minimap_drag_offset.y(),
+        )
+        self.centerOn(self._minimap_to_scene(adjusted))
+        return True
+
+    def _minimap_release(self) -> bool:
+        """End minimap viewport drag."""
+        if not self._minimap_dragging:
+            return False
+        self._minimap_dragging = False
+        return True

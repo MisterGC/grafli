@@ -3,19 +3,26 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 
 from grafli.constants import (
     BOX_BORDER,
+    FONT_FAMILY,
     MINIMAP_BG,
     MINIMAP_BORDER_COLOR,
+    MINIMAP_INFO_COLOR,
     MINIMAP_MARGIN,
     MINIMAP_MAX_H,
     MINIMAP_MAX_W,
+    MINIMAP_STATS_COLOR,
+    MINIMAP_STATS_FONT_SIZE,
+    MINIMAP_TIER_COLORS,
     MINIMAP_VIEWPORT_COLOR,
     NOTE_COLOR,
     _resolve_color,
 )
+
+_TIER_LABELS = ("Simple", "Moderate", "Intricate", "Dense")
 
 
 class MinimapMixin:
@@ -24,6 +31,43 @@ class MinimapMixin:
     Expects the host class to have: _minimap_visible, _minimap_rect,
     _minimap_scene_rect, _board, _note_items, viewport(), mapToScene().
     """
+
+    def _compute_graph_stats(self) -> dict:
+        """Compute node/edge/cyclomatic stats for the current board."""
+        boxes = self._board.boxes
+        arrows = self._board.arrows
+        n = len(boxes)
+        e = len(arrows)
+
+        # Connected components via BFS (undirected)
+        ids = {b.id for b in boxes}
+        adj: dict[str, set[str]] = {bid: set() for bid in ids}
+        for a in arrows:
+            if a.from_id in adj and a.to_id in adj:
+                adj[a.from_id].add(a.to_id)
+                adj[a.to_id].add(a.from_id)
+        visited: set[str] = set()
+        components = 0
+        for bid in ids:
+            if bid not in visited:
+                components += 1
+                stack = [bid]
+                while stack:
+                    cur = stack.pop()
+                    if cur in visited:
+                        continue
+                    visited.add(cur)
+                    stack.extend(adj[cur] - visited)
+
+        cyclomatic = e - n + 2 * components if n > 0 else 0
+
+        # Fuzzy label: tier = max(node_tier, cyclomatic_tier)
+        n_tier = 0 if n <= 8 else (1 if n <= 20 else (2 if n <= 40 else 3))
+        c_tier = 0 if cyclomatic <= 3 else (1 if cyclomatic <= 8 else (2 if cyclomatic <= 15 else 3))
+        tier = max(n_tier, c_tier)
+        label = _TIER_LABELS[tier]
+
+        return {"n": n, "e": e, "c": cyclomatic, "label": label, "tier": tier}
 
     def _draw_minimap(self, painter: QPainter):
         """Draw the minimap overlay. Call from drawForeground."""
@@ -106,6 +150,56 @@ class MinimapMixin:
         painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
         painter.drawRect(vp_rect)
 
+        # ── Stats line above minimap ──
+        if not self._graph_stats:
+            self._graph_stats = self._compute_graph_stats()
+        stats = self._graph_stats
+
+        font = QFont(FONT_FAMILY, MINIMAP_STATS_FONT_SIZE)
+        painter.setFont(font)
+        fm = painter.fontMetrics()
+
+        stats_text = f"N:{stats['n']}  E:{stats['e']}  C:{stats['c']}"
+        label_text = stats["label"]
+        separator = " \u00b7 "
+
+        stats_y = my - 6
+        stats_baseline = stats_y
+
+        # Draw stats portion (grey)
+        painter.setPen(QPen(MINIMAP_STATS_COLOR))
+        stats_w = fm.horizontalAdvance(stats_text)
+        painter.drawText(QPointF(mx, stats_baseline), stats_text)
+
+        # Draw separator
+        sep_x = mx + stats_w
+        sep_w = fm.horizontalAdvance(separator)
+        painter.drawText(QPointF(sep_x, stats_baseline), separator)
+
+        # Draw tier label (color-coded)
+        label_x = sep_x + sep_w
+        tier_color = MINIMAP_TIER_COLORS[stats["tier"]]
+        painter.setPen(QPen(tier_color))
+        painter.drawText(QPointF(label_x, stats_baseline), label_text)
+
+        # Draw info circle (right-aligned with minimap)
+        info_r = 7
+        info_cx = mx + mw - info_r - 1
+        info_cy = stats_baseline - fm.ascent() / 2
+        info_rect = QRectF(info_cx - info_r, info_cy - info_r,
+                           info_r * 2, info_r * 2)
+        self._minimap_info_rect = info_rect
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(MINIMAP_INFO_COLOR))
+        painter.drawEllipse(info_rect)
+
+        info_font = QFont(FONT_FAMILY, 9)
+        info_font.setBold(True)
+        painter.setFont(info_font)
+        painter.setPen(QPen(QColor(255, 255, 255)))
+        painter.drawText(info_rect, Qt.AlignmentFlag.AlignCenter, "i")
+
     def _minimap_viewport_rect(self) -> QRectF:
         """Compute the viewport indicator rect in minimap (widget) coords."""
         mr = self._minimap_rect
@@ -131,10 +225,17 @@ class MinimapMixin:
                        sr.y() + ry * sr.height())
 
     def _minimap_press(self, event_position) -> bool:
-        """Handle press on minimap: drag viewport or click-to-jump."""
-        if not (self._minimap_visible
-                and not self._minimap_rect.isNull()
-                and self._minimap_rect.contains(event_position)):
+        """Handle press on minimap: info button, drag viewport, or click-to-jump."""
+        if not self._minimap_visible:
+            return False
+
+        # Info button hit-test (above the minimap rect)
+        info_rect = getattr(self, "_minimap_info_rect", None)
+        if info_rect and info_rect.contains(event_position):
+            self._show_graph_stats_dialog()
+            return True
+
+        if self._minimap_rect.isNull() or not self._minimap_rect.contains(event_position):
             return False
 
         vp_ind = self._minimap_viewport_rect()

@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 
 from grafli.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_point, _line_rect_clip, _rect_edge_point
 from grafli.commands import CommandsMixin
+from grafli.complexity import ComplexityMixin
 from grafli.constants import (
     ANNOTATION_ARROW_COLOR,
     ANNOTATION_ARROW_WIDTH,
@@ -53,6 +54,8 @@ from grafli.constants import (
     DEFAULT_BOX_W,
     FONT_FAMILY,
     GRID_COLOR,
+    HEATMAP_CONTENT_BORDER,
+    HEATMAP_GRID_COLOR,
     MIN_BOX_SIZE,
     NOTE_COLOR,
     SCENE_BG,
@@ -70,7 +73,7 @@ from grafli.minimap import MinimapMixin
 
 # ── Canvas view ─────────────────────────────────────────────────
 
-class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
+class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     """QGraphicsView with pan/zoom and file-backed board rendering."""
 
     arrow_update_needed = Signal()
@@ -160,6 +163,8 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._minimap_scene_rect: QRectF = QRectF()
         self._minimap_dragging: bool = False
         self._minimap_drag_offset: QPointF = QPointF()
+        self._minimap_info_rect: QRectF | None = None
+        self._graph_stats: dict = {}
 
         # Animated zoom
         self._zoom_timeline: QTimeLine | None = None
@@ -186,6 +191,11 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._graph_nav_map: dict[str, str] = {}  # label key -> target node id
         self._graph_nav_warning: list[QGraphicsItem] = []
 
+        # Complexity heatmap state
+        self._complexity_active: bool = False
+        self._complexity_node_heat: dict[str, float] = {}
+        self._complexity_saved: list[tuple] = []
+
         # Subgraph focus filter state
         self._focus_active: bool = False
         self._focus_node_id: str | None = None
@@ -205,11 +215,13 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
 
     def drawBackground(self, painter: QPainter, rect: QRectF):
         super().drawBackground(painter, rect)
+        grid_color = HEATMAP_GRID_COLOR if self._complexity_active else GRID_COLOR
+        border_color = HEATMAP_CONTENT_BORDER if self._complexity_active else CONTENT_BORDER_COLOR
         if self._grid_visible:
             spacing = self.GRID_SPACING
             left = int(rect.left()) - (int(rect.left()) % spacing)
             top = int(rect.top()) - (int(rect.top()) % spacing)
-            painter.setPen(QPen(GRID_COLOR, 2.0))
+            painter.setPen(QPen(grid_color, 2.0))
             x = left
             while x <= rect.right():
                 y = top
@@ -222,13 +234,14 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         items_rect = self._scene.itemsBoundingRect()
         if not items_rect.isNull():
             border_rect = items_rect.adjusted(-30, -30, 30, 30)
-            pen = QPen(CONTENT_BORDER_COLOR, 1.5, Qt.PenStyle.DashLine)
+            pen = QPen(border_color, 1.5, Qt.PenStyle.DashLine)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(border_rect, 12, 12)
 
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
+        self._draw_complexity_legend(painter)
         self._draw_minimap(painter)
 
     def toggle_grid(self):
@@ -299,6 +312,8 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._deselect_arrow()
         self._exit_graph_nav()
         self._clear_focus_filter()
+        if self._complexity_active:
+            self._clear_complexity_heatmap()
         if self._rect_preview:
             self._scene.removeItem(self._rect_preview)
             self._rect_preview = None
@@ -402,6 +417,9 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         inflated = items_rect.adjusted(-2000, -2000, 2000, 2000)
         self._scene.setSceneRect(inflated)
 
+    def _invalidate_graph_stats(self):
+        self._graph_stats = {}
+
     def load_board(self, board: Board):
         self._board = board
         self._rebuild_scene()
@@ -424,7 +442,11 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._focus_node_id = None
         self._focus_direction = "all"
         self._focus_depth = 0
+        self._complexity_active = False
+        self._complexity_node_heat.clear()
+        self._complexity_saved.clear()
         self._update_focus_status()
+        self._update_complexity_status()
 
         if not self._board:
             return
@@ -464,6 +486,7 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         self._redraw_arrows()
         self._update_z_values()
         self._update_scene_rect()
+        self._invalidate_graph_stats()
 
     def _redraw_arrows(self):
         for item in self._arrow_items:
@@ -669,9 +692,12 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
                 self._arrow_items.append(line)
 
         self._update_z_values()
+        self._invalidate_graph_stats()
 
         if self._focus_active:
             self._apply_focus_filter()
+        if self._complexity_active:
+            self._apply_complexity_heatmap()
 
     # ── Subgraph focus filter ──
 
@@ -1549,6 +1575,10 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             return
 
         if event.key() == Qt.Key.Key_Escape:
+            if self._complexity_active:
+                self._clear_complexity_heatmap()
+                event.accept()
+                return
             if self._focus_active:
                 self._clear_focus_filter()
                 event.accept()
@@ -2001,6 +2031,18 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
+        # A — complexity analysis heatmap
+        if event.key() == Qt.Key.Key_A and no_mod:
+            if self._complexity_active:
+                self._clear_complexity_heatmap()
+            else:
+                if self._focus_active:
+                    self._clear_focus_filter()
+                self._complexity_active = True
+                self._apply_complexity_heatmap()
+            event.accept()
+            return
+
         # B — subgraph focus filter
         if event.key() == Qt.Key.Key_B and no_mod:
             selected = self._scene.selectedItems()
@@ -2022,6 +2064,8 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
                     self._clear_focus_filter()
             else:
                 if len(selected) == 1 and isinstance(selected[0], BoxItem):
+                    if self._complexity_active:
+                        self._clear_complexity_heatmap()
                     self._focus_active = True
                     self._focus_node_id = selected[0].box.id
                     self._focus_direction = "all"
@@ -3248,7 +3292,8 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
                 ("Shift+A", "Cycle anchor"),
                 ("Shift+G", "Snap to grid"),
             ]),
-            ("Focus", [
+            ("Focus & Analysis", [
+                ("A", "Complexity analysis heatmap"),
                 ("B", "Subgraph focus (cycle direction)"),
                 ("\u21e7B", "Toggle focus depth (full/1-hop)"),
             ]),
@@ -3272,7 +3317,7 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
 
         columns = [
             ["Modes", "Navigate"],
-            ["Edit", "Create", "Focus", "View"],
+            ["Edit", "Create", "Focus & Analysis", "View"],
             ["Style", "Arrow", "Other"],
         ]
         group_map = {name: entries for name, entries in groups}
@@ -3310,6 +3355,83 @@ class GrafliView(CommandsMixin, MinimapMixin, QGraphicsView):
         dlg = QDialog(self)
         dlg.setWindowTitle("Keyboard Shortcuts")
         dlg.setFixedWidth(820)
+
+        browser = QTextBrowser(dlg)
+        browser.setOpenLinks(False)
+        browser.setHtml(html)
+
+        btn = QPushButton("Close", dlg)
+        btn.clicked.connect(dlg.accept)
+
+        layout = QVBoxLayout(dlg)
+        layout.addWidget(browser)
+        layout.addWidget(btn)
+
+        dlg.exec()
+
+    def _show_graph_stats_dialog(self):
+        hdr = "color:#6A9FB5;font-weight:bold;font-size:13px"
+        cell = "padding:4px 8px"
+        html = f"""
+        <p style='{hdr}'>GRAPH COMPLEXITY METRICS</p>
+        <table cellpadding='2' style='margin-left:8px'>
+          <tr>
+            <td style='{cell}'><b>N (Nodes)</b></td>
+            <td style='{cell}'>Number of boxes in the diagram.</td>
+          </tr>
+          <tr>
+            <td style='{cell}'><b>E (Edges)</b></td>
+            <td style='{cell}'>Number of arrows / connections.</td>
+          </tr>
+          <tr>
+            <td style='{cell}'><b>C (Cyclomatic)</b></td>
+            <td style='{cell}'>
+              E &minus; N + 2P &nbsp;(P = connected components).<br>
+              Measures independent paths through the graph;<br>
+              higher values indicate more interconnection.
+            </td>
+          </tr>
+        </table>
+        <br>
+        <p style='{hdr}'>FUZZY LABEL THRESHOLDS</p>
+        <table border='1' cellpadding='4' cellspacing='0'
+               style='border-collapse:collapse;margin-left:8px;
+                      border-color:#555'>
+          <tr style='background:#333;color:#ccc'>
+            <th style='{cell}'>Label</th>
+            <th style='{cell}'>Nodes (N)</th>
+            <th style='{cell}'>Cyclomatic (C)</th>
+          </tr>
+          <tr>
+            <td style='{cell};color:#7fb97f'><b>Simple</b></td>
+            <td style='{cell}'>&le; 8</td>
+            <td style='{cell}'>&le; 3</td>
+          </tr>
+          <tr>
+            <td style='{cell};color:#c9b84e'><b>Moderate</b></td>
+            <td style='{cell}'>9 &ndash; 20</td>
+            <td style='{cell}'>4 &ndash; 8</td>
+          </tr>
+          <tr>
+            <td style='{cell};color:#d4883a'><b>Intricate</b></td>
+            <td style='{cell}'>21 &ndash; 40</td>
+            <td style='{cell}'>9 &ndash; 15</td>
+          </tr>
+          <tr>
+            <td style='{cell};color:#c75050'><b>Dense</b></td>
+            <td style='{cell}'>&gt; 40</td>
+            <td style='{cell}'>&gt; 15</td>
+          </tr>
+        </table>
+        <br>
+        <p style='color:#999;font-size:11px;margin-left:8px'>
+          The overall label is the <i>maximum</i> tier from N and C.
+        </p>
+        """
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Graph Complexity")
+        dlg.setFixedWidth(480)
 
         browser = QTextBrowser(dlg)
         browser.setOpenLinks(False)

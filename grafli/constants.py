@@ -89,6 +89,38 @@ MINIMAP_MARGIN = 12
 MINIMAP_BG = QColor(40, 40, 40, 180)
 MINIMAP_VIEWPORT_COLOR = QColor(255, 255, 255, 60)
 MINIMAP_BORDER_COLOR = QColor(80, 80, 80, 200)
+MINIMAP_STATS_FONT_SIZE = 10
+MINIMAP_STATS_COLOR = QColor(170, 170, 170)
+MINIMAP_TIER_COLORS = [
+    QColor(127, 185, 127),  # Simple — green
+    QColor(201, 184, 78),   # Moderate — yellow
+    QColor(212, 136, 58),   # Intricate — orange
+    QColor(199, 80, 80),    # Dense — red
+]
+MINIMAP_INFO_COLOR = QColor(106, 159, 181)  # #6A9FB5 accent
+
+# ── Complexity heatmap ──────────────────────────────────────────
+HEATMAP_STOPS = [
+    (0.00, QColor("#5B8FA8")),  # cold: muted steel blue
+    (0.25, QColor("#6BAA8A")),  # sage green
+    (0.50, QColor("#C4B555")),  # warm gold
+    (0.75, QColor("#D4804E")),  # Grafli accent orange
+    (1.00, QColor("#C75050")),  # hot: warm red
+]
+HEATMAP_BG = QColor("#1E1E2E")
+HEATMAP_GRID_COLOR = QColor("#2A2A3A")
+HEATMAP_CONTENT_BORDER = QColor("#3A3A4A")
+HEATMAP_COLD_ALPHA = 0.30
+HEATMAP_HOT_ALPHA = 0.95
+HEATMAP_NOTE_OPACITY = 0.15
+HEATMAP_BORDER_DARKEN = 125
+HEATMAP_GLOW_THRESHOLD = 0.5
+HEATMAP_GLOW_BLUR = 15
+HEATMAP_TEXT_COLOR = QColor("#FFFFFF")
+HEATMAP_EQUAL_HEAT = 0.5
+HEATMAP_LEGEND_W = 120
+HEATMAP_LEGEND_H = 8
+HEATMAP_LEGEND_MARGIN = 6
 
 # ── Sequences & cycles ───────────────────────────────────────────
 

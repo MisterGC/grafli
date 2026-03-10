@@ -357,50 +357,61 @@ class BoxItem(QGraphicsRectItem):
                 return
         super().mousePressEvent(event)
 
+    def _apply_resize_delta(self, dx: float, dy: float, corner: int):
+        """Apply a resize delta for the given handle direction."""
+        x, y, w, h = self.box.x, self.box.y, self.box.w, self.box.h
+
+        if corner == _CORNER_TL:
+            x += dx; y += dy; w -= dx; h -= dy
+        elif corner == _CORNER_TR:
+            y += dy; w += dx; h -= dy
+        elif corner == _CORNER_BL:
+            x += dx; w -= dx; h += dy
+        elif corner == _CORNER_BR:
+            w += dx; h += dy
+        elif corner == _EDGE_T:
+            y += dy; h -= dy
+        elif corner == _EDGE_B:
+            h += dy
+        elif corner == _EDGE_L:
+            x += dx; w -= dx
+        elif corner == _EDGE_R:
+            w += dx
+
+        # Clamp to minimum size
+        if w < MIN_BOX_SIZE:
+            if corner in (_CORNER_TL, _CORNER_BL, _EDGE_L):
+                x -= MIN_BOX_SIZE - w
+            w = MIN_BOX_SIZE
+        if h < MIN_BOX_SIZE:
+            if corner in (_CORNER_TL, _CORNER_TR, _EDGE_T):
+                y -= MIN_BOX_SIZE - h
+            h = MIN_BOX_SIZE
+
+        self.box.x = x
+        self.box.y = y
+        self.box.w = w
+        self.box.h = h
+        self.setPos(x, y)
+        self.setRect(0, 0, w, h)
+        self._label.setTextWidth(w - 16)
+        self._position_label()
+        self._update_handles()
+
     def mouseMoveEvent(self, event):
         if self._resizing:
             dx = event.pos().x() - self._resize_origin.x()
             dy = event.pos().y() - self._resize_origin.y()
             self._resize_origin = event.pos()
-            x, y, w, h = self.box.x, self.box.y, self.box.w, self.box.h
+            corner = self._resize_corner
 
-            c = self._resize_corner
-            if c == _CORNER_TL:
-                x += dx; y += dy; w -= dx; h -= dy
-            elif c == _CORNER_TR:
-                y += dy; w += dx; h -= dy
-            elif c == _CORNER_BL:
-                x += dx; w -= dx; h += dy
-            elif c == _CORNER_BR:
-                w += dx; h += dy
-            elif c == _EDGE_T:
-                y += dy; h -= dy
-            elif c == _EDGE_B:
-                h += dy
-            elif c == _EDGE_L:
-                x += dx; w -= dx
-            elif c == _EDGE_R:
-                w += dx
+            self._apply_resize_delta(dx, dy, corner)
 
-            # Clamp to minimum size
-            if w < MIN_BOX_SIZE:
-                if c in (_CORNER_TL, _CORNER_BL, _EDGE_L):
-                    x -= MIN_BOX_SIZE - w
-                w = MIN_BOX_SIZE
-            if h < MIN_BOX_SIZE:
-                if c in (_CORNER_TL, _CORNER_TR, _EDGE_T):
-                    y -= MIN_BOX_SIZE - h
-                h = MIN_BOX_SIZE
-
-            self.box.x = x
-            self.box.y = y
-            self.box.w = w
-            self.box.h = h
-            self.setPos(x, y)
-            self.setRect(0, 0, w, h)
-            self._label.setTextWidth(w - 16)
-            self._position_label()
-            self._update_handles()
+            scene = self.scene()
+            if scene:
+                for item in scene.selectedItems():
+                    if isinstance(item, BoxItem) and item is not self:
+                        item._apply_resize_delta(dx, dy, corner)
 
             view = _get_view(self)
             if view and hasattr(view, 'arrow_update_needed'):

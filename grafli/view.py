@@ -2231,6 +2231,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         item = BoxItem(box)
         self._scene.addItem(item)
+        self._scene.addItem(item._label)
         self._box_items[box_id] = item
         self.mark_dirty()
         if self._sticky_mode:
@@ -2770,6 +2771,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         new_item = BoxItem(new_box)
         self._scene.addItem(new_item)
+        self._scene.addItem(new_item._label)
         self._box_items[box_id] = new_item
 
         if anchor_item:

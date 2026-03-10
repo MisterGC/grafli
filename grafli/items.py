@@ -239,6 +239,7 @@ class BoxItem(QGraphicsRectItem):
     def update_label(self, text: str):
         self.box.label = text
         self._label.setPlainText(text)
+        self._label.setTextWidth(self.box.w - 16)
         self._auto_grow()
         self._position_label()
 

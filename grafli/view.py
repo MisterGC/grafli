@@ -477,6 +477,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._scene.addItem(item)
             self._note_items[note.id] = item
 
+        self._auto_parent_all()
         self._update_z_values()
 
         # Refresh auto-layout now that all parent-child relationships exist
@@ -877,6 +878,40 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         """Refresh auto-layout for a box when its children change."""
         if box_id in self._box_items:
             self._box_items[box_id].refresh_auto_layout()
+
+    def _auto_parent_all(self):
+        """Assign parent to every box/note fully contained in another box."""
+        boxes = list(self._box_items.values())
+        for item in boxes:
+            b = item.box
+            item_rect = QRectF(b.x, b.y, b.w, b.h)
+            desc_ids = {
+                d.box.id
+                for d in self._descendants(b.id)
+                if isinstance(d, BoxItem)
+            }
+            best, best_area = "", float("inf")
+            for oid, oitem in self._box_items.items():
+                if oid == b.id or oid in desc_ids:
+                    continue
+                o = oitem.box
+                if QRectF(o.x, o.y, o.w, o.h).contains(item_rect):
+                    a = o.w * o.h
+                    if a < best_area:
+                        best, best_area = oid, a
+            b.parent = best
+        for nitem in self._note_items.values():
+            n = nitem.note
+            sr = nitem.sceneBoundingRect()
+            item_rect = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
+            best, best_area = "", float("inf")
+            for oid, oitem in self._box_items.items():
+                o = oitem.box
+                if QRectF(o.x, o.y, o.w, o.h).contains(item_rect):
+                    a = o.w * o.h
+                    if a < best_area:
+                        best, best_area = oid, a
+            n.parent = best
 
     def _check_nesting(self, item: BoxItem | NoteItem):
         """Update parent of a box or note after it has been moved or resized."""

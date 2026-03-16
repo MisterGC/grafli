@@ -10,6 +10,7 @@ from PySide6.QtCore import (
     QRectF,
     Qt,
     QTimeLine,
+    QTimer,
     Signal,
 )
 from PySide6.QtGui import (
@@ -54,6 +55,7 @@ from grafli.constants import (
     DEFAULT_BOX_W,
     FONT_FAMILY,
     GRID_COLOR,
+    MINIMAP_MARGIN,
     HEATMAP_CONTENT_BORDER,
     HEATMAP_GRID_COLOR,
     MIN_BOX_SIZE,
@@ -162,6 +164,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Minimap
         self._minimap_visible: bool = True
         self._minimap_rect: QRectF = QRectF()
+        self._minimap_panel_rect: QRectF = QRectF()
         self._minimap_scene_rect: QRectF = QRectF()
         self._minimap_dragging: bool = False
         self._minimap_drag_offset: QPointF = QPointF()
@@ -192,6 +195,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._graph_nav_labels: list[QGraphicsRectItem | QGraphicsSimpleTextItem] = []
         self._graph_nav_map: dict[str, str] = {}  # label key -> target node id
         self._graph_nav_warning: list[QGraphicsItem] = []
+
+        # Debug overlay
+        self._debug_overlay: bool = False
+        self._debug_last_shortcut: str = ""
+        self._debug_fade_timer: QTimer | None = None
 
         # Complexity heatmap state
         self._complexity_active: bool = False
@@ -245,6 +253,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         super().drawForeground(painter, rect)
         self._draw_complexity_legend(painter)
         self._draw_minimap(painter)
+        self._draw_debug_overlay(painter)
 
     def toggle_grid(self):
         self._grid_visible = not self._grid_visible
@@ -1730,10 +1739,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Vim aliases — u (undo), Ctrl+R (redo), x (delete), o/O (adjacent box)
         if event.key() == Qt.Key.Key_U and no_mod:
+            self._record_shortcut("u \u2192 undo")
             self._undo()
             event.accept()
             return
         if event.key() == Qt.Key.Key_R and mods & _CTRL_MOD:
+            self._record_shortcut("Ctrl+R \u2192 redo")
             self._redo()
             event.accept()
             return
@@ -1763,13 +1774,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        # Zoom with +/-
-        if event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+        # = — auto-layout (SELECT mode, text-based for non-US layouts)
+        if event.text() == "=" and self._mode == Mode.SELECT:
+            self._record_shortcut("= \u2192 layout")
+            self._layout_selected()
+            event.accept()
+            return
+
+        # Zoom with + (Shift+= produces Key_Plus)
+        if event.key() == Qt.Key.Key_Plus:
+            self._record_shortcut("+ \u2192 zoom in")
             self.scale(1.15, 1.15)
             self._update_status_zoom()
             event.accept()
             return
         if event.key() == Qt.Key.Key_Minus:
+            self._record_shortcut("- \u2192 zoom out")
             self.scale(1 / 1.15, 1 / 1.15)
             self._update_status_zoom()
             event.accept()
@@ -1832,10 +1852,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 event.accept()
                 return
 
-        # Shift+H — cheatsheet (only when no box mode active)
-        if (event.key() == Qt.Key.Key_H
-                and mods & Qt.KeyboardModifier.ShiftModifier
-                and not self._box_mode):
+        # ` — toggle debug overlay (text-based for non-US layouts)
+        if event.text() == "`":
+            self._debug_overlay = not self._debug_overlay
+            self._record_shortcut("DEBUG ON" if self._debug_overlay else "DEBUG OFF")
+            event.accept()
+            return
+
+        # F1 — cheatsheet
+        if event.key() == Qt.Key.Key_F1:
             self._show_cheatsheet()
             event.accept()
             return
@@ -1991,14 +2016,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     event.accept()
                     return
 
-        # Shift+A — cycle anchor (SELECT mode with selection)
-        if (event.key() == Qt.Key.Key_A
-                and mods & Qt.KeyboardModifier.ShiftModifier
-                and self._mode == Mode.SELECT and has_selection):
-            self._cycle_anchor()
-            event.accept()
-            return
-
         # Shift+G — snap to grid (SELECT mode with selection)
         if (event.key() == Qt.Key.Key_G
                 and mods & Qt.KeyboardModifier.ShiftModifier
@@ -2009,6 +2026,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # G without shift — toggle grid
         if event.key() == Qt.Key.Key_G and no_mod:
+            self._record_shortcut("G \u2192 grid")
             self.toggle_grid()
             event.accept()
             return
@@ -3292,10 +3310,64 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._scene.removeItem(item)
         self._graph_nav_warning.clear()
 
+    # ── Debug overlay ──
+
+    def _record_shortcut(self, label: str):
+        """Record a shortcut label for the debug overlay."""
+        self._debug_last_shortcut = label
+        if self._debug_fade_timer is not None:
+            self._debug_fade_timer.stop()
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.setInterval(1500)
+        timer.timeout.connect(self._clear_debug_overlay)
+        timer.start()
+        self._debug_fade_timer = timer
+        self.viewport().update()
+
+    def _clear_debug_overlay(self):
+        self._debug_last_shortcut = ""
+        self._debug_fade_timer = None
+        self.viewport().update()
+
+    def _draw_debug_overlay(self, painter: QPainter):
+        if not self._debug_last_shortcut:
+            return
+        if not self._debug_overlay and not self._debug_last_shortcut.startswith("DEBUG"):
+            return
+        painter.resetTransform()
+        font = QFont(FONT_FAMILY, 11)
+        painter.setFont(font)
+        fm = painter.fontMetrics()
+        text = self._debug_last_shortcut
+        tw = fm.horizontalAdvance(text)
+        th = fm.height()
+        pad_x, pad_y = 12, 6
+        rx = MINIMAP_MARGIN
+        ry = MINIMAP_MARGIN
+        rw = tw + pad_x * 2
+        rh = th + pad_y * 2
+        bg = QColor(30, 30, 30, 180)
+        painter.setBrush(QBrush(bg))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(QRectF(rx, ry, rw, rh), 8, 8)
+        painter.setPen(QPen(QColor(255, 255, 255, 220)))
+        painter.drawText(
+            QRectF(rx, ry, rw, rh),
+            Qt.AlignmentFlag.AlignCenter,
+            text,
+        )
+
     # ── Cheatsheet (Shift+H) ──
 
     def _show_cheatsheet(self):
         groups = [
+            ("File", [
+                ("\u2318N", "New file"),
+                ("\u2318O", "Open file"),
+                ("\u2318S", "Save file"),
+                ("\u2318Q", "Quit"),
+            ]),
             ("Modes", [
                 ("V", "Select mode"),
                 ("N / \u21e7N", "Create node (one-shot / sticky)"),
@@ -3318,8 +3390,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ("Edit", [
                 ("E / Dbl-click", "Edit selected element"),
                 ("Enter", "Accept edit"),
-                ("u", "Undo"),
-                ("Ctrl+R", "Redo"),
+                ("u / \u2318Z", "Undo"),
+                ("Ctrl+R / \u2318\u21e7Z", "Redo"),
+                ("\u2318C / \u2318V", "Copy / Paste"),
                 ("x / Delete", "Delete selected / arrow"),
             ]),
             ("Create", [
@@ -3336,8 +3409,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("j / k", "Cycle text size"),
                 ("s", "Enter style mode"),
                 ("d", "Enter dimension mode"),
-                ("Shift+A", "Cycle anchor"),
                 ("Shift+G", "Snap to grid"),
+                ("=", "Auto-layout selection (or all)"),
             ]),
             ("Focus & Analysis", [
                 ("A", "Complexity analysis heatmap"),
@@ -3357,13 +3430,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ]),
             ("Other", [
                 ("Shift+Click", "Toggle selection"),
-                ("Shift+H", "This cheatsheet"),
+                ("F1", "This cheatsheet"),
+                ("`", "Toggle debug overlay"),
                 ("Escape", "Cancel / back to SELECT"),
             ]),
         ]
 
         columns = [
-            ["Modes", "Navigate"],
+            ["File", "Modes", "Navigate"],
             ["Edit", "Create", "Focus & Analysis", "View"],
             ["Style", "Arrow", "Other"],
         ]
@@ -3386,9 +3460,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                         f"<tr>"
                         f"<td style='padding-right:12px;white-space:nowrap'>"
                         f"<b>{key}</b></td>"
-                        f"<td>{desc}</td></tr>"
+                        f"<td style='padding:2px 0'>{desc}</td></tr>"
                     )
-            return f"<table cellpadding='1'>{''.join(rows)}</table>"
+            return f"<table cellpadding='2'>{''.join(rows)}</table>"
 
         col_html = "</td><td width='24'></td><td valign='top'>".join(
             _render_column(col) for col in columns
@@ -3401,10 +3475,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         dlg = QDialog(self)
         dlg.setWindowTitle("Keyboard Shortcuts")
-        dlg.setFixedWidth(820)
+
+        screen = self.screen()
+        if screen:
+            geo = screen.availableGeometry()
+            w = min(900, int(geo.width() * 0.75))
+            h = int(geo.height() * 0.70)
+        else:
+            w, h = 900, 600
+        dlg.resize(w, h)
 
         browser = QTextBrowser(dlg)
         browser.setOpenLinks(False)
+        font = browser.font()
+        font.setPointSize(13)
+        browser.setFont(font)
+        browser.setStyleSheet("QTextBrowser { background: #2A2A2A; color: #E0E0E0; }")
         browser.setHtml(html)
 
         btn = QPushButton("Close", dlg)

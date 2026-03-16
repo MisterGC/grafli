@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import signal
 import sys
 from pathlib import Path
@@ -9,39 +10,34 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import (
     QAction,
-    QActionGroup,
-    QColor,
     QFontDatabase,
-    QIcon,
     QKeySequence,
-    QPixmap,
 )
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QLabel,
     QMainWindow,
-    QMenu,
     QMessageBox,
-    QToolBar,
 )
 
-from grafli.constants import COLOR_PALETTE, Mode, _resolve_color
+from grafli.constants import Mode
 from grafli.filewatcher import JsonSafeWatcher
 from grafli.format import Board, parse, serialize
-from grafli.items import BoxItem, NoteItem
 from grafli.view import GrafliView
 
 
 # ── Main window ─────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
-    def __init__(self, file_path: str | None = None):
+    def __init__(self, file_path: str | None = None, *, debug: bool = False):
         super().__init__()
         self.setWindowTitle("Grafli")
         self.resize(1200, 800)
 
         self._view = GrafliView(self)
+        if debug:
+            self._view._debug_overlay = True
         self.setCentralWidget(self._view)
 
         self._file_path: Path | None = None
@@ -55,9 +51,9 @@ class MainWindow(QMainWindow):
         self._autosave_timer.timeout.connect(self._autosave)
         self._last_written = ""
 
-        self._setup_toolbar()
-        self._setup_actions()
+        self._setup_shortcuts()
         self._setup_status_bar()
+        self.menuBar().setVisible(False)
 
         self._pending_zoom_fit = bool(file_path)
 
@@ -76,180 +72,34 @@ class MainWindow(QMainWindow):
         label = f"{path.parent.name}/{path.name}"
         return f"Grafli — {label}{'*' if dirty else ''}"
 
-    def _setup_toolbar(self):
-        toolbar = QToolBar("Tools", self)
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-
-        group = QActionGroup(self)
-        group.setExclusive(True)
-
-        modes = [
-            ("Select (V)", Mode.SELECT),
-            ("Rect (N)", Mode.RECT),
-            ("Text (T)", Mode.TEXT),
-            ("Connect (C)", Mode.CONNECT),
-        ]
-
-        self._mode_actions: dict[Mode, QAction] = {}
-        for label, mode in modes:
-            action = QAction(label, self)
-            action.setCheckable(True)
-            action.triggered.connect(lambda checked, m=mode: self._view.set_mode(m))
-            group.addAction(action)
-            toolbar.addAction(action)
-            self._mode_actions[mode] = action
-
-        self._mode_actions[Mode.SELECT].setChecked(True)
-
-        toolbar.addSeparator()
-
-        # Color button
-        self._color_action = QAction("Color", self)
-        color_menu = QMenu(self)
-        for name, color_str in COLOR_PALETTE:
-            action = color_menu.addAction(name)
-            hex_color = _resolve_color(color_str)
-            if hex_color:
-                px = QPixmap(16, 16)
-                px.fill(QColor(hex_color))
-                action.setIcon(QIcon(px))
-            action.triggered.connect(
-                lambda checked, c=color_str: self._apply_color_to_selected(c)
-            )
-        self._color_action.setMenu(color_menu)
-        toolbar.addAction(self._color_action)
-
-        # Anchor dropdown
-        self._anchor_action = QAction("Anchor", self)
-        anchor_menu = QMenu(self)
-        for name, value in [("Center", ""), ("Top Left", "topleft"), ("Top Center", "topcenter")]:
-            action = anchor_menu.addAction(name)
-            action.triggered.connect(
-                lambda checked, a=value: self._apply_anchor_to_selected(a)
-            )
-        self._anchor_action.setMenu(anchor_menu)
-        toolbar.addAction(self._anchor_action)
-
-        # Size dropdown
-        self._textsize_action = QAction("Size", self)
-        textsize_menu = QMenu(self)
-        for name, value in [("Small", "small"), ("Medium", ""), ("Large", "large"), ("XL", "xlarge"), ("XXL", "xxlarge")]:
-            action = textsize_menu.addAction(name)
-            action.triggered.connect(
-                lambda checked, s=value: self._apply_textsize_to_selected(s)
-            )
-        self._textsize_action.setMenu(textsize_menu)
-        toolbar.addAction(self._textsize_action)
-
-        # Sync toolbar checkmarks when mode changes programmatically
-        self._view.mode_changed.connect(self._on_mode_changed)
-
     def _on_mode_changed(self, mode: Mode):
-        action = self._mode_actions.get(mode)
-        if action:
-            action.setChecked(True)
         label = mode.value.upper()
         if self._view._sticky_mode and mode in (Mode.RECT, Mode.TEXT):
             label += "+"
         self._status_mode.setText(label)
 
-    def _apply_color_to_selected(self, color: str):
-        self._view._push_undo()
-        for item in self._view.scene().selectedItems():
-            if isinstance(item, BoxItem):
-                item.set_color(color)
-            elif isinstance(item, NoteItem):
-                item.set_color(color)
-        self._view.mark_dirty()
+    def _setup_shortcuts(self):
+        self._view.mode_changed.connect(self._on_mode_changed)
 
-    def _apply_anchor_to_selected(self, anchor: str):
-        self._view._push_undo()
-        for item in self._view.scene().selectedItems():
-            if isinstance(item, BoxItem):
-                item.set_anchor(anchor)
-        self._view.mark_dirty()
+        shortcuts = [
+            (QKeySequence.StandardKey.New, self._new_file),
+            (QKeySequence.StandardKey.Open, self._open_dialog),
+            (QKeySequence.StandardKey.Save, self._save_file),
+            (QKeySequence.StandardKey.Quit, self.close),
+            (QKeySequence.StandardKey.Undo, self._view._undo),
+            (QKeySequence.StandardKey.Redo, self._view._redo),
+            (QKeySequence.StandardKey.Copy, self._view._copy_selected),
+            (QKeySequence.StandardKey.Paste, self._view._paste),
+            (QKeySequence.StandardKey.ZoomIn, self._zoom_in),
+            (QKeySequence.StandardKey.ZoomOut, self._zoom_out),
+        ]
+        for key, slot in shortcuts:
+            action = QAction(self)
+            action.setShortcut(key)
+            action.triggered.connect(slot)
+            self.addAction(action)
 
-    def _apply_textsize_to_selected(self, textsize: str):
-        self._view._push_undo()
-        for item in self._view.scene().selectedItems():
-            if isinstance(item, BoxItem):
-                item.set_textsize(textsize)
-            elif isinstance(item, NoteItem):
-                item.set_textsize(textsize)
-        self._view.mark_dirty()
-
-    def _setup_actions(self):
-        menu = self.menuBar().addMenu("&File")
-
-        new_action = QAction("&New", self)
-        new_action.setShortcut(QKeySequence.StandardKey.New)
-        new_action.triggered.connect(self._new_file)
-        menu.addAction(new_action)
-
-        open_action = QAction("&Open...", self)
-        open_action.setShortcut(QKeySequence.StandardKey.Open)
-        open_action.triggered.connect(self._open_dialog)
-        menu.addAction(open_action)
-
-        save_action = QAction("&Save", self)
-        save_action.setShortcut(QKeySequence.StandardKey.Save)
-        save_action.triggered.connect(self._save_file)
-        menu.addAction(save_action)
-
-        menu.addSeparator()
-
-        quit_action = QAction("&Quit", self)
-        quit_action.setShortcut(QKeySequence.StandardKey.Quit)
-        quit_action.triggered.connect(self.close)
-        menu.addAction(quit_action)
-
-        # Edit menu
-        edit_menu = self.menuBar().addMenu("&Edit")
-
-        undo_action = QAction("&Undo", self)
-        undo_action.setShortcut(QKeySequence.StandardKey.Undo)
-        undo_action.triggered.connect(self._view._undo)
-        edit_menu.addAction(undo_action)
-
-        redo_action = QAction("&Redo", self)
-        redo_action.setShortcut(QKeySequence.StandardKey.Redo)
-        redo_action.triggered.connect(self._view._redo)
-        edit_menu.addAction(redo_action)
-
-        edit_menu.addSeparator()
-
-        copy_action = QAction("&Copy", self)
-        copy_action.setShortcut(QKeySequence.StandardKey.Copy)
-        copy_action.triggered.connect(self._view._copy_selected)
-        edit_menu.addAction(copy_action)
-
-        paste_action = QAction("&Paste", self)
-        paste_action.setShortcut(QKeySequence.StandardKey.Paste)
-        paste_action.triggered.connect(self._view._paste)
-        edit_menu.addAction(paste_action)
-
-        # View menu
-        view_menu = self.menuBar().addMenu("&View")
-
-        grid_action = QAction("Show &Grid", self)
-        grid_action.setCheckable(True)
-        grid_action.setChecked(True)
-        grid_action.triggered.connect(self._view.toggle_grid)
-        view_menu.addAction(grid_action)
-
-        # Zoom shortcuts
-        zoom_in = QAction("Zoom In", self)
-        zoom_in.setShortcut(QKeySequence.StandardKey.ZoomIn)
-        zoom_in.triggered.connect(self._zoom_in)
-        self.addAction(zoom_in)
-
-        zoom_out = QAction("Zoom Out", self)
-        zoom_out.setShortcut(QKeySequence.StandardKey.ZoomOut)
-        zoom_out.triggered.connect(self._zoom_out)
-        self.addAction(zoom_out)
-
-        zoom_fit = QAction("Zoom to Fit", self)
+        zoom_fit = QAction(self)
         zoom_fit.setShortcut(QKeySequence("Ctrl+0"))
         zoom_fit.triggered.connect(self._zoom_fit)
         self.addAction(zoom_fit)
@@ -441,6 +291,11 @@ def _register_bundled_fonts():
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Grafli whiteboard")
+    parser.add_argument("file", nargs="?", default=None, help="File to open")
+    parser.add_argument("--debug", action="store_true", help="Enable debug overlay")
+    args = parser.parse_args()
+
     app = QApplication(sys.argv)
     app.setApplicationName("Grafli")
     _register_bundled_fonts()
@@ -452,8 +307,7 @@ def main():
     tick.start(200)
     tick.timeout.connect(lambda: None)
 
-    file_path = sys.argv[1] if len(sys.argv) > 1 else None
-    window = MainWindow(file_path)
+    window = MainWindow(args.file, debug=args.debug)
     window.show()
 
     sys.exit(app.exec())

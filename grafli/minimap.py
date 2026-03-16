@@ -29,7 +29,8 @@ class MinimapMixin:
     """Mixin providing minimap rendering and click-to-navigate.
 
     Expects the host class to have: _minimap_visible, _minimap_rect,
-    _minimap_scene_rect, _board, _note_items, viewport(), mapToScene().
+    _minimap_panel_rect, _minimap_scene_rect, _board, _note_items,
+    viewport(), mapToScene().
     """
 
     def _compute_graph_stats(self) -> dict:
@@ -104,16 +105,83 @@ class MinimapMixin:
         else:
             mh = MINIMAP_MAX_H
             mw = mh * aspect
-        mx = vp.width() - mw - MINIMAP_MARGIN
-        my = vp.height() - mh - MINIMAP_MARGIN
+
+        # Compute stats text height for unified panel
+        if not self._graph_stats:
+            self._graph_stats = self._compute_graph_stats()
+        stats = self._graph_stats
+
+        stats_font = QFont(FONT_FAMILY, MINIMAP_STATS_FONT_SIZE)
+        painter.setFont(stats_font)
+        fm = painter.fontMetrics()
+        stats_line_h = fm.height()
+        stats_gap = 6
+        panel_pad = 8
+
+        hint_font = QFont(FONT_FAMILY, 9)
+        painter.setFont(hint_font)
+        hint_line_h = painter.fontMetrics().height()
+        hint_gap = 4
+        painter.setFont(stats_font)
+
+        # Panel dimensions: stats header + gap + minimap + gap + hint footer
+        panel_h = panel_pad + stats_line_h + stats_gap + mh + hint_gap + hint_line_h + panel_pad
+        panel_w = mw + panel_pad * 2
+        panel_x = vp.width() - panel_w - MINIMAP_MARGIN
+        panel_y = vp.height() - panel_h - MINIMAP_MARGIN
+        panel_rect = QRectF(panel_x, panel_y, panel_w, panel_h)
+        self._minimap_panel_rect = panel_rect
+
+        # Minimap content area inside the panel
+        mx = panel_x + panel_pad
+        my = panel_y + panel_pad + stats_line_h + stats_gap
         self._minimap_rect = QRectF(mx, my, mw, mh)
 
-        # Background
+        # Draw unified panel background
         painter.setPen(QPen(MINIMAP_BORDER_COLOR, 1))
         painter.setBrush(QBrush(MINIMAP_BG))
-        painter.drawRoundedRect(self._minimap_rect, 4, 4)
+        painter.drawRoundedRect(panel_rect, 6, 6)
 
-        # Scale factors
+        # ── Stats line inside panel header ──
+        stats_text = f"N:{stats['n']}  E:{stats['e']}  C:{stats['c']}"
+        label_text = stats["label"]
+        separator = " \u00b7 "
+
+        stats_baseline = panel_y + panel_pad + fm.ascent()
+
+        painter.setFont(stats_font)
+        painter.setPen(QPen(MINIMAP_STATS_COLOR))
+        stats_w = fm.horizontalAdvance(stats_text)
+        painter.drawText(QPointF(mx, stats_baseline), stats_text)
+
+        sep_x = mx + stats_w
+        sep_w = fm.horizontalAdvance(separator)
+        painter.drawText(QPointF(sep_x, stats_baseline), separator)
+
+        label_x = sep_x + sep_w
+        tier_color = MINIMAP_TIER_COLORS[stats["tier"]]
+        painter.setPen(QPen(tier_color))
+        painter.drawText(QPointF(label_x, stats_baseline), label_text)
+
+        # Info circle (right-aligned in panel header)
+        info_r = 7
+        info_cx = mx + mw - info_r - 1
+        info_cy = stats_baseline - fm.ascent() / 2
+        info_rect = QRectF(info_cx - info_r, info_cy - info_r,
+                           info_r * 2, info_r * 2)
+        self._minimap_info_rect = info_rect
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(MINIMAP_INFO_COLOR))
+        painter.drawEllipse(info_rect)
+
+        info_font = QFont(FONT_FAMILY, 9)
+        info_font.setBold(True)
+        painter.setFont(info_font)
+        painter.setPen(QPen(QColor(255, 255, 255)))
+        painter.drawText(info_rect, Qt.AlignmentFlag.AlignCenter, "i")
+
+        # ── Minimap content ──
         sx = mw / scene_rect.width()
         sy = mh / scene_rect.height()
 
@@ -150,55 +218,12 @@ class MinimapMixin:
         painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
         painter.drawRect(vp_rect)
 
-        # ── Stats line above minimap ──
-        if not self._graph_stats:
-            self._graph_stats = self._compute_graph_stats()
-        stats = self._graph_stats
-
-        font = QFont(FONT_FAMILY, MINIMAP_STATS_FONT_SIZE)
-        painter.setFont(font)
-        fm = painter.fontMetrics()
-
-        stats_text = f"N:{stats['n']}  E:{stats['e']}  C:{stats['c']}"
-        label_text = stats["label"]
-        separator = " \u00b7 "
-
-        stats_y = my - 6
-        stats_baseline = stats_y
-
-        # Draw stats portion (grey)
+        # ── F1 Help hint in bottom-left of panel ──
+        hint_font = QFont(FONT_FAMILY, 9)
+        painter.setFont(hint_font)
         painter.setPen(QPen(MINIMAP_STATS_COLOR))
-        stats_w = fm.horizontalAdvance(stats_text)
-        painter.drawText(QPointF(mx, stats_baseline), stats_text)
-
-        # Draw separator
-        sep_x = mx + stats_w
-        sep_w = fm.horizontalAdvance(separator)
-        painter.drawText(QPointF(sep_x, stats_baseline), separator)
-
-        # Draw tier label (color-coded)
-        label_x = sep_x + sep_w
-        tier_color = MINIMAP_TIER_COLORS[stats["tier"]]
-        painter.setPen(QPen(tier_color))
-        painter.drawText(QPointF(label_x, stats_baseline), label_text)
-
-        # Draw info circle (right-aligned with minimap)
-        info_r = 7
-        info_cx = mx + mw - info_r - 1
-        info_cy = stats_baseline - fm.ascent() / 2
-        info_rect = QRectF(info_cx - info_r, info_cy - info_r,
-                           info_r * 2, info_r * 2)
-        self._minimap_info_rect = info_rect
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(MINIMAP_INFO_COLOR))
-        painter.drawEllipse(info_rect)
-
-        info_font = QFont(FONT_FAMILY, 9)
-        info_font.setBold(True)
-        painter.setFont(info_font)
-        painter.setPen(QPen(QColor(255, 255, 255)))
-        painter.drawText(info_rect, Qt.AlignmentFlag.AlignCenter, "i")
+        hint_y = panel_y + panel_h - panel_pad
+        painter.drawText(QPointF(mx, hint_y), "F1 Help")
 
     def _minimap_viewport_rect(self) -> QRectF:
         """Compute the viewport indicator rect in minimap (widget) coords."""
@@ -229,13 +254,18 @@ class MinimapMixin:
         if not self._minimap_visible:
             return False
 
-        # Info button hit-test (above the minimap rect)
+        # Info button hit-test (inside panel header)
         info_rect = getattr(self, "_minimap_info_rect", None)
         if info_rect and info_rect.contains(event_position):
             self._show_graph_stats_dialog()
             return True
 
-        if self._minimap_rect.isNull() or not self._minimap_rect.contains(event_position):
+        # Click inside minimap content area → navigate
+        if not self._minimap_rect.isNull() and self._minimap_rect.contains(event_position):
+            pass  # fall through to viewport drag / click-to-jump below
+        elif not self._minimap_panel_rect.isNull() and self._minimap_panel_rect.contains(event_position):
+            return True  # consume click on panel header / padding
+        else:
             return False
 
         vp_ind = self._minimap_viewport_rect()

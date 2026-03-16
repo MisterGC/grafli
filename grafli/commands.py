@@ -7,7 +7,7 @@ import copy
 from PySide6.QtCore import QPointF
 
 from grafli.constants import (
-    _ANCHOR_CYCLE,
+    LAYOUT_PADDING,
     _BOX_STYLE_CYCLE,
     _COLOR_VALUES,
     _NOTE_STYLE_CYCLE,
@@ -16,6 +16,7 @@ from grafli.constants import (
 )
 from grafli.format import Arrow, Box, Note, parse, serialize
 from grafli.items import BoxItem, NoteItem
+from grafli.layout import compute_layout
 
 
 class CommandsMixin:
@@ -216,19 +217,6 @@ class CommandsMixin:
                 item.set_textsize(_SIZE_SEQUENCE[idx])
         self.mark_dirty()
 
-    def _cycle_anchor(self):
-        self._push_undo()
-        for item in self._scene.selectedItems():
-            if isinstance(item, BoxItem):
-                cur = item.box.anchor
-                if cur in _ANCHOR_CYCLE:
-                    idx = _ANCHOR_CYCLE.index(cur)
-                else:
-                    idx = 0
-                idx = (idx + 1) % len(_ANCHOR_CYCLE)
-                item.set_anchor(_ANCHOR_CYCLE[idx])
-        self.mark_dirty()
-
     def _cycle_style(self):
         self._push_undo()
         for item in self._scene.selectedItems():
@@ -258,3 +246,175 @@ class CommandsMixin:
                 item.setPos(item.note.x, item.note.y)
         self.arrow_update_needed.emit()
         self.mark_dirty()
+
+    # ── Auto-layout ──
+
+    def _layout_selected(self):
+        """Auto-layout selected boxes (or all if nothing selected)."""
+        if not self._board:
+            return
+
+        selected_boxes = [
+            item for item in self._scene.selectedItems()
+            if isinstance(item, BoxItem)
+        ]
+        selected_ids = {item.box.id for item in selected_boxes}
+
+        groups = self._compute_layout_groups(selected_ids)
+        if not groups:
+            return
+
+        self._push_undo()
+
+        # Sort bottom-up: deepest parent first
+        def _depth(parent_id: str) -> int:
+            d = 0
+            pid = parent_id
+            while pid:
+                box = self._board.box_by_id(pid)
+                if not box or not box.parent:
+                    break
+                pid = box.parent
+                d += 1
+            return d
+
+        groups.sort(key=lambda g: -_depth(g[0]))
+
+        for parent_id, child_ids in groups:
+            self._layout_group(parent_id, child_ids)
+
+        self._rebuild_scene()
+        self.mark_dirty()
+
+    def _compute_layout_groups(
+        self, selected_ids: set[str],
+    ) -> list[tuple[str, set[str]]]:
+        """Determine which groups of boxes to layout.
+
+        Returns list of (parent_id, child_ids) tuples.
+        """
+        if not self._board:
+            return []
+
+        if not selected_ids:
+            # Nothing selected → recursive from root
+            return self._recursive_layout_groups("")
+
+        # Check if single parent selected (box with children)
+        if len(selected_ids) == 1:
+            bid = next(iter(selected_ids))
+            children = {b.id for b in self._board.boxes if b.parent == bid}
+            if children:
+                return self._recursive_layout_groups(bid)
+
+        # Multiple boxes — group by parent
+        parent_groups: dict[str, set[str]] = {}
+        for bid in selected_ids:
+            box = self._board.box_by_id(bid)
+            if not box:
+                continue
+            parent = box.parent or ""
+            parent_groups.setdefault(parent, set()).add(bid)
+
+        result: list[tuple[str, set[str]]] = []
+        for parent_id, child_ids in parent_groups.items():
+            result.append((parent_id, child_ids))
+            # Recurse into children of grouped boxes
+            for cid in child_ids:
+                result.extend(self._recursive_layout_groups(cid))
+
+        return result
+
+    def _recursive_layout_groups(
+        self, parent_id: str,
+    ) -> list[tuple[str, set[str]]]:
+        """Build layout groups recursively from parent_id down."""
+        if not self._board:
+            return []
+
+        children = {b.id for b in self._board.boxes if b.parent == parent_id}
+        if not children:
+            return []
+
+        result: list[tuple[str, set[str]]] = [(parent_id, children)]
+        for cid in children:
+            result.extend(self._recursive_layout_groups(cid))
+        return result
+
+    def _layout_group(self, parent_id: str, child_ids: set[str]):
+        """Layout a single group of children within parent."""
+        if not self._board:
+            return
+
+        # Compute label_height from parent BoxItem
+        label_height = 0.0
+        if parent_id and parent_id in self._box_items:
+            parent_item = self._box_items[parent_id]
+            label_br = parent_item._label.boundingRect()
+            if parent_item._get_effective_anchor() in ("topleft", "topcenter"):
+                label_height = label_br.height() + 8  # 8px label padding
+
+        box_sizes: dict[str, tuple[float, float]] = {}
+        for cid in child_ids:
+            box = self._board.box_by_id(cid)
+            if box:
+                box_sizes[cid] = (box.w, box.h)
+
+        new_positions = compute_layout(
+            self._board,
+            child_ids,
+            parent_id,
+            None,
+            self.GRID_SPACING,
+            label_height,
+            box_sizes,
+        )
+
+        # Grow parent to fit naturally-spaced children
+        if parent_id and new_positions:
+            parent = self._board.box_by_id(parent_id)
+            if parent:
+                max_right = max(
+                    nx + box_sizes[bid][0]
+                    for bid, (nx, ny) in new_positions.items()
+                )
+                max_bottom = max(
+                    ny + box_sizes[bid][1]
+                    for bid, (nx, ny) in new_positions.items()
+                )
+                needed_w = max_right + LAYOUT_PADDING - parent.x
+                needed_h = max_bottom + LAYOUT_PADDING - parent.y
+                grid = self.GRID_SPACING
+                if needed_w > parent.w:
+                    parent.w = round(needed_w / grid) * grid
+                if needed_h > parent.h:
+                    parent.h = round(needed_h / grid) * grid
+
+        # Apply positions and propagate deltas to descendants/notes
+        for bid, (nx, ny) in new_positions.items():
+            box = self._board.box_by_id(bid)
+            if not box:
+                continue
+            dx = nx - box.x
+            dy = ny - box.y
+            box.x = nx
+            box.y = ny
+
+            # Propagate delta to all descendants and their notes
+            self._propagate_delta(bid, dx, dy)
+
+    def _propagate_delta(self, box_id: str, dx: float, dy: float):
+        """Move all descendants and parented notes by (dx, dy)."""
+        if not self._board:
+            return
+        # Move child boxes
+        for box in self._board.boxes:
+            if box.parent == box_id:
+                box.x += dx
+                box.y += dy
+                self._propagate_delta(box.id, dx, dy)
+        # Move parented notes
+        for note in self._board.notes:
+            if note.parent == box_id:
+                note.x += dx
+                note.y += dy

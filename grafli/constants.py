@@ -122,10 +122,14 @@ HEATMAP_LEGEND_W = 120
 HEATMAP_LEGEND_H = 8
 HEATMAP_LEGEND_MARGIN = 6
 
+# ── Layout ────────────────────────────────────────────────────────
+LAYOUT_LAYER_GAP = 40   # px between layers (edge-to-edge)
+LAYOUT_NODE_GAP = 20    # px between nodes within a layer
+LAYOUT_PADDING = 20     # px padding inside parent box
+
 # ── Sequences & cycles ───────────────────────────────────────────
 
 _SIZE_SEQUENCE = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge"]
-_ANCHOR_CYCLE = ["", "topleft", "topcenter"]
 _BOX_STYLE_CYCLE = ["", "flat"]
 _NOTE_STYLE_CYCLE = ["", "mono"]
 _ARROW_STYLE_CYCLE = ["", "thick", "dashed", "dotted"]

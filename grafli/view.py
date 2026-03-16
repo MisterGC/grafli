@@ -121,6 +121,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Nesting: guard against recursive position propagation
         self._propagating_move = False
+        self._suppress_child_updates = False
+        self._batch_move_updates = False
 
         # Undo / Redo
         self._undo_stack: list[str] = []
@@ -1478,7 +1480,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 )
                 event.accept()
                 return
-            super().mouseMoveEvent(event)
+            selected = self._scene.selectedItems()
+            if len(selected) > 1:
+                self._batch_move_updates = True
+                super().mouseMoveEvent(event)
+                self._batch_move_updates = False
+                self._redraw_arrows()
+                self.mark_dirty()
+            else:
+                super().mouseMoveEvent(event)
             self._update_reparent_highlight()
         elif self._mode == Mode.RECT:
             self._move_rect(event)

@@ -325,11 +325,14 @@ class BoxItem(QGraphicsRectItem):
             if view and hasattr(view, '_propagating_move'):
                 if not view._propagating_move:
                     view._propagating_move = True
+                    view._suppress_child_updates = True
                     for child_item in view._descendants(self.box.id):
                         child_item.moveBy(dx, dy)
+                    view._suppress_child_updates = False
                     view._propagating_move = False
-                view.arrow_update_needed.emit()
-                view.mark_dirty()
+                if not view._suppress_child_updates and not view._batch_move_updates:
+                    view.arrow_update_needed.emit()
+                    view.mark_dirty()
         elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self._show_handles(bool(value))
         return super().itemChange(change, value)
@@ -557,10 +560,14 @@ class NoteItem(QGraphicsSimpleTextItem):
             self.note.x = self.pos().x()
             self.note.y = self.pos().y()
             view = _get_view(self)
-            if view and hasattr(view, 'arrow_update_needed'):
-                view.arrow_update_needed.emit()
-            if view and hasattr(view, 'mark_dirty'):
-                view.mark_dirty()
+            suppress = (view and hasattr(view, '_suppress_child_updates')
+                        and (view._suppress_child_updates
+                             or view._batch_move_updates))
+            if not suppress:
+                if view and hasattr(view, 'arrow_update_needed'):
+                    view.arrow_update_needed.emit()
+                if view and hasattr(view, 'mark_dirty'):
+                    view.mark_dirty()
         return super().itemChange(change, value)
 
 

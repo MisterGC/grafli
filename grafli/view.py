@@ -876,13 +876,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         max_depth = 0
         for box_id, item in self._box_items.items():
             d = self._box_depth(box_id)
-            item.setZValue(d)
             if d > max_depth:
                 max_depth = d
-        # Arrow lines/heads: max_depth + 1
+        # Parents (containers) stay at their depth — behind arrows
+        # Arrow lines/heads sit above parents
         arrow_line_z = max_depth + 1
-        # Notes and arrow labels: max_depth + 2
-        note_z = max_depth + 2
+        # Leaf boxes (no children) sit above arrows
+        leaf_z = max_depth + 2
+        # Notes and arrow labels above leaf boxes
+        note_z = max_depth + 3
+        # Box labels always on top
+        box_label_z = max_depth + 4
+        for box_id, item in self._box_items.items():
+            d = self._box_depth(box_id)
+            if self._has_children(box_id):
+                item.setZValue(d)
+            else:
+                item.setZValue(leaf_z + d)
+            item._label.setZValue(box_label_z)
         for note_item in self._note_items.values():
             if note_item.note.parent:
                 pd = self._box_depth(note_item.note.parent) + 1
@@ -894,10 +905,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 item.setZValue(note_z)
             else:
                 item.setZValue(arrow_line_z)
-        # Box labels: max_depth + 3 (always on top of arrows)
-        box_label_z = max_depth + 3
-        for box_item in self._box_items.values():
-            box_item._label.setZValue(box_label_z)
 
     def _refresh_auto_layout(self, box_id: str):
         """Refresh auto-layout for a box when its children change."""

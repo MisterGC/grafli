@@ -75,6 +75,7 @@ from grafli.format import Arrow, Board, Box, Note, parse, serialize
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, LabelItem, NoteItem, ResizeHandle
 from grafli.minimap import MinimapMixin
+from grafli.zen import ZenOverlay
 
 
 # ── Canvas view ─────────────────────────────────────────────────
@@ -129,6 +130,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Inline text editor
         self._editor: QGraphicsTextItem | None = None
         self._edit_target: BoxItem | NoteItem | None = None
+
+        # Zen annotation editor
+        self._zen_editor: ZenOverlay | None = None
+        self._zen_target = None  # BoxItem | NoteItem | Arrow
 
         # Nesting: guard against recursive position propagation
         self._propagating_move = False
@@ -348,6 +353,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._connect_line = None
             self._connect_source = None
         self._commit_editor()
+        if self._zen_editor:
+            self._zen_editor.close()
+            self._zen_editor = None
+            self._zen_target = None
 
     # ── Arrow selection ──
 
@@ -1212,6 +1221,70 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     self.mark_dirty()
                 return
 
+    def _edit_annotation(self):
+        """Edit annotation on the selected box, note, or arrow."""
+        if self._zen_editor:
+            return
+        target = None
+        title = ""
+        current = ""
+        if self._selected_arrow:
+            target = self._selected_arrow
+            title = f"{target.from_id} \u2192 {target.to_id}"
+            current = target.annotation
+        else:
+            for item in self._scene.selectedItems():
+                if isinstance(item, BoxItem):
+                    target = item
+                    title = item.box.label.replace("\n", " ")
+                    current = item.box.annotation
+                    break
+                if isinstance(item, NoteItem):
+                    target = item
+                    title = item.note.text.replace("\n", " ")[:40]
+                    current = item.note.annotation
+                    break
+        if target is None:
+            return
+        self._zen_target = target
+        self._zen_editor = ZenOverlay(title, current, self.viewport())
+        self._zen_editor.finished.connect(self._commit_zen_annotation)
+        self._zen_editor.cancelled.connect(self._cancel_zen_annotation)
+
+    def _commit_zen_annotation(self, text: str):
+        """Apply edited annotation from the zen overlay."""
+        target = self._zen_target
+        self._zen_editor = None
+        self._zen_target = None
+        if target is None:
+            return
+        new_text = text.strip()
+        if isinstance(target, Arrow):
+            if new_text != target.annotation:
+                self._push_undo()
+                target.annotation = new_text
+                self._redraw_arrows()
+                self.mark_dirty()
+        elif isinstance(target, BoxItem):
+            if new_text != target.box.annotation:
+                self._push_undo()
+                target.box.annotation = new_text
+                target._update_url_indicator()
+                self.mark_dirty()
+                target.update()
+        elif isinstance(target, NoteItem):
+            if new_text != target.note.annotation:
+                self._push_undo()
+                target.note.annotation = new_text
+                target._update_url_indicator()
+                self.mark_dirty()
+                target.update()
+
+    def _cancel_zen_annotation(self):
+        """Discard zen annotation edit."""
+        self._zen_editor = None
+        self._zen_target = None
+
     def _open_url(self):
         """Open URL of the first selected box or note in the default browser."""
         for item in self._scene.selectedItems():
@@ -1654,6 +1727,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event):
+        # Zen overlay handles its own input
+        if self._zen_editor:
+            return
+
         # Editor key handling
         if self._editor:
             if event.key() == Qt.Key.Key_Escape:
@@ -1820,6 +1897,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self.mark_dirty()
             else:
                 self._delete_selected()
+            event.accept()
+            return
+        if event.text() == "#" and self._selected_arrow:
+            self._edit_annotation()
             event.accept()
             return
         if event.key() == Qt.Key.Key_O and no_mod:
@@ -2087,6 +2168,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 if event.key() == Qt.Key.Key_W:
                     self._clear_box_mode()
                     self._set_url()
+                    event.accept()
+                    return
+                if event.text() == "#":
+                    self._clear_box_mode()
+                    self._edit_annotation()
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_Return:
@@ -3599,6 +3685,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ("Edit", [
                 ("E / Dbl-click", "Edit selected element"),
                 ("W", "Set URL on selected item"),
+                ("#", "Edit annotation"),
                 ("Return", "Open URL in browser"),
                 ("Enter", "Accept edit"),
                 ("u / \u2318Z", "Undo"),

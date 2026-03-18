@@ -125,6 +125,15 @@ HEATMAP_LEGEND_W = 120
 HEATMAP_LEGEND_H = 8
 HEATMAP_LEGEND_MARGIN = 6
 
+# ── Zen overlay ──────────────────────────────────────────────────
+ZEN_DIM_COLOR = QColor(180, 175, 168, 160)
+ZEN_PANEL_BG = QColor("#F5F2ED")
+ZEN_PANEL_BORDER = QColor("#CDC8BF")
+ZEN_PANEL_WIDTH = 480
+ZEN_TEXT_COLOR = QColor("#2F3437")
+ZEN_TITLE_COLOR = QColor("#004578")
+ZEN_HINT_COLOR = QColor("#8A8580")
+
 # ── Glyph picker ─────────────────────────────────────────────────
 GLYPH_PICKER_BG = QColor(47, 52, 55, 242)
 GLYPH_PICKER_HIGHLIGHT = QColor("#4A6A7A")

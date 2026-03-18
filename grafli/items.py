@@ -473,6 +473,14 @@ class BoxItem(QGraphicsRectItem):
         radius = 0 if self.box.style == "flat" else BOX_RADIUS
         painter.drawRoundedRect(self.rect(), radius, radius)
 
+        if self.box.annotation:
+            dot_color = QColor("#D4804E")
+            dot_color.setAlphaF(0.8)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(dot_color))
+            r = self.rect()
+            painter.drawEllipse(QPointF(r.right() - 5, r.top() + 5), 3, 3)
+
         if self.isSelected():
             sel_rect = self.rect().adjusted(-4, -4, 4, 4)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -607,6 +615,13 @@ class NoteItem(QGraphicsSimpleTextItem):
             painter.setFont(body_font)
             painter.setPen(accent)
             painter.drawText(QPointF(pad, text_y), body)
+
+        if self.note.annotation:
+            dot_color = QColor("#D4804E")
+            dot_color.setAlphaF(0.8)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(dot_color))
+            painter.drawEllipse(QPointF(bg_rect.right() - 5, bg_rect.top() + 5), 3, 3)
 
         # Selection indicator
         if self.isSelected():

@@ -215,7 +215,7 @@ def parse(text: str) -> Board:
                 style=m.group(10) or "",
                 url=m.group(11) or "",
                 parent=m.group(12) or "",
-                annotation=m.group(13) or "",
+                annotation=(m.group(13) or "").replace("\\n", "\n"),
             )
             board.boxes.append(box)
             board._lines.append(("box", box))
@@ -234,7 +234,7 @@ def parse(text: str) -> Board:
                 textsize=m.group(8) or "",
                 head_from=op in ("<->", "<-"),
                 head_to=op in ("<->", "->"),
-                annotation=m.group(9) or "",
+                annotation=(m.group(9) or "").replace("\\n", "\n"),
             )
             board.arrows.append(arrow)
             board._lines.append(("arrow", arrow))
@@ -252,7 +252,7 @@ def parse(text: str) -> Board:
                 style=m.group(7) or "",
                 url=m.group(8) or "",
                 parent=m.group(9) or "",
-                annotation=m.group(10) or "",
+                annotation=(m.group(10) or "").replace("\\n", "\n"),
             )
             board.notes.append(note)
             board._lines.append(("note", note))
@@ -298,7 +298,7 @@ def _serialize_box(box: Box) -> str:
     if box.parent:
         s += f" >{box.parent}"
     if box.annotation:
-        s += f"  # {box.annotation}"
+        s += f"  # {box.annotation.replace(chr(10), '\\n')}"
     return s
 
 
@@ -323,7 +323,7 @@ def _serialize_arrow(arrow: Arrow) -> str:
     if arrow.textsize:
         base += f" ~{arrow.textsize}"
     if arrow.annotation:
-        base += f"  # {arrow.annotation}"
+        base += f"  # {arrow.annotation.replace(chr(10), '\\n')}"
     return base
 
 
@@ -343,7 +343,7 @@ def _serialize_note(note: Note) -> str:
     if note.parent:
         s += f" >{note.parent}"
     if note.annotation:
-        s += f"  # {note.annotation}"
+        s += f"  # {note.annotation.replace(chr(10), '\\n')}"
     return s
 
 

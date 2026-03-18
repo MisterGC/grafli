@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPainterPathStroker, QPen, QTextOption
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPen, QTextOption
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
@@ -19,8 +19,6 @@ from grafli.constants import (
     FONT_FAMILY,
     HANDLE_SIZE,
     MIN_BOX_SIZE,
-    NOTE_FONT_FAMILY,
-    NOTE_FONT_SIZES,
     NOTE_PEN_COLOR,
     NOTE_QUESTION_COLOR,
     NOTE_TASK_COLOR,
@@ -489,7 +487,13 @@ class BoxItem(QGraphicsRectItem):
 
 
 class NoteItem(QGraphicsSimpleTextItem):
-    """A draggable free-text note."""
+    """A draggable free-text note with Neovim-style badge rendering."""
+
+    _PAD = 6
+    _BADGE_GAP = 5
+    _BADGE_HPAD = 5
+    _BADGE_RADIUS = 3
+    _BG_RADIUS = 4
 
     def __init__(self, note: Note):
         super().__init__(note.text)
@@ -505,40 +509,127 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.setCursor(Qt.CursorShape.SizeAllCursor)
         self._update_url_indicator()
 
+    def _parse_note(self):
+        """Extract badge prefix, body text, and accent color."""
+        text = self.note.text
+        if text.startswith("T: "):
+            return "T:", text[3:], NOTE_TASK_COLOR
+        elif text.startswith("Q: "):
+            return "Q:", text[3:], NOTE_QUESTION_COLOR
+        return "", text, NOTE_PEN_COLOR
+
     def boundingRect(self):
-        return super().boundingRect().adjusted(-4, -4, 4, 4)
+        prefix, body, _ = self._parse_note()
+        font = self._note_font()
+        fm = QFontMetricsF(font)
+        pad = self._PAD
+
+        body_font = QFont(font)
+        body_font.setUnderline(bool(self.note.url))
+        body_fm = QFontMetricsF(body_font)
+        body_w = body_fm.horizontalAdvance(body)
+        line_h = fm.height()
+
+        if prefix:
+            bold_font = QFont(font)
+            bold_font.setBold(True)
+            bfm = QFontMetricsF(bold_font)
+            badge_w = bfm.horizontalAdvance(prefix) + self._BADGE_HPAD * 2
+            total_w = pad + badge_w + self._BADGE_GAP + body_w + pad
+        else:
+            total_w = pad + body_w + pad
+
+        total_h = pad + line_h + pad
+        r = QRectF(0, 0, total_w, total_h)
+        if self.isSelected():
+            return r.adjusted(-4, -4, 4, 4)
+        return r
 
     def paint(self, painter: QPainter, option, widget=None):
-        super().paint(painter, option, widget)
+        prefix, body, accent = self._parse_note()
+        font = self._note_font()
+        fm = QFontMetricsF(font)
+        pad = self._PAD
+        line_h = fm.height()
+
+        body_font = QFont(font)
+        body_font.setUnderline(bool(self.note.url))
+        body_fm = QFontMetricsF(body_font)
+        body_w = body_fm.horizontalAdvance(body)
+
+        if prefix:
+            bold_font = QFont(font)
+            bold_font.setBold(True)
+            bfm = QFontMetricsF(bold_font)
+            badge_text_w = bfm.horizontalAdvance(prefix)
+            badge_w = badge_text_w + self._BADGE_HPAD * 2
+            total_w = pad + badge_w + self._BADGE_GAP + body_w + pad
+        else:
+            badge_w = 0
+            total_w = pad + body_w + pad
+
+        total_h = pad + line_h + pad
+        bg_rect = QRectF(0, 0, total_w, total_h)
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Light background
+        bg = QColor("#F2F0EB")
+        bg.setAlphaF(0.85)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+
+        text_y = pad + fm.ascent()
+
+        if prefix:
+            # Badge: solid accent rounded rect with white bold text
+            badge_rect = QRectF(pad, pad, badge_w, line_h)
+            painter.setBrush(QBrush(accent))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(badge_rect, self._BADGE_RADIUS, self._BADGE_RADIUS)
+
+            bold_font = QFont(font)
+            bold_font.setBold(True)
+            painter.setFont(bold_font)
+            painter.setPen(QColor("#FFFFFF"))
+            painter.drawText(
+                QPointF(pad + self._BADGE_HPAD, text_y), prefix
+            )
+
+            # Body text in accent color
+            painter.setFont(body_font)
+            painter.setPen(accent)
+            body_x = pad + badge_w + self._BADGE_GAP
+            painter.drawText(QPointF(body_x, text_y), body)
+        else:
+            # Plain note: accent-colored text, no badge
+            painter.setFont(body_font)
+            painter.setPen(accent)
+            painter.drawText(QPointF(pad, text_y), body)
+
+        # Selection indicator
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            base_rect = QGraphicsSimpleTextItem.boundingRect(self)
-            sel_rect = base_rect.adjusted(-3, -3, 3, 3)
+            sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
             painter.drawRect(sel_rect)
 
     def _apply_color(self):
-        text = self.note.text
-        if text.startswith("T: "):
-            color = NOTE_TASK_COLOR
-        elif text.startswith("Q: "):
-            color = NOTE_QUESTION_COLOR
-        else:
-            color = NOTE_PEN_COLOR
-        self.setBrush(QBrush(color))
+        self.update()
 
     def _note_font(self) -> QFont:
-        return QFont(NOTE_FONT_FAMILY, NOTE_FONT_SIZES.get(self.note.textsize, 15))
+        return QFont(FONT_FAMILY, BOX_FONT_SIZES.get(self.note.textsize, 13))
 
     def set_color(self, color: str):
         self.note.color = color
         self._apply_color()
-        self.update()
 
     def set_textsize(self, textsize: str):
         self.note.textsize = textsize
         self.setFont(self._note_font())
+        self.prepareGeometryChange()
         self.update()
 
     def set_style(self, style: str):
@@ -546,19 +637,18 @@ class NoteItem(QGraphicsSimpleTextItem):
 
     def _update_url_indicator(self):
         """Refresh underline + tooltip based on url and annotation."""
-        font = self.font()
-        font.setUnderline(bool(self.note.url))
-        self.setFont(font)
         parts = []
         if self.note.annotation:
             parts.append(self.note.annotation)
         if self.note.url:
             parts.append(self.note.url)
         self.setToolTip("\n".join(parts) if parts else "")
+        self.update()
 
     def update_text(self, text: str):
         self.note.text = text
         self.setText(text)
+        self.prepareGeometryChange()
         self._apply_color()
 
     def itemChange(self, change, value):

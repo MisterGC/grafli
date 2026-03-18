@@ -18,7 +18,9 @@ from grafli.constants import (
     MINIMAP_STATS_FONT_SIZE,
     MINIMAP_TIER_COLORS,
     MINIMAP_VIEWPORT_COLOR,
-    NOTE_COLOR,
+    NOTE_PEN_COLOR,
+    NOTE_QUESTION_COLOR,
+    NOTE_TASK_COLOR,
     _resolve_color,
 )
 
@@ -202,7 +204,13 @@ class MinimapMixin:
 
         # Draw notes as small markers
         for note in self._board.notes:
-            painter.setBrush(QBrush(NOTE_COLOR))
+            if note.text.startswith("T: "):
+                color = NOTE_TASK_COLOR
+            elif note.text.startswith("Q: "):
+                color = NOTE_QUESTION_COLOR
+            else:
+                color = NOTE_PEN_COLOR
+            painter.setBrush(QBrush(color))
             nx = mx + (note.x - scene_rect.x()) * sx
             ny = my + (note.y - scene_rect.y()) * sy
             painter.drawRect(QRectF(nx, ny, max(3, 20 * sx), max(3, 20 * sy)))

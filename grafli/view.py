@@ -6,16 +6,19 @@ import math
 
 from PySide6.QtCore import (
     QEasingCurve,
+    QPoint,
     QPointF,
     QRectF,
     Qt,
     QTimeLine,
     QTimer,
+    QUrl,
     Signal,
 )
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QDesktopServices,
     QFont,
     QPainter,
     QPen,
@@ -34,6 +37,7 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem,
     QGraphicsView,
     QDialog,
+    QInputDialog,
     QPushButton,
     QTextBrowser,
     QVBoxLayout,
@@ -59,7 +63,6 @@ from grafli.constants import (
     HEATMAP_CONTENT_BORDER,
     HEATMAP_GRID_COLOR,
     MIN_BOX_SIZE,
-    NOTE_COLOR,
     SCENE_BG,
     Mode,
     _ARROW_STYLE_CYCLE,
@@ -69,6 +72,7 @@ from grafli.constants import (
     _resolve_color,
 )
 from grafli.format import Arrow, Board, Box, Note, parse, serialize
+from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, LabelItem, NoteItem, ResizeHandle
 from grafli.minimap import MinimapMixin
 
@@ -105,6 +109,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Pan state (middle-click always works)
         self._panning = False
         self._pan_start = QPointF()
+
+        # Auto-scroll state
+        self._autoscroll_timer = QTimer(self)
+        self._autoscroll_timer.setInterval(16)  # ~60fps
+        self._autoscroll_timer.timeout.connect(self._autoscroll_tick)
 
         # Mode system
         self._mode = Mode.SELECT
@@ -154,6 +163,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._label_drag_arrow: Arrow | None = None
         self._label_drag_start: QPointF | None = None
         self._label_drag_orig_offset: tuple[float, float] = (0.0, 0.0)
+
+        # Sticky style defaults for new boxes / notes
+        self._last_box_color: str = ""
+        self._last_box_textsize: str = ""
+        self._last_note_textsize: str = ""
 
         # Vim-like box mode (style / dimension)
         self._box_mode: str = ""          # "", "style", "dimension"
@@ -1169,6 +1183,38 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     # ── Inline text editing ──
 
+    def _set_url(self):
+        """Set/edit URL on the first selected box or note."""
+        for item in self._scene.selectedItems():
+            if isinstance(item, BoxItem):
+                current = item.box.url
+                url, ok = QInputDialog.getText(self, "Set URL", "URL:", text=current)
+                if ok:
+                    self._push_undo()
+                    item.box.url = url.strip()
+                    item._update_url_indicator()
+                    self.mark_dirty()
+                return
+            if isinstance(item, NoteItem):
+                current = item.note.url
+                url, ok = QInputDialog.getText(self, "Set URL", "URL:", text=current)
+                if ok:
+                    self._push_undo()
+                    item.note.url = url.strip()
+                    item._update_url_indicator()
+                    self.mark_dirty()
+                return
+
+    def _open_url(self):
+        """Open URL of the first selected box or note in the default browser."""
+        for item in self._scene.selectedItems():
+            if isinstance(item, BoxItem) and item.box.url:
+                QDesktopServices.openUrl(QUrl(item.box.url))
+                return
+            if isinstance(item, NoteItem) and item.note.url:
+                QDesktopServices.openUrl(QUrl(item.note.url))
+                return
+
     def _start_editing(self, target: BoxItem | NoteItem):
         self._commit_editor()
         self._edit_target = target
@@ -1357,6 +1403,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     def _on_selection_changed(self):
         self._clear_box_mode()
         self._zoom_z_level = 0
+        if self._selected_arrow and self._scene.selectedItems():
+            self._deselect_arrow()
         window = self.window()
         if hasattr(window, '_status_sel'):
             count = len(self._scene.selectedItems())
@@ -1490,6 +1538,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 event.accept()
                 return
             selected = self._scene.selectedItems()
+            if selected and not self._autoscroll_timer.isActive():
+                self._autoscroll_timer.start()
             if len(selected) > 1:
                 self._batch_move_updates = True
                 super().mouseMoveEvent(event)
@@ -1554,6 +1604,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 event.accept()
                 return
             self._clear_reparent_highlight()
+            self._autoscroll_timer.stop()
             super().mouseReleaseEvent(event)
             if event.button() == Qt.MouseButton.LeftButton:
                 for item in self._scene.selectedItems():
@@ -1604,6 +1655,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 return
             if event.key() == Qt.Key.Key_Return and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
                 self._commit_editor()
+                event.accept()
+                return
+            if event.key() == Qt.Key.Key_G and event.modifiers() & _CTRL_MOD:
+                self._open_glyph_picker(mode="insert")
                 event.accept()
                 return
             # Let the editor handle the key
@@ -1865,6 +1920,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
+        # Ctrl+G — glyph picker (replace label in select mode)
+        if event.key() == Qt.Key.Key_G and mods & _CTRL_MOD and has_selection:
+            self._open_glyph_picker(mode="replace")
+            event.accept()
+            return
+
         # Vim-like box modes — SELECT mode with selection
         if self._mode == Mode.SELECT and has_selection:
             shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
@@ -1903,6 +1964,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     self._update_mode_badge_pos()
                     self.arrow_update_needed.emit()
                     self.mark_dirty()
+                    self._ensure_selection_visible()
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_S and no_mod:
@@ -2015,6 +2077,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                             break
                     event.accept()
                     return
+                if event.key() == Qt.Key.Key_W:
+                    self._clear_box_mode()
+                    self._set_url()
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_Return:
+                    self._clear_box_mode()
+                    self._open_url()
+                    event.accept()
+                    return
 
         # Shift+G — snap to grid (SELECT mode with selection)
         if (event.key() == Qt.Key.Key_G
@@ -2050,6 +2122,31 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 )
                 event.accept()
                 return
+
+        # hjkl panning (no selection)
+        if self._mode == Mode.SELECT and not has_selection:
+            shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+            only_shift = shift and not (mods & ~Qt.KeyboardModifier.ShiftModifier & _SIGNIFICANT_MODS)
+            if no_mod or only_shift:
+                PAN_STEP = 50
+                FAST_PAN_STEP = 200
+                amount = FAST_PAN_STEP if shift else PAN_STEP
+                hjkl_pan = {
+                    Qt.Key.Key_H: (-amount, 0),
+                    Qt.Key.Key_J: (0, amount),
+                    Qt.Key.Key_K: (0, -amount),
+                    Qt.Key.Key_L: (amount, 0),
+                }
+                if event.key() in hjkl_pan:
+                    dx, dy = hjkl_pan[event.key()]
+                    self.horizontalScrollBar().setValue(
+                        self.horizontalScrollBar().value() + dx
+                    )
+                    self.verticalScrollBar().setValue(
+                        self.verticalScrollBar().value() + dy
+                    )
+                    event.accept()
+                    return
 
         # M — toggle minimap
         if event.key() == Qt.Key.Key_M and no_mod:
@@ -2289,7 +2386,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         self._push_undo()
         box_id = self._board.next_box_id()
-        box = Box(id=box_id, label="", x=x, y=y, w=w, h=h)
+        box = Box(id=box_id, label="", x=x, y=y, w=w, h=h,
+                  color=self._last_box_color,
+                  textsize=self._last_box_textsize)
         self._board.add_box(box)
 
         item = BoxItem(box)
@@ -2312,7 +2411,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
         self._push_undo()
         scene_pos = self.mapToScene(event.position().toPoint())
-        note = Note(id="", x=scene_pos.x(), y=scene_pos.y(), text="Note")
+        note = Note(id="", x=scene_pos.x(), y=scene_pos.y(), text="Note",
+                    textsize=self._last_note_textsize)
         self._board.add_note(note)
 
         item = NoteItem(note)
@@ -2880,7 +2980,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             x = center.x()
             y = center.y()
 
-        note = Note(id="", x=x, y=y, text="Note")
+        note = Note(id="", x=x, y=y, text="Note",
+                    textsize=self._last_note_textsize)
         self._board.add_note(note)
         note_item = NoteItem(note)
         self._scene.addItem(note_item)
@@ -2939,6 +3040,52 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     def _on_zoom_anim_finished(self):
         self._zoom_timeline = None
         self._update_status_zoom()
+
+    _AUTOSCROLL_MARGIN = 40   # px from viewport edge to trigger
+    _AUTOSCROLL_SPEED = 8     # px per tick
+
+    def _autoscroll_tick(self) -> None:
+        selected = self._scene.selectedItems()
+        if not selected:
+            self._autoscroll_timer.stop()
+            return
+        vp = self.viewport().rect()
+        dx = dy = 0
+        for item in selected:
+            item_vp = self.mapFromScene(item.sceneBoundingRect()).boundingRect()
+            if item_vp.right() > vp.width() - self._AUTOSCROLL_MARGIN:
+                dx = max(dx, self._AUTOSCROLL_SPEED)
+            if item_vp.left() < self._AUTOSCROLL_MARGIN:
+                dx = min(dx, -self._AUTOSCROLL_SPEED)
+            if item_vp.bottom() > vp.height() - self._AUTOSCROLL_MARGIN:
+                dy = max(dy, self._AUTOSCROLL_SPEED)
+            if item_vp.top() < self._AUTOSCROLL_MARGIN:
+                dy = min(dy, -self._AUTOSCROLL_SPEED)
+        if dx or dy:
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + dx)
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() + dy)
+
+    def _ensure_selection_visible(self) -> None:
+        """Scroll viewport if any selected item is near or beyond the edge."""
+        selected = self._scene.selectedItems()
+        if not selected:
+            return
+        vp = self.viewport().rect()
+        margin = 40
+        dx = dy = 0
+        for item in selected:
+            item_vp = self.mapFromScene(item.sceneBoundingRect()).boundingRect()
+            if item_vp.right() > vp.width() - margin:
+                dx = max(dx, int(item_vp.right() - (vp.width() - margin)))
+            if item_vp.left() < margin:
+                dx = min(dx, int(item_vp.left() - margin))
+            if item_vp.bottom() > vp.height() - margin:
+                dy = max(dy, int(item_vp.bottom() - (vp.height() - margin)))
+            if item_vp.top() < margin:
+                dy = min(dy, int(item_vp.top() - margin))
+        if dx or dy:
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + dx)
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() + dy)
 
     def _zoom_to_selection(self):
         """z key: progressive zoom — selection → 2x context → fit all."""
@@ -3358,6 +3505,61 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             text,
         )
 
+    # ── Glyph picker ──
+
+    def _open_glyph_picker(self, mode: str = "insert"):
+        picker = GlyphPicker(self.viewport())
+        vp = self.viewport().rect()
+        pw = 420
+        ph = 460
+
+        # Position near the active item
+        anchor = None
+        if self._editor and self._editor.parentItem():
+            anchor = self._editor.parentItem()
+        else:
+            sel = self._scene.selectedItems()
+            if sel:
+                anchor = sel[0]
+
+        if anchor is not None:
+            item_rect = self.mapFromScene(anchor.sceneBoundingRect()).boundingRect()
+            px = item_rect.center().x() - pw // 2
+            py = item_rect.top() - ph - 8
+            if py < 0:
+                py = item_rect.bottom() + 8
+        else:
+            px = (vp.width() - pw) // 2
+            py = 60
+
+        px = max(0, min(px, vp.width() - pw))
+        py = max(0, min(py, vp.height() - ph))
+        picker.move(self.viewport().mapToGlobal(QPoint(int(px), int(py))))
+
+        if mode == "insert":
+            picker.glyph_selected.connect(self._insert_glyph)
+        else:
+            picker.glyph_selected.connect(self._replace_label_with_glyph)
+        picker.show()
+
+    def _insert_glyph(self, char: str):
+        if self._editor:
+            char = ensure_text_presentation(char)
+            cursor = self._editor.textCursor()
+            cursor.insertText(char)
+            self._editor.setTextCursor(cursor)
+            self._editor.setFocus()
+
+    def _replace_label_with_glyph(self, char: str):
+        self._push_undo()
+        char = ensure_text_presentation(char)
+        for item in self._scene.selectedItems():
+            if isinstance(item, BoxItem):
+                item.update_label(char)
+            elif isinstance(item, NoteItem):
+                item.update_text(char)
+        self.mark_dirty()
+
     # ── Cheatsheet (Shift+H) ──
 
     def _show_cheatsheet(self):
@@ -3389,11 +3591,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ]),
             ("Edit", [
                 ("E / Dbl-click", "Edit selected element"),
+                ("W", "Set URL on selected item"),
+                ("Return", "Open URL in browser"),
                 ("Enter", "Accept edit"),
                 ("u / \u2318Z", "Undo"),
                 ("Ctrl+R / \u2318\u21e7Z", "Redo"),
                 ("\u2318C / \u2318V", "Copy / Paste"),
                 ("x / Delete", "Delete selected / arrow"),
+                ("\u2318G", "Insert glyph / replace label"),
             ]),
             ("Create", [
                 ("o / O", "Create box below / above"),

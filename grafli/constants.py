@@ -14,7 +14,10 @@ from PySide6.QtGui import QColor, QFont
 BOX_FILL = QColor("#E8E4DD")
 BOX_BORDER = QColor("#2F3437")
 ARROW_COLOR = QColor("#2F3437")
-NOTE_COLOR = QColor("#D4BA6A")
+NOTE_COLOR = QColor("#2B6CB0")
+NOTE_PEN_COLOR = QColor("#2B6CB0")
+NOTE_TASK_COLOR = QColor("#C53030")
+NOTE_QUESTION_COLOR = QColor("#805AD5")
 GRID_COLOR = QColor("#CDC8BF")
 SCENE_BG = QColor("#E8E4DD")
 CONTENT_BORDER_COLOR = QColor("#D5D0C8")
@@ -60,11 +63,11 @@ FONT_FAMILY = "JetBrainsMono Nerd Font"
 NOTE_FONT_FAMILY = "Patrick Hand"
 
 BOX_FONT = QFont(FONT_FAMILY, 13)
-NOTE_FONT = QFont(NOTE_FONT_FAMILY, 11)
+NOTE_FONT = QFont(NOTE_FONT_FAMILY, 15)
 LABEL_FONT = QFont(FONT_FAMILY, 10)
 
 BOX_FONT_SIZES = {"": 13, "small": 10, "large": 18, "xlarge": 24, "xxlarge": 32, "xxxlarge": 44}
-NOTE_FONT_SIZES = {"": 11, "small": 9, "large": 15, "xlarge": 21, "xxlarge": 28, "xxxlarge": 40}
+NOTE_FONT_SIZES = {"": 15, "small": 11, "large": 21, "xlarge": 28, "xxlarge": 40, "xxxlarge": 52}
 ARROW_LABEL_FONT_SIZES = {"": 10, "small": 8, "large": 13, "xlarge": 18, "xxlarge": 24, "xxxlarge": 32}
 
 # ── Sizes ────────────────────────────────────────────────────────
@@ -122,6 +125,11 @@ HEATMAP_LEGEND_W = 120
 HEATMAP_LEGEND_H = 8
 HEATMAP_LEGEND_MARGIN = 6
 
+# ── Glyph picker ─────────────────────────────────────────────────
+GLYPH_PICKER_BG = QColor(47, 52, 55, 242)
+GLYPH_PICKER_HIGHLIGHT = QColor("#4A6A7A")
+GLYPH_PICKER_BADGE = QColor("#6A9FB5")
+
 # ── Layout ────────────────────────────────────────────────────────
 LAYOUT_LAYER_GAP = 40   # px between layers (edge-to-edge)
 LAYOUT_NODE_GAP = 20    # px between nodes within a layer
@@ -131,7 +139,6 @@ LAYOUT_PADDING = 20     # px padding inside parent box
 
 _SIZE_SEQUENCE = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge"]
 _BOX_STYLE_CYCLE = ["", "flat"]
-_NOTE_STYLE_CYCLE = ["", "mono"]
 _ARROW_STYLE_CYCLE = ["", "thick", "dashed", "dotted"]
 
 # ── Modifier helpers ─────────────────────────────────────────────

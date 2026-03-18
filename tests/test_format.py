@@ -839,9 +839,11 @@ def test_box_xxxlarge_roundtrip():
 
 
 def test_note_xxxlarge_roundtrip():
-    text = '@ note n1 100,200 "◇" ~xxxlarge\n'
+    text = '@ note n1 100,200 "\u25C7" ~xxxlarge\n'
     board = parse(text)
-    assert serialize(board) == HEADER + "\n" + text
+    # U+25C7 is in glyph range — parser appends U+FE0E for text presentation
+    expected = '@ note n1 100,200 "\u25C7\uFE0E" ~xxxlarge\n'
+    assert serialize(board) == HEADER + "\n" + expected
 
 
 # ── Note ID tests ───────────────────────────────────────
@@ -1064,3 +1066,100 @@ def test_arrow_label_offset_negative():
     assert board.arrows[0].label_dx == -15.0
     assert board.arrows[0].label_dy == -25.0
     assert serialize(board) == HEADER + "\n" + text
+
+
+# ── URL tests ─────────────────────────────────────────────
+
+def test_parse_box_with_url():
+    text = '@ box yt1 "YT-1234" 100,200 160x80 &https://youtrack.example.com/issue/YT-1234\n'
+    board = parse(text)
+    assert board.boxes[0].url == "https://youtrack.example.com/issue/YT-1234"
+
+
+def test_parse_box_without_url():
+    text = '@ box b1 "API" 100,200 200x100\n'
+    board = parse(text)
+    assert board.boxes[0].url == ""
+
+
+def test_serialize_box_with_url():
+    box = Box(id="yt1", label="YT-1234", x=100, y=200, w=160, h=80,
+              url="https://youtrack.example.com/issue/YT-1234")
+    board = Board()
+    board.add_box(box)
+    text = serialize(board)
+    assert '@ box yt1 "YT-1234" 100,200 160x80 &https://youtrack.example.com/issue/YT-1234' in text
+
+
+def test_box_url_roundtrip():
+    text = '@ box yt1 "YT-1234" 100,200 160x80 &https://youtrack.example.com/issue/YT-1234\n'
+    board = parse(text)
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_parse_note_with_url():
+    text = '@ note n1 100,200 "Design doc" &https://docs.example.com/design\n'
+    board = parse(text)
+    assert board.notes[0].url == "https://docs.example.com/design"
+
+
+def test_parse_note_without_url():
+    text = '@ note n1 100,200 "hello"\n'
+    board = parse(text)
+    assert board.notes[0].url == ""
+
+
+def test_serialize_note_with_url():
+    note = Note(id="n1", x=100, y=200, text="Design doc",
+                url="https://docs.example.com/design")
+    board = Board()
+    board.add_note(note)
+    text = serialize(board)
+    assert '@ note n1 100,200 "Design doc" &https://docs.example.com/design' in text
+
+
+def test_note_url_roundtrip():
+    text = '@ note n1 100,200 "Design doc" &https://docs.example.com/design\n'
+    board = parse(text)
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_box_all_fields_with_url_roundtrip():
+    text = '@ box yt1 "YT-1234" 100,200 160x80 %secondary ^topleft ~small !flat &https://example.com >sprint1  # review\n'
+    board = parse(text)
+    box = board.boxes[0]
+    assert box.color == "%secondary"
+    assert box.anchor == "topleft"
+    assert box.textsize == "small"
+    assert box.style == "flat"
+    assert box.url == "https://example.com"
+    assert box.parent == "sprint1"
+    assert box.annotation == "review"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_note_all_fields_with_url_roundtrip():
+    text = '@ note n1 100,200 "Label" %accent ~large !mono &https://example.com >box1  # annotation\n'
+    board = parse(text)
+    note = board.notes[0]
+    assert note.url == "https://example.com"
+    assert note.parent == "box1"
+    assert note.annotation == "annotation"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_box_url_with_various_schemes():
+    for scheme in ["https://x.com", "file:///tmp/f", "mailto:a@b.com"]:
+        text = f'@ box b1 "B" 0,0 100x50 &{scheme}\n'
+        board = parse(text)
+        assert board.boxes[0].url == scheme
+        assert serialize(board) == HEADER + "\n" + text
+
+
+def test_old_files_without_url_still_parse():
+    """Backward compatibility: files without &url parse fine."""
+    board = parse(SAMPLE)
+    for box in board.boxes:
+        assert box.url == ""
+    for note in board.notes:
+        assert note.url == ""

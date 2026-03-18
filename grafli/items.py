@@ -21,6 +21,9 @@ from grafli.constants import (
     MIN_BOX_SIZE,
     NOTE_FONT_FAMILY,
     NOTE_FONT_SIZES,
+    NOTE_PEN_COLOR,
+    NOTE_QUESTION_COLOR,
+    NOTE_TASK_COLOR,
     SCENE_BG,
     _resolve_color,
 )
@@ -137,8 +140,7 @@ class BoxItem(QGraphicsRectItem):
         self._position_label()
         self._auto_grow()
 
-        if box.annotation:
-            self.setToolTip(box.annotation)
+        self._update_url_indicator()
 
         self._update_handles()
         self._resize_corner = -1
@@ -175,6 +177,18 @@ class BoxItem(QGraphicsRectItem):
         self.box.style = style
         self._apply_color()
         self.update()
+
+    def _update_url_indicator(self):
+        """Refresh underline + tooltip based on url and annotation."""
+        font = self._label.font()
+        font.setUnderline(bool(self.box.url))
+        self._label.setFont(font)
+        parts = []
+        if self.box.annotation:
+            parts.append(self.box.annotation)
+        if self.box.url:
+            parts.append(self.box.url)
+        self.setToolTip("\n".join(parts) if parts else "")
 
     # ── Auto layout helpers ──
 
@@ -489,24 +503,12 @@ class NoteItem(QGraphicsSimpleTextItem):
             | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
         self.setCursor(Qt.CursorShape.SizeAllCursor)
-        if note.annotation:
-            self.setToolTip(note.annotation)
+        self._update_url_indicator()
 
     def boundingRect(self):
         return super().boundingRect().adjusted(-4, -4, 4, 4)
 
     def paint(self, painter: QPainter, option, widget=None):
-        # Semi-transparent background for readability
-        pad = 4
-        base_rect = QGraphicsSimpleTextItem.boundingRect(self)
-        bg_rect = base_rect.adjusted(-pad, -pad, pad, pad)
-        bg = QColor("#F2F0EB")
-        bg.setAlphaF(0.6)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(bg_rect, 4, 4)
-
         super().paint(painter, option, widget)
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
@@ -517,15 +519,17 @@ class NoteItem(QGraphicsSimpleTextItem):
             painter.drawRect(sel_rect)
 
     def _apply_color(self):
-        hex_color = _resolve_color(self.note.color)
-        if hex_color:
-            self.setBrush(QBrush(QColor(hex_color)))
+        text = self.note.text
+        if text.startswith("T: "):
+            color = NOTE_TASK_COLOR
+        elif text.startswith("Q: "):
+            color = NOTE_QUESTION_COLOR
         else:
-            self.setBrush(QBrush(QColor("#2F3437")))
+            color = NOTE_PEN_COLOR
+        self.setBrush(QBrush(color))
 
     def _note_font(self) -> QFont:
-        family = FONT_FAMILY if self.note.style == "mono" else NOTE_FONT_FAMILY
-        return QFont(family, NOTE_FONT_SIZES.get(self.note.textsize, 11))
+        return QFont(NOTE_FONT_FAMILY, NOTE_FONT_SIZES.get(self.note.textsize, 15))
 
     def set_color(self, color: str):
         self.note.color = color
@@ -538,13 +542,24 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.update()
 
     def set_style(self, style: str):
-        self.note.style = style
-        self.setFont(self._note_font())
-        self.update()
+        pass
+
+    def _update_url_indicator(self):
+        """Refresh underline + tooltip based on url and annotation."""
+        font = self.font()
+        font.setUnderline(bool(self.note.url))
+        self.setFont(font)
+        parts = []
+        if self.note.annotation:
+            parts.append(self.note.annotation)
+        if self.note.url:
+            parts.append(self.note.url)
+        self.setToolTip("\n".join(parts) if parts else "")
 
     def update_text(self, text: str):
         self.note.text = text
         self.setText(text)
+        self._apply_color()
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:

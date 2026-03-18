@@ -10,7 +10,6 @@ from grafli.constants import (
     LAYOUT_PADDING,
     _BOX_STYLE_CYCLE,
     _COLOR_VALUES,
-    _NOTE_STYLE_CYCLE,
     _SIZE_SEQUENCE,
     _UNDO_LIMIT,
 )
@@ -182,22 +181,22 @@ class CommandsMixin:
 
     def _cycle_color(self, direction: int):
         self._push_undo()
+        new_color = None
         for item in self._scene.selectedItems():
             if isinstance(item, BoxItem):
                 cur = item.box.color
                 idx = _COLOR_VALUES.index(cur) if cur in _COLOR_VALUES else 0
                 idx = (idx + direction) % len(_COLOR_VALUES)
                 item.set_color(_COLOR_VALUES[idx])
-            elif isinstance(item, NoteItem):
-                cur = item.note.color
-                idx = _COLOR_VALUES.index(cur) if cur in _COLOR_VALUES else 0
-                idx = (idx + direction) % len(_COLOR_VALUES)
-                item.set_color(_COLOR_VALUES[idx])
+                new_color = _COLOR_VALUES[idx]
+        if new_color is not None:
+            self._last_box_color = new_color
         self.mark_dirty()
 
     def _cycle_textsize(self, direction: int):
         """direction: +1 = increase (toward large), -1 = decrease (toward small)."""
         self._push_undo()
+        new_textsize = None
         for item in self._scene.selectedItems():
             if isinstance(item, BoxItem):
                 cur = item.box.textsize
@@ -207,6 +206,7 @@ class CommandsMixin:
                     idx = 1  # default to medium
                 idx = max(0, min(len(_SIZE_SEQUENCE) - 1, idx + direction))
                 item.set_textsize(_SIZE_SEQUENCE[idx])
+                new_textsize = _SIZE_SEQUENCE[idx]
             elif isinstance(item, NoteItem):
                 cur = item.note.textsize
                 if cur in _SIZE_SEQUENCE:
@@ -215,6 +215,9 @@ class CommandsMixin:
                     idx = 1
                 idx = max(0, min(len(_SIZE_SEQUENCE) - 1, idx + direction))
                 item.set_textsize(_SIZE_SEQUENCE[idx])
+                self._last_note_textsize = _SIZE_SEQUENCE[idx]
+        if new_textsize is not None:
+            self._last_box_textsize = new_textsize
         self.mark_dirty()
 
     def _cycle_style(self):
@@ -223,11 +226,6 @@ class CommandsMixin:
             if isinstance(item, BoxItem):
                 cur = item.box.style
                 seq = _BOX_STYLE_CYCLE
-                idx = seq.index(cur) if cur in seq else 0
-                item.set_style(seq[(idx + 1) % len(seq)])
-            elif isinstance(item, NoteItem):
-                cur = item.note.style
-                seq = _NOTE_STYLE_CYCLE
                 idx = seq.index(cur) if cur in seq else 0
                 item.set_style(seq[(idx + 1) % len(seq)])
         self.mark_dirty()

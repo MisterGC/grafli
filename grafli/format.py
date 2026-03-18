@@ -3,14 +3,14 @@
 Format spec:
   #!grafli v1                                      (file header, first line)
   # comment or title
-  @ box <id> "<label>" <x>,<y> <w>x<h>            (\\n for newlines)
+  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat] [&url] [>parent]
   @ arrow <from_id> -> <to_id> "<label>"           (forward)
   @ arrow <from_id> <- <to_id> "<label>"           (backward)
   @ arrow <from_id> <-> <to_id> "<label>"          (bidirectional)
   @ arrow <from_id> -- <to_id> "<label>"           (no heads)
   @ arrow <from_id> -> <to_id> "label" @<dx>,<dy>  (label offset)
   @ arrow <from_id> -> <to_id> "label" !dashed     (arrow styles: dashed/dotted/thick)
-  @ note <id> <x>,<y> "<text>"                      (\\n for newlines)
+  @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&url] [>parent]   (color/style ignored by renderer)
   Any element line may end with  # annotation text
 """
 
@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+
+from grafli.glyphs import ensure_text_presentation
 
 HEADER = "#!grafli v1"
 
@@ -34,6 +36,7 @@ class Box:
     anchor: str = ""      # "topleft", "topcenter", or "" (= center)
     textsize: str = ""    # "small", "large", or "" (= medium)
     style: str = ""       # "" (node) or "flat"
+    url: str = ""
     parent: str = ""
     annotation: str = ""
 
@@ -61,6 +64,7 @@ class Note:
     color: str = ""
     textsize: str = ""
     style: str = ""       # "" (handwritten) or "mono"
+    url: str = ""
     parent: str = ""
     annotation: str = ""
 
@@ -147,6 +151,7 @@ _RE_BOX = re.compile(
     r'(?:\s+\^(topleft|topcenter))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
     r'(?:\s+!(flat))?'
+    r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
@@ -167,6 +172,7 @@ _RE_NOTE = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
     r'(?:\s+!(mono))?'
+    r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
@@ -198,7 +204,7 @@ def parse(text: str) -> Board:
         if m:
             box = Box(
                 id=m.group(1),
-                label=m.group(2).replace("\\n", "\n"),
+                label=ensure_text_presentation(m.group(2).replace("\\n", "\n")),
                 x=float(m.group(3)),
                 y=float(m.group(4)),
                 w=float(m.group(5)),
@@ -207,8 +213,9 @@ def parse(text: str) -> Board:
                 anchor=m.group(8) or "",
                 textsize=m.group(9) or "",
                 style=m.group(10) or "",
-                parent=m.group(11) or "",
-                annotation=m.group(12) or "",
+                url=m.group(11) or "",
+                parent=m.group(12) or "",
+                annotation=m.group(13) or "",
             )
             board.boxes.append(box)
             board._lines.append(("box", box))
@@ -239,12 +246,13 @@ def parse(text: str) -> Board:
                 id=m.group(1) or "",
                 x=float(m.group(2)),
                 y=float(m.group(3)),
-                text=m.group(4).replace("\\n", "\n"),
+                text=ensure_text_presentation(m.group(4).replace("\\n", "\n")),
                 color=m.group(5) or "",
                 textsize=m.group(6) or "",
                 style=m.group(7) or "",
-                parent=m.group(8) or "",
-                annotation=m.group(9) or "",
+                url=m.group(8) or "",
+                parent=m.group(9) or "",
+                annotation=m.group(10) or "",
             )
             board.notes.append(note)
             board._lines.append(("note", note))
@@ -285,6 +293,8 @@ def _serialize_box(box: Box) -> str:
         s += f" ~{box.textsize}"
     if box.style:
         s += f" !{box.style}"
+    if box.url:
+        s += f" &{box.url}"
     if box.parent:
         s += f" >{box.parent}"
     if box.annotation:
@@ -328,6 +338,8 @@ def _serialize_note(note: Note) -> str:
         s += f" ~{note.textsize}"
     if note.style:
         s += f" !{note.style}"
+    if note.url:
+        s += f" &{note.url}"
     if note.parent:
         s += f" >{note.parent}"
     if note.annotation:

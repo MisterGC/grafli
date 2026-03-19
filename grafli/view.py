@@ -38,12 +38,14 @@ from PySide6.QtWidgets import (
     QGraphicsView,
     QDialog,
     QInputDialog,
+    QLineEdit,
     QPushButton,
     QTextBrowser,
     QVBoxLayout,
 )
 
 from grafli.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_point, _line_rect_clip, _rect_edge_point
+from grafli.buffers import ViewState
 from grafli.commands import CommandsMixin
 from grafli.complexity import ComplexityMixin
 from grafli.constants import (
@@ -134,6 +136,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Zen annotation editor
         self._zen_editor: ZenOverlay | None = None
         self._zen_target = None  # BoxItem | NoteItem | Arrow
+
+        # Fuzzy overlay (file/buffer picker)
+        self._fuzzy_overlay = None
 
         # Nesting: guard against recursive position propagation
         self._propagating_move = False
@@ -357,6 +362,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._zen_editor.close()
             self._zen_editor = None
             self._zen_target = None
+        if self._fuzzy_overlay:
+            self._fuzzy_overlay.close()
+            self._fuzzy_overlay = None
 
     # ── Arrow selection ──
 
@@ -426,6 +434,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         return (elem.x, elem.y, 40, 20)
 
     @property
+    def board(self) -> Board | None:
+        return self._board
+
+    @property
     def dirty(self) -> bool:
         return self._dirty
 
@@ -457,6 +469,45 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     def load_board(self, board: Board):
         self._board = board
         self._rebuild_scene()
+
+    def snapshot_state(self) -> ViewState:
+        """Capture view state for buffer switching."""
+        t = self.transform()
+        sel_boxes = [
+            bid for bid, item in self._box_items.items() if item.isSelected()
+        ]
+        sel_notes = [
+            nid for nid, item in self._note_items.items() if item.isSelected()
+        ]
+        return ViewState(
+            undo_stack=list(self._undo_stack),
+            redo_stack=list(self._redo_stack),
+            dirty=self._dirty,
+            transform=(t.m11(), t.m12(), t.m21(), t.m22(), t.dx(), t.dy()),
+            h_scroll=self.horizontalScrollBar().value(),
+            v_scroll=self.verticalScrollBar().value(),
+            selected_box_ids=sel_boxes,
+            selected_note_ids=sel_notes,
+        )
+
+    def restore_state(self, vs: ViewState):
+        """Apply a previously captured view state."""
+        self._undo_stack = list(vs.undo_stack)
+        self._redo_stack = list(vs.redo_stack)
+        self._dirty = vs.dirty
+        if vs.transform:
+            m11, m12, m21, m22, dx, dy = vs.transform
+            self.setTransform(QTransform(m11, m12, m21, m22, dx, dy))
+        self.horizontalScrollBar().setValue(vs.h_scroll)
+        self.verticalScrollBar().setValue(vs.v_scroll)
+        self._scene.clearSelection()
+        for bid in vs.selected_box_ids:
+            if bid in self._box_items:
+                self._box_items[bid].setSelected(True)
+        for nid in vs.selected_note_ids:
+            if nid in self._note_items:
+                self._note_items[nid].setSelected(True)
+        self._update_status_zoom()
 
     def _rebuild_scene(self):
         self._scene.clear()
@@ -1727,6 +1778,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event):
+        # Fuzzy overlay handles its own input
+        if self._fuzzy_overlay:
+            return
+
         # Zen overlay handles its own input
         if self._zen_editor:
             return
@@ -1875,6 +1930,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         mods = event.modifiers()
         has_selection = bool(self._scene.selectedItems())
         no_mod = not (mods & _SIGNIFICANT_MODS)
+
+        # Q — close buffer (SELECT mode, no selection, no arrow)
+        if (event.key() == Qt.Key.Key_Q and no_mod
+                and self._mode == Mode.SELECT
+                and not has_selection
+                and not self._selected_arrow):
+            window = self.window()
+            if hasattr(window, 'close_buffer'):
+                window.close_buffer()
+                event.accept()
+                return
 
         # Vim aliases — u (undo), Ctrl+R (redo), x (delete), o/O (adjacent box)
         if event.key() == Qt.Key.Key_U and no_mod:
@@ -3727,6 +3793,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("j / k", "Arrow label size"),
                 ("\u21e7J / \u21e7K", "Cycle arrow style"),
             ]),
+            ("Buffers", [
+                ("Ctrl+P", "Open file (fuzzy finder)"),
+                ("Ctrl+B", "Switch buffer"),
+                ("Ctrl+6", "Toggle last buffer"),
+                ("Q", "Close buffer (no selection)"),
+            ]),
             ("Other", [
                 ("Shift+Click", "Toggle selection"),
                 ("F1", "This cheatsheet"),
@@ -3738,7 +3810,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         columns = [
             ["File", "Modes", "Navigate"],
             ["Edit", "Create", "Focus & Analysis", "View"],
-            ["Style", "Arrow", "Other"],
+            ["Style", "Arrow", "Buffers", "Other"],
         ]
         group_map = {name: entries for name, entries in groups}
 
@@ -3747,30 +3819,45 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             "padding-top:8px;padding-bottom:2px"
         )
 
-        def _render_column(group_names):
-            rows = []
-            for name in group_names:
-                rows.append(
-                    f"<tr><td colspan='2' style='{hdr}'>"
-                    f"{name.upper()}</td></tr>"
-                )
-                for key, desc in group_map[name]:
-                    rows.append(
-                        f"<tr>"
-                        f"<td style='padding-right:12px;white-space:nowrap'>"
-                        f"<b>{key}</b></td>"
-                        f"<td style='padding:2px 0'>{desc}</td></tr>"
-                    )
-            return f"<table cellpadding='2'>{''.join(rows)}</table>"
+        def _render_html(filter_text: str) -> str:
+            ft = filter_text.lower()
 
-        col_html = "</td><td width='24'></td><td valign='top'>".join(
-            _render_column(col) for col in columns
-        )
-        html = (
-            "<table><tr>"
-            f"<td valign='top'>{col_html}</td>"
-            "</tr></table>"
-        )
+            def _render_column(group_names):
+                rows = []
+                for name in group_names:
+                    entries = group_map[name]
+                    if ft:
+                        entries = [
+                            (k, d) for k, d in entries
+                            if ft in k.lower() or ft in d.lower()
+                        ]
+                    if not entries:
+                        continue
+                    rows.append(
+                        f"<tr><td colspan='2' style='{hdr}'>"
+                        f"{name.upper()}</td></tr>"
+                    )
+                    for key, desc in entries:
+                        rows.append(
+                            f"<tr>"
+                            f"<td style='padding-right:12px;"
+                            f"white-space:nowrap'>"
+                            f"<b>{key}</b></td>"
+                            f"<td style='padding:2px 0'>{desc}</td>"
+                            f"</tr>"
+                        )
+                return f"<table cellpadding='2'>{''.join(rows)}</table>"
+
+            col_html = (
+                "</td><td width='24'></td><td valign='top'>".join(
+                    _render_column(col) for col in columns
+                )
+            )
+            return (
+                "<table><tr>"
+                f"<td valign='top'>{col_html}</td>"
+                "</tr></table>"
+            )
 
         dlg = QDialog(self)
         dlg.setWindowTitle("Keyboard Shortcuts")
@@ -3784,21 +3871,34 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             w, h = 900, 600
         dlg.resize(w, h)
 
+        filter_input = QLineEdit(dlg)
+        filter_input.setPlaceholderText("Type to filter shortcuts\u2026")
+        filter_input.setStyleSheet(
+            "QLineEdit { background: #2A2A2A; color: #E0E0E0;"
+            " border: 1px solid #6A9FB5; padding: 4px; }"
+        )
+
         browser = QTextBrowser(dlg)
         browser.setOpenLinks(False)
         font = browser.font()
         font.setPointSize(13)
         browser.setFont(font)
         browser.setStyleSheet("QTextBrowser { background: #2A2A2A; color: #E0E0E0; }")
-        browser.setHtml(html)
+        browser.setHtml(_render_html(""))
+
+        filter_input.textChanged.connect(
+            lambda t: browser.setHtml(_render_html(t))
+        )
 
         btn = QPushButton("Close", dlg)
         btn.clicked.connect(dlg.accept)
 
         layout = QVBoxLayout(dlg)
-        layout.addWidget(browser)
+        layout.addWidget(filter_input)
+        layout.addWidget(browser, 1)
         layout.addWidget(btn)
 
+        filter_input.setFocus()
         dlg.exec()
 
     def _show_graph_stats_dialog(self):

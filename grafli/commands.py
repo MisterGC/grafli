@@ -61,9 +61,6 @@ class CommandsMixin:
         text = self._undo_stack.pop()
         self._board = parse(text)
         self._rebuild_scene()
-        window = self.window()
-        if hasattr(window, '_board'):
-            window._board = self._board
         self.mark_dirty()
 
     def _redo(self):
@@ -73,9 +70,6 @@ class CommandsMixin:
         text = self._redo_stack.pop()
         self._board = parse(text)
         self._rebuild_scene()
-        window = self.window()
-        if hasattr(window, '_board'):
-            window._board = self._board
         self.mark_dirty()
 
     # ── Copy / Paste ──

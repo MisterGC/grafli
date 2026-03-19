@@ -1618,7 +1618,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 event.accept()
                 return
             selected = self._scene.selectedItems()
-            if selected and not self._autoscroll_timer.isActive():
+            if selected and not self._autoscroll_timer.isActive() and event.buttons() & Qt.MouseButton.LeftButton:
                 self._autoscroll_timer.start()
             if len(selected) > 1:
                 self._batch_move_updates = True

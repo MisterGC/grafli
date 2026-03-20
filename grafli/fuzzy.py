@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from grafli.constants import (
     FONT_FAMILY,
+    _CTRL_MOD,
     ZEN_DIM_COLOR,
     ZEN_HINT_COLOR,
     ZEN_PANEL_BG,
@@ -96,7 +97,7 @@ class FuzzyOverlay(QWidget):
         layout.addWidget(self._list, stretch=1)
 
         # Hint
-        hint = QLabel("Enter to select \u00b7 Escape to cancel")
+        hint = QLabel("↑↓/Ctrl+jk navigate · Enter select · Esc cancel")
         hint.setFont(QFont(FONT_FAMILY, 10))
         hint.setStyleSheet(
             f"color: {ZEN_HINT_COLOR.name()}; background: transparent;"
@@ -105,6 +106,7 @@ class FuzzyOverlay(QWidget):
         layout.addWidget(hint)
 
         self._populate()
+        self._input.installEventFilter(self)
         self._input.setFocus()
         self.show()
 
@@ -160,6 +162,24 @@ class FuzzyOverlay(QWidget):
         p.drawRoundedRect(panel, 10, 10)
         p.end()
 
+    def _move_selection(self, delta: int):
+        row = self._list.currentRow() + delta
+        if 0 <= row < self._list.count():
+            self._list.setCurrentRow(row)
+
+    def eventFilter(self, obj, event):
+        if obj is self._input and event.type() == event.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+                self._move_selection(1 if key == Qt.Key.Key_Down else -1)
+                return True
+            if event.modifiers() & _CTRL_MOD and key in (
+                Qt.Key.Key_J, Qt.Key.Key_K,
+            ):
+                self._move_selection(1 if key == Qt.Key.Key_J else -1)
+                return True
+        return super().eventFilter(obj, event)
+
     def keyPressEvent(self, event):
         key = event.key()
         if key == Qt.Key.Key_Escape:
@@ -171,25 +191,7 @@ class FuzzyOverlay(QWidget):
             if current:
                 self._on_activate(current)
             return
-        if key in (Qt.Key.Key_Down, Qt.Key.Key_J) and not self._input.hasFocus():
-            row = self._list.currentRow()
-            if row < self._list.count() - 1:
-                self._list.setCurrentRow(row + 1)
-            return
-        if key in (Qt.Key.Key_Up, Qt.Key.Key_K) and not self._input.hasFocus():
-            row = self._list.currentRow()
-            if row > 0:
-                self._list.setCurrentRow(row - 1)
-            return
-        # Arrow keys always navigate the list
-        if key == Qt.Key.Key_Down:
-            row = self._list.currentRow()
-            if row < self._list.count() - 1:
-                self._list.setCurrentRow(row + 1)
-            return
-        if key == Qt.Key.Key_Up:
-            row = self._list.currentRow()
-            if row > 0:
-                self._list.setCurrentRow(row - 1)
+        if key in (Qt.Key.Key_Down, Qt.Key.Key_Up):
+            self._move_selection(1 if key == Qt.Key.Key_Down else -1)
             return
         super().keyPressEvent(event)

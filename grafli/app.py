@@ -122,15 +122,13 @@ class MainWindow(QMainWindow):
         self.addAction(zoom_fit)
 
         # Buffer shortcuts
-        act_fuzzy_files = QAction(self)
-        act_fuzzy_files.setShortcut(QKeySequence("Ctrl+P"))
-        act_fuzzy_files.triggered.connect(self._open_fuzzy_files)
-        self.addAction(act_fuzzy_files)
-
-        act_fuzzy_buffers = QAction(self)
-        act_fuzzy_buffers.setShortcut(QKeySequence("Ctrl+B"))
-        act_fuzzy_buffers.triggered.connect(self._open_fuzzy_buffers)
-        self.addAction(act_fuzzy_buffers)
+        act_fuzzy_picker = QAction(self)
+        act_fuzzy_picker.setShortcut(
+            QKeySequence("Meta+K") if sys.platform == "darwin"
+            else QKeySequence("Ctrl+K")
+        )
+        act_fuzzy_picker.triggered.connect(self._open_fuzzy_picker)
+        self.addAction(act_fuzzy_picker)
 
         act_toggle_last = QAction(self)
         act_toggle_last.setShortcut(QKeySequence("Ctrl+6"))
@@ -374,45 +372,19 @@ class MainWindow(QMainWindow):
 
     # ── Fuzzy finders ────────────────────────────────────────────
 
-    def _open_fuzzy_files(self):
+    def _open_fuzzy_picker(self):
         if self._view._fuzzy_overlay:
             return
-        open_paths = {
-            buf.file_path.resolve()
-            for buf in self._buffers.buffers
-            if buf.file_path
-        }
-        items: list[FuzzyItem] = []
-        cwd = Path.cwd()
-        grafli_files = sorted(
-            (p for p in cwd.rglob("*.grafli")
-             if ".git" not in p.parts and "__pycache__" not in p.parts),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        for p in grafli_files:
-            try:
-                rel = p.relative_to(cwd)
-            except ValueError:
-                rel = p
-            marker = " [open]" if p.resolve() in open_paths else ""
-            items.append(FuzzyItem(
-                display=str(rel),
-                detail=marker,
-                data=p,
-            ))
 
-        overlay = FuzzyOverlay("Open File", items, self._view.viewport())
-        overlay.selected.connect(self._on_fuzzy_file_selected)
-        overlay.cancelled.connect(self._on_fuzzy_cancelled)
-        self._view._fuzzy_overlay = overlay
+        # Collect open buffer paths for dedup
+        open_paths: dict[Path, int] = {}
+        for i, buf in enumerate(self._buffers.buffers):
+            if buf.file_path:
+                open_paths[buf.file_path.resolve()] = i
 
-    def _open_fuzzy_buffers(self):
-        if self._view._fuzzy_overlay:
-            return
-        if self._buffers.count <= 1:
-            return
         items: list[FuzzyItem] = []
+
+        # Open buffers first
         for i, buf in enumerate(self._buffers.buffers):
             name = buf.file_path.name if buf.file_path else "untitled"
             dirty = "*" if buf.view_state.dirty else ""
@@ -421,25 +393,45 @@ class MainWindow(QMainWindow):
             current = " [current]" if i == self._buffers.active_index else ""
             items.append(FuzzyItem(
                 display=f"{name}{dirty}",
-                detail=current,
-                data=i,
+                detail=f"[open]{current}",
+                data=("buffer", i),
             ))
 
-        overlay = FuzzyOverlay("Switch Buffer", items, self._view.viewport())
-        overlay.selected.connect(self._on_fuzzy_buffer_selected)
+        # Remaining .grafli files from cwd
+        cwd = Path.cwd()
+        grafli_files = sorted(
+            (p for p in cwd.rglob("*.grafli")
+             if ".git" not in p.parts and "__pycache__" not in p.parts),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for p in grafli_files:
+            if p.resolve() in open_paths:
+                continue
+            try:
+                rel = p.relative_to(cwd)
+            except ValueError:
+                rel = p
+            items.append(FuzzyItem(
+                display=str(rel),
+                detail="",
+                data=("file", p),
+            ))
+
+        overlay = FuzzyOverlay("Open / Switch", items, self._view.viewport())
+        overlay.selected.connect(self._on_fuzzy_selected)
         overlay.cancelled.connect(self._on_fuzzy_cancelled)
         self._view._fuzzy_overlay = overlay
 
-    def _on_fuzzy_file_selected(self, item: FuzzyItem):
+    def _on_fuzzy_selected(self, item: FuzzyItem):
         self._view._fuzzy_overlay = None
-        self._open_file(item.data)
-
-    def _on_fuzzy_buffer_selected(self, item: FuzzyItem):
-        self._view._fuzzy_overlay = None
-        idx = item.data
-        if idx != self._buffers.active_index:
-            self._snapshot_current()
-            self._switch_buffer(idx)
+        kind, value = item.data
+        if kind == "buffer":
+            if value != self._buffers.active_index:
+                self._snapshot_current()
+                self._switch_buffer(value)
+        else:
+            self._open_file(value)
 
     def _on_fuzzy_cancelled(self):
         self._view._fuzzy_overlay = None
@@ -643,7 +635,7 @@ def main():
             if conn:
                 conn.waitForReadyRead(1000)
                 data = bytes(conn.readAll()).decode("utf-8").strip()
-                conn.disconnectFromClient()
+                conn.disconnectFromServer()
                 if data:
                     window._open_file(Path(data))
                 window.raise_()

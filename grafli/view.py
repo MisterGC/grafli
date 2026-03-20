@@ -2034,22 +2034,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 event.accept()
                 return
 
-        # Ctrl+hkl — create connected box, Ctrl+Shift+hkl — create connected note
-        if mods & _CTRL_MOD:
-            hjkl_dirs = {
-                Qt.Key.Key_H: "left",
-                Qt.Key.Key_K: "up",
-                Qt.Key.Key_L: "right",
-            }
-            if event.key() in hjkl_dirs:
-                direction = hjkl_dirs[event.key()]
-                if mods & Qt.KeyboardModifier.ShiftModifier:
-                    self._create_adjacent_note(direction)
-                else:
-                    self._create_adjacent_box(direction)
-                event.accept()
-                return
-
         # Ctrl+Arrow — create adjacent box
         if mods & _CTRL_MOD:
             arrow_dirs = {
@@ -3765,8 +3749,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ("Create", [
                 ("o / O", "Create box below / above"),
                 ("Ctrl+Arrow", "Create adjacent box"),
-                ("Ctrl+hkl", "Create connected box (left/up/right)"),
-                ("\u21e7Ctrl+hkl", "Create connected note (left/up/right)"),
                 ("Alt+Drag", "Connect boxes (from SELECT)"),
                 ("Alt+Click", "Paste at position"),
                 ("/", "Search by label"),
@@ -3796,8 +3778,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("\u21e7J / \u21e7K", "Cycle arrow style"),
             ]),
             ("Buffers", [
-                ("Ctrl+P", "Open file (fuzzy finder)"),
-                ("Ctrl+B", "Switch buffer"),
+                ("Ctrl+K", "Open / switch buffer"),
                 ("Ctrl+6", "Toggle last buffer"),
                 ("Q", "Close buffer (no selection)"),
             ]),

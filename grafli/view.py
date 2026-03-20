@@ -80,6 +80,8 @@ from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
 
 
+_JUMP_KEYS = "asdfjklghqweruioptyzxcvbnm"
+
 # ── Canvas view ─────────────────────────────────────────────────
 
 class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
@@ -161,9 +163,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Jump-to mode state
         self._jump_active = False
-        self._jump_labels: list[QGraphicsRectItem | QGraphicsSimpleTextItem] = []
+        self._jump_labels: list[QGraphicsItem] = []
         self._jump_map: dict[str, BoxItem | NoteItem | Arrow] = {}
+        self._jump_label_items: dict[str, list[QGraphicsItem]] = {}
         self._jump_prefix = ""
+        self._jump_two_letter = False
 
         # Arrow selection state
         self._selected_arrow: Arrow | None = None
@@ -2727,26 +2731,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if not visible and not offscreen:
             return
 
-        # Assign labels: single letters to visible, two letters to off-screen
-        single_letters = [chr(ord("a") + i) for i in range(26)]
+        # Unified label assignment: all items in one list (visible first)
+        all_targets = visible + offscreen
+        total = len(all_targets)
+        keys = _JUMP_KEYS
         self._jump_map = {}
+        self._jump_label_items = {}
 
-        # Visible items get single-letter labels first
-        vis_labels: list[str] = []
-        for i in range(min(len(visible), 26)):
-            vis_labels.append(single_letters[i])
-
-        # Off-screen get two-letter labels
-        off_labels: list[str] = []
-        remaining_first = single_letters[len(vis_labels):]  # unused single letters as first char
-        if not remaining_first:
-            remaining_first = single_letters  # wrap around if all 26 used
-        label_idx = 0
-        for _ in range(len(offscreen)):
-            first = remaining_first[label_idx // 26 % len(remaining_first)]
-            second = single_letters[label_idx % 26]
-            off_labels.append(first + second)
-            label_idx += 1
+        if total <= len(keys):
+            # Single-letter labels
+            labels = [keys[i] for i in range(total)]
+            self._jump_two_letter = False
+        else:
+            # Two-letter labels from _JUMP_KEYS combinations
+            labels = []
+            for i in range(total):
+                first = keys[i // len(keys) % len(keys)]
+                second = keys[i % len(keys)]
+                labels.append(first + second)
+            self._jump_two_letter = True
 
         zoom = self._current_zoom()
         base_size = 14
@@ -2756,17 +2759,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         font.setBold(True)
 
         # Render visible labels on the canvas
-        for label_text, (target, center) in zip(vis_labels, visible):
+        n_visible = len(visible)
+        for i, (label_text, (target, center)) in enumerate(zip(labels, all_targets)):
             self._jump_map[label_text] = target
-            self._render_jump_label(label_text, target, center, font, scene_size, base_size)
-
-        # Register off-screen targets (no canvas labels)
-        for label_text, (target, _center) in zip(off_labels, offscreen):
-            self._jump_map[label_text] = target
+            if i < n_visible:
+                self._render_jump_label(label_text, target, center, font, scene_size, base_size)
 
         # Show off-screen badge list at viewport bottom
-        if offscreen:
-            self._render_offscreen_badge(off_labels, offscreen)
+        off_labels = labels[n_visible:]
+        off_targets = offscreen
+        if off_targets:
+            self._render_offscreen_badge(off_labels, off_targets)
 
         self._jump_active = True
         self._jump_prefix = ""
@@ -2808,28 +2811,79 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._scene.addItem(text_item)
         self._jump_labels.append(text_item)
 
-    def _render_offscreen_badge(self, off_labels, offscreen):
-        """Show compact badge list of off-screen targets at viewport bottom."""
+        self._jump_label_items[label_text] = [bg, text_item]
+
+    def _ancestry_path(self, target) -> list[str]:
+        """Return labels from top-level ancestor down to target."""
+        if isinstance(target, Arrow):
+            return [f"{target.from_id}\u2192{target.to_id}"]
+        elem = target.box if isinstance(target, BoxItem) else target.note
+        chain: list[str] = []
+        current_id = elem.parent
+        while current_id and self._board:
+            parent = self._board.box_by_id(current_id)
+            if not parent:
+                break
+            chain.append(parent.label or parent.id)
+            current_id = parent.parent
+        chain.reverse()  # root-first
+        if isinstance(target, BoxItem):
+            chain.append(elem.label or elem.id)
+        else:
+            chain.append(elem.text[:15])
+        return chain
+
+    def _render_offscreen_badge(self, off_labels, offscreen, prefix_filter=""):
+        """Show hierarchical badge list of off-screen targets at viewport bottom."""
         vp = self.viewport().rect()
         scene_bottom = self.mapToScene(QPointF(vp.width() / 2, vp.height() - 30).toPoint())
 
-        parts: list[str] = []
+        # Build entries with ancestry paths
+        entries: list[tuple[str, object, list[str]]] = []
         for label_text, (target, _center) in zip(off_labels, offscreen):
-            if isinstance(target, (BoxItem, NoteItem)):
-                if isinstance(target, BoxItem):
-                    name = target.box.label or target.box.id
-                else:
-                    name = target.note.text[:15]
-            else:
-                name = f"{target.from_id}\u2192{target.to_id}"
-            parts.append(f"[{label_text}] {name}")
-            if len(parts) >= 10:
-                remaining = len(offscreen) - 10
-                if remaining > 0:
-                    parts.append(f"...+{remaining}")
-                break
+            if prefix_filter and not label_text.startswith(prefix_filter):
+                continue
+            path = self._ancestry_path(target)
+            entries.append((label_text, target, path))
 
-        display = "  ".join(parts)
+        if not entries:
+            return
+
+        # Group by top-level ancestor (first element of path)
+        groups: dict[str, list[tuple[str, list[str]]]] = {}
+        for label_text, _target, path in entries:
+            root = path[0] if path else ""
+            groups.setdefault(root, []).append((label_text, path))
+
+        # Build display string: group by root, show breadcrumbs
+        group_parts: list[str] = []
+        shown = 0
+        for root, members in groups.items():
+            if shown >= 10:
+                remaining = sum(len(m) for m in list(groups.values())[list(groups.keys()).index(root):])
+                group_parts.append(f"...+{remaining}")
+                break
+            if len(members) == 1:
+                lbl, path = members[0]
+                display_lbl = lbl[len(prefix_filter):] if prefix_filter else lbl
+                group_parts.append(f"[{display_lbl}] {' \u203a '.join(path)}")
+                shown += 1
+            else:
+                items: list[str] = []
+                for lbl, path in members:
+                    if shown >= 10:
+                        leftover = len(members) - len(items)
+                        if leftover > 0:
+                            items.append(f"...+{leftover}")
+                        break
+                    display_lbl = lbl[len(prefix_filter):] if prefix_filter else lbl
+                    # Show path without the root (already in group header)
+                    sub = " \u203a ".join(path[1:]) if len(path) > 1 else path[0]
+                    items.append(f"[{display_lbl}] {sub}")
+                    shown += 1
+                group_parts.append(f"{root}: {'   '.join(items)}")
+
+        display = " | ".join(group_parts)
         badge = QGraphicsTextItem(display)
         font = QFont(FONT_FAMILY, 9)
         badge.setFont(font)
@@ -2854,6 +2908,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._scene.addItem(badge)
         self._jump_labels.append(bg)
         self._jump_labels.append(badge)
+
+        # Track badge items for all labels rendered in this badge
+        for label_text, _target, _path in entries:
+            self._jump_label_items.setdefault(label_text, []).extend([bg, badge])
 
     def _handle_jump_key(self, event):
         if event.key() == Qt.Key.Key_Escape:
@@ -2908,14 +2966,93 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         )
         if not has_match:
             self._clear_jump_labels()
+            return
+
+        # First-keystroke refinement for two-letter mode
+        if self._jump_two_letter and len(self._jump_prefix) == 1:
+            self._refine_jump_labels(self._jump_prefix)
+
+    def _refine_jump_labels(self, prefix):
+        """After first keystroke in two-letter mode: remove non-matching labels,
+        replace matching label text with just the second character, and
+        re-render off-screen badge with only matching entries."""
+        removed_items: set[int] = set()
+
+        # Remove non-matching on-canvas labels, update matching ones
+        for lbl, items in list(self._jump_label_items.items()):
+            if not lbl.startswith(prefix):
+                for item in items:
+                    item_id = id(item)
+                    if item_id not in removed_items:
+                        self._scene.removeItem(item)
+                        removed_items.add(item_id)
+                        if item in self._jump_labels:
+                            self._jump_labels.remove(item)
+                del self._jump_label_items[lbl]
+            else:
+                # Update text to show only the second character
+                for item in items:
+                    if isinstance(item, QGraphicsSimpleTextItem):
+                        item.setText(lbl[1:])
+
+        # Remove old off-screen badge (it's shared across labels)
+        # Collect all badge items (QGraphicsTextItem at z=10001, QGraphicsRectItem at z=10000)
+        badge_items_to_remove: list[QGraphicsItem] = []
+        for item in self._jump_labels:
+            if isinstance(item, QGraphicsTextItem) and item.zValue() == 10001:
+                badge_items_to_remove.append(item)
+            elif isinstance(item, QGraphicsRectItem) and item.zValue() == 10000:
+                badge_items_to_remove.append(item)
+
+        for item in badge_items_to_remove:
+            item_id = id(item)
+            if item_id not in removed_items:
+                self._scene.removeItem(item)
+                removed_items.add(item_id)
+            if item in self._jump_labels:
+                self._jump_labels.remove(item)
+
+        # Re-render off-screen badge showing only matching entries
+        # Rebuild offscreen list from jump_map
+        viewport_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+        off_labels: list[str] = []
+        off_targets: list[tuple[object, QPointF]] = []
+        for lbl, target in self._jump_map.items():
+            if not lbl.startswith(prefix):
+                continue
+            if isinstance(target, Arrow):
+                if not self._board:
+                    continue
+                from_elem = self._board.box_by_id(target.from_id) or self._board.note_by_id(target.from_id)
+                to_elem = self._board.box_by_id(target.to_id) or self._board.note_by_id(target.to_id)
+                if from_elem and to_elem:
+                    fr = self._elem_rect(from_elem)
+                    tr = self._elem_rect(to_elem)
+                    mid = QPointF(
+                        (fr[0] + fr[2] / 2 + tr[0] + tr[2] / 2) / 2,
+                        (fr[1] + fr[3] / 2 + tr[1] + tr[3] / 2) / 2,
+                    )
+                    if not viewport_rect.contains(mid):
+                        off_labels.append(lbl)
+                        off_targets.append((target, mid))
+            elif isinstance(target, (BoxItem, NoteItem)):
+                if not viewport_rect.intersects(target.sceneBoundingRect()):
+                    center = target.sceneBoundingRect().center()
+                    off_labels.append(lbl)
+                    off_targets.append((target, center))
+
+        if off_targets:
+            self._render_offscreen_badge(off_labels, off_targets, prefix_filter=prefix)
 
     def _clear_jump_labels(self):
         for item in self._jump_labels:
             self._scene.removeItem(item)
         self._jump_labels.clear()
         self._jump_map.clear()
+        self._jump_label_items.clear()
         self._jump_prefix = ""
         self._jump_active = False
+        self._jump_two_letter = False
 
     # ── Search by label (/) ──
 

@@ -567,6 +567,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._note_items[note.id] = item
 
         self._auto_parent_all()
+        for box_id, item in self._box_items.items():
+            is_parent = self._has_children(box_id)
+            if item._is_parent != is_parent:
+                item._is_parent = is_parent
+                item._apply_color()
         self._update_z_values()
 
         # Refresh auto-layout now that all parent-child relationships exist
@@ -1058,9 +1063,19 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         if elem.parent != old_parent:
             self._update_z_values()
-            if old_parent:
+            if old_parent and old_parent in self._box_items:
+                old_item = self._box_items[old_parent]
+                was_parent = old_item._is_parent
+                old_item._is_parent = self._has_children(old_parent)
+                if old_item._is_parent != was_parent:
+                    old_item._apply_color()
                 self._refresh_auto_layout(old_parent)
-            if elem.parent:
+            if elem.parent and elem.parent in self._box_items:
+                new_item = self._box_items[elem.parent]
+                was_parent = new_item._is_parent
+                new_item._is_parent = self._has_children(elem.parent)
+                if new_item._is_parent != was_parent:
+                    new_item._apply_color()
                 self._refresh_auto_layout(elem.parent)
             self.mark_dirty()
 
@@ -1523,6 +1538,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._update_z_values()
             self._redraw_arrows()
             for pid in former_parents:
+                if pid in self._box_items:
+                    p_item = self._box_items[pid]
+                    was_parent = p_item._is_parent
+                    p_item._is_parent = self._has_children(pid)
+                    if p_item._is_parent != was_parent:
+                        p_item._apply_color()
                 self._refresh_auto_layout(pid)
             self.mark_dirty()
 

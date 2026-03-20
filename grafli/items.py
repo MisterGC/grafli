@@ -128,6 +128,7 @@ class BoxItem(QGraphicsRectItem):
             ResizeHandle(_EDGE_L, self),
         ]
         self._resizing = False
+        self._is_parent = False
 
         self._label = BoxLabelItem(self)
         self._label.setFont(self._box_font())
@@ -146,7 +147,7 @@ class BoxItem(QGraphicsRectItem):
 
     def _apply_color(self):
         hex_color = _resolve_color(self.box.color)
-        is_flat = self.box.style == "flat"
+        is_flat = self.box.style == "flat" or self._is_parent
         if hex_color:
             c = QColor(hex_color)
             if is_flat:
@@ -470,7 +471,7 @@ class BoxItem(QGraphicsRectItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(self.pen())
         painter.setBrush(self.brush())
-        radius = 0 if self.box.style == "flat" else BOX_RADIUS
+        radius = 0 if self.box.style == "flat" or self._is_parent else BOX_RADIUS
         painter.drawRoundedRect(self.rect(), radius, radius)
 
         if self.box.annotation:

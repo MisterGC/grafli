@@ -535,8 +535,10 @@ class NoteItem(QGraphicsSimpleTextItem):
         body_font = QFont(font)
         body_font.setUnderline(bool(self.note.url))
         body_fm = QFontMetricsF(body_font)
-        body_w = body_fm.horizontalAdvance(body)
+        lines = body.split("\n")
+        body_w = max((body_fm.horizontalAdvance(ln) for ln in lines), default=0)
         line_h = fm.height()
+        n_lines = len(lines)
 
         if prefix:
             bold_font = QFont(font)
@@ -547,7 +549,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         else:
             total_w = pad + body_w + pad
 
-        total_h = pad + line_h + pad
+        total_h = pad + n_lines * line_h + pad
         r = QRectF(0, 0, total_w, total_h)
         if self.isSelected():
             return r.adjusted(-4, -4, 4, 4)
@@ -563,7 +565,9 @@ class NoteItem(QGraphicsSimpleTextItem):
         body_font = QFont(font)
         body_font.setUnderline(bool(self.note.url))
         body_fm = QFontMetricsF(body_font)
-        body_w = body_fm.horizontalAdvance(body)
+        lines = body.split("\n")
+        body_w = max((body_fm.horizontalAdvance(ln) for ln in lines), default=0)
+        n_lines = len(lines)
 
         if prefix:
             bold_font = QFont(font)
@@ -576,7 +580,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             badge_w = 0
             total_w = pad + body_w + pad
 
-        total_h = pad + line_h + pad
+        total_h = pad + n_lines * line_h + pad
         bg_rect = QRectF(0, 0, total_w, total_h)
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -605,16 +609,18 @@ class NoteItem(QGraphicsSimpleTextItem):
                 QPointF(pad + self._BADGE_HPAD, text_y), prefix
             )
 
-            # Body text in accent color
+            # Body lines in accent color
             painter.setFont(body_font)
             painter.setPen(accent)
             body_x = pad + badge_w + self._BADGE_GAP
-            painter.drawText(QPointF(body_x, text_y), body)
+            for i, ln in enumerate(lines):
+                painter.drawText(QPointF(body_x, text_y + i * line_h), ln)
         else:
             # Plain note: accent-colored text, no badge
             painter.setFont(body_font)
             painter.setPen(accent)
-            painter.drawText(QPointF(pad, text_y), body)
+            for i, ln in enumerate(lines):
+                painter.drawText(QPointF(pad, text_y + i * line_h), ln)
 
         if self.note.annotation:
             dot_color = QColor("#D4804E")

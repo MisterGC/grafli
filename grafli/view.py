@@ -1365,6 +1365,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         editor.setFont(font)
         editor.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         editor.setDefaultTextColor(QColor("#2F3437"))
+        if isinstance(target, BoxItem):
+            editor.setTextWidth(rect.width() - 16)
         br = editor.boundingRect()
 
         if isinstance(target, BoxItem):

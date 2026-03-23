@@ -384,9 +384,39 @@ class MainWindow(QMainWindow):
 
         items: list[FuzzyItem] = []
 
+        # Detect duplicate filenames among open buffers
+        buf_names: dict[str, list[int]] = {}
+        for i, buf in enumerate(self._buffers.buffers):
+            n = buf.file_path.name if buf.file_path else "untitled"
+            buf_names.setdefault(n, []).append(i)
+
+        # For duplicates, compute shortest distinguishing parent suffix
+        disambig: dict[int, str] = {}
+        for indices in buf_names.values():
+            if len(indices) < 2:
+                continue
+            paths = [self._buffers.buffers[i].file_path for i in indices]
+            if not all(paths):
+                continue
+            parent_parts = [list(p.parts[:-1]) for p in paths]
+            max_depth = max(len(pp) for pp in parent_parts)
+            labels = [str(p.parent) for p in paths]
+            for depth in range(1, max_depth + 1):
+                labels = [
+                    str(Path(*pp[-depth:])) if depth <= len(pp)
+                    else str(paths[j].parent)
+                    for j, pp in enumerate(parent_parts)
+                ]
+                if len(set(labels)) == len(labels):
+                    break
+            for j, i in enumerate(indices):
+                disambig[i] = labels[j]
+
         # Open buffers first
         for i, buf in enumerate(self._buffers.buffers):
             name = buf.file_path.name if buf.file_path else "untitled"
+            if i in disambig:
+                name = f"{name} ({disambig[i]})"
             dirty = "*" if buf.view_state.dirty else ""
             if i == self._buffers.active_index and self._view.dirty:
                 dirty = "*"
@@ -595,7 +625,7 @@ def _try_send_to_existing(file_path: str | None) -> bool:
     sock.connectToServer(_SERVER_NAME)
     if not sock.waitForConnected(500):
         return False
-    msg = file_path or ""
+    msg = str(Path(file_path).resolve()) if file_path else ""
     sock.write(msg.encode("utf-8"))
     sock.waitForBytesWritten(500)
     sock.disconnectFromServer()

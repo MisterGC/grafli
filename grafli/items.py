@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPen, QTextOption
 from PySide6.QtWidgets import (
@@ -16,6 +18,7 @@ from grafli.constants import (
     BOX_BORDER_WIDTH,
     BOX_FONT_SIZES,
     BOX_RADIUS,
+    DISCUSSION_COLORS,
     FONT_FAMILY,
     HANDLE_SIZE,
     MIN_BOX_SIZE,
@@ -25,6 +28,8 @@ from grafli.constants import (
     SCENE_BG,
     _resolve_color,
 )
+
+_RE_SPEAKER = re.compile(r"^([A-Z]{2,3}): ")
 from grafli.format import Box, Note
 
 # ── Handle IDs ───────────────────────────────────────────────────
@@ -503,6 +508,7 @@ class NoteItem(QGraphicsSimpleTextItem):
     _BADGE_HPAD = 5
     _BADGE_RADIUS = 3
     _BG_RADIUS = 4
+    _BLOCK_GAP = 4
 
     def __init__(self, note: Note):
         super().__init__(note.text)
@@ -527,7 +533,76 @@ class NoteItem(QGraphicsSimpleTextItem):
             return "Q:", text[3:], NOTE_QUESTION_COLOR
         return "", text, NOTE_PEN_COLOR
 
+    def _parse_discussion(self):
+        """Parse speaker blocks for discussion notes.
+
+        Returns list of (speaker, lines, color) tuples when 2+ distinct
+        speakers are found, otherwise ``None``.
+        """
+        lines = self.note.text.split("\n")
+        blocks: list[tuple[str, list[str]]] = []
+        cur_speaker: str | None = None
+        cur_lines: list[str] = []
+        speakers: dict[str, int] = {}
+
+        for line in lines:
+            m = _RE_SPEAKER.match(line)
+            if m:
+                if cur_speaker is not None:
+                    blocks.append((cur_speaker, cur_lines))
+                cur_speaker = m.group(1)
+                if cur_speaker not in speakers:
+                    speakers[cur_speaker] = len(speakers)
+                cur_lines = [line[m.end():]]
+            elif cur_speaker is not None:
+                cur_lines.append(line)
+            else:
+                return None
+
+        if cur_speaker is not None:
+            blocks.append((cur_speaker, cur_lines))
+
+        if len(speakers) < 2:
+            return None
+
+        return [
+            (sp, lns, DISCUSSION_COLORS[speakers[sp] % len(DISCUSSION_COLORS)])
+            for sp, lns in blocks
+        ]
+
+    def _discussion_metrics(self, blocks):
+        """Compute shared layout metrics for discussion rendering."""
+        font = self._note_font()
+        fm = QFontMetricsF(font)
+        bold_font = QFont(font)
+        bold_font.setBold(True)
+        bfm = QFontMetricsF(bold_font)
+        line_h = fm.height()
+        pad = self._PAD
+
+        max_badge_w = max(
+            bfm.horizontalAdvance(sp) + self._BADGE_HPAD * 2
+            for sp, _, _ in blocks
+        )
+        body_w = max(
+            (fm.horizontalAdvance(ln) for _, lns, _ in blocks for ln in lns),
+            default=0,
+        )
+        total_lines = sum(len(lns) for _, lns, _ in blocks)
+        gap_h = (len(blocks) - 1) * self._BLOCK_GAP
+        total_w = pad + max_badge_w + self._BADGE_GAP + body_w + pad
+        total_h = pad + total_lines * line_h + gap_h + pad
+        return max_badge_w, body_w, line_h, total_w, total_h
+
     def boundingRect(self):
+        discussion = self._parse_discussion()
+        if discussion:
+            _, _, _, tw, th = self._discussion_metrics(discussion)
+            r = QRectF(0, 0, tw, th)
+            if self.isSelected():
+                return r.adjusted(-4, -4, 4, 4)
+            return r
+
         prefix, body, _ = self._parse_note()
         font = self._note_font()
         fm = QFontMetricsF(font)
@@ -557,6 +632,11 @@ class NoteItem(QGraphicsSimpleTextItem):
         return r
 
     def paint(self, painter: QPainter, option, widget=None):
+        discussion = self._parse_discussion()
+        if discussion:
+            self._paint_discussion(painter, discussion)
+            return
+
         prefix, body, accent = self._parse_note()
         font = self._note_font()
         fm = QFontMetricsF(font)
@@ -631,6 +711,72 @@ class NoteItem(QGraphicsSimpleTextItem):
             painter.drawEllipse(QPointF(bg_rect.right() - 5, bg_rect.top() + 5), 3, 3)
 
         # Selection indicator
+        if self.isSelected():
+            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
+            painter.setPen(sel_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
+            painter.drawRect(sel_rect)
+
+    def _paint_discussion(self, painter: QPainter, blocks):
+        """Render a multi-speaker discussion note."""
+        font = self._note_font()
+        fm = QFontMetricsF(font)
+        pad = self._PAD
+        line_h = fm.height()
+        bold_font = QFont(font)
+        bold_font.setBold(True)
+
+        max_badge_w, _, _, total_w, total_h = self._discussion_metrics(blocks)
+        bg_rect = QRectF(0, 0, total_w, total_h)
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        bg = QColor("#F2F0EB")
+        bg.setAlphaF(0.85)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+
+        body_x = pad + max_badge_w + self._BADGE_GAP
+        y = pad
+
+        for blk_idx, (speaker, lines, color) in enumerate(blocks):
+            # Speaker badge on first line
+            bfm = QFontMetricsF(bold_font)
+            badge_w = bfm.horizontalAdvance(speaker) + self._BADGE_HPAD * 2
+            badge_rect = QRectF(pad, y, badge_w, line_h)
+            painter.setBrush(QBrush(color))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(
+                badge_rect, self._BADGE_RADIUS, self._BADGE_RADIUS
+            )
+
+            painter.setFont(bold_font)
+            painter.setPen(QColor("#FFFFFF"))
+            painter.drawText(
+                QPointF(pad + self._BADGE_HPAD, y + fm.ascent()), speaker
+            )
+
+            # Body lines
+            painter.setFont(font)
+            painter.setPen(color)
+            for ln in lines:
+                painter.drawText(QPointF(body_x, y + fm.ascent()), ln)
+                y += line_h
+
+            if blk_idx < len(blocks) - 1:
+                y += self._BLOCK_GAP
+
+        if self.note.annotation:
+            dot_color = QColor("#D4804E")
+            dot_color.setAlphaF(0.8)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(dot_color))
+            painter.drawEllipse(
+                QPointF(bg_rect.right() - 5, bg_rect.top() + 5), 3, 3
+            )
+
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)

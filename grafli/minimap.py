@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 
@@ -18,11 +20,14 @@ from grafli.constants import (
     MINIMAP_STATS_FONT_SIZE,
     MINIMAP_TIER_COLORS,
     MINIMAP_VIEWPORT_COLOR,
+    NOTE_DISCUSSION_COLOR,
     NOTE_PEN_COLOR,
     NOTE_QUESTION_COLOR,
     NOTE_TASK_COLOR,
     _resolve_color,
 )
+
+_RE_SPEAKER = re.compile(r"^([A-Z]{2,3}): ", re.MULTILINE)
 
 _TIER_LABELS = ("Simple", "Moderate", "Intricate", "Dense")
 
@@ -208,6 +213,8 @@ class MinimapMixin:
                 color = NOTE_TASK_COLOR
             elif note.text.startswith("Q: "):
                 color = NOTE_QUESTION_COLOR
+            elif len(set(_RE_SPEAKER.findall(note.text))) >= 2:
+                color = NOTE_DISCUSSION_COLOR
             else:
                 color = NOTE_PEN_COLOR
             painter.setBrush(QBrush(color))

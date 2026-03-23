@@ -18,6 +18,16 @@ NOTE_COLOR = QColor("#2B6CB0")
 NOTE_PEN_COLOR = QColor("#2B6CB0")
 NOTE_TASK_COLOR = QColor("#C53030")
 NOTE_QUESTION_COLOR = QColor("#805AD5")
+NOTE_DISCUSSION_COLOR = QColor("#2C7A7B")
+
+DISCUSSION_COLORS = [
+    QColor("#2F855A"),  # green
+    QColor("#805AD5"),  # purple
+    QColor("#C05621"),  # orange
+    QColor("#2B6CB0"),  # blue
+    QColor("#B83280"),  # pink
+    QColor("#2C7A7B"),  # teal
+]
 GRID_COLOR = QColor("#CDC8BF")
 SCENE_BG = QColor("#E8E4DD")
 CONTENT_BORDER_COLOR = QColor("#D5D0C8")

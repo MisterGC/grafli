@@ -24,5 +24,5 @@
 @ arrow rollback -> hotfix
 @ arrow hotfix -> review "re-review"
 
-@ note 650,50 "Request changes? Go back to Implement"
-@ note 1050,450 "Ops loop: detect, rollback, fix"
+@ note n1 650,50 "Request changes? Go back to Implement"
+@ note n2 1050,450 "Ops loop: detect, rollback, fix"

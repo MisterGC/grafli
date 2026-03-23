@@ -10,14 +10,14 @@
 @ box boxitem "BoxItem" 671.6858016304348,155.55845004180594 250x220 #4285F4 ^topleft ~small >app
 @ box font "_box_font()" 691.6858016304348,205.55845004180594 100x50 #00BCD4 >boxitem
 @ box pos "_position_label()" 691.6858016304348,275.55845004180594 140x50 #00BCD4 >boxitem
-@ box setters "set_anchor / set_textsize" 691.6858016304348,335.55845004180594 210x34 ~small >boxitem
+@ box setters "set_anchor / set_textsize" 691.6858016304348,335.55845004180594 210x38 ~small >boxitem
 
 @ box arrows "Arrow Label Gap" 951.6858016304348,155.55845004180594 240x120 #FF6B6B ^topleft ~small >app
 @ box clip "_line_rect_clip()" 971.6858016304348,205.55845004180594 180x50 #FF6B6B >arrows
 
 @ box toolbar "Toolbar Menus" 951.6858016304348,305.55845004180594 240x100 #F9AB00 ^topleft ~small >app
-@ box anchor "Anchor Dropdown" 971.6858016304348,350.55845004180594 100x44 ~small >toolbar
-@ box size "Size Dropdown" 1081.6858016304348,350.55845004180594 100x40 ~small >toolbar
+@ box anchor "Anchor Dropdown" 971.6858016304348,350.55845004180594 100x52 ~small >toolbar
+@ box size "Size Dropdown" 1081.6858016304348,350.55845004180594 100x52 ~small >toolbar
 
 @ box editor "Inline Editor" 671.6858016304348,395.55845004180594 250x60 #34A853 >app
 
@@ -40,15 +40,8 @@
 @ arrow editor -> pos "uses"
 @ arrow demo -> format "parsed by"
 
-@ note 1200,80 "^topleft = top-left anchored label"
-@ note 1200,120 "~small = 10pt font"
-@ note 1200,160 "~large = 18pt font"
-@ note 1200,220 "Arrow labels now have a gap"
-@ note 1200,260 "where the line splits around text"
-@ box box2 "" 839.7751272264629,-373.7893606870231 360.27361641221387x379.17416772688716
-@ box box3 "" 1259.7457723706534,-54.3953032230704 48.21401876590312x95.1917806403732
-@ box box4 "" 934.9669078668364,-358.95427798982195 249.0104961832061x37 >box2
-@ box box5 "" 808.8687049406277,-236.5648457379135 160x80
-@ box box6 "" 833.5938427692961,-125.30172550890586 160x80
-@ note 861.6710533290925,-327.60807622985584 "Note"
-@ note 878.9786498091604,-347.3881864927905 "Name"
+@ note n1 1200,80 "^topleft = top-left anchored label"
+@ note n2 1200,120 "~small = 10pt font"
+@ note n3 1200,160 "~large = 18pt font"
+@ note n4 1200,220 "Arrow labels now have a gap"
+@ note n5 1200,260 "where the line splits around text"

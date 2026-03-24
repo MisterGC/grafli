@@ -234,6 +234,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._complexity_node_heat: dict[str, float] = {}
         self._complexity_saved: list[tuple] = []
 
+        # Arrow dim state
+        self._arrows_dimmed: bool = False
+
         # Subgraph focus filter state
         self._focus_active: bool = False
         self._focus_node_id: str | None = None
@@ -793,6 +796,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._apply_focus_filter()
         if self._complexity_active:
             self._apply_complexity_heatmap()
+        if self._arrows_dimmed and not self._focus_active and not self._complexity_active:
+            for gfx in self._arrow_items:
+                gfx.setOpacity(0.08)
 
     # ── Subgraph focus filter ──
 
@@ -891,8 +897,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             item._label.setOpacity(1.0)
         for item in self._note_items.values():
             item.setOpacity(1.0)
+        arrow_opacity = 0.08 if self._arrows_dimmed else 1.0
         for gfx in self._arrow_items:
-            gfx.setOpacity(1.0)
+            gfx.setOpacity(arrow_opacity)
 
         self._update_focus_status()
 
@@ -2358,6 +2365,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # F — select first child of current box
         if event.key() == Qt.Key.Key_F and no_mod:
             self._select_first_child()
+            event.accept()
+            return
+
+        # , — toggle arrow dimming
+        if event.key() == Qt.Key.Key_Comma and no_mod:
+            self._arrows_dimmed = not self._arrows_dimmed
+            if not self._focus_active and not self._complexity_active:
+                opacity = 0.08 if self._arrows_dimmed else 1.0
+                for gfx in self._arrow_items:
+                    gfx.setOpacity(opacity)
+                self.viewport().update()
             event.accept()
             return
 
@@ -3920,6 +3938,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("=", "Auto-layout selection (or all)"),
             ]),
             ("Focus & Analysis", [
+                (",", "Dim arrows"),
                 ("A", "Complexity analysis heatmap"),
                 ("B", "Subgraph focus (cycle direction)"),
                 ("\u21e7B", "Toggle focus depth (full/1-hop)"),

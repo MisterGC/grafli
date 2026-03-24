@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPen, QTextOption
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPen, QPixmap, QTextOption
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
+    QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsSimpleTextItem,
     QGraphicsTextItem,
@@ -30,7 +31,7 @@ from grafli.constants import (
 )
 
 _RE_SPEAKER = re.compile(r"^([A-Z]{2,3}): ")
-from grafli.format import Box, Note
+from grafli.format import Box, Image, Note
 
 # ── Handle IDs ───────────────────────────────────────────────────
 
@@ -841,6 +842,234 @@ class NoteItem(QGraphicsSimpleTextItem):
                     view.arrow_update_needed.emit()
                 if view and hasattr(view, 'mark_dirty'):
                     view.mark_dirty()
+        return super().itemChange(change, value)
+
+
+class ImageItem(QGraphicsPixmapItem):
+    """A draggable image annotation with aspect-ratio-locked resize."""
+
+    _BORDER_PAD = 2
+    _HANDLE_PAD = 4
+    _MIN_SIZE = 40
+
+    def __init__(self, image: Image, base_dir: str = ""):
+        super().__init__()
+        self.image = image
+        self._base_dir = base_dir
+        self._aspect_ratio: float = 1.0
+        self._resizing = False
+        self._resize_corner = -1
+        self._resize_origin = QPointF()
+
+        self._load_pixmap()
+        self.setPos(image.x, image.y)
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+        self.setAcceptHoverEvents(True)
+
+        self._handles: list[ResizeHandle] = [
+            ResizeHandle(_CORNER_TL, self),
+            ResizeHandle(_CORNER_TR, self),
+            ResizeHandle(_CORNER_BL, self),
+            ResizeHandle(_CORNER_BR, self),
+        ]
+        self._update_handles()
+
+    def _load_pixmap(self):
+        import os
+        path = self.image.image_path
+        if self._base_dir and not os.path.isabs(path):
+            path = os.path.join(self._base_dir, path)
+        pm = QPixmap(path)
+        if pm.isNull():
+            pm = QPixmap(int(self.image.w), int(self.image.h))
+            pm.fill(QColor("#D5D0C8"))
+            self._placeholder = True
+        else:
+            self._aspect_ratio = pm.width() / max(pm.height(), 1)
+            self._placeholder = False
+        self._full_pixmap = pm
+
+    def _update_handles(self):
+        w, h = self.image.w, self.image.h
+        positions = {
+            _CORNER_TL: (0, 0),
+            _CORNER_TR: (w, 0),
+            _CORNER_BL: (0, h),
+            _CORNER_BR: (w, h),
+        }
+        for handle in self._handles:
+            pos = positions.get(handle.corner)
+            if pos:
+                handle.setPos(*pos)
+            handle.setVisible(self.isSelected())
+
+    def _apply_resize_delta(self, dx: float, dy: float, corner: int):
+        x, y, w, h = self.image.x, self.image.y, self.image.w, self.image.h
+        ar = self._aspect_ratio
+
+        # Use the larger delta to drive proportional resize
+        if corner == _CORNER_TL:
+            dw = -dx
+            new_w = max(self._MIN_SIZE, w + dw)
+            new_h = new_w / ar
+            x -= new_w - w
+            y -= new_h - h
+        elif corner == _CORNER_TR:
+            new_w = max(self._MIN_SIZE, w + dx)
+            new_h = new_w / ar
+            y -= new_h - h
+        elif corner == _CORNER_BL:
+            dw = -dx
+            new_w = max(self._MIN_SIZE, w + dw)
+            new_h = new_w / ar
+            x -= new_w - w
+        elif corner == _CORNER_BR:
+            new_w = max(self._MIN_SIZE, w + dx)
+            new_h = new_w / ar
+        else:
+            return
+
+        self.image.x = x
+        self.image.y = y
+        self.image.w = new_w
+        self.image.h = new_h
+        self.setPos(x, y)
+        self.prepareGeometryChange()
+        self._update_handles()
+        self.update()
+
+    def boundingRect(self):
+        r = QRectF(0, 0, self.image.w, self.image.h)
+        if self.isSelected():
+            return r.adjusted(-4, -4, 4, 4)
+        return r
+
+    def shape(self):
+        path = QPainterPath()
+        path.addRect(QRectF(0, 0, self.image.w, self.image.h))
+        return path
+
+    def paint(self, painter: QPainter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        target = QRectF(0, 0, self.image.w, self.image.h)
+        source = QRectF(self._full_pixmap.rect())
+        painter.drawPixmap(target, self._full_pixmap, source)
+
+        # Subtle border
+        border = QColor("#CDC8BF")
+        painter.setPen(QPen(border, 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(target)
+
+        if self.image.annotation:
+            dot_color = QColor("#D4804E")
+            dot_color.setAlphaF(0.8)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(dot_color))
+            painter.drawEllipse(
+                QPointF(target.right() - 5, target.top() + 5), 3, 3
+            )
+
+        if self.isSelected():
+            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
+            painter.setPen(sel_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            sel_rect = target.adjusted(-3, -3, 3, 3)
+            painter.drawRect(sel_rect)
+
+    def hoverMoveEvent(self, event):
+        # Check proximity to corner handles for resize cursor
+        pos = event.pos()
+        w, h = self.image.w, self.image.h
+        corners = {
+            _CORNER_TL: QPointF(0, 0),
+            _CORNER_TR: QPointF(w, 0),
+            _CORNER_BL: QPointF(0, h),
+            _CORNER_BR: QPointF(w, h),
+        }
+        for cid, cpos in corners.items():
+            if (pos - cpos).manhattanLength() < HANDLE_SIZE * 2:
+                self.setCursor(_HANDLE_CURSORS[cid])
+                return
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.isSelected():
+            pos = event.pos()
+            w, h = self.image.w, self.image.h
+            corners = {
+                _CORNER_TL: QPointF(0, 0),
+                _CORNER_TR: QPointF(w, 0),
+                _CORNER_BL: QPointF(0, h),
+                _CORNER_BR: QPointF(w, h),
+            }
+            for cid, cpos in corners.items():
+                if (pos - cpos).manhattanLength() < HANDLE_SIZE * 2:
+                    self._resizing = True
+                    self._resize_corner = cid
+                    self._resize_origin = pos
+                    view = _get_view(self)
+                    if view and hasattr(view, '_save_pre_action_snapshot'):
+                        view._save_pre_action_snapshot()
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._resizing:
+            dx = event.pos().x() - self._resize_origin.x()
+            dy = event.pos().y() - self._resize_origin.y()
+            self._resize_origin = event.pos()
+            self._apply_resize_delta(dx, dy, self._resize_corner)
+            view = _get_view(self)
+            if view and hasattr(view, 'arrow_update_needed'):
+                view.arrow_update_needed.emit()
+            if view and hasattr(view, 'mark_dirty'):
+                view.mark_dirty()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._resizing:
+            self._resizing = False
+            view = _get_view(self)
+            if view and hasattr(view, '_commit_pre_action_snapshot'):
+                view._commit_pre_action_snapshot()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            view = _get_view(self)
+            if view and hasattr(view, '_grid_visible') and view._grid_visible:
+                spacing = view.GRID_SPACING
+                new_pos = value
+                return QPointF(
+                    round(new_pos.x() / spacing) * spacing,
+                    round(new_pos.y() / spacing) * spacing,
+                )
+        elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            self.image.x = self.pos().x()
+            self.image.y = self.pos().y()
+            view = _get_view(self)
+            suppress = (view and hasattr(view, '_suppress_child_updates')
+                        and (view._suppress_child_updates
+                             or view._batch_move_updates))
+            if not suppress:
+                if view and hasattr(view, 'arrow_update_needed'):
+                    view.arrow_update_needed.emit()
+                if view and hasattr(view, 'mark_dirty'):
+                    view.mark_dirty()
+        elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            self._update_handles()
         return super().itemChange(change, value)
 
 

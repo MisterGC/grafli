@@ -73,9 +73,9 @@ from grafli.constants import (
     _SIZE_SEQUENCE,
     _resolve_color,
 )
-from grafli.format import Arrow, Board, Box, Note, parse, serialize
+from grafli.format import Arrow, Board, Box, Image, Note, parse, serialize
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
-from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, LabelItem, NoteItem, ResizeHandle
+from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, NoteItem, ResizeHandle
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
 
@@ -109,6 +109,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._box_items: dict[str, BoxItem] = {}
         self._arrow_items: list[QGraphicsLineItem | QGraphicsPolygonItem | QGraphicsSimpleTextItem] = []
         self._note_items: dict[str, NoteItem] = {}
+        self._image_items: dict[str, ImageItem] = {}
         self._dirty = False
 
         # Pan state (middle-click always works)
@@ -156,6 +157,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._clipboard_boxes: list[Box] = []
         self._clipboard_notes: list[Note] = []
         self._clipboard_arrows: list[Arrow] = []
+        self._clipboard_images: list[Image] = []
 
         # Reparenting drag highlight
         self._highlight_parent: BoxItem | None = None
@@ -417,9 +419,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 return arrow
         return None
 
-    def _item_id(self, item: BoxItem | NoteItem) -> str:
+    def _item_id(self, item: BoxItem | NoteItem | ImageItem) -> str:
         if isinstance(item, BoxItem):
             return item.box.id
+        if isinstance(item, ImageItem):
+            return item.image.id
         return item.note.id
 
     def _item_center(self, item: BoxItem | NoteItem) -> QPointF:
@@ -521,6 +525,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._box_items.clear()
         self._arrow_items.clear()
         self._note_items.clear()
+        self._image_items.clear()
         self._editor = None
         self._edit_target = None
         self._rect_preview = None
@@ -568,6 +573,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             item = NoteItem(note)
             self._scene.addItem(item)
             self._note_items[note.id] = item
+
+        base_dir = ""
+        window = self.window()
+        if hasattr(window, '_file_path') and window._file_path:
+            base_dir = str(window._file_path.parent)
+        for image in self._board.images:
+            item = ImageItem(image, base_dir=base_dir)
+            self._scene.addItem(item)
+            self._image_items[image.id] = item
 
         self._auto_parent_all()
         for box_id, item in self._box_items.items():
@@ -921,17 +935,21 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if not self._board:
             return False
         return (any(b.parent == box_id for b in self._board.boxes)
-                or any(n.parent == box_id for n in self._board.notes))
+                or any(n.parent == box_id for n in self._board.notes)
+                or any(i.parent == box_id for i in self._board.images))
 
-    def _descendants(self, box_id: str) -> list[BoxItem | NoteItem]:
-        """Return all BoxItems and NoteItems that are descendants of box_id."""
-        result: list[BoxItem | NoteItem] = []
+    def _descendants(self, box_id: str) -> list[BoxItem | NoteItem | ImageItem]:
+        """Return all BoxItems, NoteItems and ImageItems that are descendants of box_id."""
+        result: list[BoxItem | NoteItem | ImageItem] = []
         for bid, item in self._box_items.items():
             if item.box.parent == box_id:
                 result.append(item)
                 result.extend(self._descendants(bid))
         for nid, item in self._note_items.items():
             if item.note.parent == box_id:
+                result.append(item)
+        for iid, item in self._image_items.items():
+            if item.image.parent == box_id:
                 result.append(item)
         return result
 
@@ -1541,6 +1559,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self._note_items.pop(note_id, None)
                 self._scene.removeItem(item)
                 deleted = True
+            elif isinstance(item, ImageItem):
+                img_id = item.image.id
+                if item.image.parent:
+                    former_parents.add(item.image.parent)
+                for arrow in list(self._board.arrows):
+                    if arrow.from_id == img_id or arrow.to_id == img_id:
+                        self._board.remove_arrow(arrow)
+                self._board.remove_image(item.image)
+                self._image_items.pop(img_id, None)
+                self._scene.removeItem(item)
+                deleted = True
         if deleted:
             self._update_z_values()
             self._redraw_arrows()
@@ -1749,7 +1778,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 item = self._scene.itemAt(scene_pos, self.transform())
                 if isinstance(item, BoxLabelItem):
                     item = item._box_item
-                elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
+                elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem, ImageItem)):
                     item = item.parentItem()
                 if (isinstance(item, (BoxItem, NoteItem))
                         and item is not self._connect_source
@@ -2633,7 +2662,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Click on child item → get parent BoxItem/NoteItem
         if isinstance(item, BoxLabelItem):
             item = item._box_item
-        elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
+        elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem, ImageItem)):
             item = item.parentItem()
 
         if not isinstance(item, (BoxItem, NoteItem)):
@@ -2698,7 +2727,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         if isinstance(item, BoxLabelItem):
             item = item._box_item
-        elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem)):
+        elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem, ImageItem)):
             item = item.parentItem()
 
         if (isinstance(item, (BoxItem, NoteItem))

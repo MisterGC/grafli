@@ -13,8 +13,8 @@ from grafli.constants import (
     _SIZE_SEQUENCE,
     _UNDO_LIMIT,
 )
-from grafli.format import Arrow, Box, Note, parse, serialize
-from grafli.items import BoxItem, NoteItem
+from grafli.format import Arrow, Box, Image, Note, parse, serialize
+from grafli.items import BoxItem, ImageItem, NoteItem
 from grafli.layout import compute_layout
 
 
@@ -78,6 +78,7 @@ class CommandsMixin:
         self._clipboard_boxes.clear()
         self._clipboard_notes.clear()
         self._clipboard_arrows.clear()
+        self._clipboard_images.clear()
 
         selected_box_ids = set()
         selected_note_ids = set()
@@ -88,6 +89,8 @@ class CommandsMixin:
             elif isinstance(item, NoteItem):
                 self._clipboard_notes.append(copy.deepcopy(item.note))
                 selected_note_ids.add(item.note.id)
+            elif isinstance(item, ImageItem):
+                self._clipboard_images.append(copy.deepcopy(item.image))
 
         selected_ids = selected_box_ids | selected_note_ids
         if self._board:
@@ -98,10 +101,58 @@ class CommandsMixin:
     def _paste(self):
         cursor_viewport = self.mapFromGlobal(self.cursor().pos())
         cursor_scene = self.mapToScene(cursor_viewport)
+        # If internal clipboard is empty, try system clipboard for images
+        if not (self._clipboard_boxes or self._clipboard_notes or self._clipboard_images):
+            from PySide6.QtWidgets import QApplication
+            clipboard = QApplication.clipboard()
+            if clipboard and not clipboard.image().isNull():
+                self._paste_clipboard_image(cursor_scene, clipboard.image())
+                return
         self._paste_at(cursor_scene)
 
+    def _paste_clipboard_image(self, center: QPointF, qimage):
+        """Save a QImage from the system clipboard and add it as an image element."""
+        from datetime import datetime
+        from pathlib import Path
+        from PySide6.QtGui import QImage
+
+        if not self._board:
+            return
+        window = self.window()
+        if not hasattr(window, '_file_path') or not window._file_path:
+            return
+
+        file_path = window._file_path
+        images_dir = file_path.parent / f"{file_path.stem}-images"
+        images_dir.mkdir(exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        img_name = f"img-{timestamp}.png"
+        img_path = images_dir / img_name
+        qimage.save(str(img_path), "PNG")
+
+        # Compute display size: 320px wide, aspect ratio preserved
+        default_w = 320.0
+        aspect = qimage.width() / max(qimage.height(), 1)
+        default_h = default_w / aspect
+
+        rel_path = f"{images_dir.name}/{img_name}"
+        self._push_undo()
+        image = Image(
+            id="", image_path=rel_path,
+            x=center.x() - default_w / 2,
+            y=center.y() - default_h / 2,
+            w=default_w, h=default_h,
+        )
+        self._board.add_image(image)
+        self._rebuild_scene()
+
+        if image.id in self._image_items:
+            self._image_items[image.id].setSelected(True)
+        self.mark_dirty()
+
     def _paste_at(self, center: QPointF):
-        if not (self._clipboard_boxes or self._clipboard_notes) or not self._board:
+        if not (self._clipboard_boxes or self._clipboard_notes or self._clipboard_images) or not self._board:
             return
         self._push_undo()
 
@@ -114,6 +165,11 @@ class CommandsMixin:
         for n in self._clipboard_notes:
             all_xs.append(n.x)
             all_ys.append(n.y)
+        for img in self._clipboard_images:
+            all_xs += [img.x, img.x + img.w]
+            all_ys += [img.y, img.y + img.h]
+        if not all_xs:
+            return
         clip_cx = (min(all_xs) + max(all_xs)) / 2
         clip_cy = (min(all_ys) + max(all_ys)) / 2
         dx = center.x() - clip_cx
@@ -150,7 +206,17 @@ class CommandsMixin:
             new_note.y += dy
             self._board.add_note(new_note)
 
-        combined_map = {**id_map, **note_id_map}
+        image_id_map: dict[str, str] = {}
+        for orig_img in self._clipboard_images:
+            new_img = copy.deepcopy(orig_img)
+            new_iid = self._board.next_image_id()
+            image_id_map[orig_img.id] = new_iid
+            new_img.id = new_iid
+            new_img.x += dx
+            new_img.y += dy
+            self._board.add_image(new_img)
+
+        combined_map = {**id_map, **note_id_map, **image_id_map}
         for orig_arrow in self._clipboard_arrows:
             new_arrow = copy.deepcopy(orig_arrow)
             new_arrow.from_id = combined_map.get(orig_arrow.from_id, orig_arrow.from_id)
@@ -162,11 +228,15 @@ class CommandsMixin:
         # Select newly pasted items
         new_box_ids = set(id_map.values())
         new_note_ids = set(note_id_map.values())
+        new_image_ids = set(image_id_map.values())
         for bid, item in self._box_items.items():
             if bid in new_box_ids:
                 item.setSelected(True)
         for nid, item in self._note_items.items():
             if nid in new_note_ids:
+                item.setSelected(True)
+        for iid, item in self._image_items.items():
+            if iid in new_image_ids:
                 item.setSelected(True)
 
         self.mark_dirty()
@@ -236,6 +306,10 @@ class CommandsMixin:
                 item.note.x = round(item.note.x / spacing) * spacing
                 item.note.y = round(item.note.y / spacing) * spacing
                 item.setPos(item.note.x, item.note.y)
+            elif isinstance(item, ImageItem):
+                item.image.x = round(item.image.x / spacing) * spacing
+                item.image.y = round(item.image.y / spacing) * spacing
+                item.setPos(item.image.x, item.image.y)
         self.arrow_update_needed.emit()
         self.mark_dirty()
 

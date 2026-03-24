@@ -11,6 +11,7 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" @<dx>,<dy>  (label offset)
   @ arrow <from_id> -> <to_id> "label" !dashed     (arrow styles: dashed/dotted/thick)
   @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&url] [>parent]   (color/style ignored by renderer)
+  @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent]
   Any element line may end with  # annotation text
 """
 
@@ -70,16 +71,29 @@ class Note:
 
 
 @dataclass
+class Image:
+    id: str
+    image_path: str   # relative path to image file
+    x: float
+    y: float
+    w: float
+    h: float
+    parent: str = ""
+    annotation: str = ""
+
+
+@dataclass
 class Board:
     comments: list[str] = field(default_factory=list)
     boxes: list[Box] = field(default_factory=list)
     arrows: list[Arrow] = field(default_factory=list)
     notes: list[Note] = field(default_factory=list)
+    images: list[Image] = field(default_factory=list)
     _lines: list[tuple[str, object | None]] = field(
         default_factory=list, repr=False
     )
     """Ordered list of (kind, element) preserving original line order.
-    kind is one of: 'comment', 'blank', 'box', 'arrow', 'note'."""
+    kind is one of: 'comment', 'blank', 'box', 'arrow', 'note', 'image'."""
 
     def box_by_id(self, box_id: str) -> Box | None:
         for b in self.boxes:
@@ -141,6 +155,32 @@ class Board:
         self.notes.remove(note)
         self._lines = [(k, v) for k, v in self._lines if v is not note]
 
+    def image_by_id(self, image_id: str) -> Image | None:
+        for img in self.images:
+            if img.id == image_id:
+                return img
+        return None
+
+    def next_image_id(self) -> str:
+        max_n = 0
+        for img in self.images:
+            if img.id.startswith("img"):
+                try:
+                    max_n = max(max_n, int(img.id[3:]))
+                except ValueError:
+                    pass
+        return f"img{max_n + 1}"
+
+    def add_image(self, image: Image) -> None:
+        if not image.id:
+            image.id = self.next_image_id()
+        self.images.append(image)
+        self._lines.append(("image", image))
+
+    def remove_image(self, image: Image) -> None:
+        self.images.remove(image)
+        self._lines = [(k, v) for k, v in self._lines if v is not image]
+
 
 # ── Regex patterns ──────────────────────────────────────────────
 
@@ -173,6 +213,14 @@ _RE_NOTE = re.compile(
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
     r'(?:\s+!(mono))?'
     r'(?:\s+&(\S+))?'
+    r'(?:\s+>(\S+))?'
+    r'(?:\s+#\s*(.+?))?'
+    r'\s*$'
+)
+
+_RE_IMAGE = re.compile(
+    r'^@\s+image\s+(\S+)\s+"([^"]*)"\s+'
+    r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
     r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
@@ -256,6 +304,22 @@ def parse(text: str) -> Board:
             )
             board.notes.append(note)
             board._lines.append(("note", note))
+            continue
+
+        m = _RE_IMAGE.match(stripped)
+        if m:
+            image = Image(
+                id=m.group(1),
+                image_path=m.group(2),
+                x=float(m.group(3)),
+                y=float(m.group(4)),
+                w=float(m.group(5)),
+                h=float(m.group(6)),
+                parent=m.group(7) or "",
+                annotation=(m.group(8) or "").replace("\\n", "\n"),
+            )
+            board.images.append(image)
+            board._lines.append(("image", image))
             continue
 
         # Unknown line — preserve as comment
@@ -347,6 +411,19 @@ def _serialize_note(note: Note) -> str:
     return s
 
 
+def _serialize_image(image: Image) -> str:
+    x = int(image.x) if image.x == int(image.x) else image.x
+    y = int(image.y) if image.y == int(image.y) else image.y
+    w = int(image.w) if image.w == int(image.w) else image.w
+    h = int(image.h) if image.h == int(image.h) else image.h
+    s = f'@ image {image.id} "{image.image_path}" {x},{y} {w}x{h}'
+    if image.parent:
+        s += f" >{image.parent}"
+    if image.annotation:
+        s += f"  # {image.annotation.replace(chr(10), '\\n')}"
+    return s
+
+
 def serialize(board: Board) -> str:
     """Serialize a Board object back to .grafli format.
 
@@ -369,6 +446,8 @@ def serialize(board: Board) -> str:
                 parts.append(_serialize_arrow(obj))
             elif kind == "note":
                 parts.append(_serialize_note(obj))
+            elif kind == "image":
+                parts.append(_serialize_image(obj))
         return "\n".join(parts) + "\n"
 
     parts = [HEADER]
@@ -382,6 +461,8 @@ def serialize(board: Board) -> str:
         parts.append(_serialize_arrow(arrow))
     for note in board.notes:
         parts.append(_serialize_note(note))
+    for image in board.images:
+        parts.append(_serialize_image(image))
     return "\n".join(parts) + "\n"
 
 

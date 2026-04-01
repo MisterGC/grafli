@@ -906,7 +906,25 @@ class ImageItem(QGraphicsPixmapItem):
             pos = positions.get(handle.corner)
             if pos:
                 handle.setPos(*pos)
-            handle.setVisible(self.isSelected())
+            handle.setVisible(False)
+
+    def _handle_at(self, pos: QPointF) -> int | None:
+        """Return corner handle id if pos is near a corner, else None."""
+        r = QRectF(0, 0, self.image.w, self.image.h)
+        margin = 10
+        near_l = abs(pos.x() - r.left()) < margin
+        near_r = abs(pos.x() - r.right()) < margin
+        near_t = abs(pos.y() - r.top()) < margin
+        near_b = abs(pos.y() - r.bottom()) < margin
+        if near_l and near_t:
+            return _CORNER_TL
+        if near_r and near_t:
+            return _CORNER_TR
+        if near_l and near_b:
+            return _CORNER_BL
+        if near_r and near_b:
+            return _CORNER_BR
+        return None
 
     def _apply_resize_delta(self, dx: float, dy: float, corner: int):
         x, y, w, h = self.image.x, self.image.y, self.image.w, self.image.h
@@ -985,41 +1003,28 @@ class ImageItem(QGraphicsPixmapItem):
             painter.drawRect(sel_rect)
 
     def hoverMoveEvent(self, event):
-        # Check proximity to corner handles for resize cursor
-        pos = event.pos()
-        w, h = self.image.w, self.image.h
-        corners = {
-            _CORNER_TL: QPointF(0, 0),
-            _CORNER_TR: QPointF(w, 0),
-            _CORNER_BL: QPointF(0, h),
-            _CORNER_BR: QPointF(w, h),
-        }
-        for cid, cpos in corners.items():
-            if (pos - cpos).manhattanLength() < HANDLE_SIZE * 2:
-                self.setCursor(_HANDLE_CURSORS[cid])
-                return
-        self.setCursor(Qt.CursorShape.SizeAllCursor)
+        if self.isSelected():
+            handle = self._handle_at(event.pos())
+            if handle is not None:
+                self.setCursor(_HANDLE_CURSORS[handle])
+            else:
+                self.unsetCursor()
+        else:
+            self.unsetCursor()
+        super().hoverMoveEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.isSelected():
-            pos = event.pos()
-            w, h = self.image.w, self.image.h
-            corners = {
-                _CORNER_TL: QPointF(0, 0),
-                _CORNER_TR: QPointF(w, 0),
-                _CORNER_BL: QPointF(0, h),
-                _CORNER_BR: QPointF(w, h),
-            }
-            for cid, cpos in corners.items():
-                if (pos - cpos).manhattanLength() < HANDLE_SIZE * 2:
-                    self._resizing = True
-                    self._resize_corner = cid
-                    self._resize_origin = pos
-                    view = _get_view(self)
-                    if view and hasattr(view, '_save_pre_action_snapshot'):
-                        view._save_pre_action_snapshot()
-                    event.accept()
-                    return
+            corner = self._handle_at(event.pos())
+            if corner is not None:
+                self._resizing = True
+                self._resize_corner = corner
+                self._resize_origin = event.pos()
+                view = _get_view(self)
+                if view and hasattr(view, '_save_pre_action_snapshot'):
+                    view._save_pre_action_snapshot()
+                event.accept()
+                return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):

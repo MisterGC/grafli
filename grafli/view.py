@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import math
+from contextlib import contextmanager
+from pathlib import Path
 
 from PySide6.QtCore import (
+    QBuffer,
+    QByteArray,
     QEasingCurve,
+    QIODevice,
     QPoint,
     QPointF,
     QRectF,
     Qt,
     QTimeLine,
     QTimer,
+    QStringListModel,
     QUrl,
     Signal,
 )
@@ -20,6 +26,7 @@ from PySide6.QtGui import (
     QColor,
     QDesktopServices,
     QFont,
+    QImage,
     QPainter,
     QPen,
     QPolygonF,
@@ -27,7 +34,13 @@ from PySide6.QtGui import (
     QTransform,
     QWheelEvent,
 )
+from PySide6.QtSvg import QSvgGenerator
 from PySide6.QtWidgets import (
+    QApplication,
+    QCompleter,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
     QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsPolygonItem,
@@ -36,8 +49,8 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
     QGraphicsTextItem,
     QGraphicsView,
-    QDialog,
     QInputDialog,
+    QLabel,
     QLineEdit,
     QPushButton,
     QTextBrowser,
@@ -184,6 +197,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._last_box_color: str = ""
         self._last_box_textsize: str = ""
         self._last_note_textsize: str = ""
+
+        # g-prefix two-key sequences
+        self._g_pending: bool = False
 
         # Vim-like box mode (style / dimension)
         self._box_mode: str = ""          # "", "style", "dimension"
@@ -1294,24 +1310,92 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     # ── Inline text editing ──
 
+    def _grafli_dir(self) -> Path | None:
+        """Return the directory of the current .grafli file, or None."""
+        window = self.window()
+        if hasattr(window, '_file_path') and window._file_path:
+            return Path(window._file_path).parent
+        return None
+
+    def _url_dialog(self, current: str) -> tuple[str, bool]:
+        """Show a URL/path input dialog with filesystem completion."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Set URL or Path")
+        dlg.setMinimumWidth(480)
+
+        layout = QVBoxLayout(dlg)
+        label = QLabel("URL or local path (relative paths resolve from .grafli location):")
+        layout.addWidget(label)
+
+        line = QLineEdit(dlg)
+        line.setText(current)
+        layout.addWidget(line)
+
+        grafli_dir = self._grafli_dir()
+        list_model = QStringListModel(dlg)
+        completer = QCompleter(list_model, dlg)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        line.setCompleter(completer)
+
+        def _update_completions(text: str):
+            stripped = text.strip()
+            if not stripped or "/" not in stripped:
+                return
+            # Split on last slash to get directory prefix and partial name
+            last_slash = stripped.rfind("/")
+            dir_text = stripped[:last_slash + 1]
+            # Resolve the directory to an absolute path
+            dir_path = Path(dir_text).expanduser()
+            if not dir_path.is_absolute() and grafli_dir:
+                abs_dir = (grafli_dir / dir_path).resolve()
+            else:
+                abs_dir = dir_path.resolve()
+            if not abs_dir.is_dir():
+                return
+            # Build completions preserving the user's typed prefix
+            entries = []
+            try:
+                for entry in sorted(abs_dir.iterdir()):
+                    if entry.name.startswith('.'):
+                        continue
+                    suffix = "/" if entry.is_dir() else ""
+                    entries.append(f"{dir_text}{entry.name}{suffix}")
+            except PermissionError:
+                return
+            list_model.setStringList(entries)
+
+        line.textChanged.connect(_update_completions)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        line.setFocus()
+        line.selectAll()
+
+        ok = dlg.exec() == QDialog.DialogCode.Accepted
+        return line.text().strip(), ok
+
     def _set_url(self):
         """Set/edit URL on the first selected box or note."""
         for item in self._scene.selectedItems():
             if isinstance(item, BoxItem):
-                current = item.box.url
-                url, ok = QInputDialog.getText(self, "Set URL", "URL:", text=current)
+                url, ok = self._url_dialog(item.box.url)
                 if ok:
                     self._push_undo()
-                    item.box.url = url.strip()
+                    item.box.url = url
                     item._update_url_indicator()
                     self.mark_dirty()
                 return
             if isinstance(item, NoteItem):
-                current = item.note.url
-                url, ok = QInputDialog.getText(self, "Set URL", "URL:", text=current)
+                url, ok = self._url_dialog(item.note.url)
                 if ok:
                     self._push_undo()
-                    item.note.url = url.strip()
+                    item.note.url = url
                     item._update_url_indicator()
                     self.mark_dirty()
                 return
@@ -1380,14 +1464,27 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._zen_editor = None
         self._zen_target = None
 
+    def _resolve_url(self, raw: str) -> QUrl:
+        """Resolve a raw URL or local path to a QUrl for opening."""
+        url = QUrl(raw)
+        if url.isValid() and url.scheme() in ("http", "https", "ftp", "mailto"):
+            return url
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            window = self.window()
+            if hasattr(window, '_file_path') and window._file_path:
+                path = Path(window._file_path).parent / path
+        path = path.resolve()
+        return QUrl.fromLocalFile(str(path))
+
     def _open_url(self):
-        """Open URL of the first selected box or note in the default browser."""
+        """Open URL or local file of the first selected box or note."""
         for item in self._scene.selectedItems():
             if isinstance(item, BoxItem) and item.box.url:
-                QDesktopServices.openUrl(QUrl(item.box.url))
+                QDesktopServices.openUrl(self._resolve_url(item.box.url))
                 return
             if isinstance(item, NoteItem) and item.note.url:
-                QDesktopServices.openUrl(QUrl(item.note.url))
+                QDesktopServices.openUrl(self._resolve_url(item.note.url))
                 return
 
     def _start_editing(self, target: BoxItem | NoteItem):
@@ -1993,6 +2090,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         mods = event.modifiers()
         has_selection = bool(self._scene.selectedItems())
         no_mod = not (mods & _SIGNIFICANT_MODS)
+        shift_only = (mods & _SIGNIFICANT_MODS) == Qt.KeyboardModifier.ShiftModifier
+
+        # g-prefix two-key sequences
+        if self._g_pending:
+            self._g_pending = False
+            if event.key() == Qt.Key.Key_P and no_mod:
+                self._record_shortcut("gp → parent")
+                self._select_parent_and_zoom()
+            event.accept()
+            return
 
         # Q — close buffer (SELECT mode, no selection, no arrow)
         if (event.key() == Qt.Key.Key_Q and no_mod
@@ -2028,7 +2135,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self._delete_selected()
             event.accept()
             return
-        if event.text() == "#" and self._selected_arrow:
+        if event.key() == Qt.Key.Key_E and shift_only and self._selected_arrow:
             self._edit_annotation()
             event.accept()
             return
@@ -2038,6 +2145,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
         if event.key() == Qt.Key.Key_O and mods & Qt.KeyboardModifier.ShiftModifier:
             self._create_adjacent_box("up")
+            event.accept()
+            return
+        # y — yank (copy), p — paste
+        if event.key() == Qt.Key.Key_Y and no_mod:
+            self._record_shortcut("y → yank")
+            self._copy_selected()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_Y and shift_only:
+            self._record_shortcut("Y → PNG clipboard")
+            self._yank_png_to_clipboard()
+            event.accept()
+            return
+        if event.key() == Qt.Key.Key_P and no_mod:
+            self._record_shortcut("p → paste")
+            self._paste()
             event.accept()
             return
         # / — search by label
@@ -2064,6 +2187,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._record_shortcut("- \u2192 zoom out")
             self.scale(1 / 1.15, 1 / 1.15)
             self._update_status_zoom()
+            event.accept()
+            return
+
+        # Ctrl+E — export SVG to file
+        if event.key() == Qt.Key.Key_E and mods & _CTRL_MOD:
+            self._export_svg_file()
             event.accept()
             return
 
@@ -2283,16 +2412,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     self._set_url()
                     event.accept()
                     return
-                if event.text() == "#":
-                    self._clear_box_mode()
-                    self._edit_annotation()
-                    event.accept()
-                    return
                 if event.key() == Qt.Key.Key_Return:
                     self._clear_box_mode()
                     self._open_url()
                     event.accept()
                     return
+
+            # E (Shift+E) — edit annotation (works regardless of box mode)
+            if event.key() == Qt.Key.Key_E and shift_only:
+                self._clear_box_mode()
+                self._edit_annotation()
+                event.accept()
+                return
 
         # Shift+G — snap to grid (SELECT mode with selection)
         if (event.key() == Qt.Key.Key_G
@@ -2302,10 +2433,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        # G without shift — toggle grid
-        if event.key() == Qt.Key.Key_G and no_mod:
-            self._record_shortcut("G \u2192 grid")
+        # # — toggle grid
+        if event.text() == "#":
+            self._record_shortcut("# \u2192 grid")
             self.toggle_grid()
+            event.accept()
+            return
+
+        # g — start g-prefix sequence
+        if event.key() == Qt.Key.Key_G and no_mod:
+            self._g_pending = True
+            self._record_shortcut("g\u2026")
             event.accept()
             return
 
@@ -2385,12 +2523,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 event.accept()
                 return
 
-        # P — select parent box (zoom if needed)
-        if event.key() == Qt.Key.Key_P and no_mod:
-            self._select_parent_and_zoom()
-            event.accept()
-            return
-
         # F — select first child of current box
         if event.key() == Qt.Key.Key_F and no_mod:
             self._select_first_child()
@@ -2452,7 +2584,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         # Shift+B — toggle focus depth (unlimited ↔ 1-hop)
-        shift_only = (mods & _SIGNIFICANT_MODS) == Qt.KeyboardModifier.ShiftModifier
         if shift_only and event.key() == Qt.Key.Key_B:
             if self._focus_active:
                 self._focus_depth = 0 if self._focus_depth == 1 else 1
@@ -2760,8 +2891,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         vp_center = viewport_rect.center()
 
         # Collect ALL jump targets, split into visible and off-screen
-        visible: list[tuple[BoxItem | NoteItem | Arrow, QPointF]] = []
-        offscreen: list[tuple[BoxItem | NoteItem | Arrow, QPointF]] = []
+        visible: list[tuple[BoxItem | NoteItem | ImageItem | Arrow, QPointF]] = []
+        offscreen: list[tuple[BoxItem | NoteItem | ImageItem | Arrow, QPointF]] = []
 
         for item in self._box_items.values():
             center = item.sceneBoundingRect().center()
@@ -2770,6 +2901,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             else:
                 offscreen.append((item, center))
         for item in self._note_items.values():
+            center = item.sceneBoundingRect().center()
+            if viewport_rect.intersects(item.sceneBoundingRect()):
+                visible.append((item, center))
+            else:
+                offscreen.append((item, center))
+        for item in self._image_items.values():
             center = item.sceneBoundingRect().center()
             if viewport_rect.intersects(item.sceneBoundingRect()):
                 visible.append((item, center))
@@ -3910,6 +4047,143 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 item.update_text(char)
         self.mark_dirty()
 
+    # ── Export (SVG file / PNG clipboard) ──
+
+    @contextmanager
+    def _export_scene_context(self):
+        """Prepare the scene for clean export, yield the padded bounding rect.
+
+        Hides unselected items when there is a selection, clears selection
+        decorations, and hides the mode badge.  Restores everything on exit.
+        """
+        selected = [
+            i for i in self._scene.selectedItems()
+            if isinstance(i, (BoxItem, NoteItem, ImageItem))
+        ]
+        selected_ids: set[str] = set()
+        for item in selected:
+            if isinstance(item, BoxItem):
+                selected_ids.add(item.box.id)
+            elif isinstance(item, NoteItem):
+                selected_ids.add(item.note.id)
+            elif isinstance(item, ImageItem):
+                selected_ids.add(item.image.id)
+
+        hidden: list[QGraphicsItem] = []
+        was_selected: list[QGraphicsItem] = []
+        badge_items: list[QGraphicsItem] = []
+
+        if selected_ids:
+            for item in self._scene.items():
+                keep = False
+                if isinstance(item, (BoxItem, NoteItem, ImageItem)):
+                    eid = ""
+                    if isinstance(item, BoxItem):
+                        eid = item.box.id
+                    elif isinstance(item, NoteItem):
+                        eid = item.note.id
+                    elif isinstance(item, ImageItem):
+                        eid = item.image.id
+                    keep = eid in selected_ids
+                elif isinstance(item, BoxLabelItem):
+                    keep = (isinstance(item._box_item, BoxItem)
+                            and item._box_item.box.id in selected_ids)
+                elif isinstance(item, ResizeHandle):
+                    keep = False
+                else:
+                    arrow = item.data(0)
+                    if hasattr(arrow, "from_id") and hasattr(arrow, "to_id"):
+                        keep = (arrow.from_id in selected_ids
+                                and arrow.to_id in selected_ids)
+                if not keep and item.isVisible():
+                    item.setVisible(False)
+                    hidden.append(item)
+
+        for item in self._scene.selectedItems():
+            item.setSelected(False)
+            was_selected.append(item)
+
+        if self._mode_badge:
+            badge_items.append(self._mode_badge)
+            self._mode_badge.setVisible(False)
+        if self._mode_badge_bg:
+            badge_items.append(self._mode_badge_bg)
+            self._mode_badge_bg.setVisible(False)
+
+        rect = self._scene.itemsBoundingRect()
+        if rect.isNull():
+            rect = QRectF(0, 0, 100, 100)
+        rect = rect.adjusted(-20, -20, 20, 20)
+
+        try:
+            yield rect
+        finally:
+            for item in hidden:
+                item.setVisible(True)
+            for item in was_selected:
+                item.setSelected(True)
+            for item in badge_items:
+                item.setVisible(True)
+
+    def _render_svg_bytes(self) -> QByteArray:
+        """Render the current diagram (or selection) to SVG bytes."""
+        with self._export_scene_context() as rect:
+            buf = QByteArray()
+            io = QBuffer(buf)
+            io.open(QIODevice.OpenModeFlag.WriteOnly)
+            gen = QSvgGenerator()
+            gen.setOutputDevice(io)
+            gen.setSize(rect.size().toSize())
+            gen.setViewBox(rect)
+            gen.setTitle("Grafli Diagram")
+            painter = QPainter(gen)
+            painter.fillRect(rect, QBrush(SCENE_BG))
+            self._scene.render(painter, QRectF(), rect)
+            painter.end()
+            io.close()
+        return buf
+
+    def _render_png_image(self, scale: int = 2) -> QImage:
+        """Render the current diagram (or selection) to a QImage."""
+        with self._export_scene_context() as rect:
+            size = rect.size().toSize()
+            image = QImage(
+                size.width() * scale,
+                size.height() * scale,
+                QImage.Format.Format_ARGB32_Premultiplied,
+            )
+            image.setDevicePixelRatio(scale)
+            image.fill(SCENE_BG)
+            painter = QPainter(image)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            self._scene.render(painter, QRectF(), rect)
+            painter.end()
+        return image
+
+    def _yank_png_to_clipboard(self):
+        """Copy the diagram as PNG to the system clipboard."""
+        image = self._render_png_image()
+        QApplication.clipboard().setImage(image)
+        self._record_shortcut("PNG copied")
+
+    def _export_svg_file(self):
+        """Export the diagram as an SVG file."""
+        default_name = ""
+        window = self.window()
+        if hasattr(window, "_file_path") and window._file_path:
+            from pathlib import Path
+            default_name = str(Path(window._file_path).with_suffix(".svg"))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export SVG", default_name,
+            "SVG files (*.svg);;All Files (*)",
+        )
+        if not path:
+            return
+        svg_bytes = self._render_svg_bytes()
+        with open(path, "wb") as f:
+            f.write(svg_bytes.data())
+        self._record_shortcut("SVG exported")
+
     # ── Cheatsheet (Shift+H) ──
 
     def _show_cheatsheet(self):
@@ -3932,7 +4206,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("+ / -", "Zoom in / out"),
                 ("Z", "Zoom to selection (progressive)"),
                 ("Shift+Z", "Zoom to fit all"),
-                ("P", "Select parent (zoom if needed)"),
+                ("gp", "Select parent (zoom if needed)"),
                 ("F", "Select first child"),
                 ("Tab / \u21e7Tab", "Cycle siblings"),
                 ("Ctrl+J", "Jump to any item (global)"),
@@ -3940,14 +4214,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("Alt (hold)", "Graph nav: follow connectors"),
             ]),
             ("Edit", [
-                ("E / Dbl-click", "Edit selected element"),
+                ("e / Dbl-click", "Edit selected element"),
+                ("E", "Edit annotation"),
                 ("W", "Set URL on selected item"),
-                ("#", "Edit annotation"),
                 ("Return", "Open URL in browser"),
                 ("Enter", "Accept edit"),
+                ("y / p", "Yank / Paste"),
                 ("u / \u2318Z", "Undo"),
                 ("Ctrl+R / \u2318\u21e7Z", "Redo"),
-                ("\u2318C / \u2318V", "Copy / Paste"),
                 ("x / Delete", "Delete selected / arrow"),
                 ("\u2318G", "Insert glyph / replace label"),
             ]),
@@ -3973,8 +4247,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("\u21e7B", "Toggle focus depth (full/1-hop)"),
             ]),
             ("View", [
-                ("G", "Toggle grid"),
+                ("#", "Toggle grid"),
                 ("M", "Toggle minimap"),
+            ]),
+            ("Export", [
+                ("Y", "Yank diagram as PNG to clipboard"),
+                ("Ctrl+E", "Export SVG to file"),
             ]),
             ("Arrow", [
                 ("e", "Edit arrow label"),
@@ -3999,7 +4277,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         columns = [
             ["File", "Modes", "Navigate"],
             ["Edit", "Create", "Focus & Analysis", "View"],
-            ["Style", "Arrow", "Buffers", "Other"],
+            ["Style", "Arrow", "Export", "Buffers", "Other"],
         ]
         group_map = {name: entries for name, entries in groups}
 

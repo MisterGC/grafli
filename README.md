@@ -65,14 +65,18 @@ Arrow operators: `->` right, `<-` left, `<->` both, `--` none.
 | `h` `j` `k` `l` | Move selection (vim directions) |
 | `s` | Enter style sub-mode (colors, sizes) |
 | `d` | Enter dimension sub-mode (resize) |
-| `P` / `F` | Select parent / first child |
+| `gp` / `F` | Select parent / first child |
 | `Tab` / `Shift+Tab` | Cycle siblings |
 | `Alt` (hold) | Graph nav: follow connectors with `hjkluiop` |
 | `Ctrl+O` / `Ctrl+I` | Navigation history back / forward |
 | `o` / `Shift+O` | Create adjacent box below / above |
 | `Ctrl+hkl` | Create connected box (left/up/right) |
 | `Ctrl+Shift+hkl` | Create connected note (left/up/right) |
-| `e` | Edit label inline |
+| `e` / `E` | Edit label / annotation |
+| `y` / `p` | Yank / paste |
+| `Y` | Yank diagram as PNG to clipboard |
+| `Ctrl+E` | Export SVG to file |
+| `#` | Toggle grid |
 | `/` | Search |
 | `Ctrl+J` | Jump mode (all items) |
 | `B` / `Shift+B` | Subgraph focus (cycle direction / toggle depth) |

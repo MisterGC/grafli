@@ -91,6 +91,7 @@ from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, NoteItem, ResizeHandle
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
+from grafli.zen_md import ZenMarkdownEditor
 
 
 _JUMP_KEYS = "asdfjklghqweruioptyzxcvbnm"
@@ -1426,7 +1427,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if target is None:
             return
         self._zen_target = target
-        self._zen_editor = ZenOverlay(title, current, self.viewport())
+        self._zen_editor = ZenMarkdownEditor(
+            parent=self.window(), text=current, title=title,
+        )
         self._zen_editor.finished.connect(self._commit_zen_annotation)
         self._zen_editor.cancelled.connect(self._cancel_zen_annotation)
 
@@ -1469,23 +1472,52 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         url = QUrl(raw)
         if url.isValid() and url.scheme() in ("http", "https", "ftp", "mailto"):
             return url
+        # Split off #fragment before path resolution
+        fragment = ""
+        if "#" in raw:
+            raw, fragment = raw.rsplit("#", 1)
         path = Path(raw).expanduser()
         if not path.is_absolute():
             window = self.window()
             if hasattr(window, '_file_path') and window._file_path:
                 path = Path(window._file_path).parent / path
         path = path.resolve()
-        return QUrl.fromLocalFile(str(path))
+        result = QUrl.fromLocalFile(str(path))
+        if fragment:
+            result.setFragment(fragment)
+        return result
 
     def _open_url(self):
         """Open URL or local file of the first selected box or note."""
         for item in self._scene.selectedItems():
+            url_str = None
             if isinstance(item, BoxItem) and item.box.url:
-                QDesktopServices.openUrl(self._resolve_url(item.box.url))
+                url_str = item.box.url
+            elif isinstance(item, NoteItem) and item.note.url:
+                url_str = item.note.url
+            if url_str:
+                resolved = self._resolve_url(url_str)
+                if resolved.isLocalFile() and resolved.toLocalFile().endswith(".md"):
+                    self._open_md_zen(
+                        Path(resolved.toLocalFile()),
+                        anchor=resolved.fragment() or "",
+                    )
+                    return
+                QDesktopServices.openUrl(resolved)
                 return
-            if isinstance(item, NoteItem) and item.note.url:
-                QDesktopServices.openUrl(self._resolve_url(item.note.url))
-                return
+
+    def _open_md_zen(self, path: Path, anchor: str = ""):
+        """Open a local markdown file in the zen editor."""
+        if self._zen_editor:
+            return
+        if not path.exists():
+            return
+        text = path.read_text(encoding="utf-8")
+        self._zen_editor = ZenMarkdownEditor(
+            parent=self.window(), text=text, title=path.name,
+            file_path=path, anchor=anchor,
+        )
+        self._zen_editor.cancelled.connect(self._cancel_zen_annotation)
 
     def _start_editing(self, target: BoxItem | NoteItem):
         self._commit_editor()

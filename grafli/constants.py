@@ -144,6 +144,16 @@ ZEN_TEXT_COLOR = QColor("#2F3437")
 ZEN_TITLE_COLOR = QColor("#004578")
 ZEN_HINT_COLOR = QColor("#8A8580")
 
+# ── Zen markdown editor ──────────────────────────────────────────
+ZEN_MD_MAX_WIDTH = 700
+ZEN_MD_BG = QColor("#F5F2ED")
+ZEN_MD_HEADING_SIZES = {1: 22, 2: 18, 3: 15}
+ZEN_MD_CODE_BG = QColor("#EDE9E3")
+ZEN_MD_LINK_COLOR = QColor("#004578")
+ZEN_MD_MUTED_ALPHA = 100
+ZEN_MD_SYNTAX_COLOR = QColor("#B8B3AB")
+ZEN_MD_FONT_SIZE = 14
+
 # ── Glyph picker ─────────────────────────────────────────────────
 GLYPH_PICKER_BG = QColor(47, 52, 55, 242)
 GLYPH_PICKER_HIGHLIGHT = QColor("#4A6A7A")

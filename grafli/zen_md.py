@@ -102,9 +102,11 @@ class ZenMarkdownEditor(QWidget):
         self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._hint)
 
-        # Markdown highlighter + paragraph focus
+        # Markdown highlighter + paragraph focus (disabled in read-only mode)
         self._highlighter = MarkdownHighlighter(self._editor.document())
         self._editor.cursorPositionChanged.connect(self._update_focus)
+        if self._read_only:
+            self._highlighter.set_focus_enabled(False)
 
         # Vim key handler
         self._vim = VimKeyHandler(
@@ -155,6 +157,8 @@ class ZenMarkdownEditor(QWidget):
         self.close()
 
     def _update_focus(self):
+        if self._read_only:
+            return
         start, end = compute_focus_range(self._editor)
         self._highlighter.set_focus_range(start, end)
 
@@ -212,6 +216,9 @@ class ZenMarkdownEditor(QWidget):
             return
         self._read_only = not self._read_only
         self._editor.setReadOnly(self._read_only)
+        self._highlighter.set_focus_enabled(not self._read_only)
+        if not self._read_only:
+            self._update_focus()
         if self._read_only:
             # Entering read-only: stop autosave, re-enable watcher
             if self._autosave_timer:

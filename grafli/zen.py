@@ -61,10 +61,10 @@ class ZenOverlay(QWidget):
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint)
 
-        # Focus the text area and move cursor to end
+        # Focus the text area and move cursor to start
         self._text.setFocus()
         cursor = self._text.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.movePosition(cursor.MoveOperation.Start)
         self._text.setTextCursor(cursor)
 
         self.show()

@@ -122,7 +122,7 @@ class ZenMarkdownEditor(QWidget):
         # Focus and cursor
         self._editor.setFocus()
         cursor = self._editor.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.movePosition(cursor.MoveOperation.Start)
         self._editor.setTextCursor(cursor)
         self._update_focus()
 

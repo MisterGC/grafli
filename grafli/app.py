@@ -8,7 +8,7 @@ import signal
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QSettings, QTimer
 from PySide6.QtGui import (
     QAction,
     QFontDatabase,
@@ -18,9 +18,11 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
+    QWidget,
 )
 
 from grafli.buffers import BufferManager, BufferState, ViewState
@@ -28,6 +30,7 @@ from grafli.constants import Mode
 from grafli.filewatcher import JsonSafeWatcher
 from grafli.format import Board, parse, serialize
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
+from grafli.sidepanel import PanelToggleButton, SidePanel
 from grafli.view import GrafliView
 
 
@@ -42,7 +45,24 @@ class MainWindow(QMainWindow):
         self._view = GrafliView(self)
         if debug:
             self._view._debug_overlay = True
-        self.setCentralWidget(self._view)
+
+        # Side panel + toggle button
+        self._side_panel = SidePanel(self)
+        self._panel_toggle = PanelToggleButton(self._view.viewport())
+
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._view, stretch=1)
+        layout.addWidget(self._side_panel)
+        self.setCentralWidget(container)
+
+        # Restore panel visibility from settings (hidden by default)
+        settings = QSettings("Grafli", "Grafli")
+        panel_visible = settings.value("sidepanel/visible", False, type=bool)
+        self._side_panel.setVisible(panel_visible)
+        self._setup_panel()
 
         self._file_path: Path | None = None
         self._watcher: JsonSafeWatcher | None = None
@@ -79,6 +99,7 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._panel_toggle.reposition()
         if self._pending_zoom_fit:
             self._pending_zoom_fit = False
             QTimer.singleShot(0, lambda: self._zoom_fit(animate=False))
@@ -94,6 +115,46 @@ class MainWindow(QMainWindow):
         if self._view._sticky_mode and mode in (Mode.RECT, Mode.TEXT):
             label += "+"
         self._status_mode.setText(label)
+        self._side_panel.update_mode(mode)
+
+    def _setup_panel(self):
+        self._panel_toggle.clicked.connect(self._toggle_panel)
+        self._panel_toggle.reposition()
+        self._side_panel.tool_activated.connect(self._on_tool_activated)
+        self._side_panel.update_mode(self._view.mode)
+        self._side_panel.update_selection(False)
+        self._view.selection_changed_for_panel.connect(
+            self._side_panel.update_selection
+        )
+
+    def _toggle_panel(self):
+        visible = not self._side_panel.isVisible()
+        self._side_panel.setVisible(visible)
+        QSettings("Grafli", "Grafli").setValue("sidepanel/visible", visible)
+
+    def _on_tool_activated(self, action_id: str):
+        self._view.setFocus()
+        actions = {
+            "mode_select":  lambda: self._view.set_mode(Mode.SELECT),
+            "mode_rect":    lambda: self._view.set_mode(Mode.RECT),
+            "mode_text":    lambda: self._view.set_mode(Mode.TEXT),
+            "mode_connect": lambda: self._view.set_mode(Mode.CONNECT),
+            "edit_label":   self._view._edit_selected,
+            "delete":       self._view._delete_selected,
+            "style":        lambda: self._view._set_box_mode("style"),
+            "dimension":    lambda: self._view._set_box_mode("dimension"),
+            "undo":         self._view._undo,
+            "redo":         self._view._redo,
+            "layout":       self._view._layout_selected,
+            "search":       self._view._start_search,
+            "grid":         self._view.toggle_grid,
+            "minimap":      self._view._toggle_minimap,
+            "yank_png":     self._view._yank_png_to_clipboard,
+            "export_svg":   self._view._export_svg_file,
+        }
+        handler = actions.get(action_id)
+        if handler:
+            handler()
 
     def _setup_shortcuts(self):
         self._view.mode_changed.connect(self._on_mode_changed)

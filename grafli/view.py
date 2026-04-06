@@ -103,6 +103,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     arrow_update_needed = Signal()
     mode_changed = Signal(Mode)
+    selection_changed_for_panel = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1519,6 +1520,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         )
         self._zen_editor.cancelled.connect(self._cancel_zen_annotation)
 
+    def _edit_selected(self):
+        for item in self._scene.selectedItems():
+            if isinstance(item, (BoxItem, NoteItem)):
+                self._start_editing(item)
+                return
+
+    def _toggle_minimap(self):
+        self._minimap_visible = not self._minimap_visible
+        self.viewport().update()
+
     def _start_editing(self, target: BoxItem | NoteItem):
         self._commit_editor()
         self._edit_target = target
@@ -1733,6 +1744,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             count = len(self._scene.selectedItems())
             window._status_sel.setText(f"{count} selected" if count else "")
         self._update_breadcrumb()
+        self.selection_changed_for_panel.emit(bool(self._scene.selectedItems()))
 
         # Recompute focus filter when selection changes
         if self._focus_active and not self._search_active:
@@ -2524,10 +2536,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     event.accept()
                     return
 
+        # \ — toggle side panel
+        if event.text() == "\\":
+            window = self.window()
+            if hasattr(window, '_toggle_panel'):
+                window._toggle_panel()
+            event.accept()
+            return
+
         # M — toggle minimap
         if event.key() == Qt.Key.Key_M and no_mod:
-            self._minimap_visible = not self._minimap_visible
-            self.viewport().update()
+            self._toggle_minimap()
             event.accept()
             return
 
@@ -4281,6 +4300,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ("View", [
                 ("#", "Toggle grid"),
                 ("M", "Toggle minimap"),
+                ("\\", "Toggle tools panel"),
             ]),
             ("Export", [
                 ("Y", "Yank diagram as PNG to clipboard"),

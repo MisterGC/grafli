@@ -96,6 +96,51 @@ from grafli.zen_md import ZenMarkdownEditor
 
 _JUMP_KEYS = "asdfjklghqweruioptyzxcvbnm"
 
+
+class _ResourcePicker(QPushButton):
+    """Inline popup letting the user pick a resource type to create."""
+
+    resource_selected = Signal(str)
+
+    _STYLE = (
+        "QPushButton {{ background: {bg}; color: {fg}; border: 1px solid {border};"
+        " border-radius: 6px; padding: 6px 10px; font-family: {font}; font-size: 12px; }}"
+        "QPushButton:hover {{ background: {hover}; }}"
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(
+            Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setText("  [m]arkdown    [g]rafli    [f]ile  ")
+        self.setStyleSheet(self._STYLE.format(
+            bg="#2A2D2E", fg="#D4D4D4", border="#555",
+            hover="#3A3D3E", font=FONT_FAMILY,
+        ))
+
+    def sizeHint(self):
+        return super().sizeHint()
+
+    def keyPressEvent(self, event):
+        key = event.text().lower()
+        if key == "m":
+            self.resource_selected.emit("markdown")
+            self.close()
+        elif key == "g":
+            self.resource_selected.emit("grafli")
+            self.close()
+        elif key == "f":
+            self.resource_selected.emit("file")
+            self.close()
+        elif event.key() == Qt.Key.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
+
 # ── Canvas view ─────────────────────────────────────────────────
 
 class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
@@ -741,12 +786,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             label_tooltips: list[str] = []
             if fwd.label:
                 label_texts.append(fwd.label)
-            if fwd.annotation:
-                label_tooltips.append(fwd.annotation)
+            if fwd.url:
+                label_tooltips.append(fwd.url)
             if rev and rev.label:
                 label_texts.append(rev.label)
-            if rev and rev.annotation:
-                label_tooltips.append(rev.annotation)
+            if rev and rev.url:
+                label_tooltips.append(rev.url)
 
             total_len = math.hypot(dx, dy)
             has_label = False
@@ -1382,7 +1427,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         return line.text().strip(), ok
 
     def _set_url(self):
-        """Set/edit URL on the first selected box or note."""
+        """Set/edit URL on the first selected box, note, or image."""
         for item in self._scene.selectedItems():
             if isinstance(item, BoxItem):
                 url, ok = self._url_dialog(item.box.url)
@@ -1400,70 +1445,250 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     item._update_url_indicator()
                     self.mark_dirty()
                 return
+            if isinstance(item, ImageItem):
+                url, ok = self._url_dialog(item.image.url)
+                if ok:
+                    self._push_undo()
+                    item.image.url = url
+                    item._update_url_indicator()
+                    self.mark_dirty()
+                return
 
-    def _edit_annotation(self):
-        """Edit annotation on the selected box, note, or arrow."""
+    # ── Resource handling ────────────────────────────────────────
+
+    def _open_resource(self):
+        """Open resource for the selected element, or show picker if none."""
+        if self._selected_arrow:
+            arrow = self._selected_arrow
+            if arrow.url:
+                self._open_url_string(arrow.url)
+            else:
+                self._open_resource_picker_for_arrow(arrow)
+            return
+        for item in self._scene.selectedItems():
+            if isinstance(item, BoxItem):
+                if item.box.url:
+                    self._open_url_string(item.box.url)
+                else:
+                    self._open_resource_picker(item, item.box.id)
+                return
+            if isinstance(item, NoteItem):
+                if item.note.url:
+                    self._open_url_string(item.note.url)
+                else:
+                    self._open_resource_picker(item, item.note.id)
+                return
+            if isinstance(item, ImageItem):
+                if item.image.url:
+                    self._open_url_string(item.image.url)
+                else:
+                    self._open_resource_picker(item, item.image.id)
+                return
+
+    def _open_url_string(self, url_str: str):
+        """Open a URL string, handling .md and .grafli files specially."""
+        resolved = self._resolve_url(url_str)
+        if resolved.isLocalFile():
+            local = resolved.toLocalFile()
+            if local.endswith(".md"):
+                self._open_md_zen(
+                    Path(local), anchor=resolved.fragment() or "",
+                )
+                return
+            if local.endswith(".grafli"):
+                window = self.window()
+                if hasattr(window, '_open_file'):
+                    window._open_file(Path(local))
+                return
+        QDesktopServices.openUrl(resolved)
+
+    def _open_resource_picker(self, item, element_id: str):
+        """Show the inline resource picker near the given item."""
+        window = self.window()
+        if not hasattr(window, '_file_path') or not window._file_path:
+            return
+        picker = _ResourcePicker(self.viewport())
+        item_rect = self.mapFromScene(item.sceneBoundingRect()).boundingRect()
+        pw = picker.sizeHint().width()
+        ph = picker.sizeHint().height()
+        px = int(item_rect.center().x()) - pw // 2
+        py = int(item_rect.top()) - ph - 8
+        if py < 0:
+            py = int(item_rect.bottom()) + 8
+        vp = self.viewport().rect()
+        px = max(0, min(px, vp.width() - pw))
+        picker.move(self.viewport().mapToGlobal(QPoint(px, py)))
+        picker.resource_selected.connect(
+            lambda kind: self._create_resource(item, element_id, kind)
+        )
+        picker.show()
+
+    def _open_resource_picker_for_arrow(self, arrow):
+        """Show inline resource picker for an arrow."""
+        window = self.window()
+        if not hasattr(window, '_file_path') or not window._file_path:
+            return
+        aid = f"{arrow.from_id}--{arrow.to_id}"
+        # Position near arrow label or midpoint
+        picker = _ResourcePicker(self.viewport())
+        center = self.viewport().rect().center()
+        for it in self._arrow_items:
+            if isinstance(it, LabelItem) and it.data(0) is arrow:
+                center = self.mapFromScene(it.pos()).toPoint()
+                break
+        pw = picker.sizeHint().width()
+        ph = picker.sizeHint().height()
+        px = center.x() - pw // 2
+        py = center.y() - ph - 8
+        vp = self.viewport().rect()
+        px = max(0, min(px, vp.width() - pw))
+        py = max(0, py)
+        picker.move(self.viewport().mapToGlobal(QPoint(int(px), int(py))))
+        picker.resource_selected.connect(
+            lambda kind: self._create_arrow_resource(arrow, aid, kind)
+        )
+        picker.show()
+
+    def _create_resource(self, item, element_id: str, kind: str):
+        """Create a resource for a node and set its url."""
+        from grafli.resources import ensure_res_dir
+        window = self.window()
+        grafli_path = window._file_path
+        rd = ensure_res_dir(grafli_path)
+
+        if kind == "markdown":
+            md_path = rd / f"{element_id}.md"
+            if not md_path.exists():
+                label = self._element_label(item)
+                md_path.write_text(f"# {label}\n\n", encoding="utf-8")
+            rel = f"{rd.name}/{md_path.name}"
+            self._set_element_url(item, rel)
+            self._open_md_zen(md_path)
+        elif kind == "grafli":
+            sub_path = rd / f"{element_id}.grafli"
+            if not sub_path.exists():
+                label = self._element_label(item)
+                sub_path.write_text(
+                    f"#!grafli v1\n# {label}\n", encoding="utf-8",
+                )
+            rel = f"{rd.name}/{sub_path.name}"
+            self._set_element_url(item, rel)
+            window._open_file(sub_path)
+        elif kind == "file":
+            self._set_url()
+
+    def _create_arrow_resource(self, arrow, aid: str, kind: str):
+        """Create a resource for an arrow and set its url."""
+        from grafli.resources import ensure_res_dir
+        window = self.window()
+        grafli_path = window._file_path
+        rd = ensure_res_dir(grafli_path)
+
+        if kind == "markdown":
+            md_path = rd / f"{aid}.md"
+            if not md_path.exists():
+                title = arrow.label or f"{arrow.from_id} \u2192 {arrow.to_id}"
+                md_path.write_text(f"# {title}\n\n", encoding="utf-8")
+            rel = f"{rd.name}/{md_path.name}"
+            self._push_undo()
+            arrow.url = rel
+            self._redraw_arrows()
+            self.mark_dirty()
+            self._open_md_zen(md_path)
+        elif kind == "grafli":
+            sub_path = rd / f"{aid}.grafli"
+            if not sub_path.exists():
+                title = arrow.label or f"{arrow.from_id} \u2192 {arrow.to_id}"
+                sub_path.write_text(
+                    f"#!grafli v1\n# {title}\n", encoding="utf-8",
+                )
+            rel = f"{rd.name}/{sub_path.name}"
+            self._push_undo()
+            arrow.url = rel
+            self._redraw_arrows()
+            self.mark_dirty()
+            window._open_file(sub_path)
+        elif kind == "file":
+            self._set_url()
+
+    def _element_label(self, item) -> str:
+        """Extract a label string from a graphics item."""
+        if isinstance(item, BoxItem):
+            return item.box.label.replace("\n", " ")
+        if isinstance(item, NoteItem):
+            return item.note.text.replace("\n", " ")[:40]
+        if isinstance(item, ImageItem):
+            return item.image.id
+        return ""
+
+    def _set_element_url(self, item, url: str):
+        """Set url on a graphics item, push undo, and refresh indicator."""
+        self._push_undo()
+        if isinstance(item, BoxItem):
+            item.box.url = url
+            item._update_url_indicator()
+        elif isinstance(item, NoteItem):
+            item.note.url = url
+            item._update_url_indicator()
+        elif isinstance(item, ImageItem):
+            item.image.url = url
+            item._update_url_indicator()
+        item.update()
+        self.mark_dirty()
+
+    def _quick_edit_markdown(self):
+        """Quick-create/open markdown resource for the selected element."""
         if self._zen_editor:
             return
-        target = None
-        title = ""
-        current = ""
+        window = self.window()
+        if not hasattr(window, '_file_path') or not window._file_path:
+            return
+        grafli_path = window._file_path
+
         if self._selected_arrow:
-            target = self._selected_arrow
-            title = f"{target.from_id} \u2192 {target.to_id}"
-            current = target.annotation
-        else:
-            for item in self._scene.selectedItems():
+            arrow = self._selected_arrow
+            aid = f"{arrow.from_id}--{arrow.to_id}"
+            if arrow.url and arrow.url.endswith(".md"):
+                resolved = self._resolve_url(arrow.url)
+                self._open_md_zen(Path(resolved.toLocalFile()))
+                return
+            from grafli.resources import ensure_res_dir
+            rd = ensure_res_dir(grafli_path)
+            md_path = rd / f"{aid}.md"
+            if not md_path.exists():
+                title = arrow.label or f"{arrow.from_id} \u2192 {arrow.to_id}"
+                md_path.write_text(f"# {title}\n\n", encoding="utf-8")
+            rel = f"{rd.name}/{md_path.name}"
+            self._push_undo()
+            arrow.url = rel
+            self._redraw_arrows()
+            self.mark_dirty()
+            self._open_md_zen(md_path)
+            return
+
+        for item in self._scene.selectedItems():
+            if isinstance(item, (BoxItem, NoteItem, ImageItem)):
+                url = ""
+                element_id = ""
                 if isinstance(item, BoxItem):
-                    target = item
-                    title = item.box.label.replace("\n", " ")
-                    current = item.box.annotation
-                    break
-                if isinstance(item, NoteItem):
-                    target = item
-                    title = item.note.text.replace("\n", " ")[:40]
-                    current = item.note.annotation
-                    break
-        if target is None:
-            return
-        self._zen_target = target
-        self._zen_editor = ZenMarkdownEditor(
-            parent=self.window(), text=current, title=title,
-        )
-        self._zen_editor.finished.connect(self._commit_zen_annotation)
-        self._zen_editor.cancelled.connect(self._cancel_zen_annotation)
+                    url = item.box.url
+                    element_id = item.box.id
+                elif isinstance(item, NoteItem):
+                    url = item.note.url
+                    element_id = item.note.id
+                elif isinstance(item, ImageItem):
+                    url = item.image.url
+                    element_id = item.image.id
+                if url and url.endswith(".md"):
+                    resolved = self._resolve_url(url)
+                    self._open_md_zen(Path(resolved.toLocalFile()))
+                    return
+                if not url:
+                    self._create_resource(item, element_id, "markdown")
+                return
 
-    def _commit_zen_annotation(self, text: str):
-        """Apply edited annotation from the zen overlay."""
-        target = self._zen_target
-        self._zen_editor = None
-        self._zen_target = None
-        if target is None:
-            return
-        new_text = text.strip()
-        if isinstance(target, Arrow):
-            if new_text != target.annotation:
-                self._push_undo()
-                target.annotation = new_text
-                self._redraw_arrows()
-                self.mark_dirty()
-        elif isinstance(target, BoxItem):
-            if new_text != target.box.annotation:
-                self._push_undo()
-                target.box.annotation = new_text
-                target._update_url_indicator()
-                self.mark_dirty()
-                target.update()
-        elif isinstance(target, NoteItem):
-            if new_text != target.note.annotation:
-                self._push_undo()
-                target.note.annotation = new_text
-                target._update_url_indicator()
-                self.mark_dirty()
-                target.update()
-
-    def _cancel_zen_annotation(self):
-        """Discard zen annotation edit."""
+    def _cancel_zen_edit(self):
+        """Discard zen editor."""
         self._zen_editor = None
         self._zen_target = None
 
@@ -1511,13 +1736,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if self._zen_editor:
             return
         if not path.exists():
-            return
+            path.write_text(f"# {path.stem}\n\n", encoding="utf-8")
         text = path.read_text(encoding="utf-8")
         self._zen_editor = ZenMarkdownEditor(
             parent=self.window(), text=text, title=path.name,
             file_path=path, anchor=anchor,
         )
-        self._zen_editor.cancelled.connect(self._cancel_zen_annotation)
+        self._zen_editor.cancelled.connect(self._cancel_zen_edit)
 
     def _start_editing(self, target: BoxItem | NoteItem):
         self._commit_editor()
@@ -2168,7 +2393,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
         if event.key() == Qt.Key.Key_E and shift_only and self._selected_arrow:
-            self._edit_annotation()
+            self._quick_edit_markdown()
             event.accept()
             return
         if event.key() == Qt.Key.Key_O and no_mod:
@@ -2446,14 +2671,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     return
                 if event.key() == Qt.Key.Key_Return:
                     self._clear_box_mode()
-                    self._open_url()
+                    self._open_resource()
                     event.accept()
                     return
 
-            # E (Shift+E) — edit annotation (works regardless of box mode)
+            # E (Shift+E) — quick-create/open markdown resource
             if event.key() == Qt.Key.Key_E and shift_only:
                 self._clear_box_mode()
-                self._edit_annotation()
+                self._quick_edit_markdown()
                 event.accept()
                 return
 

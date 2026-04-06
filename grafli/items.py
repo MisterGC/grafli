@@ -33,6 +33,20 @@ from grafli.constants import (
 _RE_SPEAKER = re.compile(r"^([A-Z]{2,3}): ")
 from grafli.format import Box, Image, Note
 
+
+def _paint_link_glyph(painter: QPainter, rect: QRectF):
+    """Paint a subtle link icon at the top-right corner of *rect*."""
+    color = QColor("#D4804E")
+    color.setAlphaF(0.6)
+    painter.setPen(QPen(color, 1.2))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    cx = rect.right() - 8
+    cy = rect.top() + 8
+    r1 = QRectF(cx - 4, cy - 3, 6, 4)
+    r2 = QRectF(cx - 2, cy - 1, 6, 4)
+    painter.drawRoundedRect(r1, 1.5, 1.5)
+    painter.drawRoundedRect(r2, 1.5, 1.5)
+
 # ── Handle IDs ───────────────────────────────────────────────────
 
 _CORNER_TL = 0
@@ -184,16 +198,8 @@ class BoxItem(QGraphicsRectItem):
         self.update()
 
     def _update_url_indicator(self):
-        """Refresh underline + tooltip based on url and annotation."""
-        font = self._label.font()
-        font.setUnderline(bool(self.box.url))
-        self._label.setFont(font)
-        parts = []
-        if self.box.annotation:
-            parts.append(self.box.annotation)
-        if self.box.url:
-            parts.append(self.box.url)
-        self.setToolTip("\n".join(parts) if parts else "")
+        """Refresh tooltip based on url."""
+        self.setToolTip(self.box.url if self.box.url else "")
 
     # ── Auto layout helpers ──
 
@@ -480,13 +486,8 @@ class BoxItem(QGraphicsRectItem):
         radius = 0 if self.box.style == "flat" or self._is_parent else BOX_RADIUS
         painter.drawRoundedRect(self.rect(), radius, radius)
 
-        if self.box.annotation:
-            dot_color = QColor("#D4804E")
-            dot_color.setAlphaF(0.8)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(dot_color))
-            r = self.rect()
-            painter.drawEllipse(QPointF(r.right() - 5, r.top() + 5), 3, 3)
+        if self.box.url:
+            _paint_link_glyph(painter, self.rect())
 
         if self.isSelected():
             sel_rect = self.rect().adjusted(-4, -4, 4, 4)
@@ -610,7 +611,6 @@ class NoteItem(QGraphicsSimpleTextItem):
         pad = self._PAD
 
         body_font = QFont(font)
-        body_font.setUnderline(bool(self.note.url))
         body_fm = QFontMetricsF(body_font)
         lines = body.split("\n")
         body_w = max((body_fm.horizontalAdvance(ln) for ln in lines), default=0)
@@ -645,7 +645,6 @@ class NoteItem(QGraphicsSimpleTextItem):
         line_h = fm.height()
 
         body_font = QFont(font)
-        body_font.setUnderline(bool(self.note.url))
         body_fm = QFontMetricsF(body_font)
         lines = body.split("\n")
         body_w = max((body_fm.horizontalAdvance(ln) for ln in lines), default=0)
@@ -704,12 +703,8 @@ class NoteItem(QGraphicsSimpleTextItem):
             for i, ln in enumerate(lines):
                 painter.drawText(QPointF(pad, text_y + i * line_h), ln)
 
-        if self.note.annotation:
-            dot_color = QColor("#D4804E")
-            dot_color.setAlphaF(0.8)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(dot_color))
-            painter.drawEllipse(QPointF(bg_rect.right() - 5, bg_rect.top() + 5), 3, 3)
+        if self.note.url:
+            _paint_link_glyph(painter, bg_rect)
 
         # Selection indicator
         if self.isSelected():
@@ -769,14 +764,8 @@ class NoteItem(QGraphicsSimpleTextItem):
             if blk_idx < len(blocks) - 1:
                 y += self._BLOCK_GAP
 
-        if self.note.annotation:
-            dot_color = QColor("#D4804E")
-            dot_color.setAlphaF(0.8)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(dot_color))
-            painter.drawEllipse(
-                QPointF(bg_rect.right() - 5, bg_rect.top() + 5), 3, 3
-            )
+        if self.note.url:
+            _paint_link_glyph(painter, bg_rect)
 
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
@@ -805,13 +794,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         pass
 
     def _update_url_indicator(self):
-        """Refresh underline + tooltip based on url and annotation."""
-        parts = []
-        if self.note.annotation:
-            parts.append(self.note.annotation)
-        if self.note.url:
-            parts.append(self.note.url)
-        self.setToolTip("\n".join(parts) if parts else "")
+        """Refresh tooltip based on url."""
+        self.setToolTip(self.note.url if self.note.url else "")
         self.update()
 
     def update_text(self, text: str):
@@ -878,6 +862,11 @@ class ImageItem(QGraphicsPixmapItem):
             ResizeHandle(_CORNER_BR, self),
         ]
         self._update_handles()
+        self._update_url_indicator()
+
+    def _update_url_indicator(self):
+        """Refresh tooltip based on url."""
+        self.setToolTip(self.image.url if self.image.url else "")
 
     def _load_pixmap(self):
         import os
@@ -986,14 +975,8 @@ class ImageItem(QGraphicsPixmapItem):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(target)
 
-        if self.image.annotation:
-            dot_color = QColor("#D4804E")
-            dot_color.setAlphaF(0.8)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(dot_color))
-            painter.drawEllipse(
-                QPointF(target.right() - 5, target.top() + 5), 3, 3
-            )
+        if self.image.url:
+            _paint_link_glyph(painter, target)
 
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)

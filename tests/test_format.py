@@ -747,51 +747,60 @@ def test_parse_note_annotation():
     assert board.notes[0].annotation == "move this"
 
 
-def test_serialize_box_annotation():
+def test_serialize_box_annotation_stripped():
+    """Annotations are parsed but no longer serialized."""
     box = Box(id="b1", label="API", x=100, y=200, w=200, h=100,
               annotation="should this be async?")
     board = Board()
     board.add_box(box)
     text = serialize(board)
-    assert '@ box b1 "API" 100,200 200x100  # should this be async?' in text
+    assert "# should this be async?" not in text
+    assert '@ box b1 "API" 100,200 200x100\n' in text
 
 
-def test_serialize_arrow_annotation():
+def test_serialize_arrow_annotation_stripped():
     arrow = Arrow(from_id="a", to_id="b", label="calls",
                   annotation="review direction")
     board = Board()
     board.add_arrow(arrow)
     text = serialize(board)
-    assert '@ arrow a -> b "calls"  # review direction' in text
+    assert "# review direction" not in text
 
 
-def test_serialize_note_annotation():
+def test_serialize_note_annotation_stripped():
     note = Note(id="n1", x=50, y=300, text="entry", annotation="move this")
     board = Board()
     board.add_note(note)
     text = serialize(board)
-    assert '@ note n1 50,300 "entry"  # move this' in text
+    assert "# move this" not in text
 
 
-def test_box_annotation_roundtrip():
+def test_box_annotation_parsed_not_serialized():
     text = '@ box b1 "API" 100,200 200x100  # should this be async?\n'
     board = parse(text)
-    assert serialize(board) == HEADER + "\n" + text
+    assert board.boxes[0].annotation == "should this be async?"
+    result = serialize(board)
+    assert "# should this be async?" not in result
+    assert '@ box b1 "API" 100,200 200x100\n' in result
 
 
-def test_arrow_annotation_roundtrip():
+def test_arrow_annotation_parsed_not_serialized():
     text = '@ arrow a -> b "calls"  # review direction\n'
     board = parse(text)
-    assert serialize(board) == HEADER + "\n" + text
+    assert board.arrows[0].annotation == "review direction"
+    result = serialize(board)
+    assert "# review direction" not in result
 
 
-def test_note_annotation_roundtrip():
+def test_note_annotation_parsed_not_serialized():
     text = '@ note n1 50,300 "entry"  # move this\n'
     board = parse(text)
-    assert serialize(board) == HEADER + "\n" + text
+    assert board.notes[0].annotation == "move this"
+    result = serialize(board)
+    assert "# move this" not in result
 
 
-def test_arrow_bidi_style_annotation_roundtrip():
+def test_arrow_bidi_style_annotation_parsed():
     text = '@ arrow a <-> b "data" !dotted  # check latency\n'
     board = parse(text)
     arrow = board.arrows[0]
@@ -799,22 +808,93 @@ def test_arrow_bidi_style_annotation_roundtrip():
     assert arrow.head_to is True
     assert arrow.style == "dotted"
     assert arrow.annotation == "check latency"
-    assert serialize(board) == HEADER + "\n" + text
+    result = serialize(board)
+    assert "# check latency" not in result
 
 
-def test_box_all_fields_with_annotation_roundtrip():
+def test_box_all_fields_with_annotation_parsed():
     text = '@ box web "Web" 60,70 180x80 %secondary ^topleft ~small !flat >root  # needs review\n'
     board = parse(text)
     box = board.boxes[0]
     assert box.annotation == "needs review"
-    assert serialize(board) == HEADER + "\n" + text
+    result = serialize(board)
+    assert "# needs review" not in result
 
 
-def test_note_all_fields_with_annotation_roundtrip():
+def test_note_all_fields_with_annotation_parsed():
     text = '@ note n1 100,200 "Label" %accent ~large !mono  # move up\n'
     board = parse(text)
     note = board.notes[0]
     assert note.annotation == "move up"
+    result = serialize(board)
+    assert "# move up" not in result
+
+
+# ── Arrow url tests ──────────────────────────────────────────
+
+def test_parse_arrow_with_url():
+    text = '@ arrow a -> b "calls" &docs/flow.md\n'
+    board = parse(text)
+    assert board.arrows[0].url == "docs/flow.md"
+
+
+def test_parse_arrow_without_url():
+    text = '@ arrow a -> b "calls"\n'
+    board = parse(text)
+    assert board.arrows[0].url == ""
+
+
+def test_serialize_arrow_with_url():
+    arrow = Arrow(from_id="a", to_id="b", label="calls", url="docs/flow.md")
+    board = Board()
+    board.add_arrow(arrow)
+    text = serialize(board)
+    assert '@ arrow a -> b "calls" &docs/flow.md' in text
+
+
+def test_arrow_url_roundtrip():
+    text = '@ arrow a -> b "calls" &docs/flow.md\n'
+    board = parse(text)
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_style_url_roundtrip():
+    text = '@ arrow a -> b "calls" !dashed ~small &docs/flow.md\n'
+    board = parse(text)
+    arrow = board.arrows[0]
+    assert arrow.style == "dashed"
+    assert arrow.textsize == "small"
+    assert arrow.url == "docs/flow.md"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+# ── Image url tests ──────────────────────────────────────────
+
+def test_parse_image_with_url():
+    text = '@ image img1 "pic.png" 10,20 100x80 &notes/img1.md\n'
+    board = parse(text)
+    assert board.images[0].url == "notes/img1.md"
+
+
+def test_parse_image_without_url():
+    text = '@ image img1 "pic.png" 10,20 100x80\n'
+    board = parse(text)
+    assert board.images[0].url == ""
+
+
+def test_serialize_image_with_url():
+    from grafli.format import Image
+    image = Image(id="img1", image_path="pic.png", x=10, y=20, w=100, h=80,
+                  url="notes/img1.md")
+    board = Board()
+    board.add_image(image)
+    text = serialize(board)
+    assert '@ image img1 "pic.png" 10,20 100x80 &notes/img1.md' in text
+
+
+def test_image_url_roundtrip():
+    text = '@ image img1 "pic.png" 10,20 100x80 &notes/img1.md\n'
+    board = parse(text)
     assert serialize(board) == HEADER + "\n" + text
 
 
@@ -924,7 +1004,9 @@ def test_arrow_all_fields_roundtrip():
     assert arrow.annotation == "check latency"
     assert arrow.head_from is True
     assert arrow.head_to is True
-    assert serialize(board) == HEADER + "\n" + text
+    # Annotation is parsed but not serialized
+    result = serialize(board)
+    assert '@ arrow a <-> b "data" !dashed ~xxlarge\n' in result
 
 
 # ── Note newline tests ─────────────────────────────────────
@@ -987,7 +1069,9 @@ def test_note_all_fields_with_parent_roundtrip():
     assert note.style == "mono"
     assert note.parent == "box1"
     assert note.annotation == "annotation"
-    assert serialize(board) == HEADER + "\n" + text
+    # Annotation is parsed but not serialized
+    result = serialize(board)
+    assert '@ note n1 100,200 "hello" %accent ~large !mono >box1\n' in result
 
 
 # ── Box newline tests ─────────────────────────────────────
@@ -1057,7 +1141,9 @@ def test_arrow_all_fields_with_offset_roundtrip():
     assert arrow.annotation == "check latency"
     assert arrow.head_from is True
     assert arrow.head_to is True
-    assert serialize(board) == HEADER + "\n" + text
+    # Annotation is parsed but not serialized
+    result = serialize(board)
+    assert '@ arrow a <-> b "data" @-5,12.5 !dashed ~xxlarge\n' in result
 
 
 def test_arrow_label_offset_negative():
@@ -1135,7 +1221,9 @@ def test_box_all_fields_with_url_roundtrip():
     assert box.url == "https://example.com"
     assert box.parent == "sprint1"
     assert box.annotation == "review"
-    assert serialize(board) == HEADER + "\n" + text
+    # Annotation parsed but not serialized
+    result = serialize(board)
+    assert '@ box yt1 "YT-1234" 100,200 160x80 %secondary ^topleft ~small !flat &https://example.com >sprint1\n' in result
 
 
 def test_note_all_fields_with_url_roundtrip():
@@ -1145,7 +1233,9 @@ def test_note_all_fields_with_url_roundtrip():
     assert note.url == "https://example.com"
     assert note.parent == "box1"
     assert note.annotation == "annotation"
-    assert serialize(board) == HEADER + "\n" + text
+    # Annotation parsed but not serialized
+    result = serialize(board)
+    assert '@ note n1 100,200 "Label" %accent ~large !mono &https://example.com >box1\n' in result
 
 
 def test_box_url_with_various_schemes():

@@ -10,9 +10,9 @@ Format spec:
   @ arrow <from_id> -- <to_id> "<label>"           (no heads)
   @ arrow <from_id> -> <to_id> "label" @<dx>,<dy>  (label offset)
   @ arrow <from_id> -> <to_id> "label" !dashed     (arrow styles: dashed/dotted/thick)
-  @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&url] [>parent]   (color/style ignored by renderer)
-  @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent]
-  Any element line may end with  # annotation text
+  @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
+  @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&url] [>parent]
+  @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [&url]
 """
 
 from __future__ import annotations
@@ -53,7 +53,8 @@ class Arrow:
     textsize: str = ""    # "small", "large", "xlarge", "xxlarge", "xxxlarge", or "" (default)
     head_from: bool = False  # arrowhead at from_id end
     head_to: bool = True     # arrowhead at to_id end
-    annotation: str = ""
+    url: str = ""
+    annotation: str = ""     # deprecated — kept for migration parsing
 
 
 @dataclass
@@ -79,7 +80,8 @@ class Image:
     w: float
     h: float
     parent: str = ""
-    annotation: str = ""
+    url: str = ""
+    annotation: str = ""     # deprecated — kept for migration parsing
 
 
 @dataclass
@@ -203,6 +205,7 @@ _RE_ARROW = re.compile(
     r'(?:\s+@(-?[\d.]+),(-?[\d.]+))?'
     r'(?:\s+!(dashed|dotted|thick))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
+    r'(?:\s+&(\S+))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
 )
@@ -222,6 +225,7 @@ _RE_IMAGE = re.compile(
     r'^@\s+image\s+(\S+)\s+"([^"]*)"\s+'
     r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
     r'(?:\s+>(\S+))?'
+    r'(?:\s+&(\S+))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
 )
@@ -282,7 +286,8 @@ def parse(text: str) -> Board:
                 textsize=m.group(8) or "",
                 head_from=op in ("<->", "<-"),
                 head_to=op in ("<->", "->"),
-                annotation=(m.group(9) or "").replace("\\n", "\n"),
+                url=m.group(9) or "",
+                annotation=(m.group(10) or "").replace("\\n", "\n"),
             )
             board.arrows.append(arrow)
             board._lines.append(("arrow", arrow))
@@ -316,7 +321,8 @@ def parse(text: str) -> Board:
                 w=float(m.group(5)),
                 h=float(m.group(6)),
                 parent=m.group(7) or "",
-                annotation=(m.group(8) or "").replace("\\n", "\n"),
+                url=m.group(8) or "",
+                annotation=(m.group(9) or "").replace("\\n", "\n"),
             )
             board.images.append(image)
             board._lines.append(("image", image))
@@ -361,8 +367,6 @@ def _serialize_box(box: Box) -> str:
         s += f" &{box.url}"
     if box.parent:
         s += f" >{box.parent}"
-    if box.annotation:
-        s += f"  # {box.annotation.replace(chr(10), '\\n')}"
     return s
 
 
@@ -386,8 +390,8 @@ def _serialize_arrow(arrow: Arrow) -> str:
         base += f" !{arrow.style}"
     if arrow.textsize:
         base += f" ~{arrow.textsize}"
-    if arrow.annotation:
-        base += f"  # {arrow.annotation.replace(chr(10), '\\n')}"
+    if arrow.url:
+        base += f" &{arrow.url}"
     return base
 
 
@@ -406,8 +410,6 @@ def _serialize_note(note: Note) -> str:
         s += f" &{note.url}"
     if note.parent:
         s += f" >{note.parent}"
-    if note.annotation:
-        s += f"  # {note.annotation.replace(chr(10), '\\n')}"
     return s
 
 
@@ -419,8 +421,8 @@ def _serialize_image(image: Image) -> str:
     s = f'@ image {image.id} "{image.image_path}" {x},{y} {w}x{h}'
     if image.parent:
         s += f" >{image.parent}"
-    if image.annotation:
-        s += f"  # {image.annotation.replace(chr(10), '\\n')}"
+    if image.url:
+        s += f" &{image.url}"
     return s
 
 

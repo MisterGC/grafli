@@ -224,6 +224,10 @@ class MainWindow(QMainWindow):
             return
 
         board = parse(text)
+        from grafli.resources import migrate_all
+        if migrate_all(path, board):
+            text = serialize(board)
+            path.write_text(text, encoding="utf-8")
         mtime = self._get_mtime(path)
         vs = ViewState()
         buf = BufferState(

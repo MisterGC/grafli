@@ -122,9 +122,9 @@ class CommandsMixin:
         if not hasattr(window, '_file_path') or not window._file_path:
             return
 
+        from grafli.resources import ensure_res_dir
         file_path = window._file_path
-        images_dir = file_path.parent / f"{file_path.stem}-images"
-        images_dir.mkdir(exist_ok=True)
+        images_dir = ensure_res_dir(file_path)
 
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         img_name = f"img-{timestamp}.png"

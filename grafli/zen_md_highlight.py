@@ -57,6 +57,14 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         super().__init__(parent)
         self._focus_range: tuple[int, int] = (-1, -1)
         self._focus_enabled = True
+        self._base_size = ZEN_MD_FONT_SIZE
+
+    def set_base_size(self, size: int):
+        """Set the base font size; heading sizes scale proportionally."""
+        if size == self._base_size:
+            return
+        self._base_size = size
+        self.rehighlight()
 
     def set_focus_range(self, start: int, end: int):
         """Update which block range is focused, rehighlight changed blocks."""
@@ -96,7 +104,9 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         m = _RE_HEADING.match(text)
         if m:
             level = len(m.group(1))
-            size = ZEN_MD_HEADING_SIZES.get(level, ZEN_MD_FONT_SIZE)
+            base_size = ZEN_MD_HEADING_SIZES.get(level, ZEN_MD_FONT_SIZE)
+            # Scale proportionally to the current base font size
+            size = int(round(base_size * self._base_size / ZEN_MD_FONT_SIZE))
             # Hash chars — muted
             self.setFormat(
                 m.start(1), len(m.group(1)),

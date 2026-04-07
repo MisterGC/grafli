@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QFileSystemWatcher, Qt, Signal, QTimer
+from PySide6.QtCore import QEvent, QFileSystemWatcher, QSettings, Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QKeyEvent, QPainter
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
@@ -15,6 +15,8 @@ from grafli.constants import (
     ZEN_HINT_COLOR,
     ZEN_MD_BG,
     ZEN_MD_FONT_SIZE,
+    ZEN_MD_FONT_SIZE_MAX,
+    ZEN_MD_FONT_SIZE_MIN,
     ZEN_MD_MAX_WIDTH,
     ZEN_TEXT_COLOR,
     ZEN_TITLE_COLOR,
@@ -49,6 +51,15 @@ class ZenMarkdownEditor(QWidget):
         self._watcher = None
         self._autosave_timer: QTimer | None = None
 
+        # Load persisted font size preference
+        settings = QSettings("Grafli", "Grafli")
+        self._font_size = settings.value(
+            "zen_md/font_size", ZEN_MD_FONT_SIZE, type=int
+        )
+        self._font_size = max(
+            ZEN_MD_FONT_SIZE_MIN, min(ZEN_MD_FONT_SIZE_MAX, self._font_size)
+        )
+
         self.resize(parent.size())
         self._build_ui(title, text)
         self._setup_file_watcher()
@@ -78,7 +89,7 @@ class ZenMarkdownEditor(QWidget):
 
         # Text editor
         self._editor = QPlainTextEdit(text)
-        self._editor.setFont(QFont(FONT_FAMILY, ZEN_MD_FONT_SIZE))
+        self._editor.setFont(QFont(FONT_FAMILY, self._font_size))
         self._editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self._editor.setReadOnly(self._read_only)
         self._editor.setStyleSheet(
@@ -104,6 +115,7 @@ class ZenMarkdownEditor(QWidget):
 
         # Markdown highlighter + paragraph focus (disabled in read-only mode)
         self._highlighter = MarkdownHighlighter(self._editor.document())
+        self._highlighter.set_base_size(self._font_size)
         self._editor.cursorPositionChanged.connect(self._update_focus)
         if self._read_only:
             self._highlighter.set_focus_enabled(False)
@@ -330,8 +342,38 @@ class ZenMarkdownEditor(QWidget):
             self._print()
             return True
 
+        # Ctrl +/-/0 — font size zoom
+        if event.modifiers() & _CTRL_MOD:
+            if event.key() in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+                self._change_font_size(+1)
+                return True
+            if event.key() == Qt.Key.Key_Minus:
+                self._change_font_size(-1)
+                return True
+            if event.key() == Qt.Key.Key_0:
+                self._change_font_size(0)
+                return True
+
         # Route through vim handler
         return self._vim.handle_key(event)
+
+    def _change_font_size(self, delta: int):
+        """Change font size. delta=0 resets to default."""
+        if delta == 0:
+            new_size = ZEN_MD_FONT_SIZE
+        else:
+            new_size = max(
+                ZEN_MD_FONT_SIZE_MIN,
+                min(ZEN_MD_FONT_SIZE_MAX, self._font_size + delta),
+            )
+        if new_size == self._font_size:
+            return
+        self._font_size = new_size
+        self._editor.setFont(QFont(FONT_FAMILY, self._font_size))
+        self._highlighter.set_base_size(self._font_size)
+        QSettings("Grafli", "Grafli").setValue(
+            "zen_md/font_size", self._font_size
+        )
 
     def _activate_jump(self):
         if self._jump is None:

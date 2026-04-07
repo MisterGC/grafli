@@ -152,7 +152,9 @@ ZEN_MD_CODE_BG = QColor("#EDE9E3")
 ZEN_MD_LINK_COLOR = QColor("#004578")
 ZEN_MD_MUTED_ALPHA = 100
 ZEN_MD_SYNTAX_COLOR = QColor("#B8B3AB")
-ZEN_MD_FONT_SIZE = 14
+ZEN_MD_FONT_SIZE = 16
+ZEN_MD_FONT_SIZE_MIN = 10
+ZEN_MD_FONT_SIZE_MAX = 32
 
 # ── Side panel ───────────────────────────────────────────────────
 SIDE_PANEL_WIDTH = 180

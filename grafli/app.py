@@ -54,8 +54,8 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(self._view, stretch=1)
         layout.addWidget(self._side_panel)
+        layout.addWidget(self._view, stretch=1)
         self.setCentralWidget(container)
 
         # Restore panel visibility from settings (hidden by default)

@@ -43,29 +43,29 @@ class _ToolButton(QWidget):
         self._action_id = action_id
         self._hovered = False
         self._active = False
-        self.setFixedHeight(28)
+        self.setFixedHeight(34)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 2, 10, 2)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 4, 12, 4)
+        layout.setSpacing(8)
 
         icon_label = QLabel(icon)
-        icon_label.setFont(QFont(FONT_FAMILY, 13))
-        icon_label.setFixedWidth(20)
+        icon_label.setFont(QFont(FONT_FAMILY, 16))
+        icon_label.setFixedWidth(24)
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_label.setStyleSheet(f"color: {BOX_BORDER.name()}; background: transparent;")
         icon_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout.addWidget(icon_label)
 
         text_label = QLabel(label)
-        text_label.setFont(QFont(FONT_FAMILY, 10))
+        text_label.setFont(QFont(FONT_FAMILY, 13))
         text_label.setStyleSheet(f"color: {BOX_BORDER.name()}; background: transparent;")
         text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout.addWidget(text_label, stretch=1)
 
         hint = QLabel(shortcut)
-        hint.setFont(QFont(FONT_FAMILY, 9))
+        hint.setFont(QFont(FONT_FAMILY, 11))
         hint.setStyleSheet(f"color: {SIDE_PANEL_SHORTCUT_COLOR.name()}; background: transparent;")
         hint.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -108,11 +108,11 @@ class _ToolButton(QWidget):
 class _SectionHeader(QWidget):
     def __init__(self, title: str, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setFixedHeight(24)
+        self.setFixedHeight(28)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 6, 10, 2)
+        layout.setContentsMargins(12, 8, 12, 2)
         label = QLabel(title.upper())
-        label.setFont(QFont(FONT_FAMILY, 8, QFont.Weight.Bold))
+        label.setFont(QFont(FONT_FAMILY, 10, QFont.Weight.Bold))
         label.setStyleSheet(
             f"color: {SIDE_PANEL_SECTION_COLOR.name()}; background: transparent;"
         )
@@ -122,13 +122,21 @@ class _SectionHeader(QWidget):
 # ── Side panel ───────────────────────────────────────────────────
 
 class SidePanel(QWidget):
-    """Right-edge tool panel with context-sensitive actions."""
+    """Left-edge tool panel with context-sensitive actions."""
 
     tool_activated = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setFixedWidth(SIDE_PANEL_WIDTH)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Force a light background on the panel and all children, overriding
+        # the system palette (which on macOS dark mode is dark).
+        self.setStyleSheet(
+            f"SidePanel, QScrollArea, QScrollArea > QWidget,"
+            f" QScrollArea > QWidget > QWidget {{"
+            f" background: {SIDE_PANEL_BG.name()}; }}"
+        )
 
         self._buttons: dict[str, _ToolButton] = {}
         self._sections: dict[str, list[QWidget]] = {}
@@ -142,11 +150,10 @@ class SidePanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(scroll.Shape.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         content = QWidget()
         self._layout = QVBoxLayout(content)
-        self._layout.setContentsMargins(0, 8, 0, 8)
+        self._layout.setContentsMargins(0, 10, 0, 10)
         self._layout.setSpacing(0)
 
         self._build_mode_section()
@@ -229,9 +236,10 @@ class SidePanel(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.fillRect(self.rect(), SIDE_PANEL_BG)
-        # Left border line
+        # Right border line (panel sits on the left of the canvas)
         p.setPen(QPen(SIDE_PANEL_BORDER, 1))
-        p.drawLine(0, 0, 0, self.height())
+        x = self.width() - 1
+        p.drawLine(x, 0, x, self.height())
         p.end()
 
 

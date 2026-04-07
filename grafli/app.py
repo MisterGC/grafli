@@ -437,6 +437,14 @@ class MainWindow(QMainWindow):
 
     # ── Fuzzy finders ────────────────────────────────────────────
 
+    @staticmethod
+    def _parent_grafli_name(path: Path) -> str:
+        """If *path* lives inside a <stem>-res/ dir, return the parent stem."""
+        parent_dir = path.parent.name
+        if parent_dir.endswith("-res"):
+            return parent_dir[:-4]
+        return ""
+
     def _open_fuzzy_picker(self):
         if self._view._fuzzy_overlay:
             return
@@ -486,9 +494,11 @@ class MainWindow(QMainWindow):
             if i == self._buffers.active_index and self._view.dirty:
                 dirty = "*"
             current = " [current]" if i == self._buffers.active_index else ""
+            parent = self._parent_grafli_name(buf.file_path) if buf.file_path else ""
+            child_tag = f" [child of {parent}]" if parent else ""
             items.append(FuzzyItem(
                 display=f"{name}{dirty}",
-                detail=f"[open]{current}",
+                detail=f"[open]{child_tag}{current}",
                 data=("buffer", i),
             ))
 
@@ -507,9 +517,11 @@ class MainWindow(QMainWindow):
                 rel = p.relative_to(cwd)
             except ValueError:
                 rel = p
+            parent = self._parent_grafli_name(p)
+            detail = f"[child of {parent}]" if parent else ""
             items.append(FuzzyItem(
                 display=str(rel),
-                detail="",
+                detail=detail,
                 data=("file", p),
             ))
 

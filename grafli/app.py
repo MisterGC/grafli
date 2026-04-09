@@ -131,6 +131,8 @@ class MainWindow(QMainWindow):
         visible = not self._side_panel.isVisible()
         self._side_panel.setVisible(visible)
         QSettings("Grafli", "Grafli").setValue("sidepanel/visible", visible)
+        # Keep keyboard focus on the canvas — the panel is mouse-only.
+        self._view.setFocus()
 
     def _on_tool_activated(self, action_id: str):
         self._view.setFocus()

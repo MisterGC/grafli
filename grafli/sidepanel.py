@@ -45,6 +45,7 @@ class _ToolButton(QWidget):
         self._active = False
         self.setFixedHeight(34)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 4, 12, 4)
@@ -130,6 +131,8 @@ class SidePanel(QWidget):
         super().__init__(parent)
         self.setFixedWidth(SIDE_PANEL_WIDTH)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Never steal keyboard focus from the canvas — panel is mouse-only.
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         # Force a light background on the panel and all children, overriding
         # the system palette (which on macOS dark mode is dark).
         self.setStyleSheet(
@@ -150,8 +153,10 @@ class SidePanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(scroll.Shape.NoFrame)
+        scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         content = QWidget()
+        content.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._layout = QVBoxLayout(content)
         self._layout.setContentsMargins(0, 10, 0, 10)
         self._layout.setSpacing(0)
@@ -254,6 +259,7 @@ class PanelToggleButton(QWidget):
         super().__init__(parent)
         self.setFixedSize(SIDE_PANEL_TOGGLE_SIZE, SIDE_PANEL_TOGGLE_SIZE)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._hovered = False
         self.setToolTip("Toggle tools panel (\\)")
 

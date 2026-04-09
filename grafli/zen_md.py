@@ -128,6 +128,7 @@ class ZenMarkdownEditor(QWidget):
             close_cancel=self._close_cancel,
         )
         self._editor.setOverwriteMode(True)  # block cursor in normal mode
+        self._editor.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, False)
         self._editor.installEventFilter(self)  # intercept keys before editor
 
         # Word jump overlay
@@ -154,6 +155,12 @@ class ZenMarkdownEditor(QWidget):
 
     def _on_mode_changed(self, mode: VimMode):
         self._hint.setText(self._build_hint_text())
+        # Disable macOS input method in normal mode to prevent IMK
+        # interference with auto-repeat key events.
+        self._editor.setAttribute(
+            Qt.WidgetAttribute.WA_InputMethodEnabled,
+            mode == VimMode.INSERT,
+        )
 
     def _close_save(self):
         if self._file_path:

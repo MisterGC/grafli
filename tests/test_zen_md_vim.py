@@ -32,7 +32,8 @@ def _handler(text: str) -> tuple[QPlainTextEdit, VimKeyHandler]:
     return editor, handler
 
 
-def test_normal_mode_autorepeat_moves_multiple_steps():
+def test_normal_mode_autorepeat_moves_one_step():
+    """Each auto-repeat event moves one step (Qt 6 sends individual events)."""
     editor, handler = _handler("abcd")
     event = QKeyEvent(
         QEvent.Type.KeyPress,
@@ -40,14 +41,15 @@ def test_normal_mode_autorepeat_moves_multiple_steps():
         Qt.KeyboardModifier.NoModifier,
         "l",
         True,
-        3,
+        1,
     )
 
     assert handler.handle_key(event) is True
-    assert editor.textCursor().position() == 3
+    assert editor.textCursor().position() == 1
 
 
-def test_normal_mode_autorepeat_deletes_multiple_chars():
+def test_normal_mode_autorepeat_deletes_one_char():
+    """Each auto-repeat x event deletes one char (Qt 6 sends individual events)."""
     editor, handler = _handler("abcdef")
     event = QKeyEvent(
         QEvent.Type.KeyPress,
@@ -55,8 +57,8 @@ def test_normal_mode_autorepeat_deletes_multiple_chars():
         Qt.KeyboardModifier.NoModifier,
         "x",
         True,
-        3,
+        1,
     )
 
     assert handler.handle_key(event) is True
-    assert editor.toPlainText() == "def"
+    assert editor.toPlainText() == "bcdef"

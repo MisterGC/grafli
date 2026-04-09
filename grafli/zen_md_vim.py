@@ -53,6 +53,12 @@ class VimKeyHandler:
             return self._handle_insert(event)
         return self._handle_normal(event)
 
+    def _repeat_count(self, event: QKeyEvent) -> int:
+        """Honor compressed auto-repeat keypresses from Qt."""
+        if event.isAutoRepeat():
+            return max(1, event.count())
+        return 1
+
     # ── Insert mode ──
 
     def _handle_insert(self, event: QKeyEvent) -> bool:
@@ -68,6 +74,7 @@ class VimKeyHandler:
         key = event.key()
         mods = event.modifiers()
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        repeat = self._repeat_count(event)
 
         # Handle pending multi-key sequences
         if self._pending:
@@ -83,43 +90,43 @@ class VimKeyHandler:
 
         # ── Motion ──
         if key == Qt.Key.Key_H and not shift:
-            self._move(_MoveOp.Left)
+            self._move(_MoveOp.Left, repeat)
             return True
         if key == Qt.Key.Key_L and not shift:
-            self._move(_MoveOp.Right)
+            self._move(_MoveOp.Right, repeat)
             return True
         if key == Qt.Key.Key_J and not shift:
-            self._move(_MoveOp.Down)
+            self._move(_MoveOp.Down, repeat)
             return True
         if key == Qt.Key.Key_K and not shift:
-            self._move(_MoveOp.Up)
+            self._move(_MoveOp.Up, repeat)
             return True
 
         # w — next word start
         if key == Qt.Key.Key_W and not shift:
-            self._move(_MoveOp.NextWord)
+            self._move(_MoveOp.NextWord, repeat)
             return True
         # b — previous word start
         if key == Qt.Key.Key_B and not shift:
-            self._move(_MoveOp.PreviousWord)
+            self._move(_MoveOp.PreviousWord, repeat)
             return True
         # e — end of word
         if key == Qt.Key.Key_E and not shift:
-            self._move(_MoveOp.EndOfWord)
+            self._move(_MoveOp.EndOfWord, repeat)
             return True
 
         # 0 — start of line
         if key == Qt.Key.Key_0:
-            self._move(_MoveOp.StartOfBlock)
+            self._move(_MoveOp.StartOfBlock, repeat)
             return True
         # $ — end of line
         if event.text() == "$":
-            self._move(_MoveOp.EndOfBlock)
+            self._move(_MoveOp.EndOfBlock, repeat)
             return True
 
         # G — end of document
         if key == Qt.Key.Key_G and shift:
-            self._move(_MoveOp.End)
+            self._move(_MoveOp.End, repeat)
             return True
         # g — start pending for gg
         if key == Qt.Key.Key_G and not shift:
@@ -133,9 +140,7 @@ class VimKeyHandler:
 
         # x — delete char under cursor
         if key == Qt.Key.Key_X and not shift:
-            c = self._editor.textCursor()
-            c.deleteChar()
-            self._editor.setTextCursor(c)
+            self._delete_chars(repeat)
             return True
 
         # ── Enter insert mode ──
@@ -199,9 +204,16 @@ class VimKeyHandler:
 
     # ── Helpers ──
 
-    def _move(self, op: QTextCursor.MoveOperation):
+    def _move(self, op: QTextCursor.MoveOperation, count: int = 1):
         c = self._editor.textCursor()
-        c.movePosition(op)
+        for _ in range(count):
+            c.movePosition(op)
+        self._editor.setTextCursor(c)
+
+    def _delete_chars(self, count: int = 1):
+        c = self._editor.textCursor()
+        for _ in range(count):
+            c.deleteChar()
         self._editor.setTextCursor(c)
 
     def _delete_line(self):

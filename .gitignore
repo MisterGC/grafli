@@ -2,3 +2,9 @@ a-star-res
 grafli/__pycache__
 grafli.egg-info
 tests/__pycache__
+AGENTS.md
+a-star.grafli
+blog-dataflow.grafli
+feature-showcase.grafli
+test.grafli
+uv.lock

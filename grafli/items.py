@@ -31,7 +31,12 @@ from grafli.constants import (
 )
 
 _RE_SPEAKER = re.compile(r"^([A-Z]{2,3}): ")
+from grafli.code_note import code_body, is_code_note, tokenize_line
 from grafli.format import Box, Image, Note
+
+NOTE_CODE_KW_COLOR = QColor("#D4804E")
+NOTE_CODE_COMMENT_COLOR = QColor("#8A8580")
+NOTE_CODE_TEXT_COLOR = QColor("#2F3437")
 
 
 def _paint_link_glyph(painter: QPainter, rect: QRectF):
@@ -596,7 +601,45 @@ class NoteItem(QGraphicsSimpleTextItem):
         total_h = pad + total_lines * line_h + gap_h + pad
         return max_badge_w, body_w, line_h, total_w, total_h
 
+    def _is_code_note(self) -> bool:
+        return is_code_note(self.note.text)
+
+    def _code_lines(self) -> list[str]:
+        return code_body(self.note.text).split("\n")
+
+    def _code_font(self) -> QFont:
+        return self._note_font()
+
+    def _code_metrics(self, lines: list[str]):
+        font = self._code_font()
+        bold_font = QFont(font)
+        bold_font.setBold(True)
+        fm = QFontMetricsF(font)
+        bfm = QFontMetricsF(bold_font)
+        pad = self._PAD
+        line_h = fm.height()
+
+        def _line_w(line: str) -> float:
+            w = 0.0
+            for kind, text in tokenize_line(line):
+                metrics = bfm if kind == "kw" else fm
+                w += metrics.horizontalAdvance(text)
+            return w
+
+        body_w = max((_line_w(ln) for ln in lines), default=0.0)
+        total_w = pad + body_w + pad
+        total_h = pad + len(lines) * line_h + pad
+        return body_w, line_h, total_w, total_h
+
     def boundingRect(self):
+        if self._is_code_note():
+            lines = self._code_lines()
+            _, _, tw, th = self._code_metrics(lines)
+            r = QRectF(0, 0, tw, th)
+            if self.isSelected():
+                return r.adjusted(-4, -4, 4, 4)
+            return r
+
         discussion = self._parse_discussion()
         if discussion:
             _, _, _, tw, th = self._discussion_metrics(discussion)
@@ -633,6 +676,10 @@ class NoteItem(QGraphicsSimpleTextItem):
         return r
 
     def paint(self, painter: QPainter, option, widget=None):
+        if self._is_code_note():
+            self._paint_code(painter)
+            return
+
         discussion = self._parse_discussion()
         if discussion:
             self._paint_discussion(painter, discussion)
@@ -763,6 +810,57 @@ class NoteItem(QGraphicsSimpleTextItem):
 
             if blk_idx < len(blocks) - 1:
                 y += self._BLOCK_GAP
+
+        if self.note.url:
+            _paint_link_glyph(painter, bg_rect)
+
+        if self.isSelected():
+            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
+            painter.setPen(sel_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
+            painter.drawRect(sel_rect)
+
+    def _paint_code(self, painter: QPainter):
+        lines = self._code_lines()
+        font = self._code_font()
+        bold_font = QFont(font)
+        bold_font.setBold(True)
+        fm = QFontMetricsF(font)
+        bfm = QFontMetricsF(bold_font)
+        pad = self._PAD
+        line_h = fm.height()
+
+        _, _, total_w, total_h = self._code_metrics(lines)
+        bg_rect = QRectF(0, 0, total_w, total_h)
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        bg = QColor("#F2F0EB")
+        bg.setAlphaF(0.85)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+
+        text_y = pad + fm.ascent()
+        for i, line in enumerate(lines):
+            x = pad
+            y = text_y + i * line_h
+            for kind, text in tokenize_line(line):
+                if kind == "kw":
+                    painter.setFont(bold_font)
+                    painter.setPen(NOTE_CODE_KW_COLOR)
+                    advance = bfm.horizontalAdvance(text)
+                elif kind == "comment":
+                    painter.setFont(font)
+                    painter.setPen(NOTE_CODE_COMMENT_COLOR)
+                    advance = fm.horizontalAdvance(text)
+                else:
+                    painter.setFont(font)
+                    painter.setPen(NOTE_CODE_TEXT_COLOR)
+                    advance = fm.horizontalAdvance(text)
+                painter.drawText(QPointF(x, y), text)
+                x += advance
 
         if self.note.url:
             _paint_link_glyph(painter, bg_rect)

@@ -53,8 +53,10 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QTabWidget,
     QTextBrowser,
     QVBoxLayout,
+    QWidget,
 )
 
 from grafli.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_point, _line_rect_clip, _rect_edge_point
@@ -4604,7 +4606,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             )
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("Keyboard Shortcuts")
+        dlg.setWindowTitle("Help")
 
         screen = self.screen()
         if screen:
@@ -4615,35 +4617,154 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             w, h = 900, 600
         dlg.resize(w, h)
 
-        filter_input = QLineEdit(dlg)
+        tabs = QTabWidget(dlg)
+        tabs.setStyleSheet(
+            "QTabWidget::pane { border: 1px solid #6A9FB5; background: #2A2A2A; }"
+            " QTabBar::tab { background: #2A2A2A; color: #E0E0E0;"
+            " padding: 6px 14px; border: 1px solid #444; }"
+            " QTabBar::tab:selected { background: #3A3A3A;"
+            " border-bottom-color: #6A9FB5; }"
+        )
+
+        # ── Tab 1: shortcuts ──
+        shortcuts_tab = QWidget(tabs)
+        filter_input = QLineEdit(shortcuts_tab)
         filter_input.setPlaceholderText("Type to filter shortcuts\u2026")
         filter_input.setStyleSheet(
             "QLineEdit { background: #2A2A2A; color: #E0E0E0;"
             " border: 1px solid #6A9FB5; padding: 4px; }"
         )
-
-        browser = QTextBrowser(dlg)
+        browser = QTextBrowser(shortcuts_tab)
         browser.setOpenLinks(False)
         font = browser.font()
         font.setPointSize(13)
         browser.setFont(font)
-        browser.setStyleSheet("QTextBrowser { background: #2A2A2A; color: #E0E0E0; }")
+        browser.setStyleSheet(
+            "QTextBrowser { background: #2A2A2A; color: #E0E0E0; border: none; }"
+        )
         browser.setHtml(_render_html(""))
-
         filter_input.textChanged.connect(
             lambda t: browser.setHtml(_render_html(t))
         )
+        sc_layout = QVBoxLayout(shortcuts_tab)
+        sc_layout.addWidget(filter_input)
+        sc_layout.addWidget(browser, 1)
+        tabs.addTab(shortcuts_tab, "Shortcuts")
+
+        # ── Tab 2: note formats ──
+        notes_browser = QTextBrowser(tabs)
+        notes_browser.setOpenLinks(False)
+        notes_browser.setFont(font)
+        notes_browser.setStyleSheet(
+            "QTextBrowser { background: #2A2A2A; color: #E0E0E0; border: none;"
+            " padding: 8px; }"
+        )
+        notes_browser.setHtml(self._notes_help_html())
+        tabs.addTab(notes_browser, "Notes")
 
         btn = QPushButton("Close", dlg)
         btn.clicked.connect(dlg.accept)
 
         layout = QVBoxLayout(dlg)
-        layout.addWidget(filter_input)
-        layout.addWidget(browser, 1)
+        layout.addWidget(tabs, 1)
         layout.addWidget(btn)
 
         filter_input.setFocus()
         dlg.exec()
+
+    def _notes_help_html(self) -> str:
+        hdr = (
+            "color:#6A9FB5;font-weight:bold;"
+            "padding-top:10px;padding-bottom:4px"
+        )
+        kw = "color:#6A9FB5;font-weight:bold"
+        code_bg = (
+            "background:#1E1E1E;color:#E0E0E0;padding:8px;"
+            "font-family:monospace;white-space:pre;display:block;"
+            "border-left:3px solid #6A9FB5"
+        )
+        mono = "font-family:monospace"
+        dim = "color:#B8B3AB"
+        return f"""
+        <p style='{hdr}'>SPECIAL NOTE FORMATS</p>
+        <p>Text notes switch their rendering based on their content.
+        Edit mode always shows raw text — the formats below apply to
+        display mode only.</p>
+
+        <p style='{hdr}'>Informational &mdash; plain text</p>
+        <p>Default note. Blue text on a light badge-style background.</p>
+
+        <p style='{hdr}'>Task &mdash; <span style='{mono}'>T: &hellip;</span></p>
+        <p>Red badge + body. Use for todos that an agent can act on.</p>
+
+        <p style='{hdr}'>Question &mdash; <span style='{mono}'>Q: &hellip;</span></p>
+        <p>Purple badge + body. Use for questions an agent can answer inline.</p>
+
+        <p style='{hdr}'>Discussion &mdash;
+           <span style='{mono}'>XX: &hellip; \\n YY: &hellip;</span></p>
+        <p>Two or more speakers (2&ndash;3 uppercase-letter prefixes) render
+        as a threaded conversation with per-speaker colored badges.</p>
+
+        <p style='{hdr}'>Code &mdash; <span style='{mono}'>code:</span></p>
+        <p>A note whose first non-empty line is
+        <span style='{mono}'>code:</span> renders as a stylized pseudocode
+        block. The pseudocode is <b>not</b> real source code &mdash; it's a
+        minimal language for summarizing implementations in review-oriented
+        diagrams. One short instruction per line. Keywords render bold in
+        dark blue, comments in grey. Object orientation is expressed
+        naturally via dot syntax (<span style='{mono}'>obj.method(args)</span>).</p>
+
+        <p style='{kw}'>Keywords (one per line, followed by <span style='{mono}'>:</span>)</p>
+        <table cellpadding='4' style='margin-left:8px'>
+          <tr><td style='{mono}'>fn:</td>
+              <td>function signature &mdash;
+                  <span style='{mono}'>fn: name(args) -&gt; Result</span></td></tr>
+          <tr><td style='{mono}'>if:</td>
+              <td>condition</td></tr>
+          <tr><td style='{mono}'>then:</td>
+              <td>consequence of preceding <span style='{mono}'>if:</span></td></tr>
+          <tr><td style='{mono}'>else:</td>
+              <td>alternative branch</td></tr>
+          <tr><td style='{mono}'>for:</td>
+              <td>iteration &mdash;
+                  <span style='{mono}'>for: t in tokens</span></td></tr>
+          <tr><td style='{mono}'>while:</td>
+              <td>loop</td></tr>
+          <tr><td style='{mono}'>set:</td>
+              <td>assignment &mdash;
+                  <span style='{mono}'>set: x = expr</span></td></tr>
+          <tr><td style='{mono}'>return:</td>
+              <td>exit value</td></tr>
+          <tr><td style='{mono}'>err:</td>
+              <td>error / raise</td></tr>
+          <tr><td style='{mono}'>note:</td>
+              <td>review note / assumption</td></tr>
+          <tr><td style='{mono}'>@path:line</td>
+              <td>reference to real source (may follow any line)</td></tr>
+          <tr><td style='{mono}'># &hellip;</td>
+              <td>comment (dimmed)</td></tr>
+        </table>
+
+        <p style='{kw}'>Example</p>
+        <div style='{code_bg}'>code:
+fn: parseInput(raw) -&gt; Result
+if: raw.isEmpty
+then: err empty
+set: tokens = raw.split(sep)
+for: t in tokens
+  if: t.startsWith(at)
+  then: stack.push(t)
+  else: out.append(t)
+log.emit(parsed, out.size) @parser.py:120
+# fallthrough intentional
+return: out</div>
+
+        <p style='{dim}'>Lines without a leading keyword are plain actions
+        &mdash; the function/method call itself
+        (<span style='{mono}'>obj.method(args)</span>) makes the intent
+        obvious. A colon-word is only a keyword if it matches one of the
+        predefined set.</p>
+        """
 
     def _show_graph_stats_dialog(self):
         hdr = "color:#6A9FB5;font-weight:bold;font-size:13px"

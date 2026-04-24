@@ -30,7 +30,7 @@ from grafli.constants import (
     _resolve_color,
 )
 
-_RE_SPEAKER = re.compile(r"^([A-Z]{2,3}): ")
+_RE_SPEAKER = re.compile(r"^([A-Z][A-Za-z0-9_-]{0,15}): ")
 from grafli.code_note import code_body, is_code_note, tokenize_line
 from grafli.format import Box, Image, Note
 

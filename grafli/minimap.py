@@ -27,7 +27,7 @@ from grafli.constants import (
     _resolve_color,
 )
 
-_RE_SPEAKER = re.compile(r"^([A-Z]{2,3}): ", re.MULTILINE)
+_RE_SPEAKER = re.compile(r"^([A-Z][A-Za-z0-9_-]{0,15}): ", re.MULTILINE)
 
 _TIER_LABELS = ("Simple", "Moderate", "Intricate", "Dense")
 

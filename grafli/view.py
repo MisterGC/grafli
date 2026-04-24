@@ -304,6 +304,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Arrow dim state
         self._arrows_dimmed: bool = False
 
+        # Note-selection annotation highlight state
+        self._note_highlight_active: bool = False
+
         # Subgraph focus filter state
         self._focus_active: bool = False
         self._focus_node_id: str | None = None
@@ -423,6 +426,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._clear_focus_filter()
         if self._complexity_active:
             self._clear_complexity_heatmap()
+        self._clear_note_selection_highlight()
         if self._rect_preview:
             self._scene.removeItem(self._rect_preview)
             self._rect_preview = None
@@ -607,6 +611,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._complexity_active = False
         self._complexity_node_heat.clear()
         self._complexity_saved.clear()
+        self._note_highlight_active = False
         self._update_focus_status()
         self._update_complexity_status()
 
@@ -981,6 +986,75 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             gfx.setOpacity(arrow_opacity)
 
         self._update_focus_status()
+
+    def _update_note_selection_highlight(self):
+        """Dim unrelated items when a single connected note is selected.
+
+        A note is treated as an annotation of the elements it connects to via
+        arrows. When exactly one NoteItem is selected and it has at least one
+        arrow connection, all other items are dimmed so the annotation target
+        becomes visually obvious. Skipped when another opacity-owning mode is
+        active (focus filter, complexity heatmap, manual arrow dim).
+        """
+        if self._focus_active or self._complexity_active or self._arrows_dimmed:
+            if self._note_highlight_active:
+                self._clear_note_selection_highlight()
+            return
+
+        selected = self._scene.selectedItems()
+        if not (len(selected) == 1 and isinstance(selected[0], NoteItem) and self._board):
+            if self._note_highlight_active:
+                self._clear_note_selection_highlight()
+            return
+
+        note_id = selected[0].note.id
+        connected: set[str] = set()
+        for arrow in self._board.arrows:
+            if arrow.from_id == note_id:
+                connected.add(arrow.to_id)
+            elif arrow.to_id == note_id:
+                connected.add(arrow.from_id)
+
+        if not connected:
+            if self._note_highlight_active:
+                self._clear_note_selection_highlight()
+            return
+
+        keep = connected | {note_id}
+        dim = 0.25
+
+        for box_id, item in self._box_items.items():
+            op = 1.0 if box_id in keep else dim
+            item.setOpacity(op)
+            item._label.setOpacity(op)
+        for nid, item in self._note_items.items():
+            item.setOpacity(1.0 if nid in keep else dim)
+        for iid, item in self._image_items.items():
+            item.setOpacity(1.0 if iid in keep else dim)
+        for gfx in self._arrow_items:
+            arrow = gfx.data(0)
+            if not isinstance(arrow, Arrow):
+                gfx.setOpacity(dim)
+                continue
+            touches_note = arrow.from_id == note_id or arrow.to_id == note_id
+            gfx.setOpacity(1.0 if touches_note else dim)
+
+        self._note_highlight_active = True
+
+    def _clear_note_selection_highlight(self):
+        """Restore full opacity after a note-selection highlight."""
+        if not self._note_highlight_active:
+            return
+        for item in self._box_items.values():
+            item.setOpacity(1.0)
+            item._label.setOpacity(1.0)
+        for item in self._note_items.values():
+            item.setOpacity(1.0)
+        for item in self._image_items.values():
+            item.setOpacity(1.0)
+        for gfx in self._arrow_items:
+            gfx.setOpacity(1.0)
+        self._note_highlight_active = False
 
     def _update_focus_status(self):
         """Update window._status_focus label."""
@@ -1971,6 +2045,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             count = len(self._scene.selectedItems())
             window._status_sel.setText(f"{count} selected" if count else "")
         self._update_breadcrumb()
+        self._update_note_selection_highlight()
         self.selection_changed_for_panel.emit(bool(self._scene.selectedItems()))
 
         # Recompute focus filter when selection changes
@@ -4701,9 +4776,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         <p>Purple badge + body. Use for questions an agent can answer inline.</p>
 
         <p style='{hdr}'>Discussion &mdash;
-           <span style='{mono}'>XX: &hellip; \\n YY: &hellip;</span></p>
-        <p>Two or more speakers (2&ndash;3 uppercase-letter prefixes) render
-        as a threaded conversation with per-speaker colored badges.</p>
+           <span style='{mono}'>Alice: &hellip; \\n Bob: &hellip;</span></p>
+        <p>Two or more speakers render as a threaded conversation with
+        per-speaker colored badges. A speaker prefix is a name that starts
+        with an uppercase letter, 1&ndash;16 chars of letters/digits/<span
+        style='{mono}'>_</span>/<span style='{mono}'>-</span>, followed by
+        <span style='{mono}'>:</span> and a space.</p>
 
         <p style='{hdr}'>Code &mdash; <span style='{mono}'>code:</span></p>
         <p>A note whose first non-empty line is

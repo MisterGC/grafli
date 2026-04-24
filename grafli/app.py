@@ -100,7 +100,10 @@ class MainWindow(QMainWindow):
     def showEvent(self, event):
         super().showEvent(event)
         self._panel_toggle.reposition()
-        if self._pending_zoom_fit:
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._pending_zoom_fit and self.isVisible():
             self._pending_zoom_fit = False
             QTimer.singleShot(0, lambda: self._zoom_fit(animate=False))
 
@@ -733,7 +736,7 @@ def main():
     tick.timeout.connect(lambda: None)
 
     window = MainWindow(args.file, debug=args.debug)
-    window.show()
+    window.showMaximized()
 
     # Single-instance server
     server = QLocalServer()

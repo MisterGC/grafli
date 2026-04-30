@@ -56,9 +56,6 @@ local_scheme = "no-local-version"
 [tool.hatch.build.targets.wheel]
 packages = ["grafli"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"grafli/fonts" = "grafli/fonts"
-
 [tool.hatch.build.targets.sdist]
 include = [
     "/grafli",

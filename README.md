@@ -1,93 +1,104 @@
 # grafli
 
-A lightweight diagram tool with vim-style keybindings and a plain-text file format.
+A keyboard-driven, plain-text diagram tool for developers.
 
-grafli lets you sketch architecture diagrams, flowcharts, and UI mockups directly from your keyboard.
-Files are human-readable `.grafli` text files that play well with version control.
+grafli lets you sketch architecture diagrams, code-review notes, and design
+sketches without leaving the keyboard. Files are line-oriented `.grafli` text
+that diffs cleanly in git and that LLMs can read and produce reliably.
 
-## Features
+> Documentation and feature tour: **<https://grafli.mistergc.dev>**
 
-- **Vim-style modal editing** — four modes: Select (`v`), Rect (`n`), Text (`t`), Connect (`c`). Navigate and manipulate diagrams without leaving the keyboard.
-- **Plain-text file format** — `.grafli` files are readable, diffable, and mergeable. No binary blobs.
-- **Boxes, arrows, and notes** — rectangular containers with labels, directed/bidirectional arrows with optional labels, and free-text notes in handwritten or monospace style.
-- **Nesting and hierarchy** — boxes can contain child boxes for grouping and layout.
-- **Color tokens** — a built-in palette (`%primary`, `%accent`, `%tertiary`, ...) plus arbitrary hex colors.
-- **Smart arrow routing** — edges snap to box boundaries with automatic curved or straight paths.
-- **Search and jump** — `/` to search by label, `Ctrl+J` for global jump labels (visible and off-screen items).
-- **Hierarchy navigation** — `P` (parent), `F` (first child), `Tab` (cycle siblings) for tree traversal.
-- **Graph navigation** — hold `Alt` to see connector labels, press a key to follow a connector to the target node. Chainable.
-- **Navigation history** — `Ctrl+O` / `Ctrl+I` to jump back/forward through viewport history (vim-style jumplist).
-- **Breadcrumb** — status bar shows ancestry path (`root > parent > child`) when a box is selected.
-- **Undo/redo, copy/paste** — full history with up to 50 undo states.
-- **Subgraph focus** — press `B` on a selected node to dim unrelated items and highlight the connected subgraph. Cycle direction (all/forward/backward) with repeated `B`, toggle depth with `Shift+B`.
-- **Minimap** — toggle an overview map with `M`.
-- **File watching** — external edits are detected and merged automatically.
-- **Auto-save** — changes are persisted within 300ms.
-
-## Quick start
+## Install
 
 ```bash
 pip install grafli
 grafli my-diagram.grafli
 ```
 
-## The `.grafli` format
+Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 
-```
-#!grafli v1
-# Architecture overview
+## Design philosophy
 
+- **Keyboard-first.** Modal editing in the spirit of vim — Select, Rect, Text,
+  Connect — composes a small set of keystrokes into rich diagrams.
+- **Less is more.** Three primitives (boxes, arrows, notes) plus visible
+  containment cover the cases that matter, without a menu maze.
+- **Text for AI, git, humans.** `.grafli` files are line-oriented plain text;
+  there are no binary blobs and no cloud dependency.
+
+## Capabilities at a glance
+
+- Modal vim-style editing with directional creation (one keystroke spawns a
+  connected neighbor box or note).
+- Semantic edge labels — prefixes such as `call:`, `data:`, `event:`,
+  `verify:`, `risk:` render as colored chips and tint their arrow.
+- Code-mode notes — keyword-led pseudocode (`fn:`, `if:`, `call:`,
+  `verify:`, `@file:line`) for review-oriented diagrams.
+- Tasks (`T:`), questions (`Q:`), and threaded discussions inside notes.
+- Subgraph focus — fade everything not reachable from the current selection;
+  cycle direction (all / forward / backward) and depth (1-hop / unlimited).
+- Complexity heatmap — color nodes by connectivity to find hot spots.
+- Jump labels and graph navigation — every visible element is one or two keys
+  away; hold <kbd>Alt</kbd> to follow connectors edge by edge.
+- Sub-graflis — link any node to a deeper diagram in its own file.
+- Markdown resources — attach a markdown note to any element and edit it in a
+  full-window zen editor.
+- Auto-save and external file watching — open a `.grafli` next to your
+  editor; changes flow both ways.
+- Yank as PNG (<kbd>Y</kbd>), SVG export (<kbd>Ctrl</kbd>+<kbd>E</kbd>).
+
+## File format
+
+```text
 @ box frontend "Frontend" 100,100 160x60 %secondary
 @ box backend  "Backend"  320,100 160x60 %primary
 @ box db       "Database" 320,240 160x60 %subtle
 
 @ arrow frontend -> backend "REST API"
-@ arrow backend  -> db      "queries" !dashed
+@ arrow backend  -> db      "data: queries" !dashed
 
 @ note 100,240 "SPA with React"
+@ note logic 100,320 """
+code:
+fn: handleRequest(req)
+call: validate(req)
+emit: RequestAccepted(req.id)
+return: ok
+"""
 ```
-
-Elements are one line each:
 
 | Element | Syntax |
 |---------|--------|
-| Box | `@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]` |
+| Box   | `@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]` |
 | Arrow | `@ arrow <from> <op> <to> ["label"] [!style] [~size]` |
-| Note | `@ note [<id>] <x>,<y> "<text>" [color] [~size] [!style] [>parent]` |
+| Note  | `@ note [<id>] <x>,<y> "<text>" [color] [~size] [!style] [>parent]` |
 
 Arrow operators: `->` right, `<-` left, `<->` both, `--` none.
 
-## Keybindings at a glance
+Triple-quoted block notes are supported when a note contains quote characters
+or spans multiple lines.
+
+## Keybindings (selection)
 
 | Key | Action |
 |-----|--------|
-| `v` / `n` / `t` / `c` | Switch mode: Select / Rect / Text / Connect |
-| `h` `j` `k` `l` | Move selection (vim directions) |
-| `s` | Enter style sub-mode (colors, sizes) |
-| `d` | Enter dimension sub-mode (resize) |
-| `gp` / `F` | Select parent / first child |
-| `Tab` / `Shift+Tab` | Cycle siblings |
-| `Alt` (hold) | Graph nav: follow connectors with `hjkluiop` |
-| `Ctrl+O` / `Ctrl+I` | Navigation history back / forward |
-| `o` / `Shift+O` | Create adjacent box below / above |
-| `Ctrl+hkl` | Create connected box (left/up/right) |
-| `Ctrl+Shift+hkl` | Create connected note (left/up/right) |
-| `e` / `E` | Edit label / annotation |
-| `y` / `p` | Yank / paste |
-| `Y` | Yank diagram as PNG to clipboard |
-| `Ctrl+E` | Export SVG to file |
-| `#` | Toggle grid |
-| `/` | Search |
-| `Ctrl+J` | Jump mode (all items) |
-| `B` / `Shift+B` | Subgraph focus (cycle direction / toggle depth) |
-| `Z` / `Shift+Z` | Zoom to selection / fit all |
-| `u` / `Ctrl+R` | Undo / redo |
-| `Shift+H` | Show full keybinding cheatsheet |
+| <kbd>v</kbd> / <kbd>n</kbd> / <kbd>t</kbd> / <kbd>c</kbd> | Switch mode: Select / Rect / Text / Connect |
+| <kbd>h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd> | Move selection (vim directions) |
+| <kbd>Ctrl</kbd>+<kbd>h</kbd>/<kbd>k</kbd>/<kbd>l</kbd> | Create connected box (left/up/right) |
+| <kbd>Alt</kbd> (hold) | Graph navigation — follow connectors |
+| <kbd>/</kbd> | Search by label |
+| <kbd>Ctrl</kbd>+<kbd>J</kbd> | Jump mode (all visible items) |
+| <kbd>B</kbd> / <kbd>Shift</kbd>+<kbd>B</kbd> | Subgraph focus (cycle direction / toggle depth) |
+| <kbd>Y</kbd> / <kbd>Ctrl</kbd>+<kbd>E</kbd> | Yank PNG to clipboard / Export SVG |
+| <kbd>F1</kbd> | In-app cheat sheet and text-annotation reference |
 
-## Requirements
+The full set is in the in-app <kbd>F1</kbd> dialog and on the documentation site.
 
-- Python 3.12+
-- PySide6 (Qt 6.7+)
+## Project
+
+- Documentation: <https://grafli.mistergc.dev>
+- Source: <https://github.com/MisterGC/grafli>
+- Issues: <https://github.com/MisterGC/grafli/issues>
 
 ## License
 

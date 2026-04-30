@@ -73,3 +73,9 @@ extra_css:
 
 nav:
   - Home: index.md
+  - Install: install.md
+  - File format: format.md
+  - Text annotations: text-annotations.md
+  - Keybindings: keybindings.md
+  - Examples: examples.md
+  - Contributing: contributing.md

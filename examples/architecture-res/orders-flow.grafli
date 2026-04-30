@@ -1,0 +1,30 @@
+#!grafli v1
+# Order Processing sub-grafli
+# This file demonstrates when to split a complex node into its own diagram.
+
+@ note title 40,20 "Order Processing detail" ~xlarge
+@ note hint 40,80 "Parent graph stays high-level; this sub-grafli expands the order lifecycle." ~small
+
+@ box receive "Receive request" 60,160 180x80 %primary
+@ box reserve "Reserve inventory" 320,160 200x80 %secondary
+@ box authorize "Authorize payment" 600,160 200x80 %secondary
+@ box persist "Persist order" 880,160 180x80 %tertiary
+@ box publish "Publish event" 1140,160 180x80 %accent
+
+@ arrow receive -> reserve "step: 1"
+@ arrow reserve -> authorize "step: 2"
+@ arrow authorize -> persist "step: 3"
+@ arrow persist -> publish "event: OrderCreated"
+
+@ note flow_code 320,300 """
+code:
+fn: completeOrder(req) -> OrderId
+pre: inventory reservation exists
+call: payment.authorize(req.total)
+set: order.status = confirmed
+emit: OrderCreated(order.id)
+post: reservation consumed exactly once
+verify: trace stops when event is observed
+""" ~small !mono
+
+@ note review 880,320 "Q: Should payment timeout publish a compensating ReservationReleased event?" ~small

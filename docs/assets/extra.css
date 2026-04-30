@@ -1,0 +1,95 @@
+/* grafli docs — landing accents */
+
+.grafli-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 2rem 1rem 1rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  margin-bottom: 2rem;
+}
+
+.grafli-hero h1 {
+  font-size: 3rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.5rem;
+}
+
+.grafli-hero .grafli-tagline {
+  font-size: 1.25rem;
+  color: var(--md-default-fg-color--light);
+  max-width: 36rem;
+  margin: 0 0 1.5rem;
+}
+
+.grafli-hero .grafli-cta {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.grafli-pillars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 2rem;
+}
+
+.grafli-pillar {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+}
+
+.grafli-pillar h3 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.grafli-feature {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  align-items: center;
+  margin: 2rem 0;
+}
+
+@media (max-width: 60rem) {
+  .grafli-feature {
+    grid-template-columns: 1fr;
+  }
+}
+
+.grafli-feature img,
+.grafli-feature .grafli-screenshot {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.grafli-screenshot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 10;
+  background: var(--md-code-bg-color);
+  color: var(--md-default-fg-color--light);
+  font-size: 0.85rem;
+  font-style: italic;
+  text-align: center;
+  padding: 1rem;
+}
+
+.grafli-keycap {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--md-default-fg-color--lighter);
+  border-bottom-width: 2px;
+  border-radius: 0.25rem;
+  font-family: var(--md-code-font-family);
+  font-size: 0.8em;
+  background: var(--md-code-bg-color);
+}

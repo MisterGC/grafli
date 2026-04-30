@@ -8,3 +8,14 @@ blog-dataflow.grafli
 feature-showcase.grafli
 test.grafli
 uv.lock
+
+# build / dist
+/build/
+/dist/
+*.egg-info/
+
+# hatch-vcs auto-generated version file
+grafli/_version.py
+
+# mkdocs build output
+/site/

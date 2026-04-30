@@ -1,26 +1,74 @@
+[build-system]
+requires = ["hatchling>=1.21", "hatch-vcs>=0.4"]
+build-backend = "hatchling.build"
+
 [project]
 name = "grafli"
-version = "0.1.0"
-description = "Lightweight diagram tool with vim keybindings and plain-text .grafli files"
+description = "A keyboard-driven, plain-text diagram tool with vim-style editing"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = ["PySide6>=6.7"]
 keywords = ["diagram", "whiteboard", "vim", "architecture", "plain-text"]
+authors = [
+    { name = "Serein Pfeiffer", email = "s.pfeiffer@klebert-engineering.de" },
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: X11 Applications :: Qt",
     "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Graphics :: Editors",
+    "Topic :: Software Development :: Documentation",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-qt>=4"]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "pymdown-extensions>=10",
 ]
 
 [project.scripts]
 grafli = "grafli.app:main"
 
 [project.urls]
-Repository = "https://github.com/mistergc/grafli"
-Issues = "https://github.com/mistergc/grafli/issues"
+Documentation = "https://grafli.mistergc.dev"
+Repository = "https://github.com/MisterGC/grafli"
+Issues = "https://github.com/MisterGC/grafli/issues"
+Changelog = "https://github.com/MisterGC/grafli/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "grafli/_version.py"
+
+[tool.hatch.version.raw-options]
+local_scheme = "no-local-version"
+
+[tool.hatch.build.targets.wheel]
+packages = ["grafli"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"grafli/fonts" = "grafli/fonts"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/grafli",
+    "/tests",
+    "/examples",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

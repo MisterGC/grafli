@@ -12,6 +12,7 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" !dashed     (arrow styles: dashed/dotted/thick)
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
   @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&url] [>parent]
+  @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono] [&url] [>parent]
   @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [&url]
 """
 
@@ -69,6 +70,7 @@ class Note:
     url: str = ""
     parent: str = ""
     annotation: str = ""
+    block_text: bool = False
 
 
 @dataclass
@@ -221,6 +223,22 @@ _RE_NOTE = re.compile(
     r'\s*$'
 )
 
+_RE_NOTE_BLOCK_START = re.compile(
+    r'^@\s+note\s+(?:([a-zA-Z_]\S*)\s+)?(-?[\d.]+),\s*(-?[\d.]+)\s+"""'
+    r'\s*$'
+)
+
+_RE_NOTE_BLOCK_SUFFIX = re.compile(
+    r'^\s*"""'
+    r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
+    r'(?:\s+!(mono))?'
+    r'(?:\s+&(\S+))?'
+    r'(?:\s+>(\S+))?'
+    r'(?:\s+#\s*(.+?))?'
+    r'\s*$'
+)
+
 _RE_IMAGE = re.compile(
     r'^@\s+image\s+(\S+)\s+"([^"]*)"\s+'
     r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
@@ -236,7 +254,11 @@ _RE_IMAGE = re.compile(
 def parse(text: str) -> Board:
     """Parse a .grafli file string into a Board object."""
     board = Board()
-    for line in text.splitlines():
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
         stripped = line.strip()
 
         if not stripped:
@@ -291,6 +313,51 @@ def parse(text: str) -> Board:
             )
             board.arrows.append(arrow)
             board._lines.append(("arrow", arrow))
+            continue
+
+        m = _RE_NOTE_BLOCK_START.match(stripped)
+        if m:
+            note_id = m.group(1) or ""
+            x = float(m.group(2))
+            y = float(m.group(3))
+            body_lines: list[str] = []
+            suffix = ""
+            while i < len(lines):
+                body_line = lines[i]
+                i += 1
+                if body_line.strip().startswith('"""'):
+                    suffix = body_line
+                    break
+                body_lines.append(body_line)
+
+            sm = _RE_NOTE_BLOCK_SUFFIX.match(suffix.strip())
+            if sm:
+                note = Note(
+                    id=note_id,
+                    x=x,
+                    y=y,
+                    text=ensure_text_presentation("\n".join(body_lines)),
+                    color=sm.group(1) or "",
+                    textsize=sm.group(2) or "",
+                    style=sm.group(3) or "",
+                    url=sm.group(4) or "",
+                    parent=sm.group(5) or "",
+                    annotation=(sm.group(6) or "").replace("\\n", "\n"),
+                    block_text=True,
+                )
+                board.notes.append(note)
+                board._lines.append(("note", note))
+                continue
+
+            # Malformed block — preserve its contents as comments.
+            board.comments.append(stripped)
+            board._lines.append(("comment", stripped))
+            for body_line in body_lines:
+                board.comments.append(body_line)
+                board._lines.append(("comment", body_line))
+            if suffix:
+                board.comments.append(suffix)
+                board._lines.append(("comment", suffix))
             continue
 
         m = _RE_NOTE.match(stripped)
@@ -398,6 +465,24 @@ def _serialize_arrow(arrow: Arrow) -> str:
 def _serialize_note(note: Note) -> str:
     x = int(note.x) if note.x == int(note.x) else note.x
     y = int(note.y) if note.y == int(note.y) else note.y
+    use_block = note.block_text or '"' in note.text
+    if use_block:
+        parts = [f'@ note {note.id} {x},{y} """']
+        parts.append(note.text)
+        suffix = '"""'
+        if note.color:
+            suffix += f" {note.color}"
+        if note.textsize:
+            suffix += f" ~{note.textsize}"
+        if note.style:
+            suffix += f" !{note.style}"
+        if note.url:
+            suffix += f" &{note.url}"
+        if note.parent:
+            suffix += f" >{note.parent}"
+        parts.append(suffix)
+        return "\n".join(parts)
+
     escaped_text = note.text.replace("\n", "\\n")
     s = f'@ note {note.id} {x},{y} "{escaped_text}"'
     if note.color:

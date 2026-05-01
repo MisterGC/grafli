@@ -88,6 +88,7 @@ from grafli.constants import (
     _SIZE_SEQUENCE,
     _resolve_color,
 )
+from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
 from grafli.format import Arrow, Board, Box, Image, Note, parse, serialize
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, NoteItem, ResizeHandle
@@ -730,7 +731,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 draw_head_to = False
                 draw_head_from = False
             else:
-                arrow_color = ARROW_COLOR
+                edge_kind = parse_edge_label(fwd.label).kind
+                if not edge_kind and rev:
+                    edge_kind = parse_edge_label(rev.label).kind
+                arrow_color = EDGE_KIND_COLORS.get(edge_kind, ARROW_COLOR)
                 arrow_width = ARROW_WIDTH
 
             pen = QPen(arrow_color, arrow_width)
@@ -4726,7 +4730,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         sc_layout.addWidget(browser, 1)
         tabs.addTab(shortcuts_tab, "Shortcuts")
 
-        # ── Tab 2: note formats ──
+        # ── Tab 2: text annotation formats ──
         notes_browser = QTextBrowser(tabs)
         notes_browser.setOpenLinks(False)
         notes_browser.setFont(font)
@@ -4735,7 +4739,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             " padding: 8px; }"
         )
         notes_browser.setHtml(self._notes_help_html())
-        tabs.addTab(notes_browser, "Notes")
+        tabs.addTab(notes_browser, "Text Annotations")
 
         btn = QPushButton("Close", dlg)
         btn.clicked.connect(dlg.accept)
@@ -4761,10 +4765,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         mono = "font-family:monospace"
         dim = "color:#B8B3AB"
         return f"""
-        <p style='{hdr}'>SPECIAL NOTE FORMATS</p>
-        <p>Text notes switch their rendering based on their content.
-        Edit mode always shows raw text — the formats below apply to
-        display mode only.</p>
+        <p style='{hdr}'>TEXT ANNOTATIONS</p>
+        <p>Grafli text can annotate nodes, edges, and local logic. Edit mode
+        always shows the raw text; display mode adds visual treatment for the
+        conventions below.</p>
 
         <p style='{hdr}'>Informational &mdash; plain text</p>
         <p>Default note. Blue text on a light badge-style background.</p>
@@ -4808,9 +4812,31 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                   <span style='{mono}'>for: t in tokens</span></td></tr>
           <tr><td style='{mono}'>while:</td>
               <td>loop</td></tr>
+          <tr><td style='{mono}'>call:</td>
+              <td>important function/service call</td></tr>
+          <tr><td style='{mono}'>await:</td>
+              <td>async wait / blocking operation</td></tr>
+          <tr><td style='{mono}'>emit:</td>
+              <td>event or message emission</td></tr>
+          <tr><td style='{mono}'>try:</td>
+              <td>protected block</td></tr>
+          <tr><td style='{mono}'>catch:</td>
+              <td>error handling</td></tr>
           <tr><td style='{mono}'>set:</td>
               <td>assignment &mdash;
                   <span style='{mono}'>set: x = expr</span></td></tr>
+          <tr><td style='{mono}'>state:</td>
+              <td>state transition / lifecycle</td></tr>
+          <tr><td style='{mono}'>assert:</td>
+              <td>invariant / expected fact</td></tr>
+          <tr><td style='{mono}'>pre:</td>
+              <td>precondition</td></tr>
+          <tr><td style='{mono}'>post:</td>
+              <td>postcondition</td></tr>
+          <tr><td style='{mono}'>verify:</td>
+              <td>test/check/trace that proves behavior</td></tr>
+          <tr><td style='{mono}'>risk:</td>
+              <td>failure mode / review risk</td></tr>
           <tr><td style='{mono}'>return:</td>
               <td>exit value</td></tr>
           <tr><td style='{mono}'>err:</td>
@@ -4833,6 +4859,8 @@ for: t in tokens
   if: t.startsWith(at)
   then: stack.push(t)
   else: out.append(t)
+call: audit.record(parsed)
+emit: Parsed(out.size)
 log.emit(parsed, out.size) @parser.py:120
 # fallthrough intentional
 return: out</div>
@@ -4842,6 +4870,24 @@ return: out</div>
         (<span style='{mono}'>obj.method(args)</span>) makes the intent
         obvious. A colon-word is only a keyword if it matches one of the
         predefined set.</p>
+
+        <p style='{hdr}'>Edge Labels &mdash; relationship kinds</p>
+        <p>Arrow labels can start with a relationship kind such as
+        <span style='{mono}'>data: payload</span>,
+        <span style='{mono}'>call: validate()</span>, or
+        <span style='{mono}'>step: 1</span>. Known prefixes color the edge and
+        render as small chips beside the remaining label text. The raw label
+        stays directly editable with <span style='{mono}'>e</span>. Supported kinds:
+        <span style='{mono}'>call</span>, <span style='{mono}'>data</span>,
+        <span style='{mono}'>event</span>, <span style='{mono}'>state</span>,
+        <span style='{mono}'>step</span>, <span style='{mono}'>verify</span>,
+        <span style='{mono}'>owns</span>, <span style='{mono}'>depends</span>,
+        <span style='{mono}'>risk</span>, <span style='{mono}'>note</span>.</p>
+
+        <p style='{hdr}'>Block Text</p>
+        <p>Notes can use triple-quoted text in the file format when the text
+        contains quotes or should stay readable across multiple lines. In the
+        canvas this is still just an ordinary editable note.</p>
         """
 
     def _show_graph_stats_dialog(self):
@@ -4920,4 +4966,3 @@ return: out</div>
         layout.addWidget(btn)
 
         dlg.exec()
-

@@ -29,6 +29,7 @@ from grafli.constants import (
     SCENE_BG,
     _resolve_color,
 )
+from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
 
 _RE_SPEAKER = re.compile(r"^([A-Z][A-Za-z0-9_-]{0,15}): ")
 from grafli.code_note import code_body, is_code_note, tokenize_line
@@ -1162,16 +1163,97 @@ class ImageItem(QGraphicsPixmapItem):
 class LabelItem(QGraphicsSimpleTextItem):
     """Arrow label with semi-transparent background."""
 
+    _PAD = 4
+    _BADGE_HPAD = 5
+    _BADGE_RADIUS = 3
+    _GAP = 5
+    _LINE_GAP = 2
+    _BG_RADIUS = 4
+
+    def __init__(self, text: str = "", parent=None):
+        self._raw_text = text
+        super().__init__(self._display_text(text), parent)
+
+    @staticmethod
+    def _display_text(text: str) -> str:
+        lines = []
+        for line in text.split("\n"):
+            parsed = parse_edge_label(line)
+            lines.append(parsed.body if parsed.kind else line)
+        return "\n".join(lines)
+
+    def setText(self, text: str):
+        self._raw_text = text
+        super().setText(self._display_text(text))
+
+    def _line_runs(self):
+        lines = self._raw_text.split("\n")
+        return [(line, parse_edge_label(line)) for line in lines]
+
+    def _metrics(self):
+        font = self.font()
+        fm = QFontMetricsF(font)
+        bold = QFont(font)
+        bold.setBold(True)
+        bfm = QFontMetricsF(bold)
+        line_h = fm.height()
+        widths = []
+        for raw, parsed in self._line_runs():
+            if parsed.kind:
+                badge_w = bfm.horizontalAdvance(parsed.kind) + self._BADGE_HPAD * 2
+                body_w = fm.horizontalAdvance(parsed.body)
+                widths.append(badge_w + (self._GAP + body_w if parsed.body else 0))
+            else:
+                widths.append(fm.horizontalAdvance(raw))
+        total_w = max(widths, default=0)
+        total_h = len(widths) * line_h + max(0, len(widths) - 1) * self._LINE_GAP
+        return fm, bfm, line_h, total_w, total_h
+
+    def boundingRect(self):
+        _, _, _, total_w, total_h = self._metrics()
+        return QRectF(0, 0, total_w, total_h)
+
     def paint(self, painter: QPainter, option, widget=None):
-        pad = 4
-        bg_rect = self.boundingRect().adjusted(-pad, -pad, pad, pad)
+        pad = self._PAD
+        fm, bfm, line_h, total_w, total_h = self._metrics()
+        bg_rect = QRectF(0, 0, total_w, total_h).adjusted(-pad, -pad, pad, pad)
         bg = QColor("#F2F0EB")
         bg.setAlphaF(0.6)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(bg_rect, 4, 4)
-        super().paint(painter, option, widget)
+        painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+
+        font = self.font()
+        bold = QFont(font)
+        bold.setBold(True)
+        body_color = self.brush().color()
+        y = fm.ascent()
+
+        for raw, parsed in self._line_runs():
+            x = 0.0
+            if parsed.kind:
+                badge_w = bfm.horizontalAdvance(parsed.kind) + self._BADGE_HPAD * 2
+                badge_rect = QRectF(x, y - fm.ascent(), badge_w, line_h)
+                painter.setPen(Qt.PenStyle.NoPen)
+                chip_color = EDGE_KIND_COLORS.get(parsed.kind, QColor("#6A9FB5"))
+                painter.setBrush(QBrush(chip_color))
+                painter.drawRoundedRect(
+                    badge_rect, self._BADGE_RADIUS, self._BADGE_RADIUS
+                )
+                painter.setFont(bold)
+                painter.setPen(QColor("#FFFFFF"))
+                painter.drawText(QPointF(x + self._BADGE_HPAD, y), parsed.kind)
+                x += badge_w + self._GAP
+                text = parsed.body
+            else:
+                text = raw
+
+            if text:
+                painter.setFont(font)
+                painter.setPen(body_color)
+                painter.drawText(QPointF(x, y), text)
+            y += line_h + self._LINE_GAP
 
 
 class ArrowLineItem(QGraphicsLineItem):

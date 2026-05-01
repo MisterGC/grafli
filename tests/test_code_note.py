@@ -82,6 +82,15 @@ def test_tokenize_set_assignment():
     assert runs[0] == ("kw", "set:")
 
 
+def test_tokenize_system_keywords():
+    for kw in (
+        "call", "await", "emit", "try", "catch", "state",
+        "assert", "pre", "post", "verify", "risk",
+    ):
+        runs = tokenize_line(f"{kw}: something")
+        assert runs[0] == ("kw", f"{kw}:")
+
+
 def test_tokenize_for_iteration():
     runs = tokenize_line("for: t in tokens")
     assert runs[0] == ("kw", "for:")

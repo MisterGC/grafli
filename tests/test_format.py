@@ -1074,6 +1074,43 @@ def test_note_all_fields_with_parent_roundtrip():
     assert '@ note n1 100,200 "hello" %accent ~large !mono >box1\n' in result
 
 
+# ── Note block text tests ─────────────────────────────────
+
+def test_parse_note_block_text_with_quotes():
+    text = '''@ note n1 100,200 """
+code:
+if: line contains "quoted text"
+then: return token
+""" %accent ~large !mono >box1
+'''
+    board = parse(text)
+    note = board.notes[0]
+    assert note.text == 'code:\nif: line contains "quoted text"\nthen: return token'
+    assert note.color == "%accent"
+    assert note.textsize == "large"
+    assert note.style == "mono"
+    assert note.parent == "box1"
+    assert note.block_text is True
+
+
+def test_note_block_roundtrip():
+    text = '''@ note n1 100,200 """
+line one
+line "two"
+""" >box1
+'''
+    board = parse(text)
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_serialize_note_with_quote_uses_block_text():
+    note = Note(id="n1", x=10, y=20, text='line contains "quote"')
+    board = Board()
+    board.add_note(note)
+    text = serialize(board)
+    assert '@ note n1 10,20 """\nline contains "quote"\n"""' in text
+
+
 # ── Box newline tests ─────────────────────────────────────
 
 def test_parse_box_with_newlines():

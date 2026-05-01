@@ -15,7 +15,18 @@ Syntax (v2, keyword-led, one instruction per line):
     else:   <action>                  alternative branch
     for:    <x in xs>                 iteration
     while:  <condition>               loop
+    call:   <function(args)>          important call
+    await:  <async operation>         blocking/async wait
+    emit:   <event(args)>             event/message emission
+    try:                              protected block
+    catch:  <error -> action>         error handling
     set:    <x = expr>                assignment
+    state:  <from -> to>              state transition / lifecycle
+    assert: <condition>               invariant / expected fact
+    pre:    <condition>               precondition
+    post:   <condition>               postcondition
+    verify: <evidence>                test/check/trace that proves behavior
+    risk:   <text>                    failure mode / review risk
     return: <expr>                    exit value
     err:    <expr>                    error / raise
     note:   <text>                    review note / assumption
@@ -35,7 +46,9 @@ PREFIX = "code:"
 
 _KEYWORDS = (
     "fn", "if", "then", "else", "for", "while",
-    "set", "return", "err", "note",
+    "call", "await", "emit", "try", "catch",
+    "set", "state", "assert", "pre", "post", "verify", "risk",
+    "return", "err", "note",
 )
 
 _RE_KEYWORD_LINE = re.compile(

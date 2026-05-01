@@ -1,0 +1,107 @@
+#!grafli v1
+# grafli feature showcase — source for the v0.1.0 docs-site screenshots.
+#
+# Three spatially-separated regions, framed independently for each shot:
+#   Region 1 (y ≈ 0)     — hero: clean architecture with semantic edge chips
+#   Region 2 (y ≈ 900)   — annotations: T:/Q:/discussion + code-mode + chips
+#   Region 3 (y ≈ 1900)  — dense graph: reused for heatmap + jump labels
+#
+# Open: grafli examples/showcase.grafli — select an element in the region
+# you want to capture and press Z to frame it.
+
+# ============================================================
+# Region 1 — Hero (clean architecture)
+# ============================================================
+
+@ note title1 60,0 "Architecture" ~xxlarge
+
+@ box web "Web App" 60,80 200x100 %secondary
+@ box api "API Gateway" 380,80 220x100 %primary
+@ box svc "Order Service" 720,80 220x100 %tertiary
+@ box db "PostgreSQL" 380,260 220x100 %subtle
+
+@ arrow web -> api "call: REST"
+@ arrow api -> svc "call: GraphQL"
+@ arrow svc -> db "data: queries"
+@ arrow api -> db "data: read" !dashed
+
+@ note svc_code 1000,40 "code:\nfn: createOrder(req) -> Order\ncall: validate(req)\nverify: tests/test_orders.py\nemit: OrderCreated\nreturn: order"
+@ arrow svc_code -- svc
+
+# ============================================================
+# Region 2 — Annotations
+# ============================================================
+
+@ note title2 60,900 "Annotations" ~xxlarge
+
+@ box validate "validate(req)" 60,980 220x100 %secondary
+@ box process "processOrder(req)" 380,980 240x100 %tertiary
+@ box queue "message queue" 720,980 220x100 %highlight
+@ box dlq "dead-letter" 720,1160 220x100 %accent
+
+@ arrow validate -> process "call: parse"
+@ arrow process -> queue "event: OrderQueued"
+@ arrow queue -> dlq "risk: poison"
+@ arrow process -> validate "verify: contract" !dashed
+
+@ note todo 60,1180 "T: extract retry logic into helper"
+@ note q1 380,1180 "Q: should this be idempotent?"
+
+@ note disc 1000,980 "AI: This route can fan out heavily. Worth a circuit breaker?\nReviewer: Agreed. Add a budget around the queue publish.\nAI: Will draft in next pass."
+
+@ note proc_code 60,1340 "code:\nfn: processOrder(req)\nif: req.invalid\nthen: err InvalidRequest\nset: order = build(req)\nemit: OrderQueued(order.id)\nreturn: order  @orders.py:42"
+@ arrow proc_code -- process
+
+# ============================================================
+# Region 3 — Dense graph (heatmap + jump-labels overlay)
+# ============================================================
+
+@ note title3 60,1900 "System graph" ~xxlarge
+
+# Frontend row
+@ box web2 "Web" 60,1980 160x80 %secondary
+@ box mobile "Mobile" 240,1980 160x80 %secondary
+@ box admin "Admin" 420,1980 160x80 %secondary
+
+# Gateway
+@ box gw "API" 240,2120 160x80 %primary
+
+# Services
+@ box auth "Auth" 60,2260 160x80 %accent
+@ box users "Users" 240,2260 160x80 %accent
+@ box orders "Orders" 420,2260 160x80 %accent
+@ box billing "Billing" 600,2260 160x80 %accent
+@ box catalog "Catalog" 780,2260 160x80 %accent
+
+# Data
+@ box pg "Postgres" 60,2400 160x80 %subtle
+@ box redis "Redis" 240,2400 160x80 %subtle
+@ box s3 "S3" 420,2400 160x80 %subtle
+
+# Async / queues
+@ box mq "Queue" 600,2400 160x80 %highlight
+@ box worker "Worker" 780,2400 160x80 %highlight
+
+# Output
+@ box notify "Notifier" 600,2540 160x80 %tertiary
+@ box mail "Mailer" 780,2540 160x80 %tertiary
+
+@ arrow web2 -> gw
+@ arrow mobile -> gw
+@ arrow admin -> gw
+@ arrow gw -> auth
+@ arrow gw -> users
+@ arrow gw -> orders
+@ arrow gw -> billing
+@ arrow gw -> catalog
+@ arrow auth -> redis
+@ arrow users -> pg
+@ arrow orders -> pg
+@ arrow billing -> pg
+@ arrow catalog -> s3
+@ arrow orders -> mq
+@ arrow billing -> mq
+@ arrow mq -> worker
+@ arrow worker -> notify
+@ arrow notify -> mail
+@ arrow mail -> users

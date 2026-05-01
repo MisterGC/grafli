@@ -1,70 +1,97 @@
 #!grafli v1
-# Microservices Architecture
-# file: architecture.board
+# Grafli architecture demo
+# file: architecture.grafli
+# Purpose: exercise semantic edge labels, code notes, task/question/discussion notes,
+# nesting, child text notes, block text, markdown resources, and sub-graflis.
 
-# --- Frontend Layer ---
-@ box web "Web App (React + Next.js)" -108.27694300518124,59.402590673575105 200x80 #4285F4
-@ box mobile "Mobile App (React Native)" 212.24248704663222,42.16450777202073 200x80 #4285F4
-@ box admin "Admin Dashboard with Role-Based Access Control" 487.2424870466322,42.16450777202073 220x80 #9C27B0
+# --- Title / legend ---
+@ note title -142.64805769219618,-93.30944319793657 "Architecture explanation demo" ~xlarge
+@ note legend -335.4432297006256,26.190871260717813 "Edge label prefixes render as chips and color the edge: call:, data:, event:, state:, step:, verify:, owns:, depends:, risk:, note:" ~small
 
-# --- API Layer ---
-@ box gateway "API Gateway / Load Balancer" 200,220 250x80 #FF8C00
-@ box graphql "GraphQL Federation Layer" 500,220 200x80 #FF8C00
+# --- Visible nesting containers ---
+@ box frontend_layer "Frontend clients" 10.216128384960427,101.7784935756502 500x230 %secondary ^topleft ~small !flat
+@ box api_layer "API boundary" 684.9675628779783,94.83264817843568 500x230 %primary ^topleft ~small !flat
+@ box core_layer "Core domain services" 60.56713475112224,638.0582416010043 760x360 %tertiary ^topleft ~small !flat
+@ box data_layer "Data and external stores" 914.9518738695019,545.2624693673604 560x360 %subtle ^topleft ~small !flat
+@ box observability_layer "Verification / operations" 6.176285612556256,1057.2802719016136 760x280 %muted ^topleft ~small !flat
 
-# --- Core Services ---
-@ box auth "Auth Service (OAuth2 + JWT)" 0,400 200x80 #34A853
-@ box users "User Profile Service" 240,400 180x80 #34A853
-@ box orders "Order Processing & Fulfillment Service" 460,400 220x80 #34A853
-@ box catalog "Product Catalog Service" 720,400 180x80 #34A853
+# --- Frontend children ---
+@ box web "Web App\nReact + Next.js" 572.12552841975,-85.54731796255707 190x80 %secondary
+@ box mobile "Mobile App\nReact Native" -236.37555387268583,176.75070675159537 190x80 %secondary
+@ note n_frontend_q 50.21612838496043,266.7784935756502 "Q: Should admin UI bypass mobile-oriented caching?" ~small >frontend_layer
 
-# --- Async / Events ---
-@ box queue "Message Queue (Kafka)" 170.81373056994812,589.2290155440411 200x80 #FF6B6B
-@ box notify "Notification Service (Email, SMS, Push)" 460,580 240x80 #FF6B6B
-@ box search "Search Indexer (Elasticsearch)" 740,580 200x80 #FF6B6B
+# --- API children ---
+@ box gateway "API Gateway\nrate limits + auth" 170.21612838496043,171.7784935756502 200x90 %primary >frontend_layer
+@ box graphql "GraphQL Federation\nschema stitching" 802.0935549525444,151.9225791656238 200x90 %primary &architecture-res/graphql.md >api_layer
+@ note n_api_task 830.3447930125569,268.56281561682783 "T: Add p95 latency budget to gateway -> graphql edge" ~small >api_layer
 
-# --- Data Layer ---
-@ box postgres "PostgreSQL (Primary)" 80,760 180x80 #00BCD4
-@ box redis "Redis Cache & Session Store" -172.66632124352293,694.1818652849742 200x80 #00BCD4
-@ box s3 "Object Storage (S3)" 560,760 180x80 #00BCD4
-@ box mongo "MongoDB (Catalog)" 790,760 180x80 #00BCD4
+# --- Core service children ---
+@ box auth "Auth Service\nOAuth2 + JWT" 0,400 200x85 %tertiary
+@ box users "User Profile\nService" 240,400 180x85 %tertiary
+@ box orders "Order Processing\n& Fulfillment" 485.17863020914706,414.05558603437254 210x85 %tertiary &architecture-res/orders-flow.grafli
+@ box catalog "Product Catalog\nService" 889.4722050150008,414.0502305973303 210x85 %tertiary
 
-# --- Infrastructure ---
-@ box k8s "Kubernetes Cluster" 250,940 200x80 #E91E63
-@ box monitor "Prometheus + Grafana Monitoring Stack" 500,940 230x80 #E91E63
-@ box ci "CI/CD Pipeline (GitHub Actions)" 866.6054404145074,968.4668393782378 220x80 #E91E63
+@ note n_orders_code -483.11654694448055,399.5534814514508 """
+code:
+fn: placeOrder(req) -> OrderId
+pre: req.user is authenticated
+call: inventory.reserve(req.items)
+try:
+  call: payment.authorize(req.total)
+  emit: OrderCreated(order.id)
+catch: PaymentDeclined -> err: reject order
+post: audit trail includes "order.created"
+verify: test_order_happy_path @tests/orders_test.py:41
+risk: reservation leak if payment timeout is not compensated
+""" ~small !mono
+
+@ note n_core_discussion 115.63943407462125,897.5439704114971 "AI: The graph shows service relationships.\nReviewer: The code note keeps order internals local.\nAI: Deeper order flow is linked as a sub-grafli." ~small >core_layer
+
+# --- Data layer children ---
+@ box redis "Redis\nsessions/cache" -172.66632124352293,694.1818652849742 180x85 %subtle
+@ box postgres "PostgreSQL\nprimary store" 85.34646327677254,711.4393552051313 200x85 %subtle >core_layer
+@ box queue "Kafka\norder events" 489.0295519305754,731.7723570382295 180x85 %subtle >core_layer
+@ box search "Search Index\nElasticsearch" 1110.8393706318195,697.8052904232359 200x85 %subtle >data_layer
+@ note n_data_note 954.9518738695019,875.2624693673604 "Plain child notes move with their parent box; use them for local context." ~small >data_layer
+
+# --- Verification / operations children ---
+@ box ci "CI Pipeline\nGitHub Actions" 800.6491973589921,1137.5854113154567 200x85 %muted
+@ box tests "Integration Tests\ncontract + flow" 59.55739921668311,1130.5155290241248 210x85 %muted >observability_layer
+@ box monitor "Prometheus + Grafana\nruntime signals" 368.0875138889694,1195.3690436252004 200x85 %muted >observability_layer
+@ note n_verify_code 46.176285612556256,1242.2802719016136 "code:\nfn: verifyChange(pr)\ncall: pytest(contract_tests)\ncall: smoke(gateway -> graphql)\nassert: no runtime warnings\nverify: dashboard shows p95 below target\nreturn: ready_for_review" ~small !mono >observability_layer
 
 # --- Frontend to API ---
-@ arrow web -> gateway
-@ arrow mobile -> gateway
-@ arrow admin -> graphql
+@ arrow web -> gateway "call: HTTPS /api"
+@ arrow mobile -> gateway "call: HTTPS /mobile"
+@ arrow web -> graphql "data: query document"
 
-# --- API to Services ---
-@ arrow gateway -> auth "verify"
-@ arrow gateway -> users
-@ arrow gateway -> orders
-@ arrow graphql -> users
-@ arrow graphql -> orders
-@ arrow graphql -> catalog
+# --- API to core ---
+@ arrow gateway -> auth "verify: JWT signature"
+@ arrow gateway -> users "call: profile lookup"
+@ arrow graphql -> users "data: user fields"
+@ arrow graphql -> orders "step: 1"
+@ arrow graphql -> catalog "step: 2"
+@ arrow graphql -> orders "risk: N+1 resolver path" @0,34 !dashed
 
-# --- Services to Events ---
-@ arrow orders -> queue "publish"
-@ arrow queue -> notify "consume"
-@ arrow queue -> search "index"
-@ arrow catalog -> search "sync"
+# --- Core to data / events ---
+@ arrow auth -> redis "owns: sessions"
+@ arrow users -> postgres "data: profile rows"
+@ arrow orders -> postgres "data: order transaction"
+@ arrow orders -> queue "event: OrderCreated"
+@ arrow catalog -> search "event: ProductIndexed"
+@ arrow queue -> search "depends: async consumer"
 
-# --- Services to Data ---
-@ arrow auth -> redis "sessions"
-@ arrow users -> postgres "read/write"
-@ arrow orders -> postgres "transactions"
-@ arrow catalog -> mongo "documents"
-@ arrow orders -> s3 "invoices"
+# --- Verification edges ---
+@ arrow ci -> tests "call: run suite"
+@ arrow tests -> gateway "verify: API contract"
+@ arrow monitor -> gateway "state: p95 healthy"
+@ arrow monitor -> orders "note: watch payment timeout rate" !dotted
 
-# --- Infrastructure ---
-@ arrow k8s -> monitor "metrics"
-@ arrow ci -> k8s "deploy"
-
-# --- Notes ---
-@ note 0,220 "Rate limited: 10k req/s"
-@ note 720,220 "Schema stitching from all services"
-@ note 0,580 "Event-driven architecture"
-@ note 250,860 "All services containerized"
+# --- External/context notes ---
+@ note n_block_quote 880,900 """
+Block text note:
+Use triple quotes when the text itself contains "quoted strings".
+The canvas still edits this as normal note text.
+""" ~small
+@ note n_subgraph_hint 913.8237143874437,1133.0152145654704 "Sub-grafli demo: open the linked Order Processing box to inspect the detailed order flow." ~small
+@ arrow n_orders_code -> auth

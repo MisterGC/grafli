@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-01
+
+First public release on PyPI.
+
 ### Added
 - Semantic edge-label prefixes (`call:`, `data:`, `event:`, `state:`, `step:`,
   `verify:`, `owns:`, `depends:`, `risk:`, `note:`) render as colored chips
@@ -24,4 +28,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build system migrated to Hatchling with `hatch-vcs` for git-tag-driven
   versioning.
 
-[Unreleased]: https://github.com/MisterGC/grafli/compare/HEAD...HEAD
+[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/MisterGC/grafli/releases/tag/v0.1.0

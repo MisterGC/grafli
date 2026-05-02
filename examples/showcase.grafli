@@ -19,6 +19,8 @@
 
 @ note title1 60,0 "Baker's day" ~xxlarge
 
+@ note caption1 60,110 "A daily routine as a state machine.\nEach arrow's `step:` / `state:` / `event:` prefix renders as a colored chip on the edge." ~small
+
 @ box sleep "Sleep" 60,180 160x90 %subtle
 @ box bake "Bake bread" 240,180 180x90 %accent
 @ box shop "Open shop" 440,180 180x90 %tertiary
@@ -36,11 +38,15 @@
 @ note bake_code 240,310 "code:\nfn: bake() -> Bread\nif: flour < 1\nthen: err OutOfFlour\nset: dough = mix(flour, water, yeast)\nstate: rising -> baking\nemit: BatchReady\nreturn: bread"
 @ arrow bake_code -- bake
 
+@ note qa_flour 1040,320 "Q: what if flour runs out mid-bake?\nA: the `code:` note bails — `if: flour < 1` raises OutOfFlour and ends the routine for the day."
+
 # ============================================================
 # Region 2 — Threat reaction (annotations)
 # ============================================================
 
 @ note title2 60,900 "Threat reaction" ~xxlarge
+
+@ note caption2 60,970 "Behavior under review. `T:` tasks, `Q:` questions, threaded discussions, and `code:` notes live next to the boxes they describe." ~small
 
 @ box sense "Sense threat" 60,1000 220x90 %secondary
 @ box assess "Assess danger" 340,1000 240x90 %accent
@@ -61,6 +67,7 @@
 @ note todo 60,1340 "T: add audible cue when sense triggers"
 @ note q1 340,1340 "Q: should fear scale with NPC level?"
 @ note disc 1140,1000 "Designer: Should child NPCs ever pick fight?\nReviewer: No — clamp to flee/hide when AgeTag is child.\nDesigner: Will add the tag check inside assess."
+@ note qa_recover 1140,1240 "Q: should Hide auto-recover after a timer?\nA: no — only on `verify: clear` from assess. A timer risks re-engaging an active threat."
 @ note assess_code 60,1460 "code:\nfn: assessDanger(npc, threat) -> Action\nset: ratio = threat.power / npc.power\nif: ratio > 2.0\nthen: return flee\nif: threat.count > npc.allies\nthen: return guards\nverify: tests/test_assess.py:matrix\nreturn: fight  @ai/threat.py:88"
 @ arrow assess_code -- assess
 
@@ -69,6 +76,8 @@
 # ============================================================
 
 @ note title3 60,1900 "Town life" ~xxlarge
+
+@ note caption3 980,1980 "NPCs `owns:` a shift,\n`step:` through routines,\nreact to world `event:`s.\nPress A for the heatmap." ~small
 
 # NPCs (column 1)
 @ box baker "Baker" 60,1980 180x80 %accent
@@ -119,3 +128,5 @@
 @ arrow raid -> priest "event: shelter"
 @ arrow trade -> smith "event: stock_tools"
 @ arrow trade -> innkeep "event: extra_rooms"
+
+@ note qa_busiest 980,2280 "Q: who is the busiest NPC?\nA: Priest — temple shift + well + square + festival + raid. Five edges, the brightest hotspot in the heatmap."

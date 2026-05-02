@@ -31,7 +31,7 @@
 @ box orders "Order Processing\n& Fulfillment" 485.17863020914706,414.05558603437254 210x85 %tertiary &architecture-res/orders-flow.grafli
 @ box catalog "Product Catalog\nService" 889.4722050150008,414.0502305973303 210x85 %tertiary
 
-@ note n_orders_code -483.11654694448055,399.5534814514508 """
+@ note n_orders_code -455.416501911354,363.81958174053847 """
 code:
 fn: placeOrder(req) -> OrderId
 pre: req.user is authenticated
@@ -95,3 +95,28 @@ The canvas still edits this as normal note text.
 """ ~small
 @ note n_subgraph_hint 913.8237143874437,1133.0152145654704 "Sub-grafli demo: open the linked Order Processing box to inspect the detailed order flow." ~small
 @ arrow n_orders_code -> auth
+@ box box1 "test" -1500,-160 495.03133382484134x516.9951555758935
+@ box box2 "3" -1220,200 160x80 %subtle >box1
+@ box box3 "1" -1464.0125969060239,15.924418563856193 160x80 %subtle >box1
+@ box box4 "2" -1436.0503876240962,175.92441856385616 160x80 %subtle >box1
+@ box box5 "5" -1220.06298453012,1.2115632417683173 160x80 %subtle >box1
+@ box box6 "4" -1320,-120 160x80 %subtle >box1
+@ arrow box3 -> box6
+@ arrow box6 -> box5
+@ arrow box5 -> box2
+@ arrow box5 -> box4
+@ image img1 "architecture-res/img-20260501-190455.png" -1280.852069082695,632.8103352658841 320x120.06279434850863
+@ note n1 -833.2826241509773,552.4008407292996 """
+code:
+fn: placeOrder(req) -> OrderId
+pre: req.user is authenticated
+call: inventory.reserve(req.items)
+try:
+  call: payment.authorize(req.total)
+  emit: OrderCreated(order.id)
+catch: PaymentDeclined -> err: reject order
+post: audit trail includes "order.created"
+verify: test_order_happy_path @tests/orders_test.py:41
+risk: reservation leak if payment timeout is not compensated
+""" ~small !mono
+@ box box7 "3" -791.5671846682503,175.34270062328628 160x80 %subtle

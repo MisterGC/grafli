@@ -208,11 +208,11 @@ class MinimapMixin:
             painter.drawRect(QRectF(bx, by, bw, bh))
 
         # Draw notes as small markers
+        from grafli.items import note_prefix as _note_prefix
         for note in self._board.notes:
-            if note.text.startswith("T: "):
-                color = NOTE_TASK_COLOR
-            elif note.text.startswith("Q: "):
-                color = NOTE_QUESTION_COLOR
+            p = _note_prefix(note.text)
+            if p is not None:
+                color = NOTE_TASK_COLOR if p[0] == "T:" else NOTE_QUESTION_COLOR
             elif len(set(_RE_SPEAKER.findall(note.text))) >= 2:
                 color = NOTE_DISCUSSION_COLOR
             else:

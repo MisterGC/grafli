@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import math
+import re as _re
+import shlex
+import shutil
+import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -14,6 +18,7 @@ from PySide6.QtCore import (
     QPoint,
     QPointF,
     QRectF,
+    QSettings,
     Qt,
     QTimeLine,
     QTimer,
@@ -70,11 +75,14 @@ from grafli.constants import (
     ARROW_LABEL_FONT_SIZES,
     ARROW_WIDTH,
     BOX_BORDER,
+    BOX_FILL,
+    BOX_FONT_SIZES,
     COLOR_PALETTE,
     CONTENT_BORDER_COLOR,
     DEFAULT_BOX_H,
     DEFAULT_BOX_W,
     FONT_FAMILY,
+    NOTE_PEN_COLOR,
     GRID_COLOR,
     MINIMAP_MARGIN,
     HEATMAP_CONTENT_BORDER,
@@ -278,8 +286,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._zoom_z_level: int = 0
         self._zoom_z_rect: QRectF | None = None
 
-        # Sticky creation mode
-        self._sticky_mode: bool = False
+        # Hide-notes toggle (Shift+N) — focus on the graph
+        self._notes_hidden: bool = False
+
+        # Ghost preview shown at cursor while in RECT / TEXT mode
+        self._create_preview: QGraphicsItem | None = None
+        self._create_preview_pos: QPointF | None = None
 
         # Navigation jumplist (Ctrl+O / Ctrl+I)
         self._nav_stack: list[QRectF] = []
@@ -368,8 +380,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     def set_mode(self, mode: Mode):
         self._cancel_interactions()
         self._mode = mode
-        if mode == Mode.SELECT:
-            self._sticky_mode = False
         self.mode_changed.emit(mode)
 
         if mode == Mode.SELECT:
@@ -388,6 +398,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
             self._set_items_movable(False)
+
+        # Manage create-mode ghost preview
+        if mode in (Mode.RECT, Mode.TEXT):
+            self._refresh_create_preview()
+        else:
+            self._clear_create_preview()
 
     def _set_items_movable(self, movable: bool):
         for item in self._box_items.values():
@@ -609,6 +625,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._focus_node_id = None
         self._focus_direction = "all"
         self._focus_depth = 0
+        self._notes_hidden = False
         self._complexity_active = False
         self._complexity_node_heat.clear()
         self._complexity_saved.clear()
@@ -990,6 +1007,99 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             gfx.setOpacity(arrow_opacity)
 
         self._update_focus_status()
+
+    # ── Hide notes (Shift+N) ───────────────────────────────
+
+    def _toggle_notes_hidden(self):
+        """Toggle visibility of all notes and their arrows.
+
+        When notes are hidden, their connector arrows to other elements
+        are hidden too, so the diagram reads as the bare graph. Re-press
+        the same shortcut to restore.
+        """
+        self._notes_hidden = not self._notes_hidden
+        self._apply_notes_hidden()
+
+    def _apply_notes_hidden(self):
+        from grafli.format import Arrow as _Arrow
+        visible = not self._notes_hidden
+        for note_item in self._note_items.values():
+            note_item.setVisible(visible)
+        for gfx in self._arrow_items:
+            arrow = gfx.data(0)
+            if not isinstance(arrow, _Arrow):
+                continue
+            touches_note = (
+                arrow.from_id in self._note_items
+                or arrow.to_id in self._note_items
+            )
+            if touches_note:
+                gfx.setVisible(visible)
+
+    # ── Create-mode ghost preview ──────────────────────────
+
+    def _refresh_create_preview(self):
+        """Rebuild the cursor ghost for the active create mode."""
+        self._clear_create_preview()
+        if self._mode == Mode.RECT:
+            self._build_box_preview()
+        elif self._mode == Mode.TEXT:
+            self._build_note_preview()
+        if self._create_preview is not None:
+            pos = self._create_preview_pos
+            if pos is None:
+                pos = self.mapToScene(
+                    self.viewport().rect().center()
+                )
+            self._update_create_preview_pos(pos)
+
+    def _clear_create_preview(self):
+        if self._create_preview is not None:
+            self._scene.removeItem(self._create_preview)
+            self._create_preview = None
+
+    def _build_box_preview(self):
+        w, h = DEFAULT_BOX_W, DEFAULT_BOX_H
+        rect = QRectF(0, 0, w, h)
+        item = QGraphicsRectItem(rect)
+        pen = QPen(BOX_BORDER, 1, Qt.PenStyle.DashLine)
+        item.setPen(pen)
+        item.setBrush(QBrush(BOX_FILL))
+        label = QGraphicsSimpleTextItem("A Node", item)
+        label_font = QFont(FONT_FAMILY, BOX_FONT_SIZES.get("", 13))
+        label.setFont(label_font)
+        label.setBrush(QBrush(BOX_BORDER))
+        lr = label.boundingRect()
+        label.setPos((w - lr.width()) / 2, (h - lr.height()) / 2)
+        item.setOpacity(0.4)
+        item.setZValue(1000)
+        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self._scene.addItem(item)
+        self._create_preview = item
+
+    def _build_note_preview(self):
+        item = QGraphicsSimpleTextItem("Some text ...")
+        item.setFont(QFont(FONT_FAMILY, BOX_FONT_SIZES.get("", 13)))
+        item.setBrush(QBrush(NOTE_PEN_COLOR))
+        item.setOpacity(0.4)
+        item.setZValue(1000)
+        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self._scene.addItem(item)
+        self._create_preview = item
+
+    def _update_create_preview_pos(self, scene_pos: QPointF):
+        self._create_preview_pos = scene_pos
+        if self._create_preview is None:
+            return
+        if self._mode == Mode.RECT:
+            self._create_preview.setPos(
+                scene_pos.x() - DEFAULT_BOX_W / 2,
+                scene_pos.y() - DEFAULT_BOX_H / 2,
+            )
+        elif self._mode == Mode.TEXT:
+            self._create_preview.setPos(scene_pos)
 
     def _update_note_selection_highlight(self):
         """Dim unrelated items when a single connected note is selected.
@@ -1565,6 +1675,53 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 else:
                     self._open_resource_picker(item, item.image.id)
                 return
+
+    def _open_code_ref(self, ref: str):
+        """Open an ``@path[:line]`` reference from a code-mode note.
+
+        Resolution order: configured editor command from QSettings,
+        then auto-detected ``code``/``cursor``/``subl``, finally OS open.
+        Relative paths are resolved against the .grafli file's directory.
+        """
+        target = ref[1:] if ref.startswith("@") else ref
+        line_no: int | None = None
+        m = _re.match(r"^(.+):(\d+)$", target)
+        if m:
+            target = m.group(1)
+            line_no = int(m.group(2))
+
+        path = Path(target).expanduser()
+        if not path.is_absolute():
+            window = self.window()
+            if hasattr(window, "_file_path") and window._file_path:
+                path = Path(window._file_path).parent / path
+        path = path.resolve()
+
+        cmd_template = QSettings("Grafli", "Grafli").value(
+            "editor/command", "", type=str,
+        ) or ""
+        if not cmd_template:
+            for candidate in ("code", "cursor", "subl"):
+                if shutil.which(candidate):
+                    cmd_template = (
+                        f"{candidate} -g {{path}}:{{line}}"
+                        if candidate != "subl"
+                        else "subl {path}:{line}"
+                    )
+                    break
+
+        if cmd_template:
+            try:
+                rendered = cmd_template.format(
+                    path=str(path),
+                    line=line_no if line_no is not None else 1,
+                )
+                subprocess.Popen(shlex.split(rendered), start_new_session=True)
+                return
+            except (OSError, ValueError, KeyError):
+                pass
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _open_url_string(self, url_str: str):
         """Open a URL string, handling .md and .grafli files specially."""
@@ -2191,7 +2348,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 super().mouseMoveEvent(event)
             self._update_reparent_highlight()
         elif self._mode == Mode.RECT:
+            self._update_create_preview_pos(scene_pos)
             self._move_rect(event)
+        elif self._mode == Mode.TEXT:
+            self._update_create_preview_pos(scene_pos)
+            super().mouseMoveEvent(event)
         elif self._mode == Mode.CONNECT:
             self._move_connect(event)
         else:
@@ -2948,19 +3109,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        # Sticky creation modes (Shift+N, Shift+T)
+        # Shift+N toggles "notes hidden" — concentrate on the graph.
         if shift_only and event.key() == Qt.Key.Key_N:
-            self._sticky_mode = True
-            self.set_mode(Mode.RECT)
-            event.accept()
-            return
-        if shift_only and event.key() == Qt.Key.Key_T:
-            self._sticky_mode = True
-            self.set_mode(Mode.TEXT)
+            self._toggle_notes_hidden()
             event.accept()
             return
 
-        # Mode switching shortcuts (no modifiers)
+        # Mode switching shortcuts (no modifiers).
+        # In RECT / TEXT mode, holding Shift while clicking keeps the mode
+        # active for rapid placement; clicking without Shift exits to SELECT.
         if no_mod:
             mode_keys = {
                 Qt.Key.Key_V: Mode.SELECT,
@@ -2969,7 +3126,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 Qt.Key.Key_C: Mode.CONNECT,
             }
             if event.key() in mode_keys:
-                self._sticky_mode = False
                 self.set_mode(mode_keys[event.key()])
                 event.accept()
                 return
@@ -3054,6 +3210,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             QRectF(self._rect_origin, self._rect_origin), pen
         )
         self._rect_preview.setBrush(QBrush(QColor(0x2F, 0x34, 0x37, 30)))
+        # Hide the cursor ghost while the drag-rectangle is live
+        if self._create_preview is not None:
+            self._create_preview.setVisible(False)
         event.accept()
 
     def _move_rect(self, event):
@@ -3091,7 +3250,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         self._push_undo()
         box_id = self._board.next_box_id()
-        box = Box(id=box_id, label="", x=x, y=y, w=w, h=h,
+        box = Box(id=box_id, label="A Node", x=x, y=y, w=w, h=h,
                   color=self._last_box_color,
                   textsize=self._last_box_textsize)
         self._board.add_box(box)
@@ -3101,8 +3260,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._scene.addItem(item._label)
         self._box_items[box_id] = item
         self.mark_dirty()
-        if self._sticky_mode:
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Shift held — stay in RECT mode for rapid placement
             item.setSelected(True)
+            self._refresh_create_preview()
         else:
             self.set_mode(Mode.SELECT)
             item.setSelected(True)
@@ -3116,7 +3277,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
         self._push_undo()
         scene_pos = self.mapToScene(event.position().toPoint())
-        note = Note(id="", x=scene_pos.x(), y=scene_pos.y(), text="Note",
+        note = Note(id="", x=scene_pos.x(), y=scene_pos.y(),
+                    text="Some text ...",
                     textsize=self._last_note_textsize)
         self._board.add_note(note)
 
@@ -3124,8 +3286,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._scene.addItem(item)
         self._note_items[note.id] = item
         self.mark_dirty()
-        if self._sticky_mode:
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Shift held — stay in TEXT mode for rapid placement
             item.setSelected(True)
+            self._refresh_create_preview()
         else:
             self.set_mode(Mode.SELECT)
             item.setSelected(True)
@@ -4553,9 +4717,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ]),
             ("Modes", [
                 ("V", "Select mode"),
-                ("N / \u21e7N", "Create node (one-shot / sticky)"),
-                ("T / \u21e7T", "Create note (one-shot / sticky)"),
+                ("N", "Create node (\u21e7click stays in mode)"),
+                ("T", "Create note (\u21e7click stays in mode)"),
                 ("C", "Connect arrow (one-shot)"),
+                ("\u21e7N", "Hide notes \u2014 concentrate on the graph"),
             ]),
             ("Navigate", [
                 ("Arrow keys", "Pan viewport"),

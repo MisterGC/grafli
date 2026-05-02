@@ -114,10 +114,7 @@ class MainWindow(QMainWindow):
         return f"Grafli — {label}{'*' if dirty else ''}"
 
     def _on_mode_changed(self, mode: Mode):
-        label = mode.value.upper()
-        if self._view._sticky_mode and mode in (Mode.RECT, Mode.TEXT):
-            label += "+"
-        self._status_mode.setText(label)
+        self._status_mode.setText(mode.value.upper())
         self._side_panel.update_mode(mode)
 
     def _setup_panel(self):

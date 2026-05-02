@@ -32,12 +32,61 @@ from grafli.constants import (
 from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
 
 _RE_SPEAKER = re.compile(r"^([A-Z][A-Za-z0-9_-]{0,15}): ")
-from grafli.code_note import code_body, is_code_note, tokenize_line
+
+# Task/question prefixes — accept short and long forms, any case.
+# Rendered badge is always normalised to "T:" / "Q:" for consistency.
+_RE_TASK_PREFIX = re.compile(r"^(?:T|TODO):\s", re.IGNORECASE)
+_RE_QUESTION_PREFIX = re.compile(r"^(?:Q|QUESTION):\s", re.IGNORECASE)
+
+
+def note_prefix(text: str) -> tuple[str, str] | None:
+    """Detect a task or question prefix at the start of *text*.
+
+    Returns ``("T:", body)`` for any of ``T:`` / ``t:`` / ``TODO:`` /
+    ``todo:`` (case-insensitive); ``("Q:", body)`` for any of ``Q:`` /
+    ``q:`` / ``QUESTION:`` / ``question:``. Returns ``None`` if no
+    recognised prefix is present.
+    """
+    m = _RE_TASK_PREFIX.match(text)
+    if m:
+        return "T:", text[m.end():]
+    m = _RE_QUESTION_PREFIX.match(text)
+    if m:
+        return "Q:", text[m.end():]
+    return None
+from grafli.code_note import is_code_note, split_signature, tokenize_line
 from grafli.format import Box, Image, Note
 
-NOTE_CODE_KW_COLOR = QColor("#D4804E")
+# Code-note palette — deliberately minimal so the snippet doesn't fight
+# the surrounding graph. Two accents only, plus muted comments:
+#   keyword     #2B6CB0  blue   bold     control / effect — flow markers
+#   contract    #C53030  red    bold     pre / post / risk — review focus
+#   ref         #2B6CB0  blue   underlined  clickable @path:line link
+#   comment     #8A8580  grey   italic   skim-past prose
+#   value       (text colour)             "...", #hex, 42, true — self-marked
+#   text        #2F3437  near-black
+NOTE_CODE_BG_COLOR = QColor("#F2F0EB")
+NOTE_CODE_BORDER_COLOR = QColor("#CDC8BF")
+NOTE_CODE_KW_COLOR = QColor("#2B6CB0")
+NOTE_CODE_KW_CONTRACT_COLOR = QColor("#C53030")
+NOTE_CODE_REF_COLOR = QColor("#2B6CB0")
 NOTE_CODE_COMMENT_COLOR = QColor("#8A8580")
 NOTE_CODE_TEXT_COLOR = QColor("#2F3437")
+NOTE_CODE_INDENT_GUIDE_COLOR = QColor("#B5B0A8")
+
+_CODE_BOLD_KINDS = {"kw_struct", "kw_effect", "kw_contract", "ref"}
+_CODE_KIND_COLORS = {
+    "kw_struct": NOTE_CODE_KW_COLOR,
+    "kw_effect": NOTE_CODE_KW_COLOR,
+    "kw_contract": NOTE_CODE_KW_CONTRACT_COLOR,
+    "ref": NOTE_CODE_REF_COLOR,
+    "string": NOTE_CODE_TEXT_COLOR,
+    "hex": NOTE_CODE_TEXT_COLOR,
+    "number": NOTE_CODE_TEXT_COLOR,
+    "bool": NOTE_CODE_TEXT_COLOR,
+    "comment": NOTE_CODE_COMMENT_COLOR,
+    "text": NOTE_CODE_TEXT_COLOR,
+}
 
 
 def _paint_link_glyph(painter: QPainter, rect: QRectF):
@@ -512,10 +561,12 @@ class NoteItem(QGraphicsSimpleTextItem):
     """A draggable free-text note with Neovim-style badge rendering."""
 
     _PAD = 6
+    _CODE_PAD = 10
     _BADGE_GAP = 5
     _BADGE_HPAD = 5
     _BADGE_RADIUS = 3
     _BG_RADIUS = 4
+    _CODE_BG_RADIUS = 6
     _BLOCK_GAP = 4
 
     def __init__(self, note: Note):
@@ -530,16 +581,61 @@ class NoteItem(QGraphicsSimpleTextItem):
             | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
         self.setCursor(Qt.CursorShape.SizeAllCursor)
+        self.setAcceptHoverEvents(True)
+        self._code_ref_rects: list[tuple[QRectF, str]] = []
+        self._pending_ref: tuple[str, QPointF] | None = None
         self._update_url_indicator()
+
+    def _ref_at(self, pos: QPointF) -> str | None:
+        for rect, ref in self._code_ref_rects:
+            if rect.contains(pos):
+                return ref
+        return None
+
+    def hoverMoveEvent(self, event):
+        if self._is_code_note() and self._ref_at(event.pos()) is not None:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
+        super().hoverMoveEvent(event)
+
+    def mousePressEvent(self, event):
+        self._pending_ref = None
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._is_code_note()
+        ):
+            ref = self._ref_at(event.pos())
+            if ref is not None:
+                self._pending_ref = (ref, event.pos())
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        pending = self._pending_ref
+        self._pending_ref = None
+        if (
+            pending is not None
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            ref, press_pos = pending
+            if (event.pos() - press_pos).manhattanLength() <= 4 \
+                    and self._ref_at(event.pos()) == ref:
+                view = _get_view(self)
+                if view is not None and hasattr(view, "_open_code_ref"):
+                    view._open_code_ref(ref)
+                    event.accept()
+                    super().mouseReleaseEvent(event)
+                    return
+        super().mouseReleaseEvent(event)
 
     def _parse_note(self):
         """Extract badge prefix, body text, and accent color."""
-        text = self.note.text
-        if text.startswith("T: "):
-            return "T:", text[3:], NOTE_TASK_COLOR
-        elif text.startswith("Q: "):
-            return "Q:", text[3:], NOTE_QUESTION_COLOR
-        return "", text, NOTE_PEN_COLOR
+        p = note_prefix(self.note.text)
+        if p is None:
+            return "", self.note.text, NOTE_PEN_COLOR
+        badge, body = p
+        accent = NOTE_TASK_COLOR if badge == "T:" else NOTE_QUESTION_COLOR
+        return badge, body, accent
 
     def _parse_discussion(self):
         """Parse speaker blocks for discussion notes.
@@ -602,40 +698,50 @@ class NoteItem(QGraphicsSimpleTextItem):
         total_h = pad + total_lines * line_h + gap_h + pad
         return max_badge_w, body_w, line_h, total_w, total_h
 
+    _CODE_DIVIDER_GAP = 6
+
     def _is_code_note(self) -> bool:
         return is_code_note(self.note.text)
 
-    def _code_lines(self) -> list[str]:
-        return code_body(self.note.text).split("\n")
+    def _code_lines(self) -> tuple[int | None, list[str]]:
+        return split_signature(self.note.text)
 
     def _code_font(self) -> QFont:
         return self._note_font()
 
-    def _code_metrics(self, lines: list[str]):
+    def _code_signature_font(self) -> QFont:
+        f = QFont(self._code_font())
+        f.setBold(True)
+        return f
+
+    def _code_metrics(self, sig_idx: int | None, lines: list[str]):
         font = self._code_font()
         bold_font = QFont(font)
         bold_font.setBold(True)
         fm = QFontMetricsF(font)
         bfm = QFontMetricsF(bold_font)
-        pad = self._PAD
+        pad = self._CODE_PAD
         line_h = fm.height()
+        divider_gap = self._CODE_DIVIDER_GAP if sig_idx is not None else 0
 
-        def _line_w(line: str) -> float:
+        def _line_w(i: int, line: str) -> float:
             w = 0.0
             for kind, text in tokenize_line(line):
-                metrics = bfm if kind == "kw" else fm
-                w += metrics.horizontalAdvance(text)
+                if i == sig_idx or kind in _CODE_BOLD_KINDS:
+                    w += bfm.horizontalAdvance(text)
+                else:
+                    w += fm.horizontalAdvance(text)
             return w
 
-        body_w = max((_line_w(ln) for ln in lines), default=0.0)
+        body_w = max((_line_w(i, ln) for i, ln in enumerate(lines)), default=0.0)
         total_w = pad + body_w + pad
-        total_h = pad + len(lines) * line_h + pad
-        return body_w, line_h, total_w, total_h
+        total_h = pad + len(lines) * line_h + divider_gap + pad
+        return body_w, line_h, divider_gap, total_w, total_h
 
     def boundingRect(self):
         if self._is_code_note():
-            lines = self._code_lines()
-            _, _, tw, th = self._code_metrics(lines)
+            sig_idx, lines = self._code_lines()
+            _, _, _, tw, th = self._code_metrics(sig_idx, lines)
             r = QRectF(0, 0, tw, th)
             if self.isSelected():
                 return r.adjusted(-4, -4, 4, 4)
@@ -823,45 +929,113 @@ class NoteItem(QGraphicsSimpleTextItem):
             painter.drawRect(sel_rect)
 
     def _paint_code(self, painter: QPainter):
-        lines = self._code_lines()
+        sig_idx, lines = self._code_lines()
         font = self._code_font()
         bold_font = QFont(font)
         bold_font.setBold(True)
+        ref_font = QFont(bold_font)
+        ref_font.setUnderline(True)
+        comment_font = QFont(font)
+        comment_font.setItalic(True)
+        sig_font = self._code_signature_font()
+        sig_ref_font = QFont(sig_font)
+        sig_ref_font.setUnderline(True)
         fm = QFontMetricsF(font)
         bfm = QFontMetricsF(bold_font)
-        pad = self._PAD
-        line_h = fm.height()
+        pad = self._CODE_PAD
+        indent_w = fm.horizontalAdvance("  ")
 
-        _, _, total_w, total_h = self._code_metrics(lines)
+        _, line_h, divider_gap, total_w, total_h = self._code_metrics(
+            sig_idx, lines,
+        )
         bg_rect = QRectF(0, 0, total_w, total_h)
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        bg = QColor("#F2F0EB")
+        bg = QColor(NOTE_CODE_BG_COLOR)
         bg.setAlphaF(0.85)
-        painter.setPen(Qt.PenStyle.NoPen)
+        border_color = NOTE_CODE_BORDER_COLOR
+        painter.setPen(QPen(border_color, 1))
         painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+        painter.drawRoundedRect(
+            bg_rect.adjusted(0.5, 0.5, -0.5, -0.5),
+            self._CODE_BG_RADIUS, self._CODE_BG_RADIUS,
+        )
 
-        text_y = pad + fm.ascent()
+        # Per-line top offsets, with a small gap inserted after the signature
+        line_tops: list[float] = []
+        y_acc = pad
+        for i in range(len(lines)):
+            line_tops.append(y_acc)
+            y_acc += line_h
+            if i == sig_idx:
+                y_acc += divider_gap
+
+        # Divider rule under the signature
+        if sig_idx is not None:
+            div_y = line_tops[sig_idx] + line_h + divider_gap / 2
+            painter.setPen(QPen(border_color, 1))
+            painter.drawLine(
+                QPointF(pad, div_y),
+                QPointF(total_w - pad, div_y),
+            )
+
+        # Indent guides — thin verticals in the gap before each indent level
+        guide_color = QColor(NOTE_CODE_INDENT_GUIDE_COLOR)
+        guide_color.setAlphaF(0.5)
+        guide_pen = QPen(guide_color, 1)
         for i, line in enumerate(lines):
+            indent_chars = len(line) - len(line.lstrip(" "))
+            levels = indent_chars // 2
+            if levels <= 0:
+                continue
+            y_top = line_tops[i]
+            y_bot = y_top + line_h
+            painter.setPen(guide_pen)
+            for lvl in range(1, levels + 1):
+                x = pad + (lvl - 0.5) * indent_w
+                painter.drawLine(QPointF(x, y_top), QPointF(x, y_bot))
+
+        ref_rects: list[tuple[QRectF, str]] = []
+        for i, line in enumerate(lines):
+            is_sig = (i == sig_idx)
             x = pad
-            y = text_y + i * line_h
+            y = line_tops[i] + fm.ascent()
             for kind, text in tokenize_line(line):
-                if kind == "kw":
-                    painter.setFont(bold_font)
-                    painter.setPen(NOTE_CODE_KW_COLOR)
-                    advance = bfm.horizontalAdvance(text)
+                if is_sig:
+                    chosen_font = sig_ref_font if kind == "ref" else sig_font
+                    metrics = bfm
+                elif kind == "ref":
+                    chosen_font = ref_font
+                    metrics = bfm
+                elif kind in _CODE_BOLD_KINDS:
+                    chosen_font = bold_font
+                    metrics = bfm
                 elif kind == "comment":
-                    painter.setFont(font)
-                    painter.setPen(NOTE_CODE_COMMENT_COLOR)
-                    advance = fm.horizontalAdvance(text)
+                    chosen_font = comment_font
+                    metrics = fm
                 else:
-                    painter.setFont(font)
-                    painter.setPen(NOTE_CODE_TEXT_COLOR)
-                    advance = fm.horizontalAdvance(text)
+                    chosen_font = font
+                    metrics = fm
+                painter.setFont(chosen_font)
+                advance = metrics.horizontalAdvance(text)
+                # On the signature line, everything reads as the title
+                # (plain text colour); refs keep their link tone.
+                if is_sig and kind != "ref":
+                    color = NOTE_CODE_TEXT_COLOR
+                else:
+                    color = _CODE_KIND_COLORS.get(kind, NOTE_CODE_TEXT_COLOR)
+                painter.setPen(color)
                 painter.drawText(QPointF(x, y), text)
+                if kind == "ref":
+                    rect = QRectF(
+                        x, y - fm.ascent() - 1,
+                        advance, line_h + 2,
+                    )
+                    ref_rects.append((rect, text))
                 x += advance
+
+        self._code_ref_rects = ref_rects
 
         if self.note.url:
             _paint_link_glyph(painter, bg_rect)

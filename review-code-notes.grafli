@@ -1,0 +1,54 @@
+#!grafli v1
+# Review: code-mode text notes.
+# Scope: a new rendering mode for text notes (code:-prefixed) plus an
+# updated F1 help dialog. Self-referential — the notes below use the
+# very feature they describe, so this diagram doubles as a live demo.
+
+# ── Title ──────────────────────────────────────────
+@ note title 40,20 "Code-mode notes — change review" ~xlarge
+
+# ── Module / file graph ────────────────────────────
+@ box code_note "grafli/code_note.py\n(new)" -172.7147164276401,142.9339960886571 220x90 %tertiary
+@ box items "grafli/items.py\nNoteItem" 384.00994132985653,69.58409387222946 220x90 %secondary
+@ box view "grafli/view.py\nF1 dialog" 893.7906616688398,574.2314211212515 220x90 %secondary
+@ box tests "tests/test_code_note.py\n(new, 24 tests)" 940,140 220x90 %tertiary
+
+@ arrow code_note -> items "is_code_note\ncode_body\ntokenize_line"
+@ arrow code_note -> tests "covers" !dashed
+
+# ── Pseudocode notes — one per changed module ──────
+
+@ note n_code_note -290.07455997392435,299.60894719687093 "code:\nis_code_note(text) -> bool\nfor line in text.lines:\n  if blank(line):\n    continue\n  return starts_with(line, code:)\nreturn false  @code_note.py"
+
+@ note n_body -276.87157757496743,479.6089471968709 "code:\ncode_body(text) -> str\n# drops the prefix line, keeps everything after\nout = []\nfor line in text.lines:\n  if is_prefix_line(line):\n    keep_tail_after_prefix(out, line)\n  else:\n    out += line\nreturn join_lines(out)  @code_note.py"
+
+@ note n_tok 101.61391786179922,622.3960234680573 "code:\ntokenize_line(line) -> [(kind, text)]\nhead, comment = split_at_comment(line)\nruns = scan_keyword_or_inline(head)\nappend_comment_run(runs, comment)\nreturn runs  @code_note.py"
+
+@ note n_items 587.9226694915252,289.33996088657096 "code:\npaint(painter)\nif is_code_note(note):\n  paint_code(painter)\nelse:\n  paint_default(painter)  # discussion, task, plain\n  @items.py"
+
+@ note n_paint 177.16321707953068,208.21430899608873 "code:\npaint_code(painter)\nlines = body_lines(note)\ndraw_background(painter, #F2F0EB)\ndraw_signature_divider(painter)\nfor line in lines:\n  for (kind, text) in tokenize_line(line):\n    pen = pen_for(kind)\n    draw_text(painter, pen, text)\n    advance_cursor(advance_for(kind, text))\n  @items.py"
+
+@ note n_view 801.3697848761411,704.5004074315514 "code:\nshow_cheatsheet()\n# was a single shortcuts dialog — now tabbed\ndialog = build_dialog(\n  tab(Shortcuts, shortcuts_tab),\n  tab(Notes, notes_browser))\nshow(dialog)  @view.py"
+
+@ note n_help 889.3896675358541,853.6934485006518 "code:\nnotes_help_html() -> str\n# reference for the special note formats\nreturn render_help(\n  formats = [plain, T:, Q:, discussion, code:],\n  include = [keyword_table, example])  @view.py"
+
+# ── Connect notes to their box ─────────────────────
+@ arrow n_code_note -> code_note !dotted
+@ arrow n_body -> code_note !dotted
+@ arrow n_tok -> code_note !dotted
+@ arrow n_items -> items !dotted
+@ arrow n_paint -> items !dotted
+@ arrow n_view -> view !dotted
+@ arrow n_help -> view !dotted
+
+# ── Review checklist ───────────────────────────────
+@ note checklist 1082.29881029987,263.86302151238596 "code:\nreview checklist\npre prefix detected on first non-blank line\npre prefix stripped from rendered body\nverify keywords are bold + blue accent\nverify contract keywords (pre/post/risk) are red\nverify @path:line is underlined and clickable\nverify # comments render italic + muted\nverify edit mode shows raw text (round-trip safe)"
+
+@ arrow checklist -> tests !dashed "verified by"
+
+# ── Side-effects / risks note ──────────────────────
+@ note risks 40,860 "code:\nrisks and out-of-scope items\nrisk .grafli does not escape quote chars — avoid them in code-note text\n# F1 title changed from Keyboard Shortcuts to Help\n# plugin bumped 1.16.0 -> 1.18.1\n# SKILL.md updated in devsetup source — installed copies\n  sync on next plugin install"
+
+# ── Footer caption ─────────────────────────────────
+@ note caption 40,1040 "Each pseudocode note above summarizes the implementation of one function or paint path. Solid arrows = data/call flow; dotted = 'documents'; dashed = 'verifies'. Open any note to see the raw text; the stylized block appears only in display mode." ~small
+@ note n1 685.7828276923825,494.4167624410796 "code:\nclass Note\nint numChars\nstring text"

@@ -130,3 +130,11 @@
 @ arrow trade -> innkeep "event: extra_rooms"
 
 @ note qa_busiest 980,2280 "Q: who is the busiest NPC?\nA: Priest — temple shift + well + square + festival + raid. Five edges, the brightest hotspot in the heatmap."
+@ note n1 955.472573114052,470.5702422586706 "question: what is this?"
+@ note n2 963.8329581288,566.1174995700758 "todo: Let's refine this one!"
+@ note n3 1336.4672616432802,578.0609067340015 "Some text ..."
+@ box box1 "A Node" 460,640 160x80 %primary
+@ box box2 "A Node" 660,640 160x80 %tertiary
+@ box box3 "A Node" 535.085468942171,822.3139972354319 160x80 %muted
+@ arrow box1 -> box3 "risk: not this"
+@ arrow box2 -> box3 "data: some info"

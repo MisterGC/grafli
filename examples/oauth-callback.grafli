@@ -1,0 +1,104 @@
+#!grafli v1
+# OAuth callback flow — graph + code-mode notes combined.
+#
+# What this example shows:
+#   * The graph carries *where things happen* and *who calls whom*.
+#   * Each code note carries *what one function does* in 5–9 scannable lines.
+#   * Together they answer review questions a reader couldn't get from
+#     either alone:
+#       - "Which service handles CSRF?"     (graph + cb's pre)
+#       - "Where can an open redirect hide?" (graph + done's risk)
+#       - "What invariants do the tests cover?" (verify arrows + verify lines)
+#
+# Read order: title → provider → top row left-to-right → code notes → tests.
+
+# ── Title ──────────────────────────────────────────
+@ note title 600,-40 "OAuth callback — request flow" ~xlarge
+@ note legend 80,80 "Solid arrows = call. Dashed = verify. The provider is external. Each code note describes the function inside its box." ~small
+
+# ── External actor ─────────────────────────────────
+@ box provider "OAuth Provider\nGoogle / GitHub" 460,140 220x80 %muted
+
+# ── Service boxes (horizontal flow) ────────────────
+@ box cb "Callback Handler\nPOST /auth/callback" 37.62564878892732,297.6458693771626 220x80 %primary
+@ box xchg "Token Exchange\noauth client" 460,300 220x80 %tertiary
+@ box users "User Upsert\nidentity store" 840,300 220x80 %tertiary
+@ box sess "Session Mint\ncookie + redis" 1220,300 220x80 %tertiary
+@ box done "Redirect\nresponse" 1600,300 220x80 %secondary
+
+# ── Inter-service calls ────────────────────────────
+@ arrow cb -> xchg "call: exchange"
+@ arrow xchg -> provider "call: POST /token"
+@ arrow xchg -> users "call: upsert"
+@ arrow users -> sess "call: mint"
+@ arrow sess -> done "state: redirect"
+
+# ── Code notes — one function per service ──────────
+
+@ note n_cb -25.925767733563987,411.76054282006925 """
+code:
+handle_callback(req) -> Response
+pre req.method == POST
+pre rate_limit_ok(req.ip)
+state = req.query.state
+if not csrf_match(state, req.cookie):
+  err 400 csrf_mismatch
+risk timing leak — use constant_time_eq
+return exchange(req.query.code)  @auth/callback.py:23
+"""
+
+@ note n_xchg 429.4064121972318,414.1146734429065 """
+code:
+exchange(code) -> Session
+token = call provider.post(token_url, code)
+verify token.iss == expected_issuer
+verify token.aud == client_id
+profile = call provider.get(userinfo_url, token)
+return upsert_user(profile)  @auth/oauth.py:88
+"""
+
+@ note n_users 836.4789143598614,415.2917387543254 """
+code:
+upsert_user(profile) -> User
+existing = find_by_provider_id(profile.id)
+if existing:
+  update_profile(existing, profile)
+  return existing
+new = create_user(profile)
+emit UserCreated(new.id)
+return new  @users/store.py:14
+"""
+
+@ note n_sess 1196.4688040657438,417.6458693771626 """
+code:
+mint_session(user) -> SessionId
+sid = random_token(32)
+cookie = sign(sid, secret)
+state new -> active in redis (ttl=30d)
+post cookie has HttpOnly, Secure, SameSite=Lax
+risk fixation if reusing pre-auth sid
+return sid  @auth/session.py:5
+"""
+
+@ note n_done 1580,420 """
+code:
+finalize(sid, return_to) -> Response
+verify return_to in allowlist
+risk open redirect via crafted return_to
+post Location set, Set-Cookie set
+return 302 redirect_to=return_to  @auth/callback.py:78
+"""
+
+# ── Cross-cutting concerns: security tests ─────────
+@ box tests "Security Tests\ncontract suite" 892.9477184256054,825.9358780276815 220x80 %muted
+
+@ arrow tests -> cb "verify: csrf" !dashed
+@ arrow tests -> sess "verify: fixation" !dashed
+@ arrow tests -> done "verify: open redirect" !dashed
+
+# ── Reviewer prompts ───────────────────────────────
+@ note q_provider 700,40 "Q: Should we pin the provider's JWKS or always fetch live?" ~small
+@ note t_metrics 1480,720 "T: Add p95 latency budget on cb -> xchg edge" ~small
+
+# ── Footer ─────────────────────────────────────────
+@ note footer 80,920 "Read the graph for structure (which service calls which); read each code note for behaviour (what that one function does). The verify-arrows from Security Tests show which contracts have automated coverage — match them against the verify: lines in the code notes." ~small

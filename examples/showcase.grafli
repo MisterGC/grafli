@@ -1,107 +1,121 @@
 #!grafli v1
 # grafli feature showcase — source for the v0.1.0 docs-site screenshots.
 #
+# Theme: NPC behaviors in a fantasy town.
+#
 # Three spatially-separated regions, framed independently for each shot:
-#   Region 1 (y ≈ 0)     — hero: clean architecture with semantic edge chips
-#   Region 2 (y ≈ 900)   — annotations: T:/Q:/discussion + code-mode + chips
-#   Region 3 (y ≈ 1900)  — dense graph: reused for heatmap + jump labels
+#   Region 1 (y ≈ 0)     — hero: a baker's daily routine (state machine)
+#   Region 2 (y ≈ 900)   — annotations: a guard's threat-reaction behavior
+#                          under design review
+#   Region 3 (y ≈ 1900)  — dense graph: town-wide NPC ecosystem, reused
+#                          for the heatmap and jump-labels shots
 #
 # Open: grafli examples/showcase.grafli — select an element in the region
-# you want to capture and press Z to frame it.
+# you want to capture and press Z to fit-zoom.
 
 # ============================================================
-# Region 1 — Hero (clean architecture)
+# Region 1 — Baker's day (hero)
 # ============================================================
 
-@ note title1 60,0 "Architecture" ~xxlarge
+@ note title1 60,0 "Baker's day" ~xxlarge
 
-@ box web "Web App" 60,80 200x100 %secondary
-@ box api "API Gateway" 380,80 220x100 %primary
-@ box svc "Order Service" 720,80 220x100 %tertiary
-@ box db "PostgreSQL" 380,260 220x100 %subtle
+@ box sleep "Sleep" 60,180 160x90 %subtle
+@ box bake "Bake bread" 240,180 180x90 %accent
+@ box shop "Open shop" 440,180 180x90 %tertiary
+@ box lunch "Lunch" 640,180 160x90 %highlight
+@ box deliver "Deliver" 820,180 200x90 %tertiary
+@ box dinner "Dinner" 1040,180 160x90 %accent
 
-@ arrow web -> api "call: REST"
-@ arrow api -> svc "call: GraphQL"
-@ arrow svc -> db "data: queries"
-@ arrow api -> db "data: read" !dashed
+@ arrow sleep -> bake "step: 06:00"
+@ arrow bake -> shop "state: ready"
+@ arrow shop -> lunch "event: hungry"
+@ arrow lunch -> deliver "step: 15:00"
+@ arrow deliver -> dinner "step: 20:00"
+@ arrow dinner -> sleep "step: 22:00"
 
-@ note svc_code 1000,40 "code:\nfn: createOrder(req) -> Order\ncall: validate(req)\nverify: tests/test_orders.py\nemit: OrderCreated\nreturn: order"
-@ arrow svc_code -- svc
-
-# ============================================================
-# Region 2 — Annotations
-# ============================================================
-
-@ note title2 60,900 "Annotations" ~xxlarge
-
-@ box validate "validate(req)" 60,980 220x100 %secondary
-@ box process "processOrder(req)" 380,980 240x100 %tertiary
-@ box queue "message queue" 720,980 220x100 %highlight
-@ box dlq "dead-letter" 720,1160 220x100 %accent
-
-@ arrow validate -> process "call: parse"
-@ arrow process -> queue "event: OrderQueued"
-@ arrow queue -> dlq "risk: poison"
-@ arrow process -> validate "verify: contract" !dashed
-
-@ note todo 60,1180 "T: extract retry logic into helper"
-@ note q1 380,1180 "Q: should this be idempotent?"
-
-@ note disc 1000,980 "AI: This route can fan out heavily. Worth a circuit breaker?\nReviewer: Agreed. Add a budget around the queue publish.\nAI: Will draft in next pass."
-
-@ note proc_code 60,1340 "code:\nfn: processOrder(req)\nif: req.invalid\nthen: err InvalidRequest\nset: order = build(req)\nemit: OrderQueued(order.id)\nreturn: order  @orders.py:42"
-@ arrow proc_code -- process
+@ note bake_code 240,310 "code:\nfn: bake() -> Bread\nif: flour < 1\nthen: err OutOfFlour\nset: dough = mix(flour, water, yeast)\nstate: rising -> baking\nemit: BatchReady\nreturn: bread"
+@ arrow bake_code -- bake
 
 # ============================================================
-# Region 3 — Dense graph (heatmap + jump-labels overlay)
+# Region 2 — Threat reaction (annotations)
 # ============================================================
 
-@ note title3 60,1900 "System graph" ~xxlarge
+@ note title2 60,900 "Threat reaction" ~xxlarge
 
-# Frontend row
-@ box web2 "Web" 60,1980 160x80 %secondary
-@ box mobile "Mobile" 240,1980 160x80 %secondary
-@ box admin "Admin" 420,1980 160x80 %secondary
+@ box sense "Sense threat" 60,1000 220x90 %secondary
+@ box assess "Assess danger" 340,1000 240x90 %accent
+@ box flee "Flee" 680,1000 180x90 %muted
+@ box fight "Fight" 680,1120 180x90 %accent
+@ box guards "Call guards" 680,1240 200x90 %tertiary
+@ box hide "Hide" 920,1000 180x90 %muted
 
-# Gateway
-@ box gw "API" 240,2120 160x80 %primary
+@ arrow sense -> assess "call: classify"
+@ arrow assess -> flee "event: weak"
+@ arrow assess -> fight "event: strong"
+@ arrow assess -> guards "event: many"
+@ arrow flee -> hide "step: refuge"
+@ arrow guards -> fight "verify: backup" !dashed
+@ arrow fight -> flee "risk: outnumbered" !dashed
+@ arrow hide -> assess "verify: clear" !dashed
 
-# Services
-@ box auth "Auth" 60,2260 160x80 %accent
-@ box users "Users" 240,2260 160x80 %accent
-@ box orders "Orders" 420,2260 160x80 %accent
-@ box billing "Billing" 600,2260 160x80 %accent
-@ box catalog "Catalog" 780,2260 160x80 %accent
+@ note todo 60,1340 "T: add audible cue when sense triggers"
+@ note q1 340,1340 "Q: should fear scale with NPC level?"
+@ note disc 1140,1000 "Designer: Should child NPCs ever pick fight?\nReviewer: No — clamp to flee/hide when AgeTag is child.\nDesigner: Will add the tag check inside assess."
+@ note assess_code 60,1460 "code:\nfn: assessDanger(npc, threat) -> Action\nset: ratio = threat.power / npc.power\nif: ratio > 2.0\nthen: return flee\nif: threat.count > npc.allies\nthen: return guards\nverify: tests/test_assess.py:matrix\nreturn: fight  @ai/threat.py:88"
+@ arrow assess_code -- assess
 
-# Data
-@ box pg "Postgres" 60,2400 160x80 %subtle
-@ box redis "Redis" 240,2400 160x80 %subtle
-@ box s3 "S3" 420,2400 160x80 %subtle
+# ============================================================
+# Region 3 — Town life (heatmap + jump-labels)
+# ============================================================
 
-# Async / queues
-@ box mq "Queue" 600,2400 160x80 %highlight
-@ box worker "Worker" 780,2400 160x80 %highlight
+@ note title3 60,1900 "Town life" ~xxlarge
 
-# Output
-@ box notify "Notifier" 600,2540 160x80 %tertiary
-@ box mail "Mailer" 780,2540 160x80 %tertiary
+# NPCs (column 1)
+@ box baker "Baker" 60,1980 180x80 %accent
+@ box smith "Smith" 60,2080 180x80 %accent
+@ box innkeep "Innkeeper" 60,2180 180x80 %accent
+@ box guard "Guard" 60,2280 180x80 %accent
+@ box priest "Priest" 60,2380 180x80 %accent
 
-@ arrow web2 -> gw
-@ arrow mobile -> gw
-@ arrow admin -> gw
-@ arrow gw -> auth
-@ arrow gw -> users
-@ arrow gw -> orders
-@ arrow gw -> billing
-@ arrow gw -> catalog
-@ arrow auth -> redis
-@ arrow users -> pg
-@ arrow orders -> pg
-@ arrow billing -> pg
-@ arrow catalog -> s3
-@ arrow orders -> mq
-@ arrow billing -> mq
-@ arrow mq -> worker
-@ arrow worker -> notify
-@ arrow notify -> mail
-@ arrow mail -> users
+# Workplaces (column 2)
+@ box bakery "Bakery" 300,1980 180x80 %tertiary
+@ box smithy "Smithy" 300,2080 180x80 %tertiary
+@ box inn "Inn" 300,2180 180x80 %tertiary
+@ box gate "Town gate" 300,2280 180x80 %tertiary
+@ box temple "Temple" 300,2380 180x80 %tertiary
+
+# Shared spaces (column 3)
+@ box market "Market" 540,2030 180x80 %highlight
+@ box square "Town square" 540,2180 180x80 %highlight
+@ box well "Village well" 540,2330 180x80 %highlight
+
+# Events (column 4)
+@ box festival "Festival" 780,1980 180x80 %primary
+@ box raid "Bandit raid" 780,2180 180x80 %primary
+@ box trade "Trade day" 780,2380 180x80 %primary
+
+# Each NPC owns a daily shift at their workplace
+@ arrow baker -> bakery "owns: shift"
+@ arrow smith -> smithy "owns: shift"
+@ arrow innkeep -> inn "owns: shift"
+@ arrow guard -> gate "owns: patrol"
+@ arrow priest -> temple "owns: shift"
+
+# Routine visits to shared spaces
+@ arrow baker -> market "step: morning"
+@ arrow smith -> market "step: morning"
+@ arrow innkeep -> market "step: dawn"
+@ arrow guard -> square "step: evening"
+@ arrow priest -> square "step: sermon"
+@ arrow priest -> well "step: blessing"
+
+# Events ripple through NPCs
+@ arrow festival -> baker "event: bake_cake"
+@ arrow festival -> innkeep "event: extra_ale"
+@ arrow festival -> priest "event: blessing"
+@ arrow festival -> guard "event: crowd_watch"
+@ arrow raid -> guard "event: defend"
+@ arrow raid -> baker "event: hide"
+@ arrow raid -> priest "event: shelter"
+@ arrow trade -> smith "event: stock_tools"
+@ arrow trade -> innkeep "event: extra_rooms"

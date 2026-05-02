@@ -19,10 +19,10 @@ OS screenshot tool (macOS: <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>4</kbd>) at
 
 | # | File | Region | Runtime state | What to capture |
 |---|---|---|---|---|
-| 1 | `hero.png` | 1 — *Architecture* (`y ≈ 0`) | default | The four boxes (Web App / API Gateway / Order Service / PostgreSQL), the four labelled arrows including the `call:` and `data:` chips, and the attached `code:` note. |
-| 2 | `annotations.png` | 2 — *Annotations* (`y ≈ 900`) | default | The four flow boxes, the three chip arrows (`call:`, `event:`, `risk:`), the dashed `verify:` arrow, the `T:` and `Q:` notes, the `AI:`/`Reviewer:` discussion thread, and the `code:` note. |
-| 3 | `heatmap.png` | 3 — *System graph* (`y ≈ 1900`) | press <kbd>A</kbd> to toggle the complexity heatmap | All ~16 nodes visible; the `API` hub should glow as the hottest node. |
-| 4 | `jump-labels.png` | 3 — *System graph* (`y ≈ 1900`) | press <kbd>Ctrl</kbd>+<kbd>J</kbd> to enter jump mode | One- or two-character jump labels overlaid on every visible element. |
+| 1 | `hero.png` | 1 — *Baker's day* (`y ≈ 0`) | default | The six routine states (Sleep → Bake → Shop → Lunch → Deliver → Dinner) chained left-to-right with the loop arrow back to Sleep, the `step:` / `state:` / `event:` chips on the arrows, and the attached `code:` note for the *Bake bread* state. |
+| 2 | `annotations.png` | 2 — *Threat reaction* (`y ≈ 900`) | default | The six behavior boxes (Sense → Assess, branching to Flee / Fight / Call guards, plus Hide), the chip arrows (`call:`, `event:` ×3, `step:`, `risk:`, `verify:` ×2), the `T:` and `Q:` notes, the `Designer:`/`Reviewer:` discussion thread, and the `code:` note attached to *Assess danger*. |
+| 3 | `heatmap.png` | 3 — *Town life* (`y ≈ 1900`) | press <kbd>A</kbd> to toggle the complexity heatmap | All 16 entities visible: 5 NPCs (Baker, Smith, Innkeeper, Guard, Priest), 5 workplaces, 3 shared spaces (Market / Square / Well), 3 events (Festival, Bandit raid, Trade day). The most-connected NPCs (Priest, Guard) and events (Festival) glow as hot nodes. |
+| 4 | `jump-labels.png` | 3 — *Town life* (`y ≈ 1900`) | press <kbd>Ctrl</kbd>+<kbd>J</kbd> to enter jump mode | The same town ecosystem with one- or two-character jump labels overlaid on every visible NPC, location, and event. |
 
 All four shots come from one file, so any later format/feature change
 re-renders them in one place.

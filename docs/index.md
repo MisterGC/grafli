@@ -23,7 +23,7 @@ A keyboard-driven, plain-text diagram tool for people who think faster than they
 </div>
 
 <div class="grafli-screenshot" markdown>
-PLACEHOLDER &mdash; `hero.png`: Region 1 of `examples/showcase.grafli` (clean architecture with `call:` / `data:` edge chips and a `code:` note attached to the order service).
+PLACEHOLDER &mdash; `hero.png`: Region 1 of `examples/showcase.grafli` (a baker's daily routine — Sleep → Bake → Shop → Lunch → Deliver → Dinner — with `step:` / `state:` / `event:` edge chips and a `code:` note attached to the *Bake bread* state).
 </div>
 
 ## Why grafli
@@ -50,22 +50,24 @@ A small, deliberate set of primitives — boxes, arrows, notes — composes into
 ## A file format you can read
 
 ```text
-@ box web "Web App"        60,80   200x100 %secondary
-@ box api "API Gateway"   380,80   220x100 %primary
-@ box svc "Order Service" 720,80   220x100 %tertiary
-@ box db  "PostgreSQL"    380,260  220x100 %subtle
+@ box sleep   "Sleep"       60,180  160x90 %subtle
+@ box bake    "Bake bread" 240,180  180x90 %accent
+@ box shop    "Open shop"  440,180  180x90 %tertiary
+@ box deliver "Deliver"    640,180  200x90 %tertiary
 
-@ arrow web -> api "call: REST"
-@ arrow api -> svc "call: GraphQL"
-@ arrow svc -> db  "data: queries"
+@ arrow sleep -> bake "step: 06:00"
+@ arrow bake  -> shop "state: ready"
+@ arrow shop  -> deliver "event: orders_pending"
 
-@ note svc_code 1000,40 """
+@ note bake_code 240,310 """
 code:
-fn: createOrder(req) -> Order
-call: validate(req)
-verify: tests/test_orders.py
-emit: OrderCreated
-return: order
+fn: bake() -> Bread
+if: flour < 1
+then: err OutOfFlour
+set: dough = mix(flour, water, yeast)
+state: rising -> baking
+emit: BatchReady
+return: bread
 """
 ```
 
@@ -87,7 +89,7 @@ Notes aren't just sticky labels. Grafli recognizes lightweight conventions and r
 - **Markdown resources** — attach a markdown note to any element and edit it in a full-window zen editor.
 
 <div class="grafli-screenshot" markdown>
-PLACEHOLDER &mdash; `annotations.png`: Region 2 of `examples/showcase.grafli` (a `T:` task, a `Q:` question, an `AI:`/`Reviewer:` discussion, a `code:` note, and arrows carrying `call:` / `event:` / `risk:` / `verify:` chips).
+PLACEHOLDER &mdash; `annotations.png`: Region 2 of `examples/showcase.grafli` (a guard's threat-reaction behavior under design review — a `T:` task, a `Q:` question, a `Designer:`/`Reviewer:` discussion, a `code:` note, and arrows carrying `call:` / `event:` / `risk:` / `verify:` chips).
 </div>
 
 ## Read complex diagrams
@@ -98,7 +100,7 @@ Real diagrams sprawl. Two view modes turn a busy diagram into a focused one.
 - **Complexity heatmap** — <kbd>A</kbd> colors every node by how many connections, parents, and children it has. Hot nodes glow; cold nodes fade. Find the parts of a diagram that need refactoring without reading every label.
 
 <div class="grafli-screenshot" markdown>
-PLACEHOLDER &mdash; `heatmap.png`: Region 3 of `examples/showcase.grafli` with <kbd>A</kbd> active. The `API` hub glows as the hottest node.
+PLACEHOLDER &mdash; `heatmap.png`: Region 3 of `examples/showcase.grafli` (town-wide NPC ecosystem — bakers, smiths, guards, priests, their workplaces, and events like *Festival* and *Bandit raid*) with <kbd>A</kbd> active. The most-connected NPCs and events glow as hot nodes.
 </div>
 
 ## Navigate diagrams that grew
@@ -111,7 +113,7 @@ PLACEHOLDER &mdash; `heatmap.png`: Region 3 of `examples/showcase.grafli` with <
 - **Sub-graflis** — link any node to a deeper diagram in its own file. Click through, edit, return.
 
 <div class="grafli-screenshot" markdown>
-PLACEHOLDER &mdash; `jump-labels.png`: Region 3 of `examples/showcase.grafli` with <kbd>Ctrl</kbd>+<kbd>J</kbd> active. Every visible element carries a one- or two-character jump label.
+PLACEHOLDER &mdash; `jump-labels.png`: Region 3 of `examples/showcase.grafli` (the same town ecosystem) with <kbd>Ctrl</kbd>+<kbd>J</kbd> active. Every visible NPC, location, and event carries a one- or two-character jump label.
 </div>
 
 ## Where grafli fits

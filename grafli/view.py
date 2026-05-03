@@ -1011,20 +1011,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     # ── Hide notes (Shift+N) ───────────────────────────────
 
     def _toggle_notes_hidden(self):
-        """Toggle visibility of all notes and their arrows.
+        """Toggle low-opacity dim on all notes and their connector arrows.
 
-        When notes are hidden, their connector arrows to other elements
-        are hidden too, so the diagram reads as the bare graph. Re-press
-        the same shortcut to restore.
+        Uses the same 0.08 dim level as the arrow-dim toggle (``,``) so
+        the diagram reads as the bare graph while keeping notes faintly
+        visible (and still selectable for editing).
         """
         self._notes_hidden = not self._notes_hidden
         self._apply_notes_hidden()
 
     def _apply_notes_hidden(self):
         from grafli.format import Arrow as _Arrow
-        visible = not self._notes_hidden
+        opacity = 0.08 if self._notes_hidden else 1.0
         for note_item in self._note_items.values():
-            note_item.setVisible(visible)
+            note_item.setOpacity(opacity)
         for gfx in self._arrow_items:
             arrow = gfx.data(0)
             if not isinstance(arrow, _Arrow):
@@ -1034,7 +1034,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 or arrow.to_id in self._note_items
             )
             if touches_note:
-                gfx.setVisible(visible)
+                gfx.setOpacity(opacity)
 
     # ── Create-mode ghost preview ──────────────────────────
 
@@ -4720,7 +4720,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("N", "Create node (\u21e7click stays in mode)"),
                 ("T", "Create note (\u21e7click stays in mode)"),
                 ("C", "Connect arrow (one-shot)"),
-                ("\u21e7N", "Hide notes \u2014 concentrate on the graph"),
+                ("\u21e7N", "Dim notes \u2014 concentrate on the graph"),
             ]),
             ("Navigate", [
                 ("Arrow keys", "Pan viewport"),
@@ -4791,6 +4791,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ]),
             ("Other", [
                 ("Shift+Click", "Toggle selection"),
+                ("Click @ref", "Open source from code-mode note"),
                 ("F1", "This cheatsheet"),
                 ("`", "Toggle debug overlay"),
                 ("Escape", "Cancel / back to SELECT"),

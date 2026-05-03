@@ -55,10 +55,10 @@ triple quotes:
 ```text
 @ note logic 100,320 """
 code:
-fn: handleRequest(req)
-call: validate(req)
-emit: RequestAccepted(req.id)
-return: ok
+handleRequest(req) -> Response
+call validate(req)
+emit RequestAccepted(req.id)
+return ok
 """
 ```
 

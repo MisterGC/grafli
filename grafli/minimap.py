@@ -12,6 +12,7 @@ from grafli.constants import (
     FONT_FAMILY,
     MINIMAP_BG,
     MINIMAP_BORDER_COLOR,
+    MINIMAP_CONNECTOR_COLOR,
     MINIMAP_INFO_COLOR,
     MINIMAP_MARGIN,
     MINIMAP_MAX_H,
@@ -191,6 +192,28 @@ class MinimapMixin:
         # ── Minimap content ──
         sx = mw / scene_rect.width()
         sy = mh / scene_rect.height()
+
+        # Draw connectors first (under boxes/notes) — single neutral colour
+        # gives a density read of the graph without competing with the
+        # element markers drawn on top.
+        elem_centers: dict[str, tuple[float, float]] = {}
+        for box in self._board.boxes:
+            cx = mx + (box.x - scene_rect.x() + box.w / 2) * sx
+            cy = my + (box.y - scene_rect.y() + box.h / 2) * sy
+            elem_centers[box.id] = (cx, cy)
+        for note in self._board.notes:
+            cx = mx + (note.x - scene_rect.x() + 10) * sx
+            cy = my + (note.y - scene_rect.y() + 10) * sy
+            elem_centers[note.id] = (cx, cy)
+
+        painter.setPen(QPen(MINIMAP_CONNECTOR_COLOR, 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for arrow in self._board.arrows:
+            src = elem_centers.get(arrow.from_id)
+            dst = elem_centers.get(arrow.to_id)
+            if src is None or dst is None or src == dst:
+                continue
+            painter.drawLine(QPointF(src[0], src[1]), QPointF(dst[0], dst[1]))
 
         # Draw boxes
         painter.setPen(Qt.PenStyle.NoPen)

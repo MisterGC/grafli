@@ -61,13 +61,13 @@ A small, deliberate set of primitives — boxes, arrows, notes — composes into
 
 @ note bake_code 240,310 """
 code:
-fn: bake() -> Bread
-if: flour < 1
-then: err OutOfFlour
-set: dough = mix(flour, water, yeast)
-state: rising -> baking
-emit: BatchReady
-return: bread
+bake() -> Bread
+if flour < 1:
+  err OutOfFlour
+dough = mix(flour, water, yeast)
+state rising -> baking
+emit BatchReady
+return bread
 """
 ```
 
@@ -82,9 +82,9 @@ One element per line. Stable IDs. Diffs that highlight what actually changed. Th
 
 Notes aren't just sticky labels. Grafli recognizes lightweight conventions and renders them with visual weight that matches their meaning.
 
-- **Tasks** (`T:`) and **questions** (`Q:`) get distinct colors so review work is visible at a glance.
+- **Tasks** (`T:` / `TODO:`) and **questions** (`Q:` / `QUESTION:`, both case-insensitive) get distinct colors so review work is visible at a glance.
 - **Discussions** (`AI:` / `Reviewer:` …) format as threaded conversation bubbles inside a single note.
-- **Code-mode notes** (lines starting with `code:`) render syntax-highlighted pseudocode with system-design keywords like `fn:`, `if:`, `call:`, `verify:`, `risk:`, plus `@file:line` references.
+- **Code-mode notes** (lines starting with `code:`) render minimal pseudocode: a bold function signature on the first line, blue **flow** keywords (`if`, `for`, `call`, `emit`, …), red **contract** keywords (`pre`, `post`, `verify`, `risk`, …), and clickable `@file:line` refs that open in your editor.
 - **Semantic edge labels** — prefixes like `call:`, `data:`, `event:`, `verify:`, `risk:` render as colored chips on the arrow itself.
 - **Markdown resources** — attach a markdown note to any element and edit it in a full-window zen editor.
 

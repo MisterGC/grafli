@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Code-mode notes — v3 syntax.** The first body line is now the function
+  signature (rendered bold with a divider beneath); `fn:` is no longer a
+  keyword (auto-stripped from legacy notes). Trailing `:` on keywords is
+  optional — `if cond` and `if: cond` both render the same. `set` and
+  `note` were dropped: plain assignments (`out = []`) read clearly without a
+  keyword, and per-line comments use `# …`. The colour palette is reduced to
+  two accents (blue for control/effect, red for contract keywords like
+  `pre` / `post` / `verify` / `risk`); literal values render as plain text.
+- **Note prefix aliases.** `T:` / `Q:` now also accept `t:` / `q:` /
+  `TODO:` / `todo:` / `QUESTION:` / `question:` (case-insensitive). The
+  rendered badge is normalised to the short form for consistency.
+- **Sticky create modes** are gone — hold <kbd>Shift</kbd> while clicking
+  in `n`/`t` modes to stay in mode, click without modifier to create one
+  element and exit. Replaces the previous `Shift+N` / `Shift+T` shortcuts.
+
+### Added
+- **Dim notes** — <kbd>Shift</kbd>+<kbd>N</kbd> dims notes and their
+  connector arrows to 0.08 opacity (same level as <kbd>,</kbd> for arrows),
+  for concentrating on the bare graph.
+- **Clickable refs** — clicking a `@path:line` reference inside a code-mode
+  note opens the file at that line in the configured editor (uses
+  `editor/command` setting if set; otherwise auto-detects `code` /
+  `cursor` / `subl`; falls back to `QDesktopServices`).
+- **Indent guides** in code-mode notes — thin verticals at each indent
+  level make `if` / `for` / `try` block structure obvious.
+- **Value tokens** in the tokenizer — string literals, hex codes, numbers
+  and booleans are detected as token kinds (currently rendered plain).
+- **Toolbar entries** in the View section for the three view-toggles:
+  *Notes* (<kbd>⇧N</kbd>), *Edges* (<kbd>,</kbd>), *Analysis*
+  (<kbd>A</kbd>).
+- **Minimap connectors** — arrows are drawn as thin neutral lines so the
+  minimap also shows graph density.
+- **Ghost preview in create modes** — a semi-transparent box / note
+  follows the cursor in `n` / `t` mode with prefilled placeholder text
+  (*A Node* / *Some text …*). The created element keeps that text so the
+  auto-opened editor lands on the placeholder ready to type-replace.
+
 ## [0.1.0] - 2026-05-01
 
 First public release of grafli on PyPI.

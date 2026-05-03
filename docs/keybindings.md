@@ -9,12 +9,19 @@ with live filtering.
 | Key | Mode |
 |-----|------|
 | <kbd>v</kbd> | Select |
-| <kbd>n</kbd> / <kbd>Shift</kbd>+<kbd>n</kbd> | Create node (one-shot / sticky) |
-| <kbd>t</kbd> / <kbd>Shift</kbd>+<kbd>t</kbd> | Create note (one-shot / sticky) |
+| <kbd>n</kbd> | Create node — <kbd>Shift</kbd>+click stays in mode |
+| <kbd>t</kbd> | Create note — <kbd>Shift</kbd>+click stays in mode |
 | <kbd>c</kbd> | Connect arrow (one-shot) |
 | <kbd>s</kbd> | Style sub-mode (colors, sizes) |
 | <kbd>d</kbd> | Dimension sub-mode (resize) |
 | <kbd>Escape</kbd> | Cancel / back to Select |
+
+In `n` / `t` mode a semi-transparent ghost preview follows the cursor
+showing where the new element will land. Clicking creates the element
+and exits to Select; holding <kbd>Shift</kbd> while clicking keeps you
+in the create mode for rapid placement. New elements come prefilled with
+placeholder text (*A Node* / *Some text …*) so the auto-opened editor
+lands on the placeholder ready to type-replace.
 
 ## File
 
@@ -80,9 +87,13 @@ with live filtering.
 | Key | Action |
 |-----|--------|
 | <kbd>,</kbd> | Dim arrows |
+| <kbd>Shift</kbd>+<kbd>N</kbd> | Dim notes (and their connectors) |
 | <kbd>A</kbd> | Complexity heatmap |
 | <kbd>B</kbd> | Subgraph focus (cycle direction: all → forward → backward) |
 | <kbd>Shift</kbd>+<kbd>B</kbd> | Toggle focus depth (full / 1-hop) |
+
+The same three view-toggles also have buttons in the side panel's *View*
+section.
 
 ## View
 
@@ -116,6 +127,15 @@ with live filtering.
 | <kbd>Ctrl</kbd>+<kbd>K</kbd> | Open / switch buffer |
 | <kbd>Ctrl</kbd>+<kbd>6</kbd> | Toggle last buffer |
 | <kbd>Q</kbd> | Close buffer (no selection) |
+
+## Mouse
+
+| Action | Effect |
+|--------|--------|
+| Click `@path:line` in a code-mode note | Open the file at that line in the configured editor |
+| <kbd>Shift</kbd>+click | Toggle selection |
+| <kbd>Alt</kbd>+drag | Connect boxes |
+| <kbd>Alt</kbd>+click | Paste at position |
 
 ## Help
 

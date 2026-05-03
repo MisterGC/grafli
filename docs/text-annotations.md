@@ -8,13 +8,14 @@ intent into git diffs.
 
 Lead a note (or a line in a multi-line note) with one of:
 
-| Prefix | Meaning |
-|--------|---------|
-| `T:`   | Task / TODO |
-| `Q:`   | Question / clarification |
+| Prefix | Aliases (case-insensitive) | Meaning |
+|--------|-----------------------------|---------|
+| `T:`   | `t:`, `TODO:`, `todo:`     | Task / TODO |
+| `Q:`   | `q:`, `QUESTION:`, `question:` | Question / clarification |
 
 Both render with distinct colors so review work is easy to spot when you
-zoom out.
+zoom out. Whatever form you type, the rendered badge is normalised to the
+short form (`T:` / `Q:`) for visual consistency.
 
 ## Discussions
 
@@ -34,42 +35,76 @@ AI: We could move it behind an event bus once #421 lands.
 ## Code-mode notes
 
 A note whose first non-empty line is `code:` renders as a stylized
-pseudocode block. The body is keyword-led, one instruction per line:
+pseudocode block. It's not executable — it's a minimal, scannable
+language designed for review-oriented diagrams that pair with a PR.
 
-| Keyword | Use |
-|---------|-----|
-| `fn:`     | Function signature |
-| `if:` / `then:` / `else:` | Branching |
-| `for:` / `while:` | Iteration |
-| `call:`   | Important call |
-| `await:`  | Blocking / async wait |
-| `emit:`   | Event / message emission |
-| `try:` / `catch:` | Protected block / error handling |
-| `set:`    | Assignment |
-| `state:`  | State transition (`from -> to`) |
-| `assert:` / `pre:` / `post:` | Invariants |
-| `verify:` | Test / check / trace that proves behavior |
-| `risk:`   | Failure mode / review risk |
-| `return:` / `err:` | Exit value / error |
-| `note:`   | Review note / assumption |
-| `@path:line` | Reference to real source code |
-| `# …`     | Comment (rendered dimmed) |
+### Structure
+
+* The **first body line is the function signature** — rendered bold with
+  a divider rule beneath it. Write it without any keyword prefix:
+  `tokenize(raw) -> [Token]`.
+* **Indentation carries block structure.** Two spaces per level. Indent
+  guides are drawn automatically.
+* Trailing `:` on keywords is **optional** — `if cond` and `if: cond`
+  both render the same. Prefer the no-colon form for new notes.
+
+### Keywords
+
+Keywords come in two visual groups: blue **flow** keywords carry the
+control / effect plumbing; red **contract** keywords mark things a
+reviewer should spot first.
+
+| Keyword | Use | Colour |
+|---------|-----|--------|
+| `if cond` / `else action` | Branching | blue |
+| `for x in xs` / `while cond` | Iteration | blue |
+| `try` / `catch err -> action` | Protected block / error handling | blue |
+| `return expr` | Exit value | blue |
+| `call f(args)` | Important call | blue |
+| `await op` | Blocking / async wait | blue |
+| `emit event(args)` | Event / message emission | blue |
+| `state from -> to` | State transition / lifecycle | blue |
+| `pre cond` / `post cond` | Pre- / postcondition | **red** |
+| `assert cond` | Invariant / expected fact | **red** |
+| `verify evidence` | Test / check / trace | **red** |
+| `risk text` | Failure mode / review risk | **red** |
+| `err expr` | Error / raise | **red** |
+| `@path:line` | Clickable source reference (opens in editor) | blue, underlined |
+| `# …` | Comment (italic, muted) | grey |
+| `"..."`, `#FFF`, `42`, `true` | Literal values render as plain text | — |
+
+Plain assignments need no keyword: `out = []` is unambiguous.
+
+### Style
+
+The snippet should reveal *what happens*, not literally mirror the
+source. Optimise for visual understanding at a glance.
+
+* **Prefer short predicates and named operations** over long OO chains.
+  `blank(line)` reads faster than `line.stripped.isEmpty`. Even when the
+  underlying code uses dot chains, the note should use the verb that
+  captures the intent.
+* **Keep one abstraction level per snippet.** Mixing real method names
+  with prose verbs forces the reader to re-parse mid-line.
+* **Drop boilerplate.** Wrappers, logging, telemetry, defensive copies —
+  omit unless they're the point of the function.
+
+If a note grows past ~10 lines, it's trying to be a graph. Split it.
+
+### Example
 
 ```text
 @ note logic 100,320 """
 code:
-fn: handleRequest(req) -> Result
-pre: req.id is not None
-call: validate(req)            @grafli/api.py:42
-verify: tests/test_api.py::test_handle_ok
-risk: silently drops malformed payloads
-emit: RequestAccepted(req.id)
-return: ok
+handleRequest(req) -> Result
+pre req.id is set
+call validate(req)
+verify test_api.py::test_handle_ok
+risk silently drops malformed payloads
+emit RequestAccepted(req.id)
+return ok  @grafli/api.py:42
 """
 ```
-
-The pseudocode is not executable — it's a minimal, scannable language
-designed for review-oriented diagrams that pair with a PR.
 
 ## Semantic edge labels
 

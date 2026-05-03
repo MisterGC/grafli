@@ -1008,7 +1008,26 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         self._update_focus_status()
 
-    # ── Hide notes (Shift+N) ───────────────────────────────
+    # ── View toggles ───────────────────────────────────────
+
+    def _toggle_arrows_dimmed(self):
+        """Toggle low-opacity dim on all arrows."""
+        self._arrows_dimmed = not self._arrows_dimmed
+        if not self._focus_active and not self._complexity_active:
+            opacity = 0.08 if self._arrows_dimmed else 1.0
+            for gfx in self._arrow_items:
+                gfx.setOpacity(opacity)
+            self.viewport().update()
+
+    def _toggle_complexity(self):
+        """Toggle the complexity-analysis heatmap overlay."""
+        if self._complexity_active:
+            self._clear_complexity_heatmap()
+        else:
+            if self._focus_active:
+                self._clear_focus_filter()
+            self._complexity_active = True
+            self._apply_complexity_heatmap()
 
     def _toggle_notes_hidden(self):
         """Toggle low-opacity dim on all notes and their connector arrows.
@@ -3049,24 +3068,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # , — toggle arrow dimming
         if event.key() == Qt.Key.Key_Comma and no_mod:
-            self._arrows_dimmed = not self._arrows_dimmed
-            if not self._focus_active and not self._complexity_active:
-                opacity = 0.08 if self._arrows_dimmed else 1.0
-                for gfx in self._arrow_items:
-                    gfx.setOpacity(opacity)
-                self.viewport().update()
+            self._toggle_arrows_dimmed()
             event.accept()
             return
 
         # A — complexity analysis heatmap
         if event.key() == Qt.Key.Key_A and no_mod:
-            if self._complexity_active:
-                self._clear_complexity_heatmap()
-            else:
-                if self._focus_active:
-                    self._clear_focus_filter()
-                self._complexity_active = True
-                self._apply_complexity_heatmap()
+            self._toggle_complexity()
             event.accept()
             return
 
@@ -4930,6 +4938,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         )
         mono = "font-family:monospace"
         dim = "color:#B8B3AB"
+        kw_blue = "color:#2B6CB0;font-weight:bold"
+        kw_red = "color:#C53030;font-weight:bold"
         return f"""
         <p style='{hdr}'>TEXT ANNOTATIONS</p>
         <p>Grafli text can annotate nodes, edges, and local logic. Edit mode
@@ -4939,11 +4949,19 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         <p style='{hdr}'>Informational &mdash; plain text</p>
         <p>Default note. Blue text on a light badge-style background.</p>
 
-        <p style='{hdr}'>Task &mdash; <span style='{mono}'>T: &hellip;</span></p>
-        <p>Red badge + body. Use for todos that an agent can act on.</p>
+        <p style='{hdr}'>Task &mdash; <span style='{mono}'>T:</span> /
+           <span style='{mono}'>TODO:</span></p>
+        <p>Red badge + body. Also accepts <span style='{mono}'>t:</span> /
+        <span style='{mono}'>todo:</span> &mdash; case-insensitive. The
+        rendered badge is normalised to <span style='{mono}'>T:</span>.
+        Use for todos that an agent can act on.</p>
 
-        <p style='{hdr}'>Question &mdash; <span style='{mono}'>Q: &hellip;</span></p>
-        <p>Purple badge + body. Use for questions an agent can answer inline.</p>
+        <p style='{hdr}'>Question &mdash; <span style='{mono}'>Q:</span> /
+           <span style='{mono}'>QUESTION:</span></p>
+        <p>Purple badge + body. Also accepts <span style='{mono}'>q:</span> /
+        <span style='{mono}'>question:</span>. Normalised to
+        <span style='{mono}'>Q:</span>. Use for questions an agent can
+        answer inline.</p>
 
         <p style='{hdr}'>Discussion &mdash;
            <span style='{mono}'>Alice: &hellip; \\n Bob: &hellip;</span></p>
@@ -4957,85 +4975,73 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         <p>A note whose first non-empty line is
         <span style='{mono}'>code:</span> renders as a stylized pseudocode
         block. The pseudocode is <b>not</b> real source code &mdash; it's a
-        minimal language for summarizing implementations in review-oriented
-        diagrams. One short instruction per line. Keywords render bold in
-        dark blue, comments in grey. Object orientation is expressed
-        naturally via dot syntax (<span style='{mono}'>obj.method(args)</span>).</p>
+        minimal language for summarizing implementations at a glance.</p>
+        <ul>
+          <li><b>First body line is the function signature</b> &mdash;
+              rendered bold with a divider rule beneath.</li>
+          <li><b>Indentation carries block structure</b> (2 spaces per
+              level). Indent guides are drawn automatically.</li>
+          <li>Trailing <span style='{mono}'>:</span> on keywords is
+              optional &mdash; <span style='{mono}'>if cond</span> and
+              <span style='{mono}'>if: cond</span> render the same.</li>
+          <li>Plain assignments need no keyword:
+              <span style='{mono}'>out = []</span>.</li>
+        </ul>
 
-        <p style='{kw}'>Keywords (one per line, followed by <span style='{mono}'>:</span>)</p>
+        <p style='{kw_blue}'>Flow keywords (blue, bold)</p>
         <table cellpadding='4' style='margin-left:8px'>
-          <tr><td style='{mono}'>fn:</td>
-              <td>function signature &mdash;
-                  <span style='{mono}'>fn: name(args) -&gt; Result</span></td></tr>
-          <tr><td style='{mono}'>if:</td>
-              <td>condition</td></tr>
-          <tr><td style='{mono}'>then:</td>
-              <td>consequence of preceding <span style='{mono}'>if:</span></td></tr>
-          <tr><td style='{mono}'>else:</td>
-              <td>alternative branch</td></tr>
-          <tr><td style='{mono}'>for:</td>
+          <tr><td style='{mono}'>if</td><td>condition</td></tr>
+          <tr><td style='{mono}'>else</td><td>alternative branch</td></tr>
+          <tr><td style='{mono}'>for</td>
               <td>iteration &mdash;
-                  <span style='{mono}'>for: t in tokens</span></td></tr>
-          <tr><td style='{mono}'>while:</td>
-              <td>loop</td></tr>
-          <tr><td style='{mono}'>call:</td>
-              <td>important function/service call</td></tr>
-          <tr><td style='{mono}'>await:</td>
-              <td>async wait / blocking operation</td></tr>
-          <tr><td style='{mono}'>emit:</td>
-              <td>event or message emission</td></tr>
-          <tr><td style='{mono}'>try:</td>
-              <td>protected block</td></tr>
-          <tr><td style='{mono}'>catch:</td>
-              <td>error handling</td></tr>
-          <tr><td style='{mono}'>set:</td>
-              <td>assignment &mdash;
-                  <span style='{mono}'>set: x = expr</span></td></tr>
-          <tr><td style='{mono}'>state:</td>
-              <td>state transition / lifecycle</td></tr>
-          <tr><td style='{mono}'>assert:</td>
-              <td>invariant / expected fact</td></tr>
-          <tr><td style='{mono}'>pre:</td>
-              <td>precondition</td></tr>
-          <tr><td style='{mono}'>post:</td>
-              <td>postcondition</td></tr>
-          <tr><td style='{mono}'>verify:</td>
-              <td>test/check/trace that proves behavior</td></tr>
-          <tr><td style='{mono}'>risk:</td>
-              <td>failure mode / review risk</td></tr>
-          <tr><td style='{mono}'>return:</td>
-              <td>exit value</td></tr>
-          <tr><td style='{mono}'>err:</td>
-              <td>error / raise</td></tr>
-          <tr><td style='{mono}'>note:</td>
-              <td>review note / assumption</td></tr>
+                  <span style='{mono}'>for x in xs</span></td></tr>
+          <tr><td style='{mono}'>while</td><td>loop</td></tr>
+          <tr><td style='{mono}'>try</td><td>protected block</td></tr>
+          <tr><td style='{mono}'>catch</td><td>error handling</td></tr>
+          <tr><td style='{mono}'>return</td><td>exit value</td></tr>
+          <tr><td style='{mono}'>call</td><td>important call</td></tr>
+          <tr><td style='{mono}'>await</td><td>async wait / blocking op</td></tr>
+          <tr><td style='{mono}'>emit</td><td>event / message emission</td></tr>
+          <tr><td style='{mono}'>state</td><td>state transition (<span style='{mono}'>from -&gt; to</span>)</td></tr>
+        </table>
+
+        <p style='{kw_red}'>Contract keywords (red, bold) &mdash; reviewer&rsquo;s eye lands here first</p>
+        <table cellpadding='4' style='margin-left:8px'>
+          <tr><td style='{mono}'>pre</td><td>precondition</td></tr>
+          <tr><td style='{mono}'>post</td><td>postcondition</td></tr>
+          <tr><td style='{mono}'>assert</td><td>invariant / expected fact</td></tr>
+          <tr><td style='{mono}'>verify</td><td>test / trace that proves behavior</td></tr>
+          <tr><td style='{mono}'>risk</td><td>failure mode / review risk</td></tr>
+          <tr><td style='{mono}'>err</td><td>error / raise</td></tr>
+        </table>
+
+        <p style='{kw}'>Inline elements</p>
+        <table cellpadding='4' style='margin-left:8px'>
           <tr><td style='{mono}'>@path:line</td>
-              <td>reference to real source (may follow any line)</td></tr>
+              <td>clickable reference &mdash; opens the file at that line in your editor</td></tr>
           <tr><td style='{mono}'># &hellip;</td>
-              <td>comment (dimmed)</td></tr>
+              <td>comment (italic, muted)</td></tr>
+          <tr><td style='{mono}'>"..."  #FFF  42  true</td>
+              <td>literal values render as plain text</td></tr>
         </table>
 
         <p style='{kw}'>Example</p>
         <div style='{code_bg}'>code:
-fn: parseInput(raw) -&gt; Result
-if: raw.isEmpty
-then: err empty
-set: tokens = raw.split(sep)
-for: t in tokens
-  if: t.startsWith(at)
-  then: stack.push(t)
-  else: out.append(t)
-call: audit.record(parsed)
-emit: Parsed(out.size)
-log.emit(parsed, out.size) @parser.py:120
-# fallthrough intentional
-return: out</div>
+tokenize(raw) -&gt; [Token]
+if raw.len &gt; MAX:
+  err too-long
+out = []
+for ch in raw:
+  # skip whitespace
+  out += make_tok(ch)
+return out  @parser.py:44</div>
 
-        <p style='{dim}'>Lines without a leading keyword are plain actions
-        &mdash; the function/method call itself
-        (<span style='{mono}'>obj.method(args)</span>) makes the intent
-        obvious. A colon-word is only a keyword if it matches one of the
-        predefined set.</p>
+        <p style='{dim}'>Style guidance: prefer short predicates and named
+        operations over long OO chains
+        (<span style='{mono}'>blank(line)</span> reads faster than
+        <span style='{mono}'>line.stripped.isEmpty</span>) &mdash; the
+        snippet should reveal <i>what happens</i>, not literally mirror
+        the source.</p>
 
         <p style='{hdr}'>Edge Labels &mdash; relationship kinds</p>
         <p>Arrow labels can start with a relationship kind such as

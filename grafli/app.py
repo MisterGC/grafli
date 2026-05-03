@@ -151,6 +151,9 @@ class MainWindow(QMainWindow):
             "search":       self._view._start_search,
             "grid":         self._view.toggle_grid,
             "minimap":      self._view._toggle_minimap,
+            "dim_notes":    self._view._toggle_notes_hidden,
+            "dim_arrows":   self._view._toggle_arrows_dimmed,
+            "complexity":   self._view._toggle_complexity,
             "yank_png":     self._view._yank_png_to_clipboard,
             "export_svg":   self._view._export_svg_file,
         }

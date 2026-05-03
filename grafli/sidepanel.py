@@ -210,8 +210,11 @@ class SidePanel(QWidget):
 
     def _build_view_section(self):
         self._add_section("view", "View", [
-            ("grid",    "󰕘", "Grid",    "#"),
-            ("minimap", "󰍍", "Minimap", "M"),
+            ("grid",          "󰕘", "Grid",     "#"),
+            ("minimap",       "󰍍", "Minimap",  "M"),
+            ("dim_notes",     "󰎞", "Notes",    "⇧N"),
+            ("dim_arrows",    "󰁔", "Edges",    ","),
+            ("complexity",    "󰈸", "Analysis", "A"),
         ])
 
     def _build_export_section(self):

@@ -6,6 +6,8 @@ grafli lets you sketch architecture diagrams, code-review notes, and design
 sketches without leaving the keyboard. Files are line-oriented `.grafli` text
 that diffs cleanly in git and that LLMs can read and produce reliably.
 
+![grafli — graph + code-mode notes in one diagram](docs/assets/screenshots/hero.png)
+
 > Documentation and feature tour: **<https://grafli.mistergc.dev>**
 
 ## Install
@@ -32,9 +34,12 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
   connected neighbor box or note).
 - Semantic edge labels — prefixes such as `call:`, `data:`, `event:`,
   `verify:`, `risk:` render as colored chips and tint their arrow.
-- Code-mode notes — keyword-led pseudocode (`fn:`, `if:`, `call:`,
-  `verify:`, `@file:line`) for review-oriented diagrams.
-- Tasks (`T:`), questions (`Q:`), and threaded discussions inside notes.
+- Code-mode notes — minimal pseudocode for review-oriented diagrams: a
+  bold function signature on the first line, control/effect keywords
+  (`if`, `for`, `call`, `emit`, …) in blue, contract keywords (`pre`,
+  `post`, `verify`, `risk`, …) in red, and clickable `@file:line` refs.
+- Tasks (`T:` / `TODO:`), questions (`Q:` / `QUESTION:`, both
+  case-insensitive), and threaded discussions inside notes.
 - Subgraph focus — fade everything not reachable from the current selection;
   cycle direction (all / forward / backward) and depth (1-hop / unlimited).
 - Complexity heatmap — color nodes by connectivity to find hot spots.
@@ -60,10 +65,11 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 @ note 100,240 "SPA with React"
 @ note logic 100,320 """
 code:
-fn: handleRequest(req)
-call: validate(req)
-emit: RequestAccepted(req.id)
-return: ok
+handleRequest(req) -> Response
+pre req.id is set
+call validate(req)
+emit RequestAccepted(req.id)
+return ok  @api/handler.py:42
 """
 ```
 
@@ -83,12 +89,14 @@ or spans multiple lines.
 | Key | Action |
 |-----|--------|
 | <kbd>v</kbd> / <kbd>n</kbd> / <kbd>t</kbd> / <kbd>c</kbd> | Switch mode: Select / Rect / Text / Connect |
+| <kbd>Shift</kbd>+click in `n`/`t` mode | Stay in create mode for rapid placement |
 | <kbd>h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd> | Move selection (vim directions) |
 | <kbd>Ctrl</kbd>+<kbd>h</kbd>/<kbd>k</kbd>/<kbd>l</kbd> | Create connected box (left/up/right) |
 | <kbd>Alt</kbd> (hold) | Graph navigation — follow connectors |
 | <kbd>/</kbd> | Search by label |
 | <kbd>Ctrl</kbd>+<kbd>J</kbd> | Jump mode (all visible items) |
 | <kbd>B</kbd> / <kbd>Shift</kbd>+<kbd>B</kbd> | Subgraph focus (cycle direction / toggle depth) |
+| <kbd>,</kbd> / <kbd>Shift</kbd>+<kbd>N</kbd> | Dim arrows / dim notes (focus on the rest) |
 | <kbd>Y</kbd> / <kbd>Ctrl</kbd>+<kbd>E</kbd> | Yank PNG to clipboard / Export SVG |
 | <kbd>F1</kbd> | In-app cheat sheet and text-annotation reference |
 

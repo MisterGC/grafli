@@ -111,6 +111,7 @@ MINIMAP_TIER_COLORS = [
     QColor(199, 80, 80),    # Dense — red
 ]
 MINIMAP_INFO_COLOR = QColor(106, 159, 181)  # #6A9FB5 accent
+MINIMAP_CONNECTOR_COLOR = QColor(180, 180, 180, 110)  # neutral, low alpha — density only
 
 # ── Complexity heatmap ──────────────────────────────────────────
 HEATMAP_STOPS = [

@@ -22,9 +22,7 @@ A keyboard-driven, plain-text diagram tool for people who think faster than they
 
 </div>
 
-<div class="grafli-screenshot" markdown>
-PLACEHOLDER &mdash; `hero.png`: Region 1 of `examples/showcase.grafli` (a baker's daily routine — Sleep → Bake → Shop → Lunch → Deliver → Dinner — with `step:` / `state:` / `event:` edge chips and a `code:` note attached to the *Bake bread* state).
-</div>
+![A baker's daily routine — boxes, semantic edge chips, and a code-mode note attached to *Bake bread*](assets/screenshots/hero.png)
 
 ## Why grafli
 
@@ -88,9 +86,7 @@ Notes aren't just sticky labels. Grafli recognizes lightweight conventions and r
 - **Semantic edge labels** — prefixes like `call:`, `data:`, `event:`, `verify:`, `risk:` render as colored chips on the arrow itself.
 - **Markdown resources** — attach a markdown note to any element and edit it in a full-window zen editor.
 
-<div class="grafli-screenshot" markdown>
-PLACEHOLDER &mdash; `annotations.png`: Region 2 of `examples/showcase.grafli` (a guard's threat-reaction behavior under design review — a `T:` task, a `Q:` question, a `Designer:`/`Reviewer:` discussion, a `code:` note, and arrows carrying `call:` / `event:` / `risk:` / `verify:` chips).
-</div>
+![A guard's threat-reaction behavior under design review — task, question, discussion thread, code-mode note, and chip-labeled arrows](assets/screenshots/annotations.png)
 
 ## Read complex diagrams
 
@@ -101,9 +97,7 @@ Real diagrams sprawl. A handful of view-toggles turn a busy diagram into a focus
 - **Dim connectors** (<kbd>,</kbd>) and **dim notes** (<kbd>Shift</kbd>+<kbd>N</kbd>) — fade arrows or text-notes to 8% opacity to read the rest. Same buttons in the side panel's *View* section.
 - **Minimap** (<kbd>M</kbd>) — a corner overview shows boxes, notes, and connector density so you can spot hot regions and re-orient on a large canvas.
 
-<div class="grafli-screenshot" markdown>
-PLACEHOLDER &mdash; `heatmap.png`: Region 3 of `examples/showcase.grafli` (town-wide NPC ecosystem — bakers, smiths, guards, priests, their workplaces, and events like *Festival* and *Bandit raid*) with <kbd>A</kbd> active. The most-connected NPCs and events glow as hot nodes.
-</div>
+![Town-wide NPC ecosystem with the complexity heatmap active — most-connected NPCs and events glow as hot nodes](assets/screenshots/heatmap.png)
 
 ## Navigate diagrams that grew
 
@@ -114,9 +108,7 @@ PLACEHOLDER &mdash; `heatmap.png`: Region 3 of `examples/showcase.grafli` (town-
 - **Jumplist** (<kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd>) — vim-style viewport history.
 - **Sub-graflis** — link any node to a deeper diagram in its own file. Click through, edit, return.
 
-<div class="grafli-screenshot" markdown>
-PLACEHOLDER &mdash; `jump-labels.png`: Region 3 of `examples/showcase.grafli` (the same town ecosystem) with <kbd>Ctrl</kbd>+<kbd>J</kbd> active. Every visible NPC, location, and event carries a one- or two-character jump label.
-</div>
+![The same town ecosystem with jump-mode active — every visible item carries a one- or two-character jump label](assets/screenshots/jump-labels.png)
 
 ## Where grafli fits
 

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-03
+
+### Fixed
+- `RuntimeError: libshiboken: Internal C++ object … already deleted`
+  when switching modes (via the side-panel buttons or `n` / `t` / `c`
+  shortcuts) after a file open or scene reload. The floating mode
+  badge's Python references survived the scene rebuild that auto-deletes
+  their C++ counterparts; the next mode switch tried to remove the dead
+  items. The badge cleanup is now defensive and the references are
+  reset on `load_board`.
+
 ## [0.1.0] - 2026-05-03
 
 First public release of grafli on PyPI.
@@ -126,5 +137,6 @@ First public release of grafli on PyPI.
 - Python 3.12+
 - PySide6 (Qt 6.7+)
 
-[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/MisterGC/grafli/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MisterGC/grafli/releases/tag/v0.1.0

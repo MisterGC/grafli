@@ -7,53 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- **Code-mode notes — v3 syntax.** The first body line is now the function
-  signature (rendered bold with a divider beneath); `fn:` is no longer a
-  keyword (auto-stripped from legacy notes). Trailing `:` on keywords is
-  optional — `if cond` and `if: cond` both render the same. `set` and
-  `note` were dropped: plain assignments (`out = []`) read clearly without a
-  keyword, and per-line comments use `# …`. The colour palette is reduced to
-  two accents (blue for control/effect, red for contract keywords like
-  `pre` / `post` / `verify` / `risk`); literal values render as plain text.
-- **Note prefix aliases.** `T:` / `Q:` now also accept `t:` / `q:` /
-  `TODO:` / `todo:` / `QUESTION:` / `question:` (case-insensitive). The
-  rendered badge is normalised to the short form for consistency.
-- **Sticky create modes** are gone — hold <kbd>Shift</kbd> while clicking
-  in `n`/`t` modes to stay in mode, click without modifier to create one
-  element and exit. Replaces the previous `Shift+N` / `Shift+T` shortcuts.
-
-### Added
-- **Dim notes** — <kbd>Shift</kbd>+<kbd>N</kbd> dims notes and their
-  connector arrows to 0.08 opacity (same level as <kbd>,</kbd> for arrows),
-  for concentrating on the bare graph.
-- **Clickable refs** — clicking a `@path:line` reference inside a code-mode
-  note opens the file at that line in the configured editor (uses
-  `editor/command` setting if set; otherwise auto-detects `code` /
-  `cursor` / `subl`; falls back to `QDesktopServices`).
-- **Indent guides** in code-mode notes — thin verticals at each indent
-  level make `if` / `for` / `try` block structure obvious.
-- **Value tokens** in the tokenizer — string literals, hex codes, numbers
-  and booleans are detected as token kinds (currently rendered plain).
-- **Toolbar entries** in the View section for the three view-toggles:
-  *Notes* (<kbd>⇧N</kbd>), *Edges* (<kbd>,</kbd>), *Analysis*
-  (<kbd>A</kbd>).
-- **Minimap connectors** — arrows are drawn as thin neutral lines so the
-  minimap also shows graph density.
-- **Ghost preview in create modes** — a semi-transparent box / note
-  follows the cursor in `n` / `t` mode with prefilled placeholder text
-  (*A Node* / *Some text …*). The created element keeps that text so the
-  auto-opened editor lands on the placeholder ready to type-replace.
-
-## [0.1.0] - 2026-05-01
+## [0.1.0] - 2026-05-03
 
 First public release of grafli on PyPI.
 
 ### Added
 
 #### Editing
-- Modal editing — Select (`v`), Rect (`n`), Text (`t`), Connect (`c`),
-  with sticky variants for repeated creation.
+- Modal editing — Select (`v`), Rect (`n`), Text (`t`), Connect (`c`).
+  Click without modifier creates one element and exits to Select; hold
+  `Shift` while clicking to stay in the create mode for rapid placement.
+- **Ghost preview in create modes** — a semi-transparent box / note
+  follows the cursor with prefilled placeholder text (*A Node* /
+  *Some text …*). The placeholder also lands on the created element so
+  the auto-opened editor is ready for type-replace.
 - Style sub-mode (`s`) and dimension sub-mode (`d`) for color, size, and
   resize without leaving the keyboard.
 - Directional creation — `Ctrl+h` / `Ctrl+k` / `Ctrl+l` spawn a connected
@@ -74,15 +41,29 @@ First public release of grafli on PyPI.
 
 #### Annotations
 - **Tasks** (`T:`) and **questions** (`Q:`) lead-prefixes render with
-  distinct colors so review work is visible at a glance.
+  distinct colors so review work is visible at a glance. Both prefixes
+  are case-insensitive and accept long forms (`TODO:` / `todo:`,
+  `QUESTION:` / `question:`); the rendered badge is normalised to the
+  short form for visual consistency.
 - **Threaded discussions** — multi-speaker notes (`AI:`, `Reviewer:`,
   arbitrary speaker names) format as conversation bubbles inside a
   single note.
-- **Code-mode notes** — lines starting with `code:` render as
-  syntax-highlighted pseudocode with system-design keywords (`fn`,
-  `if`, `then`, `else`, `for`, `while`, `call`, `await`, `emit`, `try`,
-  `catch`, `set`, `state`, `assert`, `pre`, `post`, `verify`, `risk`,
-  `return`, `err`, `note`) and `@path:line` source references.
+- **Code-mode notes** — lines starting with `code:` render as a
+  stylized pseudocode block for review-oriented diagrams:
+    - The first body line is the **function signature**, rendered bold
+      with a divider rule beneath. Indentation carries block structure;
+      indent guides are drawn automatically. Trailing `:` on keywords
+      is optional.
+    - **Flow keywords** (blue, bold): `if`, `else`, `for`, `while`,
+      `try`, `catch`, `return`, `call`, `await`, `emit`, `state`.
+    - **Contract keywords** (red, bold): `pre`, `post`, `assert`,
+      `verify`, `risk`, `err`. Reviewer's eye lands here first.
+    - **Clickable `@path:line` refs** open the file at that line in the
+      configured editor (`editor/command` setting; auto-detects `code` /
+      `cursor` / `subl`; falls back to `QDesktopServices`).
+    - **Italic, muted comments** with `# …`. Plain assignments
+      (`out = []`) need no keyword. String / hex / number / boolean
+      literals are tokenised as values.
 - **Semantic edge-label prefixes** — `call:`, `data:`, `event:`,
   `state:`, `step:`, `verify:`, `owns:`, `depends:`, `risk:`, `note:`
   render as colored chips on arrows and tint the edge.
@@ -109,10 +90,15 @@ First public release of grafli on PyPI.
   toggles 1-hop vs unlimited depth.
 - **Complexity heatmap** (`A`) colors nodes by connectivity to surface
   refactoring candidates.
-- **Minimap** (`M`) toggles an overview panel.
-- **Tools panel** (`\`) toggles the side panel.
-- **Auto-layout** (`=`) lays out the selection or the whole diagram.
 - **Arrow dimming** (`,`) fades arrows for label-first reading.
+- **Note dimming** (`Shift+N`) fades notes and their connector arrows
+  to 8% opacity so the bare graph reads cleanly.
+- **Minimap** (`M`) toggles a corner overview showing boxes, notes,
+  and connector density.
+- **Tools panel** (`\`) toggles the side panel; the *View* section
+  also exposes the three view-toggles (notes, edges, complexity) as
+  buttons.
+- **Auto-layout** (`=`) lays out the selection or the whole diagram.
 
 #### File format
 - Plain-text `.grafli` v1 — line-oriented, one element per line, with

@@ -94,10 +94,12 @@ PLACEHOLDER &mdash; `annotations.png`: Region 2 of `examples/showcase.grafli` (a
 
 ## Read complex diagrams
 
-Real diagrams sprawl. Two view modes turn a busy diagram into a focused one.
+Real diagrams sprawl. A handful of view-toggles turn a busy diagram into a focused one — combine them at will.
 
-- **Subgraph focus** — <kbd>B</kbd> on a node fades everything that isn't reachable from it. Cycle through *all* / *forward* / *backward* directions; toggle 1-hop vs unlimited depth with <kbd>Shift</kbd>+<kbd>B</kbd>.
+- **Subgraph focus** — <kbd>B</kbd> on a node fades everything that isn't reachable from it. Cycle through *all incoming* / *outgoing* / *both* directions; toggle 1-hop vs unlimited depth with <kbd>Shift</kbd>+<kbd>B</kbd>.
 - **Complexity heatmap** — <kbd>A</kbd> colors every node by how many connections, parents, and children it has. Hot nodes glow; cold nodes fade. Find the parts of a diagram that need refactoring without reading every label.
+- **Dim connectors** (<kbd>,</kbd>) and **dim notes** (<kbd>Shift</kbd>+<kbd>N</kbd>) — fade arrows or text-notes to 8% opacity to read the rest. Same buttons in the side panel's *View* section.
+- **Minimap** (<kbd>M</kbd>) — a corner overview shows boxes, notes, and connector density so you can spot hot regions and re-orient on a large canvas.
 
 <div class="grafli-screenshot" markdown>
 PLACEHOLDER &mdash; `heatmap.png`: Region 3 of `examples/showcase.grafli` (town-wide NPC ecosystem — bakers, smiths, guards, priests, their workplaces, and events like *Festival* and *Bandit raid*) with <kbd>A</kbd> active. The most-connected NPCs and events glow as hot nodes.

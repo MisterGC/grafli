@@ -40,9 +40,17 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
   `post`, `verify`, `risk`, …) in red, and clickable `@file:line` refs.
 - Tasks (`T:` / `TODO:`), questions (`Q:` / `QUESTION:`, both
   case-insensitive), and threaded discussions inside notes.
-- Subgraph focus — fade everything not reachable from the current selection;
-  cycle direction (all / forward / backward) and depth (1-hop / unlimited).
-- Complexity heatmap — color nodes by connectivity to find hot spots.
+- Find and focus — combine these at will:
+  - **Subgraph focus** (<kbd>B</kbd>) — fade everything not reachable from
+    the selection; cycle direction (incoming / outgoing / both) and
+    depth (1-hop / unlimited).
+  - **Complexity heatmap** (<kbd>A</kbd>) — color nodes by connectivity
+    to find hot spots.
+  - **Dim connectors** (<kbd>,</kbd>) / **dim notes**
+    (<kbd>Shift</kbd>+<kbd>N</kbd>) — fade arrows or text-notes to 8%
+    opacity to read the rest.
+  - **Minimap** (<kbd>M</kbd>) — corner overview with boxes, notes, and
+    connector density.
 - Jump labels and graph navigation — every visible element is one or two keys
   away; hold <kbd>Alt</kbd> to follow connectors edge by edge.
 - Sub-graflis — link any node to a deeper diagram in its own file.

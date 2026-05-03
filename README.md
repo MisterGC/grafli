@@ -6,7 +6,7 @@ grafli lets you sketch architecture diagrams, code-review notes, and design
 sketches without leaving the keyboard. Files are line-oriented `.grafli` text
 that diffs cleanly in git and that LLMs can read and produce reliably.
 
-![grafli — graph + code-mode notes in one diagram](docs/assets/screenshots/hero.png)
+![grafli — graph + code-mode notes in one diagram](https://raw.githubusercontent.com/MisterGC/grafli/main/docs/assets/screenshots/hero.png)
 
 > Documentation and feature tour: **<https://grafli.mistergc.dev>**
 

@@ -621,6 +621,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._selected_arrow_items.clear()
         self._highlight_parent = None
         self._highlight_orig_pen = None
+        self._mode_badge = None
+        self._mode_badge_bg = None
+        self._box_mode = ""
+        self._arrow_mode = ""
         self._focus_active = False
         self._focus_node_id = None
         self._focus_direction = "all"
@@ -1428,15 +1432,27 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     # ── Box mode (vim-like style / dimension) ──
 
+    def _clear_mode_badge(self):
+        """Remove the floating mode badge.
+
+        Defensive against scene rebuilds: if the scene was reloaded (e.g.
+        on file open) the badge's C++ object has already been deleted
+        even though the Python reference survives, so ``removeItem``
+        would raise. Suppress that case and just drop the references.
+        """
+        for ref in ("_mode_badge_bg", "_mode_badge"):
+            item = getattr(self, ref, None)
+            if item is None:
+                continue
+            try:
+                self._scene.removeItem(item)
+            except RuntimeError:
+                pass  # C++ object already deleted (scene rebuild)
+            setattr(self, ref, None)
+
     def _set_box_mode(self, mode: str):
         self._box_mode = mode
-        # Remove old badge
-        if self._mode_badge:
-            if self._mode_badge_bg:
-                self._scene.removeItem(self._mode_badge_bg)
-                self._mode_badge_bg = None
-            self._scene.removeItem(self._mode_badge)
-            self._mode_badge = None
+        self._clear_mode_badge()
         if not mode:
             return
         # Create badge above the first selected box
@@ -1512,13 +1528,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _set_arrow_mode(self, mode: str):
         self._arrow_mode = mode
-        # Remove old badge
-        if self._mode_badge:
-            if self._mode_badge_bg:
-                self._scene.removeItem(self._mode_badge_bg)
-                self._mode_badge_bg = None
-            self._scene.removeItem(self._mode_badge)
-            self._mode_badge = None
+        self._clear_mode_badge()
         if not mode:
             return
         mid = self._arrow_label_midpoint()

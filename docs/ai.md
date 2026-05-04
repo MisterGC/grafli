@@ -6,6 +6,12 @@ is plain text, line-oriented, and small enough that an LLM can read,
 modify, and produce it in seconds. The bundled grafli **skill**
 teaches the agent how to do that *well*.
 
+![How the grafli skill works — pipeline from user prompt through trigger check, planning loop, render-and-verify loop, to a clean .grafli output](assets/screenshots/skill-pipeline.png)
+
+The diagram above is itself a `.grafli` (`examples/skill-explained.grafli`)
+authored under the same skill it describes — meta-correct, and a small
+demonstration that the workflow holds.
+
 ## Why a skill is needed
 
 Without guidance, a generic LLM will invent broken `.grafli` syntax,

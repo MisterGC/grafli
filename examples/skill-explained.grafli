@@ -1,0 +1,74 @@
+#!grafli v1
+# Visual explanation of the bundled grafli skill.
+# Question: how does an LLM/agent use the skill to turn a natural-
+# language visualization request into a clean .grafli file?
+
+@ note title 350,-80 "How the grafli skill works" ~xxlarge
+
+# === Pipeline (left to right) ===
+@ box prompt  "User prompt"     20,80   220x80 %secondary
+@ box trigger "Skill triggers?" 280,80  220x80 %accent
+@ box plan    "Plan"            540,80  220x80 %accent
+@ box author  "Author + verify" 800,80  220x80 %accent
+@ box output  "Clean .grafli"   1060,80 220x80 %primary
+
+@ arrow prompt  -> trigger
+@ arrow trigger -> plan    "yes"
+@ arrow plan    -> author
+@ arrow author  -> output
+
+# === Notes describing each step ===
+@ note prompt_text 20,200 """
+Visualization intent
+- draw / diagram of X
+- sketch / map out
+- visualize this
+- make a grafli
+- open .grafli file
+""" ~small
+
+@ note trigger_text 280,200 """
+Activates ONLY on
+clear visual intent.
+Plain review-code or
+explain-function do
+NOT trigger the skill.
+Asks 1 line if unclear.
+""" ~small
+
+@ note plan_code 540,200 """
+code:
+plan(prompt)
+question(prompt)
+list_cast()
+pick_flow_dir()
+make_containers()
+place_children()
+draw_arrows()
+write_notes()
+re_read()
+render_and_verify()
+""" ~small
+
+@ note author_code 800,200 """
+code:
+loop:
+  write .grafli
+  png = grafli render
+  inspect png
+  if overlap or cross:
+    shorten line
+    use ~small
+    move box
+    iterate
+done
+""" ~small
+
+@ note output_text 1060,200 """
+.grafli output
+- plain text, diffable
+- one element per line
+- live-reloads in app
+- versions in git
+- export PNG / SVG
+""" ~small

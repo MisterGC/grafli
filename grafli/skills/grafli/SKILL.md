@@ -46,6 +46,13 @@ any `@ box` / `@ arrow` / `@ note` lines:
 8. **Re-read.** Pretend you're the user opening the file: does the
    eye land on the right entry point? Are arrows crossing? If yes,
    reposition before saving — repositioning beats decoration.
+9. **Render and verify.** Use `grafli render <file>.grafli /tmp/check.png`
+   to produce a headless PNG and *look at it*. This is the single
+   highest-leverage feedback step — most layout problems (overlaps,
+   arrows crossing boxes, undersized containers, truncated labels) are
+   obvious in the rendered image but invisible in the source. Render
+   after every non-trivial edit, fix what you see, render again. Don't
+   declare a diagram done without at least one render-and-look pass.
 
 ## File format quick reference
 
@@ -72,6 +79,24 @@ catches them before the user opens the file.
 * **Quote characters in note text.** The format does **not** escape
   `"` inside a note. Either drop the quotes (`order created`) or use a
   triple-quoted block (`"""..."""`).
+* **Modifiers on triple-quoted notes go AFTER the closing `"""`.**
+  Putting them between the coordinates and the opening `"""` silently
+  drops the entire note from the render. Correct form:
+  ```
+  @ note id 100,200 """
+  code:
+  ...
+  """ ~small
+  ```
+* **Code-mode notes auto-widen to fit their longest line.** When notes
+  are placed side-by-side (multi-column phases), a long line in one note
+  pushes its background into the neighbour's column. If `box_w=220` and
+  `gap=40`, the column budget is **260 px**; at default note size that
+  is roughly **24 chars per line**, at `~small` it is roughly **32**.
+  The rightmost column also has to fit inside the container's right
+  margin. **Default to `~small` whenever a code-mode note sits in a
+  multi-column phase** — it shrinks both width and height, leaves
+  margin to spare, and stays readable.
 * **Disconnected boxes.** Every box should either have an arrow,
   sit inside a container, or be a deliberate standalone label. Drifting
   orphans look like errors.
@@ -233,6 +258,26 @@ source. Optimise for visual understanding at a glance.
 
 If a note grows past ~10 lines, it's trying to be a graph. Split it.
 
+#### Sizing in multi-column phases
+
+Code-mode notes stretch to fit their widest line — there is no wrap.
+When notes sit beside each other in a row of subsystems, a single long
+line will silently push past the column gap and overlap the neighbour.
+
+Rules of thumb:
+
+* **Use `~small` by default for code notes in multi-column phases.**
+  At default size you have ~24 chars of horizontal budget per column;
+  at `~small` you have ~32. Most useful pseudocode lines fit at
+  `~small` and stay readable.
+* **Keep ≤7 body lines per note** when columns sit side-by-side, so
+  the note's height also fits inside the container.
+* **The rightmost column has the container's right edge as its
+  budget.** If you've placed `n` boxes of width `w` with gap `g`
+  starting at `x_left`, the rightmost column extends from
+  `x_left + (n-1)·(w+g)` to the container's right edge minus margin.
+  Verify the longest line fits.
+
 #### Format constraints
 
 * The `.grafli` format does not escape `"` inside note text. Avoid
@@ -263,30 +308,30 @@ code:
 handle_callback(req) -> Response
 pre req.method == POST
 state = req.query.state
-if not csrf_match(state, req.cookie):
+if not csrf_match(state, cookie):
   err 400 csrf_mismatch
-risk timing leak — use constant_time_eq
-return exchange(req.query.code)  @auth/callback.py:23
-"""
+risk timing leak — use ct_eq
+return exchange(req.query.code)
+""" ~small
 
 @ note n_xchg 440,420 """
 code:
 exchange(code) -> Session
-token = call provider.post(token_url, code)
-verify token.iss == expected_issuer
+token = provider.post(code)
+verify token.iss == issuer
 verify token.aud == client_id
-return mint_session(token.sub)  @auth/oauth.py:88
-"""
+return mint_session(token.sub)
+""" ~small
 
 @ note n_sess 820,420 """
 code:
 mint_session(user) -> SessionId
 sid = random_token(32)
-state new -> active in redis (ttl=30d)
-post cookie has HttpOnly, Secure, SameSite=Lax
-risk fixation if reusing pre-auth sid
-return sid  @auth/session.py:5
-"""
+state new -> active (ttl=30d)
+post HttpOnly, Secure, Lax
+risk fixation on reuse
+return sid
+""" ~small
 
 @ box tests "Security Tests" 460,560 220x80 %muted
 @ arrow tests -> cb   "verify: csrf"     !dashed
@@ -745,16 +790,32 @@ changes.
 pgrep -f "grafli.*<file.grafli>" || grafli <file.grafli> &
 ```
 
-## Headless render (preview without the GUI)
+## Headless render — your self-check tool
 
-Use `grafli render` to produce a PNG / SVG without opening a window —
-useful for sanity-checking your output before saving large changes:
+`grafli render` produces a PNG / SVG without opening a window. Treat
+it as your **primary feedback loop**, not an export afterthought:
+text-only inspection of `.grafli` source misses layout problems that
+become obvious in the rendered image (overlaps, crossings, undersized
+containers, fan-out tangles, label truncation).
 
 ```bash
-grafli render input.grafli output.png
-grafli render input.grafli output.svg
+grafli render input.grafli /tmp/check.png        # quick visual check
+grafli render input.grafli output.svg            # final deliverable
+grafli render input.grafli /tmp/check.png --width 1600   # higher detail
 ```
 
+Workflow:
+
+1. Write or edit the `.grafli`.
+2. Render to a scratch path (`/tmp/check.png` is fine).
+3. Open / inspect the image. Look for:
+   * Boxes overlapping each other or their parent's headline.
+   * Arrows passing through unrelated boxes (long arrows are the tell).
+   * Fan-out tangles (3+ outgoing arrows colliding with siblings).
+   * Labels that don't fit their boxes.
+   * Containers sized too tightly for their children + margins.
+4. Fix the source, render again. Repeat until clean.
+
 If you're producing a diagram for a user who can't run grafli,
-rendering to SVG and embedding the SVG in their document is often
-the most useful end result.
+rendering to SVG and embedding it in their document is often the most
+useful end result.

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-04
+
 ### Added
 - **AI skill bundled with the package.** `grafli/skills/grafli/SKILL.md`
   ships inside the wheel; extract via `grafli skill` (prints to stdout)
@@ -26,6 +28,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   covers the longer story (why a skill, what it triggers on, render
   workflow, graph + code-mode pattern). Fourth pillar added to the
   homepage *Why grafli* row.
+
+### Changed
+- **Skill: render-and-verify step in the planning loop.** Step 9 tells
+  the agent to render to PNG after every non-trivial edit and visually
+  inspect — most layout problems (overlaps, arrows crossing boxes,
+  undersized containers, truncated labels) are obvious in the image
+  but invisible in the source.
+- **Skill: multi-column code-note sizing rules.** Code-mode notes
+  auto-widen to fit their longest line; without guidance the agent
+  produced notes that overflowed their column into the neighbour or
+  punched through the container's right edge. The skill now documents
+  the column-budget formula (~24 chars at default size, ~32 at
+  `~small`) and recommends `~small` as the default for code notes in
+  multi-column phases.
+- **Skill: triple-quoted note modifier placement.** Modifiers like
+  `~small` go *after* the closing `"""`, not between the coordinates
+  and the opening `"""` — the latter silently drops the entire note
+  from the render. The skill calls this out in the common-mistakes
+  checklist with a worked example.
+
+### Fixed
+- `examples/architecture.grafli` referenced an attached PNG that was
+  never committed — the example now ships with its companion image
+  so the diagram renders cleanly out of the box.
 
 ## [0.1.1] - 2026-05-03
 
@@ -157,6 +183,7 @@ First public release of grafli on PyPI.
 - Python 3.12+
 - PySide6 (Qt 6.7+)
 
-[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/MisterGC/grafli/releases/tag/v0.2.0
 [0.1.1]: https://github.com/MisterGC/grafli/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MisterGC/grafli/releases/tag/v0.1.0

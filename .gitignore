@@ -1,6 +1,5 @@
-grafli/__pycache__
+__pycache__/
 grafli.egg-info
-tests/__pycache__
 AGENTS.md
 uv.lock
 

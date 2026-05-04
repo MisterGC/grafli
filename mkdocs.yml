@@ -74,6 +74,7 @@ extra_css:
 nav:
   - Home: index.md
   - Install: install.md
+  - Pair with your AI: ai.md
   - File format: format.md
   - Text annotations: text-annotations.md
   - Keybindings: keybindings.md

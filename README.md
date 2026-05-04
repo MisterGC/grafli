@@ -10,6 +10,35 @@ that diffs cleanly in git and that LLMs can read and produce reliably.
 
 > Documentation and feature tour: **<https://grafli.mistergc.dev>**
 
+## Pair grafli with your AI
+
+grafli isn't just a diagram editor — it's the canvas your coding agent
+uses to communicate complex systems back to you. The bundled **grafli
+skill** teaches the agent how to produce idiomatic `.grafli` files —
+proper layouts, semantic edge labels, code-mode notes for
+review-oriented diagrams, plus a "plan before you write" loop that
+keeps the output focused and readable.
+
+Extract the skill from your installed copy and point your agent at it:
+
+```bash
+# Save to a file, or pipe straight into the right place for your tool.
+grafli skill -o SKILL.md
+grafli skill --where        # path of the bundled SKILL.md
+grafli skill --help         # install URLs for Claude Code, OpenCode, Codex
+```
+
+| AI tool | Where the skill goes | Docs |
+|---------|---------------------|------|
+| Claude Code | `~/.claude/skills/grafli/SKILL.md` | <https://code.claude.com/docs/en/skills> |
+| OpenCode | `~/.config/opencode/skills/grafli/SKILL.md` | <https://opencode.ai/docs/skills> |
+| Codex CLI | append to `~/.codex/AGENTS.md` | <https://agents.md/> |
+
+Once installed, ask your agent to "draw a diagram of …", "visualize the
+data flow in this module", or "sketch the OAuth callback as a grafli" —
+the skill triggers and produces a `.grafli` you can open in the
+desktop app or render headless via `grafli render`.
+
 ## Install
 
 ```bash

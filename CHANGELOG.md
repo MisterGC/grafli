@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **AI skill bundled with the package.** `grafli/skills/grafli/SKILL.md`
+  ships inside the wheel; extract via `grafli skill` (prints to stdout)
+  or `grafli skill -o SKILL.md`. The skill teaches Claude Code,
+  OpenCode, or Codex CLI agents how to author idiomatic `.grafli`
+  files — format reference, planning loop, layout discipline,
+  code-mode style guidance, common-mistakes checklist. Triggers only
+  on explicit visualization requests so it doesn't pollute unrelated
+  conversations.
+- **`grafli render` CLI** — headless PNG / SVG render of a `.grafli`
+  file without opening a window:
+  `grafli render input.grafli output.png [--width N] [--padding N]`.
+  Useful for docs-as-code workflows, snapshot tests, and skill
+  iteration. Uses `QT_QPA_PLATFORM=offscreen` automatically.
+- **"Pair with your AI" docs section** — README adds an install /
+  usage block right after the screenshot. New `docs/ai.md` page
+  covers the longer story (why a skill, what it triggers on, render
+  workflow, graph + code-mode pattern). Fourth pillar added to the
+  homepage *Why grafli* row.
+
 ## [0.1.1] - 2026-05-03
 
 ### Fixed

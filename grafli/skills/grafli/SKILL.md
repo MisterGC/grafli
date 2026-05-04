@@ -1,0 +1,760 @@
+---
+name: grafli
+description: >
+  Author and edit `.grafli` files — plain-text, line-oriented diagrams
+  rendered by the grafli desktop app. Trigger only on EXPLICIT
+  visualization requests: "draw / diagram / sketch / visualize / map
+  out / graph this", "show me as a diagram", "make a grafli", or when
+  working on existing `.grafli` files. Do NOT trigger on generic "review
+  this code", "explain this function", "summarize this module" requests
+  unless the user also asks for a visual or diagram. When unsure, ask
+  the user a one-line clarifier before pulling this skill in.
+---
+
+# Grafli (`.grafli`) authoring
+
+Read, create, and modify `.grafli` files using the built-in `Read` /
+`Write` / `Edit` tools. If the user has the desktop app open on the
+file, it live-reloads — no need to ask them to refresh.
+
+## Plan before you write
+
+Skills produce noticeably better grafli when the model **plans first**
+instead of writing code. Walk through these steps before you produce
+any `@ box` / `@ arrow` / `@ note` lines:
+
+1. **Question.** What single question does the diagram answer?
+   ("How does an OAuth callback flow?" / "Which services own which
+   data?") If you can't state the question in one sentence, ask the
+   user.
+2. **Cast.** List every actor / component / state as a flat bullet
+   list. No coordinates yet.
+3. **Flow direction.** Pick **one** for the whole diagram:
+   * Left-to-right — pipelines, request flows, timelines.
+   * Top-to-bottom — hierarchies, layer architectures, call stacks.
+   * Center-out — hub-and-spoke (gateway, event bus, orchestrator).
+4. **Containers.** Group related items into `!flat` containers
+   (services, layers, bounded contexts) before placing children.
+5. **Place children inside containers**, sized and aligned to the
+   grid (multiples of 50). Use the container margin model below.
+6. **Arrows last.** Every arrow gets a label unless its meaning is
+   obvious from context. Use semantic edge prefixes (`call:`, `data:`,
+   `event:`, etc.) where they fit.
+7. **Notes for the human.** Add `T:` tasks, `Q:` questions, `code:`
+   notes for review-oriented detail. Don't dump prose on the canvas —
+   notes are headlines, not paragraphs.
+8. **Re-read.** Pretend you're the user opening the file: does the
+   eye land on the right entry point? Are arrows crossing? If yes,
+   reposition before saving — repositioning beats decoration.
+
+## File format quick reference
+
+```
+# Comments and titles
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!style] [&url] [>parent] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [!style] [~size] [# annotation]
+@ note <id> <x>,<y> "<text>" [~size] [&url] [>parent] [# annotation]
+@ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [# annotation]
+```
+
+* One element per line — minimal git diffs.
+* `#` lines are comments / metadata.
+* Coordinates: `x,y` position (floats OK), `wxh` size.
+* IDs are short lowercase identifiers (`auth`, `db`, `api-gw`).
+* Modifiers in `[]` are optional and order-sensitive as shown.
+* Multi-line text: use `\n` in labels and note text.
+
+## Common mistakes — check before you save
+
+These are the failure modes that recur most often. A 30-second checklist
+catches them before the user opens the file.
+
+* **Quote characters in note text.** The format does **not** escape
+  `"` inside a note. Either drop the quotes (`order created`) or use a
+  triple-quoted block (`"""..."""`).
+* **Disconnected boxes.** Every box should either have an arrow,
+  sit inside a container, or be a deliberate standalone label. Drifting
+  orphans look like errors.
+* **Children outside the parent.** A box with `>parent` must visually
+  fit inside the parent's rect after the margin model. Re-check the
+  parent's `<w>x<h>`.
+* **Cramped containers.** Children must not overlap the parent's
+  headline. Top margin is **60 px** for `~large`, **40 px** for
+  default.
+* **Truncated labels.** A box should comfortably fit its label.
+  Minimum `200x80` for default 13 pt text; bigger for `~large`. If
+  the label is long, shorten it or grow the box.
+* **`then` keyword in code-mode notes.** `then` exists for
+  back-compat but is deprecated for new notes — use indentation
+  (`if cond:` then indented body) instead.
+* **`set` / `note` / `fn` keywords.** All removed from code-mode
+  v3. The first body line is the function signature; plain
+  assignments need no keyword (`out = []`); comments use `# …`.
+* **Same text size for a heading and its children.** A container
+  heading must be visually subordinate to *or* distinct from child
+  labels.
+* **Rainbow diagrams.** Stop at 3–4 semantic colors. Each color
+  should encode information.
+
+## Box syntax
+
+```
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat] [&url] [>parent]
+```
+
+| Modifier | Values | Effect |
+|----------|--------|--------|
+| `%color` | color token or `#RRGGBB` | fill color |
+| `^anchor` | `^topleft`, `^topcenter` | label alignment (default: center) |
+| `~size` | `~small`, `~large`, `~xlarge`, `~xxlarge`, `~xxxlarge` | text size (default: medium) |
+| `!flat` | `!flat` | no border, semi-transparent fill |
+| `&url` | any URL | link (opens in browser with Return key) |
+| `>parent` | `>parent_id` | nest inside parent box |
+
+Container behavior: when a box has children, its anchor auto-switches
+to `^topleft` and text defaults to `~small` (10 pt). Set `~large`
+explicitly on top-level containers for a more prominent heading.
+Child positions use absolute coordinates — see the container layout
+model in the design principles below.
+
+## Arrow syntax
+
+```
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [!style] [~size] [# annotation]
+```
+
+| Feature | Syntax | Effect |
+|---------|--------|--------|
+| Direction | `->` | forward (arrowhead at target) |
+| Direction | `<-` | backward (arrowhead at source) |
+| Direction | `<->` | bidirectional |
+| Direction | `--` | line only (no arrowheads) |
+| Label offset | `@dx,dy` | shift label position by `dx,dy` px from center |
+| Style | (default) | solid line |
+| Style | `!dashed` | dashed line |
+| Style | `!dotted` | dotted line |
+| Style | `!thick` | double-width solid line |
+| Text size | `~size` | as for boxes |
+| Annotation | `# text` | authoring metadata (indicator dot, not visible text) |
+
+Arrows auto-route from box edge to box edge. Opposite arrows
+(`A->B` and `B->A`) merge into a single bidirectional line.
+
+## Note syntax
+
+```
+@ note <id> <x>,<y> "<text>" [~size] [&url] [>parent]
+```
+
+Notes render as badge-style labels with a light background. Color is
+determined automatically by semantic prefix:
+
+| Prefix | Aliases (case-insensitive) | Pen color | Meaning |
+|--------|-----------------------------|-----------|---------|
+| `T: ...` | `t:`, `TODO:`, `todo:`     | `#C53030` (red) | Task / todo |
+| `Q: ...` | `q:`, `QUESTION:`, `question:` | `#805AD5` (purple) | Question |
+| *(none)*  | — | `#2B6CB0` (blue) | Informational |
+
+The rendered badge is normalised to the short form (`T:` / `Q:`)
+regardless of how it was typed.
+
+| Modifier | Values | Effect |
+|----------|--------|--------|
+| `~size` | `~small`, `~large`, `~xlarge`, `~xxlarge`, `~xxxlarge` | text size |
+| `&url` | any URL | link |
+| `>parent` | `>parent_id` | nest inside parent box |
+
+### Code-mode notes (`code:`)
+
+A note whose first non-empty line is `code:` renders as a stylized
+pseudocode block in display mode. Edit mode stays plain text. The
+pseudocode is **not** real source code — it is a minimal, scannable
+language for summarizing implementations in review-oriented diagrams.
+
+Goal: a reviewer can verify in seconds that an implementation covers
+the expected steps, branches, and side effects — without opening the
+source.
+
+#### Layout
+
+* **First body line is the function signature** — rendered bold with
+  a divider rule beneath. Write it without any keyword prefix:
+  `tokenize(raw) -> [Token]`. Legacy `fn:` / `fn ` prefixes are
+  auto-stripped.
+* **Indentation carries block structure.** Two spaces per level.
+  Indent guides are drawn automatically.
+* Trailing `:` on keywords is **optional** — `if cond` and
+  `if: cond` both work. Prefer the no-colon form for new notes.
+
+#### Keywords
+
+Two visual groups. Blue **flow** keywords carry control / effect
+plumbing; red **contract** keywords mark things a reviewer should
+spot first.
+
+| Keyword | Use | Colour |
+|---------|-----|--------|
+| `if cond` / `else action` | Branching | blue |
+| `for x in xs` / `while cond` | Iteration | blue |
+| `try` / `catch err -> action` | Protected block / error handling | blue |
+| `return expr` | Exit value | blue |
+| `call f(args)` | Important call | blue |
+| `await op` | Blocking / async wait | blue |
+| `emit event(args)` | Event / message emission | blue |
+| `state from -> to` | State transition / lifecycle | blue |
+| `pre cond` / `post cond` | Pre- / postcondition | **red** |
+| `assert cond` | Invariant / expected fact | **red** |
+| `verify evidence` | Test / check / trace | **red** |
+| `risk text` | Failure mode / review risk | **red** |
+| `err expr` | Error / raise | **red** |
+| `@path:line` | Clickable source reference (opens in editor) | blue, underlined |
+| `# …` | Comment (italic, muted) | grey |
+| `"..."`, `#FFF`, `42`, `true` | Literal values render as plain text | — |
+
+Plain assignments need no keyword: `out = []` is unambiguous.
+
+#### Style guidance — the most important thing
+
+The snippet should reveal *what happens*, not literally mirror the
+source. Optimise for visual understanding at a glance.
+
+* **Prefer short predicates and named operations** over long OO
+  chains. `blank(line)` reads faster than `line.stripped.isEmpty`.
+  `starts_with(line, prefix)` reads faster than
+  `line.startswith(prefix)`. Even when the underlying code uses dot
+  chains, the note should use the verb that captures the intent.
+* **Keep one abstraction level per snippet.** Mixing real method
+  names with prose verbs forces the reader to re-parse mid-line.
+* **Drop boilerplate.** Wrappers, logging, telemetry, defensive
+  copies — omit unless they're the point of the function.
+* **Name phases.** For multi-step algorithms, give intermediate
+  steps a verb-phrase (`split_at_comment`, `consume_prefix`,
+  `join_lines`) instead of inlining the mechanics.
+
+If a note grows past ~10 lines, it's trying to be a graph. Split it.
+
+#### Format constraints
+
+* The `.grafli` format does not escape `"` inside note text. Avoid
+  embedding string literals that need quote characters; drop the
+  quotes or rewrite the line.
+* Indent nested blocks with **two spaces**.
+
+#### Combined graph + code-mode example
+
+This is the pattern to aim for: a small graph showing *who calls
+whom*, with a code-mode note under each box describing *what one
+function does*.
+
+```
+@ note title 600,-40 "OAuth callback — request flow" ~xlarge
+
+@ box provider "OAuth Provider" 460,140 220x80 %muted
+@ box cb    "Callback Handler" 80,300 220x80 %primary
+@ box xchg  "Token Exchange"   460,300 220x80 %tertiary
+@ box sess  "Session Mint"     840,300 220x80 %tertiary
+
+@ arrow cb   -> xchg     "call: exchange"
+@ arrow xchg -> provider "call: POST /token"
+@ arrow xchg -> sess     "call: mint"
+
+@ note n_cb 60,420 """
+code:
+handle_callback(req) -> Response
+pre req.method == POST
+state = req.query.state
+if not csrf_match(state, req.cookie):
+  err 400 csrf_mismatch
+risk timing leak — use constant_time_eq
+return exchange(req.query.code)  @auth/callback.py:23
+"""
+
+@ note n_xchg 440,420 """
+code:
+exchange(code) -> Session
+token = call provider.post(token_url, code)
+verify token.iss == expected_issuer
+verify token.aud == client_id
+return mint_session(token.sub)  @auth/oauth.py:88
+"""
+
+@ note n_sess 820,420 """
+code:
+mint_session(user) -> SessionId
+sid = random_token(32)
+state new -> active in redis (ttl=30d)
+post cookie has HttpOnly, Secure, SameSite=Lax
+risk fixation if reusing pre-auth sid
+return sid  @auth/session.py:5
+"""
+
+@ box tests "Security Tests" 460,560 220x80 %muted
+@ arrow tests -> cb   "verify: csrf"     !dashed
+@ arrow tests -> sess "verify: fixation" !dashed
+```
+
+What makes this work:
+
+* Each code note is 5–7 lines — short enough to read in one glance.
+* Predicate-style names (`csrf_match`, `random_token`,
+  `constant_time_eq`) reveal intent; we never write
+  `req.cookie.value.compareTo(...)` even if the source does.
+* Contract keywords are deployed sparingly — `pre` for entry
+  conditions, `verify` for facts the code asserts, `risk` for things
+  a reviewer should challenge.
+* The dashed `verify:` arrows from the tests box mirror the `verify:`
+  lines inside the code notes, so the diagram cross-references its
+  own claims.
+* One `@path:line` ref per note points to the real source line.
+
+#### When to use code-mode vs multiple nodes with transitions
+
+Prefer a **single code-mode note** when the logic is linear or small
+enough that splitting it would create visual noise without adding
+insight — a flat sequence of steps, a short guard + return, a
+utility with one branch.
+
+Prefer a **graph of nodes with transitions** when:
+
+* The flow branches across components the reader needs to see as
+  distinct entities (services, layers, modules).
+* Two code paths execute in parallel — model the fork as one node
+  with outgoing arrows to two sibling nodes, each carrying a
+  code-mode note as its summary.
+* The control flow is the primary story (state machines, retries,
+  fan-out / fan-in) — arrows express that better than nested
+  pseudocode.
+
+Rule of thumb: if a code-block grows past ~10 lines, it's trying to
+be a graph. Split it. Conversely, if every node in your graph has
+only one arrow out and carries a tiny label, collapse adjacent nodes
+into a single code-mode note.
+
+**Never use code-mode as a substitute for a long code listing.**
+Readers come to a grafli to grasp structure at a glance, not to
+read code. Summarise ruthlessly.
+
+### Discussion notes
+
+Notes with 2+ distinct speaker prefixes (2-3 uppercase letters
+followed by `: `) render as threaded conversations. Each speaker
+gets a colored badge and block-indented body text.
+
+```
+@ note n1 500,300 "GC: How does a user specify the label content?\nCC: Most discoverable: action from inspection panel.\nUser inspects feature, sees attribute.\n\nCan be session-only or persisted.\nGC: Makes sense, what about batch mode?"
+```
+
+Rules:
+
+* A line starting with `XX: ` (2-3 uppercase letters + colon +
+  space) starts a new speaker block.
+* All subsequent lines (including empty lines) belong to that
+  block until the next speaker prefix.
+* Requires 2+ distinct speakers to activate discussion rendering —
+  a single speaker renders as a normal note.
+* Speaker colors are assigned automatically from a palette in
+  order of appearance.
+
+## Image syntax
+
+```
+@ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent]
+```
+
+Path is relative to the `.grafli` file. The companion folder
+`<stem>-res/` is the canonical place for attached resources.
+
+## Color tokens
+
+```
+%primary    %secondary    %tertiary    %accent
+%subtle     %muted        %highlight   %base
+```
+
+Plus arbitrary `#RRGGBB` hex. Stick to **3–4 colors per diagram**;
+each should encode something semantic (layer, ownership, status).
+
+## Nerd Font glyphs
+
+Box and note labels render in JetBrainsMono Nerd Font. Use glyphs
+sparingly — they accent, they don't replace text.
+
+```
+@ box db "󰆼  Database" 100,100 200x100
+@ box cloud "󰅟  Cloud Storage" 300,100 200x100
+```
+
+## Parent nesting (`>parent`)
+
+Use `>parent` to nest a box / note / image inside a container box.
+Children use **absolute** coordinates (not relative to the parent),
+so you must position them inside the parent's rect manually.
+
+```
+@ box backend "Backend" 20,250 520x200 %tertiary ^topleft ~large !flat
+@ box api "API" 40,310 220x100 %accent >backend
+@ box auth "Auth" 280,310 220x100 %accent >backend
+```
+
+The `!flat` style is recommended for container boxes — they recede
+visually so children stand out.
+
+---
+
+# Diagram design principles
+
+The grafli is a box-and-arrow tool — no auto-layout, no curved lines,
+no freeform shapes. These constraints make intentional design
+essential.
+
+## 1. Visual hierarchy
+
+Every diagram needs a clear reading order:
+
+* **Size for importance**: critical components get larger boxes
+  (e.g., `250x120`), minor ones stay at `150x60` or smaller.
+* **Color for category**: assign one color token per semantic group
+  and stay consistent — don't use more than 3–4 colors per diagram.
+* **`!flat` for containers**: use flat style on grouping boxes so
+  they recede visually and children stand out.
+* **Visual weight**: darker / saturated colors (`%primary`,
+  `%subtle`) feel heavier and anchor the eye — place them at focal
+  points. Lighter tokens (`%muted`, `%base`) recede.
+
+### Typography scale
+
+| Role | How to set | Rendered size |
+|------|------------|---------------|
+| Diagram title | `~xxlarge` note | 40 pt |
+| Top-level container label | `~large ^topleft !flat` box | 18 pt |
+| Component box label | (default, no `~size`) | 13 pt |
+| Nested container label | `^topleft !flat` box (auto-default `~small`) | 10 pt |
+| Context annotation | note (default) | 13 pt |
+| Small annotation | `~small` note | 10 pt |
+
+Key rules:
+
+* Top-level containers should use `~large` explicitly — the
+  auto-default `~small` is too subtle for section headings.
+* Component boxes inside containers should stay at default (13 pt) —
+  they're the primary content the reader focuses on.
+* Never use the same text size for a container heading and its
+  children — the heading must be visually subordinate to or
+  distinct from child labels.
+
+## 2. Layout strategy
+
+You are the layout engine. Think in grids and flows.
+
+**Grid alignment**:
+
+* Align positions to multiples of 50.
+* Default box: `200x100`, horizontal gap ~100 px, vertical gap
+  ~150 px.
+* Keep consistent spacing — irregular gaps look unintentional.
+
+**Flow direction** — pick **one** per diagram:
+
+* **Left-to-right** — pipelines, request flows, timelines.
+* **Top-to-bottom** — hierarchies, layer architectures, call stacks.
+* **Center-out** — hub-and-spoke (gateway, event bus, orchestrator).
+
+**Lanes and rows**: group related boxes into horizontal or vertical
+bands. Use a `!flat` container box behind each group to make lanes
+explicit.
+
+**Canvas margins**: leave ~50 px around the outermost elements so
+the diagram doesn't feel cramped against the title or the edge.
+
+## 3. Containers (`>parent`)
+
+Nesting with `>parent` is the primary way to show logical grouping
+(layers, services, bounded contexts).
+
+```
+@ box backend "Backend" 20,250 520x200 %tertiary ^topleft ~large !flat
+@ box api "API" 40,310 220x100 %accent >backend
+@ box auth "Auth" 280,310 220x100 %accent >backend
+```
+
+* Make the container `!flat` so it's a subtle background, not a
+  competing box.
+* Use `^topleft` so its label is an unobtrusive header.
+* Use `~large` on top-level containers for a readable section
+  heading.
+* Give children a contrasting color from the container.
+
+### Container margin model
+
+Child coordinates are absolute, so prevent children from overlapping
+the parent headline:
+
+* **Top: 60 px** from parent top edge for `~large` headings, **40 px**
+  for `~small` / auto headings.
+* **Sides: 20 px** from parent left and right edges.
+* **Bottom: 20 px** minimum from parent bottom edge.
+
+**Sizing formulas:**
+
+* **Single-row container** —
+  * width = `left_margin + (n × child_w) + ((n-1) × gap) + right_margin`
+  * height = `top_margin + child_h + bottom_margin`
+* **Multi-row container** —
+  * height = `top_margin + (rows × child_h) + ((rows-1) × row_gap) + bottom_margin`
+
+Example for 3 children, 2 rows, 220×100 boxes, 40 px gaps,
+`~large` heading:
+
+* width = `20 + 3×220 + 2×40 + 20 = 780`
+* height = `60 + 2×100 + 1×40 + 20 = 320`
+
+### Alignment within containers
+
+* All children in a **row** share the same Y coordinate.
+* All children in a **column** share the same X coordinate.
+* Use consistent child box sizes within one container — mixed sizes
+  look accidental unless intentional (e.g., a wider "main" component
+  flanked by smaller helpers).
+
+## 4. Arrow discipline
+
+* **Label every arrow** that isn't self-explanatory from context —
+  "queries", "REST", "events" tell the reader what flows.
+* **Use styles semantically** and consistently:
+  * Solid (default) — primary / synchronous flows.
+  * `!dashed` — optional, async, or secondary paths.
+  * `!dotted` — event-driven, pub / sub, background.
+  * `!thick` — critical path, main user-facing flow.
+* **Minimize crossing**: rearrange box positions to reduce arrow
+  crossings — this matters more than perfect grid alignment.
+* **Long arrows mean you're crossing something.** If an arrow is
+  much longer than your average box-to-box gap, it's probably
+  jumping over another box. Reposition the source or target;
+  don't just let the arrow route through.
+* **Fan-out (3+ outgoing arrows from one node).** This is one of
+  the most common AI mistakes. Three options, in order:
+  * If the targets share a logical relationship, this is a
+    **hub-and-spoke** pattern — use the dedicated layout (centre +
+    satellites).
+  * If the calls run in parallel, place the targets
+    **perpendicular to the primary flow** — stack them vertically
+    if the main flow is L→R, horizontally if it's T→B. Don't
+    line them up along the main flow direction (one of the arrows
+    will inevitably cross another box).
+  * If the calls are sequential, **chain the targets** along the
+    main flow with the box passing through, not branching.
+* **Flow in one direction**: most arrows should follow the diagram's
+  primary flow (LR or TB). Reverse arrows (callbacks, responses)
+  are OK but should be the minority.
+* **Use `<->` sparingly**: bidirectional is for synchronous
+  request-response pairs or mutual dependencies; overuse makes flow
+  direction ambiguous.
+* **Crossing containers**: avoid; reposition first. If unavoidable,
+  prefer crossing the lighter `!flat` containers rather than primary
+  boxes.
+
+## 5. Notes and annotations
+
+Notes are badge-style labels — blue text by default, with colored
+badge chips for semantic prefixes.
+
+* **`T:` / `TODO:`** — task (red badge). An agent can execute and
+  remove it.
+* **`Q:` / `QUESTION:`** — question (purple badge). An agent can
+  answer inline.
+* **Discussion** — `XX: ... \n YY: ...` (auto-detected, 2+ speakers).
+* **Plain text** — informational annotation (blue).
+* **`code:`** — pseudocode block (see Code-mode notes above).
+
+### Note positioning
+
+Place notes deliberately:
+
+* **Diagram title** — `~xxlarge`, top-centre, ~40 px above the first
+  row.
+* **Section labels** — near groups they describe.
+* **Element annotations** — above, below, or to the side of the box
+  they annotate, with ~30–40 px gap. Be consistent within one
+  diagram (don't put some notes above and some below the same row).
+* **Code-mode notes** are usually placed directly below their target
+  box, aligned to the same x-coordinate. Reserve a vertical band
+  beneath the row for them.
+* **Note-to-element arrows** — when a note isn't directly adjacent
+  to its target, use `@ arrow note_id -> box_id !dotted` to make
+  the linkage explicit.
+* Keep notes short — if you need a paragraph, it belongs in
+  documentation, not on the diagram.
+
+### Links (`&url`)
+
+```
+@ box api "API" 100,100 200x100 &https://docs.example.com
+@ note n1 100,250 "See spec" &https://spec.example.com
+```
+
+`&url` is distinct from `# annotation`: a URL is a clickable link
+visible to the viewer; an annotation is invisible authoring metadata.
+
+## 6. Common patterns
+
+### Architecture (layered)
+
+Top-to-bottom flow. One `!flat` container per layer. Arrows flow
+downward between layers. Use `~large` on each layer container.
+
+```
+@ box frontend "Frontend" 20,20 500x200 %secondary ^topleft ~large !flat
+@ box web "Web App" 40,80 200x100 %highlight >frontend
+@ box mobile "Mobile" 280,80 200x100 %highlight >frontend
+
+@ box backend "Backend" 20,270 500x200 %tertiary ^topleft ~large !flat
+@ box api "API" 40,330 200x100 %accent >backend
+@ box auth "Auth" 280,330 200x100 %accent >backend
+
+@ box data "Data" 20,520 500x200 %subtle ^topleft ~large !flat
+@ box db "PostgreSQL" 40,580 200x100 %primary >data
+@ box cache "Redis" 280,580 200x100 %primary >data
+
+@ arrow web -> api "REST"
+@ arrow mobile -> api "GraphQL"
+@ arrow api -> auth "validate"
+@ arrow api -> db "queries"
+@ arrow auth -> cache "sessions"
+```
+
+### Flow / pipeline (left-to-right)
+
+Horizontal chain. Boxes in a row, arrows left-to-right. Side loops
+branch down.
+
+```
+@ box build "Build" 50,100 150x80 %secondary
+@ box test "Test" 300,100 150x80 %tertiary
+@ box stage "Stage" 550,100 150x80 %highlight
+@ box prod "Production" 800,100 150x80 %primary
+
+@ arrow build -> test
+@ arrow test -> stage "pass"
+@ arrow stage -> prod "approve"
+
+@ box rollback "Rollback" 550,280 150x80 %accent
+@ arrow prod -> rollback "alert" !dashed
+@ arrow rollback -> stage "redeploy"
+```
+
+### Hub-and-spoke
+
+Central element, satellites around it.
+
+```
+@ box hub "API Gateway" 250,200 200x100 %primary
+@ box web "Web" 50,50 150x70 %secondary
+@ box mobile "Mobile" 450,50 150x70 %secondary
+@ box db "Database" 50,380 150x70 %subtle
+@ box cache "Cache" 450,380 150x70 %highlight
+
+@ arrow web -> hub "HTTPS" !thick
+@ arrow mobile -> hub "HTTPS" !thick
+@ arrow hub -> db "queries"
+@ arrow hub -> cache "read" !dashed
+```
+
+### Legend box
+
+When using multiple arrow styles or color meanings, add a legend.
+
+```
+@ box legend "Legend" 50,500 280x200 %muted ^topleft ~small !flat
+@ note n10 70,545 "→  solid = synchronous" ~small
+@ note n11 70,575 "⇢  dashed = async" ~small
+@ note n12 70,605 "⋯  dotted = event-based" ~small
+@ note n13 70,635 "━  thick = critical path" ~small
+```
+
+### Sub-graflis
+
+If a single box's internal logic would need 5+ children to depict,
+link a sub-grafli with `&path.grafli` instead of stuffing it into
+the parent diagram. The sub-grafli renders as its own canvas; the
+viewer follows the link.
+
+```
+@ box orders "Order Processing" 100,100 220x100 &orders-flow.grafli
+```
+
+## 7. Things to avoid
+
+* **Rainbow diagrams**: more than 4 colors creates noise, not
+  information.
+* **Unlabeled arrows**: an arrow without a label is a relationship
+  without meaning.
+* **Massive flat layouts**: if you have 15+ boxes at the same level,
+  group them into containers.
+* **Tiny containers**: don't nest a single box — nesting implies
+  grouping of multiple elements.
+* **Decoration for its own sake**: every visual choice (color, size,
+  style) should encode information.
+* **Cramped containers**: children must never visually overlap the
+  parent's headline — follow the container margin model.
+* **Uniform text sizes**: if every element uses the same font size,
+  nothing is emphasized — use the typography scale.
+* **Orphaned elements**: boxes floating far from their logical group
+  look accidental — keep related items close and aligned.
+* **Undersized boxes**: a box should comfortably fit its label.
+
+---
+
+# File operations
+
+## Create a new grafli file
+
+Use `Write` to create the file with header comments and elements:
+
+```
+# Title
+# optional description
+
+@ box ...
+@ arrow ...
+@ note ...
+```
+
+## Modify an existing grafli file
+
+Use `Edit` to change specific lines — the desktop app live-reloads.
+
+To remove an element, replace the line with empty string.
+
+## Per-project convention
+
+Default diagram: `.grafli` (dotfile) in the project root. Named
+files (e.g., `architecture.grafli`) can coexist for versioned
+diagrams.
+
+## Launch the viewer
+
+```bash
+grafli <file.grafli>
+```
+
+After creating a new `.grafli`, launch the viewer in background.
+Use `pgrep` to avoid duplicates — the app auto-reloads on file
+changes.
+
+```bash
+pgrep -f "grafli.*<file.grafli>" || grafli <file.grafli> &
+```
+
+## Headless render (preview without the GUI)
+
+Use `grafli render` to produce a PNG / SVG without opening a window —
+useful for sanity-checking your output before saving large changes:
+
+```bash
+grafli render input.grafli output.png
+grafli render input.grafli output.svg
+```
+
+If you're producing a diagram for a user who can't run grafli,
+rendering to SVG and embedding the SVG in their document is often
+the most useful end result.

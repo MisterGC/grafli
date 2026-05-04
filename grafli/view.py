@@ -4589,7 +4589,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     # ── Export (SVG file / PNG clipboard) ──
 
     @contextmanager
-    def _export_scene_context(self):
+    def _export_scene_context(self, padding: int = 20):
         """Prepare the scene for clean export, yield the padded bounding rect.
 
         Hides unselected items when there is a selection, clears selection
@@ -4652,7 +4652,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         rect = self._scene.itemsBoundingRect()
         if rect.isNull():
             rect = QRectF(0, 0, 100, 100)
-        rect = rect.adjusted(-20, -20, 20, 20)
+        rect = rect.adjusted(-padding, -padding, padding, padding)
 
         try:
             yield rect
@@ -4664,9 +4664,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             for item in badge_items:
                 item.setVisible(True)
 
-    def _render_svg_bytes(self) -> QByteArray:
+    def _render_svg_bytes(self, padding: int = 20) -> QByteArray:
         """Render the current diagram (or selection) to SVG bytes."""
-        with self._export_scene_context() as rect:
+        with self._export_scene_context(padding=padding) as rect:
             buf = QByteArray()
             io = QBuffer(buf)
             io.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -4682,9 +4682,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             io.close()
         return buf
 
-    def _render_png_image(self, scale: int = 2) -> QImage:
+    def _render_png_image(self, scale: int = 2, padding: int = 20) -> QImage:
         """Render the current diagram (or selection) to a QImage."""
-        with self._export_scene_context() as rect:
+        with self._export_scene_context(padding=padding) as rect:
             size = rect.size().toSize()
             image = QImage(
                 size.width() * scale,
@@ -4698,6 +4698,23 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._scene.render(painter, QRectF(), rect)
             painter.end()
         return image
+
+    def _render_png_to_path(
+        self, path, padding: int = 20, width: int | None = None,
+    ) -> None:
+        """Render the current diagram to a PNG file at *path*.
+
+        If *width* is given, the output is scaled to that width while
+        preserving aspect ratio. Otherwise the natural 2× scale is used.
+        """
+        from PySide6.QtCore import Qt as _Qt
+        image = self._render_png_image(padding=padding)
+        if width is not None and width > 0:
+            image = image.scaledToWidth(
+                width, _Qt.TransformationMode.SmoothTransformation,
+            )
+            image.setDevicePixelRatio(1.0)
+        image.save(str(path), "PNG")
 
     def _yank_png_to_clipboard(self):
         """Copy the diagram as PNG to the system clipboard."""

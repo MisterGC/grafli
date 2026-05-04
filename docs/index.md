@@ -43,6 +43,11 @@ A small, deliberate set of primitives — boxes, arrows, notes — composes into
 `.grafli` files are line-oriented plain text. Diffs make sense. LLMs can read and write them. You can edit them in your editor of choice. No binary blobs, no cloud lock-in.
 </div>
 
+<div class="grafli-pillar" markdown>
+### AI-native
+Ship the bundled skill into Claude Code, OpenCode, or Codex CLI with one command — your agent learns the format, the layout discipline, and the planning loop that produces clear diagrams. [Read more →](ai.md)
+</div>
+
 </div>
 
 ## A file format you can read

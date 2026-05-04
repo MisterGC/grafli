@@ -714,8 +714,122 @@ def _try_send_to_existing(file_path: str | None) -> bool:
     return True
 
 
+SKILL_DOCS = """\
+After extracting the skill, install it for your AI tool:
+
+  Claude Code   — copy / symlink to ~/.claude/skills/grafli/SKILL.md
+                  https://code.claude.com/docs/en/skills
+  OpenCode      — copy / symlink to ~/.config/opencode/skills/grafli/SKILL.md
+                  https://opencode.ai/docs/skills
+  Codex CLI     — append the body (frontmatter optional) to ~/.codex/AGENTS.md
+                  https://agents.md/
+"""
+
+
+def _skill_path() -> Path:
+    """Return the path to the bundled SKILL.md."""
+    from importlib.resources import files
+    return Path(str(files("grafli.skills.grafli") / "SKILL.md"))
+
+
+def _cmd_skill(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="grafli skill",
+        description="Print the bundled grafli AI skill (SKILL.md).",
+        epilog=SKILL_DOCS,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "-o", "--output", type=Path, default=None,
+        help="Write SKILL.md to this path instead of stdout",
+    )
+    parser.add_argument(
+        "--where", action="store_true",
+        help="Print the path of the bundled SKILL.md and exit",
+    )
+    args = parser.parse_args(argv)
+
+    src = _skill_path()
+    if args.where:
+        print(src)
+        return 0
+    text = src.read_text(encoding="utf-8")
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(text, encoding="utf-8")
+        print(f"Wrote {args.output}", file=sys.stderr)
+        return 0
+    sys.stdout.write(text)
+    return 0
+
+
+def _cmd_render(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="grafli render",
+        description="Render a .grafli file to PNG or SVG without opening a window.",
+    )
+    parser.add_argument("input", type=Path, help="Input .grafli file")
+    parser.add_argument("output", type=Path, help="Output .png or .svg")
+    parser.add_argument(
+        "--width", type=int, default=None,
+        help="Output width in pixels (PNG only; preserves aspect ratio)",
+    )
+    parser.add_argument(
+        "--padding", type=int, default=40,
+        help="Padding around the diagram bounds (default 40)",
+    )
+    args = parser.parse_args(argv)
+
+    if not args.input.exists():
+        print(f"Input not found: {args.input}", file=sys.stderr)
+        return 2
+
+    suffix = args.output.suffix.lower()
+    if suffix not in (".png", ".svg"):
+        print(f"Unsupported output format: {suffix} (expected .png or .svg)",
+              file=sys.stderr)
+        return 2
+
+    # Headless rendering needs an offscreen Qt platform.
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+
+    from grafli.view import GrafliView
+    text = args.input.resolve().read_text(encoding="utf-8")
+    board = parse(text)
+    view = GrafliView()
+    view.load_board(board)
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    if suffix == ".svg":
+        svg_bytes = view._render_svg_bytes(padding=args.padding)
+        with open(args.output, "wb") as f:
+            f.write(bytes(svg_bytes))
+    else:
+        view._render_png_to_path(
+            args.output, padding=args.padding, width=args.width,
+        )
+    print(f"Wrote {args.output}", file=sys.stderr)
+    # Drop the QApplication reference to avoid lingering process state.
+    del view
+    del app
+    return 0
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Grafli whiteboard")
+    # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
+    if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render"):
+        sub = sys.argv[1]
+        rest = sys.argv[2:]
+        if sub == "skill":
+            sys.exit(_cmd_skill(rest))
+        sys.exit(_cmd_render(rest))
+
+    parser = argparse.ArgumentParser(
+        prog="grafli",
+        description="Grafli whiteboard. Subcommands: skill, render.",
+    )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")
     args = parser.parse_args()

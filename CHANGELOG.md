@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`grafli render` clipped wide-and-short diagrams.** Setting
+  `QImage.setDevicePixelRatio(2)` *before* `QGraphicsScene.render(...)`
+  with a null target rect made Qt drop most of the scene — the bug
+  surfaced only for certain aspect ratios (LR pipelines like the new
+  skill-pipeline diagram on `docs/ai.md` rendered to a near-blank PNG).
+  The render path now passes an explicit pixel-extent target rect and
+  defers the DPR setting until after the paint completes. Tall diagrams
+  (e.g. the RPG-engine example) were also subtly affected; the fix
+  produces complete renders for both shapes.
+
 ## [0.2.0] - 2026-05-05
 
 ### Added

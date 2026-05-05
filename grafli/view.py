@@ -4691,12 +4691,19 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 size.height() * scale,
                 QImage.Format.Format_ARGB32_Premultiplied,
             )
-            image.setDevicePixelRatio(scale)
             image.fill(SCENE_BG)
             painter = QPainter(image)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            self._scene.render(painter, QRectF(), rect)
+            # Always render against an explicit pixel target. Setting DPR
+            # before render() with a null target makes Qt drop most of the
+            # scene for certain aspect ratios (wide-and-short pipelines).
+            self._scene.render(
+                painter,
+                QRectF(0, 0, image.width(), image.height()),
+                rect,
+            )
             painter.end()
+            image.setDevicePixelRatio(scale)
         return image
 
     def _render_png_to_path(

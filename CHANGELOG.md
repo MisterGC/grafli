@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-05
+
 ### Added
 - **AI skill bundled with the package.** `grafli/skills/grafli/SKILL.md`
   ships inside the wheel; extract via `grafli skill` (prints to stdout)
@@ -26,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   covers the longer story (why a skill, what it triggers on, render
   workflow, graph + code-mode pattern). Fourth pillar added to the
   homepage *Why grafli* row.
+
+### Fixed
+- `examples/architecture.grafli` referenced an attached PNG that was
+  never committed — the example now ships with its companion image
+  so the diagram renders cleanly out of the box.
 
 ## [0.1.1] - 2026-05-03
 
@@ -157,6 +164,7 @@ First public release of grafli on PyPI.
 - Python 3.12+
 - PySide6 (Qt 6.7+)
 
-[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/MisterGC/grafli/releases/tag/v0.2.0
 [0.1.1]: https://github.com/MisterGC/grafli/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MisterGC/grafli/releases/tag/v0.1.0

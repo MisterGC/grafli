@@ -38,6 +38,17 @@ theme:
     - search.highlight
     - toc.follow
 
+plugins:
+  - search
+  - glightbox:
+      touchNavigation: true
+      loop: false
+      effect: zoom
+      zoomable: true
+      draggable: true
+      width: 100%
+      height: auto
+
 markdown_extensions:
   - admonition
   - attr_list

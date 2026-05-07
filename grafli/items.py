@@ -638,11 +638,21 @@ class NoteItem(QGraphicsSimpleTextItem):
             font = self._note_font()
             char_w = QFontMetricsF(font).averageCharWidth() or 8.0
             delta_px = event.scenePos().x() - self._resize_start_x
-            delta_chars = int(round(delta_px / max(1.0, char_w)))
-            new_chars = max(10, self._resize_start_chars + delta_chars)
-            if new_chars != self.note.wrap_chars:
+            # Continuous pixel target for the visual box — moves with the
+            # cursor at sub-character precision so the box doesn't appear
+            # to snap word-by-word while dragging.
+            start_px = self._resize_start_chars * char_w
+            target_px = max(40.0, start_px + delta_px)
+            # Integer character count drives text wrap (still word-aligned).
+            new_chars = max(10, int(round(target_px / max(1.0, char_w))))
+            prev_target = getattr(self, "_resize_target_px", None)
+            changed = (
+                new_chars != self.note.wrap_chars or target_px != prev_target
+            )
+            if changed:
                 self.prepareGeometryChange()
                 self.note.wrap_chars = new_chars
+                self._resize_target_px = target_px
                 self.update()
             event.accept()
             return
@@ -651,6 +661,9 @@ class NoteItem(QGraphicsSimpleTextItem):
     def mouseReleaseEvent(self, event):
         if getattr(self, "_resizing", False):
             self._resizing = False
+            self._resize_target_px = None
+            self.prepareGeometryChange()
+            self.update()
             view = _get_view(self)
             if view is not None and hasattr(view, "mark_dirty"):
                 view.mark_dirty()
@@ -675,6 +688,12 @@ class NoteItem(QGraphicsSimpleTextItem):
 
     def _wrap_cache_key(self) -> tuple:
         return (self.note.text, self.note.wrap_chars, self.note.textsize)
+
+    def _bbox_cache_key(self, sel: bool) -> tuple:
+        # Include the live drag target so the visible box tracks the cursor
+        # smoothly (text wrap is still keyed on wrap_chars only).
+        return (self._wrap_cache_key(), sel,
+                getattr(self, "_resize_target_px", None))
 
     def _wrap_width_px(self, font: QFont) -> float:
         """Pixel width corresponding to ``note.wrap_chars`` for *font*."""
@@ -918,12 +937,15 @@ class NoteItem(QGraphicsSimpleTextItem):
     def boundingRect(self):
         sel = self.isSelected()
         cache = getattr(self, "_brect_cache", None)
-        cache_key = (self._wrap_cache_key(), sel)
+        cache_key = self._bbox_cache_key(sel)
         if cache is not None and cache[0] == cache_key:
             return cache[1]
+        target_px = getattr(self, "_resize_target_px", None)
         if self._is_code_note():
             _, visual = self._visual_code_lines()
             _, _, _, tw, th = self._code_metrics(visual)
+            if target_px is not None:
+                tw = max(tw, target_px)
             r = QRectF(0, 0, tw, th)
         else:
             discussion = self._parse_discussion()
@@ -952,6 +974,8 @@ class NoteItem(QGraphicsSimpleTextItem):
                     total_w = pad + badge_w + self._BADGE_GAP + body_w + pad
                 else:
                     total_w = pad + body_w + pad
+                if target_px is not None:
+                    total_w = max(total_w, target_px)
                 total_h = pad + n_lines * line_h + pad
                 r = QRectF(0, 0, total_w, total_h)
         if sel:
@@ -992,6 +1016,9 @@ class NoteItem(QGraphicsSimpleTextItem):
             badge_w = 0
             total_w = pad + body_w + pad
 
+        target_px = getattr(self, "_resize_target_px", None)
+        if target_px is not None:
+            total_w = max(total_w, target_px)
         total_h = pad + n_lines * line_h + pad
         bg_rect = QRectF(0, 0, total_w, total_h)
 
@@ -1123,6 +1150,9 @@ class NoteItem(QGraphicsSimpleTextItem):
         indent_w = fm.horizontalAdvance("  ")
 
         _, line_h, divider_gap, total_w, total_h = self._code_metrics(visual)
+        target_px = getattr(self, "_resize_target_px", None)
+        if target_px is not None:
+            total_w = max(total_w, target_px)
         bg_rect = QRectF(0, 0, total_w, total_h)
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

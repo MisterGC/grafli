@@ -673,6 +673,9 @@ class NoteItem(QGraphicsSimpleTextItem):
                     return
         super().mouseReleaseEvent(event)
 
+    def _wrap_cache_key(self) -> tuple:
+        return (self.note.text, self.note.wrap_chars, self.note.textsize)
+
     def _wrap_width_px(self, font: QFont) -> float:
         """Pixel width corresponding to ``note.wrap_chars`` for *font*."""
         fm = QFontMetricsF(font)
@@ -686,7 +689,13 @@ class NoteItem(QGraphicsSimpleTextItem):
         Preserves explicit ``\\n`` line breaks, blank lines, and the
         leading indentation of each logical line.  Continuations of a
         wrapped line keep the original indent (no hanging indent).
+        Result is memoised against the wrap cache key (text, wrap_chars,
+        textsize) so dragging / repaints don't re-do the work.
         """
+        cache = getattr(self, "_plain_wrap_cache", None)
+        key = (text, self._wrap_cache_key())
+        if cache is not None and cache[0] == key:
+            return cache[1]
         max_w = self._wrap_width_px(font)
         fm = QFontMetricsF(font)
         out: list[str] = []
@@ -706,6 +715,7 @@ class NoteItem(QGraphicsSimpleTextItem):
                     out.append(indent + cur)
                     cur = w
             out.append(indent + cur)
+        self._plain_wrap_cache = (key, out)
         return out
 
     def _parse_note(self):
@@ -794,7 +804,12 @@ class NoteItem(QGraphicsSimpleTextItem):
         of a wrapped logical line use a hanging indent of two spaces;
         ``indent_cols`` carries the *original* indent so the indent
         guides stay vertically aligned to the source's block level.
+        Memoised against the wrap cache key.
         """
+        cache = getattr(self, "_code_wrap_cache", None)
+        key = self._wrap_cache_key()
+        if cache is not None and cache[0] == key:
+            return cache[1]
         sig_idx, logical = self._code_lines()
         font = self._code_font()
         bold_font = self._code_signature_font()
@@ -850,7 +865,9 @@ class NoteItem(QGraphicsSimpleTextItem):
                               + " ".join(cur), is_sig, indent_cols))
             if is_sig:
                 new_sig_idx = len(visual) - 1
-        return new_sig_idx, visual
+        result = (new_sig_idx, visual)
+        self._code_wrap_cache = (key, result)
+        return result
 
     def _code_font(self) -> QFont:
         return self._note_font()
@@ -861,7 +878,16 @@ class NoteItem(QGraphicsSimpleTextItem):
         return f
 
     def _code_metrics(self, visual_lines):
-        """Compute width/height/etc for already-wrapped visual lines."""
+        """Compute width/height/etc for already-wrapped visual lines.
+
+        Memoised against the wrap cache key — Qt asks for boundingRect
+        and paints constantly during drag, so re-tokenising every visual
+        line every frame visibly slows things down on big notes.
+        """
+        cache = getattr(self, "_code_metrics_cache", None)
+        key = self._wrap_cache_key()
+        if cache is not None and cache[0] == key:
+            return cache[1]
         font = self._code_font()
         bold_font = QFont(font)
         bold_font.setBold(True)
@@ -885,50 +911,52 @@ class NoteItem(QGraphicsSimpleTextItem):
                      default=0.0)
         total_w = pad + body_w + pad
         total_h = pad + len(visual_lines) * line_h + divider_gap + pad
-        return body_w, line_h, divider_gap, total_w, total_h
+        result = (body_w, line_h, divider_gap, total_w, total_h)
+        self._code_metrics_cache = (key, result)
+        return result
 
     def boundingRect(self):
+        sel = self.isSelected()
+        cache = getattr(self, "_brect_cache", None)
+        cache_key = (self._wrap_cache_key(), sel)
+        if cache is not None and cache[0] == cache_key:
+            return cache[1]
         if self._is_code_note():
             _, visual = self._visual_code_lines()
             _, _, _, tw, th = self._code_metrics(visual)
             r = QRectF(0, 0, tw, th)
-            if self.isSelected():
-                return r.adjusted(-4, -4, 4, 4)
-            return r
-
-        discussion = self._parse_discussion()
-        if discussion:
-            _, _, _, tw, th = self._discussion_metrics(discussion)
-            r = QRectF(0, 0, tw, th)
-            if self.isSelected():
-                return r.adjusted(-4, -4, 4, 4)
-            return r
-
-        prefix, body, _ = self._parse_note()
-        font = self._note_font()
-        fm = QFontMetricsF(font)
-        pad = self._PAD
-
-        body_font = QFont(font)
-        body_fm = QFontMetricsF(body_font)
-        lines = self._wrap_lines(body, body_font)
-        body_w = max((body_fm.horizontalAdvance(ln) for ln in lines), default=0)
-        line_h = fm.height()
-        n_lines = len(lines)
-
-        if prefix:
-            bold_font = QFont(font)
-            bold_font.setBold(True)
-            bfm = QFontMetricsF(bold_font)
-            badge_w = bfm.horizontalAdvance(prefix) + self._BADGE_HPAD * 2
-            total_w = pad + badge_w + self._BADGE_GAP + body_w + pad
         else:
-            total_w = pad + body_w + pad
-
-        total_h = pad + n_lines * line_h + pad
-        r = QRectF(0, 0, total_w, total_h)
-        if self.isSelected():
-            return r.adjusted(-4, -4, 4, 4)
+            discussion = self._parse_discussion()
+            if discussion:
+                _, _, _, tw, th = self._discussion_metrics(discussion)
+                r = QRectF(0, 0, tw, th)
+            else:
+                prefix, body, _ = self._parse_note()
+                font = self._note_font()
+                fm = QFontMetricsF(font)
+                pad = self._PAD
+                body_font = QFont(font)
+                body_fm = QFontMetricsF(body_font)
+                lines = self._wrap_lines(body, body_font)
+                body_w = max(
+                    (body_fm.horizontalAdvance(ln) for ln in lines),
+                    default=0,
+                )
+                line_h = fm.height()
+                n_lines = len(lines)
+                if prefix:
+                    bold_font = QFont(font)
+                    bold_font.setBold(True)
+                    bfm = QFontMetricsF(bold_font)
+                    badge_w = bfm.horizontalAdvance(prefix) + self._BADGE_HPAD * 2
+                    total_w = pad + badge_w + self._BADGE_GAP + body_w + pad
+                else:
+                    total_w = pad + body_w + pad
+                total_h = pad + n_lines * line_h + pad
+                r = QRectF(0, 0, total_w, total_h)
+        if sel:
+            r = r.adjusted(-4, -4, 4, 4)
+        self._brect_cache = (cache_key, r)
         return r
 
     def paint(self, painter: QPainter, option, widget=None):

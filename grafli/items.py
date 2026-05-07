@@ -628,6 +628,41 @@ class NoteItem(QGraphicsSimpleTextItem):
                     return
         super().mouseReleaseEvent(event)
 
+    def _wrap_width_px(self, font: QFont) -> float:
+        """Pixel width corresponding to ``note.wrap_chars`` for *font*."""
+        fm = QFontMetricsF(font)
+        # Average char width tracks proportional fonts; floor at a small
+        # value so a degenerate metric never produces a zero-width target.
+        return max(40.0, fm.averageCharWidth() * self.note.wrap_chars)
+
+    def _wrap_lines(self, text: str, font: QFont) -> list[str]:
+        """Soft-wrap ``text`` for plain-text notes.
+
+        Preserves explicit ``\\n`` line breaks, blank lines, and the
+        leading indentation of each logical line.  Continuations of a
+        wrapped line keep the original indent (no hanging indent).
+        """
+        max_w = self._wrap_width_px(font)
+        fm = QFontMetricsF(font)
+        out: list[str] = []
+        for raw_line in text.split("\n"):
+            if not raw_line.strip():
+                out.append(raw_line)
+                continue
+            indent_len = len(raw_line) - len(raw_line.lstrip())
+            indent = raw_line[:indent_len]
+            words = raw_line[indent_len:].split(" ")
+            cur = ""
+            for w in words:
+                trial = (cur + " " + w) if cur else w
+                if fm.horizontalAdvance(indent + trial) <= max_w or not cur:
+                    cur = trial
+                else:
+                    out.append(indent + cur)
+                    cur = w
+            out.append(indent + cur)
+        return out
+
     def _parse_note(self):
         """Extract badge prefix, body text, and accent color."""
         p = note_prefix(self.note.text)
@@ -762,7 +797,7 @@ class NoteItem(QGraphicsSimpleTextItem):
 
         body_font = QFont(font)
         body_fm = QFontMetricsF(body_font)
-        lines = body.split("\n")
+        lines = self._wrap_lines(body, body_font)
         body_w = max((body_fm.horizontalAdvance(ln) for ln in lines), default=0)
         line_h = fm.height()
         n_lines = len(lines)
@@ -800,7 +835,7 @@ class NoteItem(QGraphicsSimpleTextItem):
 
         body_font = QFont(font)
         body_fm = QFontMetricsF(body_font)
-        lines = body.split("\n")
+        lines = self._wrap_lines(body, body_font)
         body_w = max((body_fm.horizontalAdvance(ln) for ln in lines), default=0)
         n_lines = len(lines)
 

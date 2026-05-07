@@ -741,6 +741,72 @@ class NoteItem(QGraphicsSimpleTextItem):
     def _code_lines(self) -> tuple[int | None, list[str]]:
         return split_signature(self.note.text)
 
+    def _visual_code_lines(self):
+        """Expand logical code lines to wrapped visual lines.
+
+        Returns ``(visual_sig_idx, visual_lines)`` where each entry of
+        ``visual_lines`` is ``(text, is_sig, indent_cols)``. Continuations
+        of a wrapped logical line use a hanging indent of two spaces;
+        ``indent_cols`` carries the *original* indent so the indent
+        guides stay vertically aligned to the source's block level.
+        """
+        sig_idx, logical = self._code_lines()
+        font = self._code_font()
+        bold_font = self._code_signature_font()
+        fm = QFontMetricsF(font)
+        bfm = QFontMetricsF(bold_font)
+        max_content_w = max(
+            40.0,
+            self._wrap_width_px(font) - 2 * self._CODE_PAD,
+        )
+
+        def line_w(text: str, is_sig: bool) -> float:
+            w = 0.0
+            for kind, t in tokenize_line(text):
+                if is_sig or kind in _CODE_BOLD_KINDS:
+                    w += bfm.horizontalAdvance(t)
+                else:
+                    w += fm.horizontalAdvance(t)
+            return w
+
+        visual: list[tuple[str, bool, int]] = []
+        new_sig_idx: int | None = None
+        for li, line in enumerate(logical):
+            is_sig = (li == sig_idx)
+            indent_cols = len(line) - len(line.lstrip(" "))
+            if not line.strip():
+                visual.append((line, is_sig, indent_cols))
+                if is_sig:
+                    new_sig_idx = len(visual) - 1
+                continue
+            if line_w(line, is_sig) <= max_content_w:
+                visual.append((line, is_sig, indent_cols))
+                if is_sig:
+                    new_sig_idx = len(visual) - 1
+                continue
+            indent = line[:indent_cols]
+            cont_indent = indent + "  "
+            words = line[indent_cols:].split(" ")
+            cur: list[str] = []
+            first = True
+            for word in words:
+                lead = indent if first else cont_indent
+                trial = cur + [word]
+                trial_text = lead + " ".join(trial)
+                if line_w(trial_text, is_sig) <= max_content_w or not cur:
+                    cur = trial
+                else:
+                    visual.append(((indent if first else cont_indent)
+                                  + " ".join(cur), is_sig, indent_cols))
+                    first = False
+                    cur = [word]
+            if cur:
+                visual.append(((indent if first else cont_indent)
+                              + " ".join(cur), is_sig, indent_cols))
+            if is_sig:
+                new_sig_idx = len(visual) - 1
+        return new_sig_idx, visual
+
     def _code_font(self) -> QFont:
         return self._note_font()
 
@@ -749,7 +815,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         f.setBold(True)
         return f
 
-    def _code_metrics(self, sig_idx: int | None, lines: list[str]):
+    def _code_metrics(self, visual_lines):
+        """Compute width/height/etc for already-wrapped visual lines."""
         font = self._code_font()
         bold_font = QFont(font)
         bold_font.setBold(True)
@@ -757,26 +824,28 @@ class NoteItem(QGraphicsSimpleTextItem):
         bfm = QFontMetricsF(bold_font)
         pad = self._CODE_PAD
         line_h = fm.height()
-        divider_gap = self._CODE_DIVIDER_GAP if sig_idx is not None else 0
+        has_sig = any(is_sig for _, is_sig, _ in visual_lines)
+        divider_gap = self._CODE_DIVIDER_GAP if has_sig else 0
 
-        def _line_w(i: int, line: str) -> float:
+        def _line_w(line: str, is_sig: bool) -> float:
             w = 0.0
             for kind, text in tokenize_line(line):
-                if i == sig_idx or kind in _CODE_BOLD_KINDS:
+                if is_sig or kind in _CODE_BOLD_KINDS:
                     w += bfm.horizontalAdvance(text)
                 else:
                     w += fm.horizontalAdvance(text)
             return w
 
-        body_w = max((_line_w(i, ln) for i, ln in enumerate(lines)), default=0.0)
+        body_w = max((_line_w(ln, sig) for ln, sig, _ in visual_lines),
+                     default=0.0)
         total_w = pad + body_w + pad
-        total_h = pad + len(lines) * line_h + divider_gap + pad
+        total_h = pad + len(visual_lines) * line_h + divider_gap + pad
         return body_w, line_h, divider_gap, total_w, total_h
 
     def boundingRect(self):
         if self._is_code_note():
-            sig_idx, lines = self._code_lines()
-            _, _, _, tw, th = self._code_metrics(sig_idx, lines)
+            _, visual = self._visual_code_lines()
+            _, _, _, tw, th = self._code_metrics(visual)
             r = QRectF(0, 0, tw, th)
             if self.isSelected():
                 return r.adjusted(-4, -4, 4, 4)
@@ -964,7 +1033,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             painter.drawRect(sel_rect)
 
     def _paint_code(self, painter: QPainter):
-        sig_idx, lines = self._code_lines()
+        new_sig_idx, visual = self._visual_code_lines()
         font = self._code_font()
         bold_font = QFont(font)
         bold_font.setBold(True)
@@ -980,9 +1049,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         pad = self._CODE_PAD
         indent_w = fm.horizontalAdvance("  ")
 
-        _, line_h, divider_gap, total_w, total_h = self._code_metrics(
-            sig_idx, lines,
-        )
+        _, line_h, divider_gap, total_w, total_h = self._code_metrics(visual)
         bg_rect = QRectF(0, 0, total_w, total_h)
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -997,31 +1064,33 @@ class NoteItem(QGraphicsSimpleTextItem):
             self._CODE_BG_RADIUS, self._CODE_BG_RADIUS,
         )
 
-        # Per-line top offsets, with a small gap inserted after the signature
+        # Per-visual-line top offsets, with a divider gap after the LAST
+        # visual line that traces back to the signature (handles wrap of
+        # the signature itself).
         line_tops: list[float] = []
         y_acc = pad
-        for i in range(len(lines)):
+        for i in range(len(visual)):
             line_tops.append(y_acc)
             y_acc += line_h
-            if i == sig_idx:
+            if i == new_sig_idx:
                 y_acc += divider_gap
 
         # Divider rule under the signature
-        if sig_idx is not None:
-            div_y = line_tops[sig_idx] + line_h + divider_gap / 2
+        if new_sig_idx is not None:
+            div_y = line_tops[new_sig_idx] + line_h + divider_gap / 2
             painter.setPen(QPen(border_color, 1))
             painter.drawLine(
                 QPointF(pad, div_y),
                 QPointF(total_w - pad, div_y),
             )
 
-        # Indent guides — thin verticals in the gap before each indent level
+        # Indent guides — drawn at each visual line's *original* indent,
+        # so a wrapped continuation aligns with its source block.
         guide_color = QColor(NOTE_CODE_INDENT_GUIDE_COLOR)
         guide_color.setAlphaF(0.5)
         guide_pen = QPen(guide_color, 1)
-        for i, line in enumerate(lines):
-            indent_chars = len(line) - len(line.lstrip(" "))
-            levels = indent_chars // 2
+        for i, (_, _, indent_cols) in enumerate(visual):
+            levels = indent_cols // 2
             if levels <= 0:
                 continue
             y_top = line_tops[i]
@@ -1032,8 +1101,7 @@ class NoteItem(QGraphicsSimpleTextItem):
                 painter.drawLine(QPointF(x, y_top), QPointF(x, y_bot))
 
         ref_rects: list[tuple[QRectF, str]] = []
-        for i, line in enumerate(lines):
-            is_sig = (i == sig_idx)
+        for i, (line, is_sig, _) in enumerate(visual):
             x = pad
             y = line_tops[i] + fm.ascent()
             for kind, text in tokenize_line(line):

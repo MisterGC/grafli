@@ -1337,3 +1337,14 @@ def test_note_wrap_chars_roundtrip():
     out = serialize(board)
     # Whole modifier line round-trips
     assert src in out
+
+
+def test_note_wrap_chars_persists_across_drag():
+    """Simulate a width-resize: wrap_chars set on the model survives serialize."""
+    from grafli.format import Note, Board
+    board = Board()
+    board.add_note(Note(id="n1", x=0, y=0, text="foo", wrap_chars=42))
+    out = serialize(board)
+    assert "~width=42" in out
+    re_parsed = parse(out)
+    assert re_parsed.notes[0].wrap_chars == 42

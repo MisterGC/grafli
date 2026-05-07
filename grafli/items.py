@@ -592,15 +592,38 @@ class NoteItem(QGraphicsSimpleTextItem):
                 return ref
         return None
 
+    _RESIZE_EDGE_PX = 6
+
+    def _on_right_edge(self, pos) -> bool:
+        br = self.boundingRect()
+        if br.isEmpty():
+            return False
+        return (
+            br.right() - self._RESIZE_EDGE_PX <= pos.x() <= br.right() + 2
+            and br.top() <= pos.y() <= br.bottom()
+        )
+
     def hoverMoveEvent(self, event):
         if self._is_code_note() and self._ref_at(event.pos()) is not None:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
+        elif self._on_right_edge(event.pos()):
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
         else:
             self.setCursor(Qt.CursorShape.SizeAllCursor)
         super().hoverMoveEvent(event)
 
     def mousePressEvent(self, event):
         self._pending_ref = None
+        self._resizing = False
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._on_right_edge(event.pos())
+        ):
+            self._resizing = True
+            self._resize_start_x = event.scenePos().x()
+            self._resize_start_chars = self.note.wrap_chars
+            event.accept()
+            return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._is_code_note()
@@ -610,7 +633,29 @@ class NoteItem(QGraphicsSimpleTextItem):
                 self._pending_ref = (ref, event.pos())
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        if getattr(self, "_resizing", False):
+            font = self._note_font()
+            char_w = QFontMetricsF(font).averageCharWidth() or 8.0
+            delta_px = event.scenePos().x() - self._resize_start_x
+            delta_chars = int(round(delta_px / max(1.0, char_w)))
+            new_chars = max(10, self._resize_start_chars + delta_chars)
+            if new_chars != self.note.wrap_chars:
+                self.prepareGeometryChange()
+                self.note.wrap_chars = new_chars
+                self.update()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event):
+        if getattr(self, "_resizing", False):
+            self._resizing = False
+            view = _get_view(self)
+            if view is not None and hasattr(view, "mark_dirty"):
+                view.mark_dirty()
+            event.accept()
+            return
         pending = self._pending_ref
         self._pending_ref = None
         if (

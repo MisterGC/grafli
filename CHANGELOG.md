@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Notes auto-wrap to a width budget.** Plain-text and code-mode
+  notes now soft-wrap to **80 characters by default** — long
+  AI-generated sentences flow onto multiple readable lines instead of
+  running off the canvas. Explicit `\n`, blank lines, and leading
+  indentation are preserved across wraps. Code-mode continuations use
+  a two-space hanging indent so block structure stays visible.
+- **Per-note width override** via `~width=N` modifier (placed after
+  `~size`, before `!style`), e.g.
+  `@ note n1 0,0 "..." ~small ~width=60`.
+- **Drag-to-resize note width.** The right edge of plain-text and
+  code-mode notes is now a horizontal resize handle: hover shows
+  `SizeHorCursor`, drag updates `wrap_chars` live and persists as
+  `~width=N` on next save. Height auto-derives from the wrapped
+  content.
+
 ### Fixed
 - **`grafli render` clipped wide-and-short diagrams.** Setting
   `QImage.setDevicePixelRatio(2)` *before* `QGraphicsScene.render(...)`

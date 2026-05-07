@@ -592,14 +592,22 @@ class NoteItem(QGraphicsSimpleTextItem):
                 return ref
         return None
 
-    _RESIZE_EDGE_PX = 6
+    _RESIZE_EDGE_PX = 10
+    _RESIZE_EDGE_OUTSIDE = 6  # forgiving overshoot when the cursor exits
 
     def _on_right_edge(self, pos) -> bool:
         br = self.boundingRect()
         if br.isEmpty():
             return False
+        # boundingRect() inflates by 4 px when selected (selection halo);
+        # subtract that so the detection zone tracks the *visible* right
+        # edge regardless of selection state.
+        if self.isSelected():
+            br = br.adjusted(4, 4, -4, -4)
         return (
-            br.right() - self._RESIZE_EDGE_PX <= pos.x() <= br.right() + 2
+            br.right() - self._RESIZE_EDGE_PX
+            <= pos.x()
+            <= br.right() + self._RESIZE_EDGE_OUTSIDE
             and br.top() <= pos.y() <= br.bottom()
         )
 

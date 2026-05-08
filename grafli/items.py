@@ -720,15 +720,33 @@ class NoteItem(QGraphicsSimpleTextItem):
         # value so a degenerate metric never produces a zero-width target.
         return max(40.0, fm.averageCharWidth() * self.note.wrap_chars)
 
-    def _wrap_lines(self, text: str, font: QFont) -> list[str]:
-        """Soft-wrap ``text`` for plain-text notes.
+    @staticmethod
+    def _wrap_text_to_width(
+        text: str, font: QFont, max_w: float,
+    ) -> list[str]:
+        """Pure soft-wrap. Preserves \\n, blank lines, leading indent."""
+        fm = QFontMetricsF(font)
+        out: list[str] = []
+        for raw_line in text.split("\n"):
+            if not raw_line.strip():
+                out.append(raw_line)
+                continue
+            indent_len = len(raw_line) - len(raw_line.lstrip())
+            indent = raw_line[:indent_len]
+            words = raw_line[indent_len:].split(" ")
+            cur = ""
+            for w in words:
+                trial = (cur + " " + w) if cur else w
+                if fm.horizontalAdvance(indent + trial) <= max_w or not cur:
+                    cur = trial
+                else:
+                    out.append(indent + cur)
+                    cur = w
+            out.append(indent + cur)
+        return out
 
-        Preserves explicit ``\\n`` line breaks, blank lines, and the
-        leading indentation of each logical line.  Continuations of a
-        wrapped line keep the original indent (no hanging indent).
-        Result is memoised against the wrap cache key (text, wrap_chars,
-        textsize) so dragging / repaints don't re-do the work.
-        """
+    def _wrap_lines(self, text: str, font: QFont) -> list[str]:
+        """Soft-wrap ``text`` for plain-text notes (cached)."""
         cache = getattr(self, "_plain_wrap_cache", None)
         key = (text, self._wrap_cache_key())
         if cache is not None and cache[0] == key:
@@ -801,28 +819,62 @@ class NoteItem(QGraphicsSimpleTextItem):
             for sp, lns in blocks
         ]
 
-    def _discussion_metrics(self, blocks):
-        """Compute shared layout metrics for discussion rendering."""
+    def _wrapped_discussion(self, blocks):
+        """Wrap each speaker block's lines to fit the wrap budget. Cached.
+
+        Returns ``(wrapped_blocks, max_badge_w, line_h, total_w, total_h)``
+        where ``wrapped_blocks`` is the same shape as the parsed blocks
+        but with each line softly wrapped to the body-area budget.
+        """
+        cache = getattr(self, "_discussion_cache", None)
+        key = self._wrap_cache_key()
+        if cache is not None and cache[0] == key:
+            return cache[1]
         font = self._note_font()
         fm = QFontMetricsF(font)
         bold_font = QFont(font)
         bold_font.setBold(True)
         bfm = QFontMetricsF(bold_font)
-        line_h = fm.height()
         pad = self._PAD
+        line_h = fm.height()
 
         max_badge_w = max(
             bfm.horizontalAdvance(sp) + self._BADGE_HPAD * 2
             for sp, _, _ in blocks
         )
-        body_w = max(
-            (fm.horizontalAdvance(ln) for _, lns, _ in blocks for ln in lns),
-            default=0,
+        target_total_w = self._wrap_width_px(font) + 2 * pad
+        body_area_w = max(
+            80.0,
+            target_total_w - 2 * pad - max_badge_w - self._BADGE_GAP,
         )
-        total_lines = sum(len(lns) for _, lns, _ in blocks)
-        gap_h = (len(blocks) - 1) * self._BLOCK_GAP
-        total_w = pad + max_badge_w + self._BADGE_GAP + body_w + pad
+
+        wrapped_blocks = []
+        longest_body_w = 0.0
+        for sp, lns, color in blocks:
+            wrapped: list[str] = []
+            for ln in lns:
+                wrapped.extend(
+                    self._wrap_text_to_width(ln, font, body_area_w)
+                )
+            wrapped_blocks.append((sp, wrapped, color))
+            for ln in wrapped:
+                longest_body_w = max(longest_body_w, fm.horizontalAdvance(ln))
+
+        total_lines = sum(len(lns) for _, lns, _ in wrapped_blocks)
+        gap_h = (len(wrapped_blocks) - 1) * self._BLOCK_GAP
+        content_total_w = (
+            pad + max_badge_w + self._BADGE_GAP + longest_body_w + pad
+        )
+        total_w = max(content_total_w, target_total_w)
         total_h = pad + total_lines * line_h + gap_h + pad
+        result = (wrapped_blocks, max_badge_w, line_h, total_w, total_h)
+        self._discussion_cache = (key, result)
+        return result
+
+    def _discussion_metrics(self, blocks):
+        """Backwards-compatible shim — delegates to wrapped layout."""
+        _, max_badge_w, line_h, total_w, total_h = self._wrapped_discussion(blocks)
+        body_w = total_w - 2 * self._PAD - max_badge_w - self._BADGE_GAP
         return max_badge_w, body_w, line_h, total_w, total_h
 
     _CODE_DIVIDER_GAP = 6
@@ -971,6 +1023,8 @@ class NoteItem(QGraphicsSimpleTextItem):
             discussion = self._parse_discussion()
             if discussion:
                 _, _, _, tw, th = self._discussion_metrics(discussion)
+                if target_px is not None:
+                    tw = max(tw, target_px)
                 r = QRectF(0, 0, tw, th)
             else:
                 prefix, body, _ = self._parse_note()
@@ -1098,15 +1152,19 @@ class NoteItem(QGraphicsSimpleTextItem):
             self._paint_resize_grip(painter, total_w, total_h)
 
     def _paint_discussion(self, painter: QPainter, blocks):
-        """Render a multi-speaker discussion note."""
+        """Render a multi-speaker discussion note (with auto-wrapped lines)."""
         font = self._note_font()
         fm = QFontMetricsF(font)
         pad = self._PAD
-        line_h = fm.height()
         bold_font = QFont(font)
         bold_font.setBold(True)
 
-        max_badge_w, _, _, total_w, total_h = self._discussion_metrics(blocks)
+        wrapped_blocks, max_badge_w, line_h, total_w, total_h = (
+            self._wrapped_discussion(blocks)
+        )
+        target_px = getattr(self, "_resize_target_px", None)
+        if target_px is not None:
+            total_w = max(total_w, target_px)
         bg_rect = QRectF(0, 0, total_w, total_h)
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -1120,7 +1178,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         body_x = pad + max_badge_w + self._BADGE_GAP
         y = pad
 
-        for blk_idx, (speaker, lines, color) in enumerate(blocks):
+        for blk_idx, (speaker, lines, color) in enumerate(wrapped_blocks):
             # Speaker badge on first line
             bfm = QFontMetricsF(bold_font)
             badge_w = bfm.horizontalAdvance(speaker) + self._BADGE_HPAD * 2
@@ -1137,14 +1195,14 @@ class NoteItem(QGraphicsSimpleTextItem):
                 QPointF(pad + self._BADGE_HPAD, y + fm.ascent()), speaker
             )
 
-            # Body lines
+            # Body lines (already wrapped)
             painter.setFont(font)
             painter.setPen(color)
             for ln in lines:
                 painter.drawText(QPointF(body_x, y + fm.ascent()), ln)
                 y += line_h
 
-            if blk_idx < len(blocks) - 1:
+            if blk_idx < len(wrapped_blocks) - 1:
                 y += self._BLOCK_GAP
 
         if self.note.url:
@@ -1156,6 +1214,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
             painter.drawRect(sel_rect)
+            self._paint_resize_grip(painter, total_w, total_h)
 
     def _paint_code(self, painter: QPainter):
         new_sig_idx, visual = self._visual_code_lines()

@@ -670,6 +670,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             if changed:
                 self.prepareGeometryChange()
                 self.note.wrap_chars = new_chars
+                self.note.wrap_chars_explicit = True
                 self._resize_target_px = target_px
                 self.update()
             event.accept()
@@ -705,7 +706,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         super().mouseReleaseEvent(event)
 
     def _wrap_cache_key(self) -> tuple:
-        return (self.note.text, self.note.wrap_chars, self.note.textsize)
+        return (self.note.text, self.note.wrap_chars, self.note.textsize,
+                self.note.wrap_chars_explicit)
 
     def _bbox_cache_key(self, sel: bool) -> tuple:
         # Include the live drag target so the visible box tracks the cursor
@@ -865,7 +867,10 @@ class NoteItem(QGraphicsSimpleTextItem):
         content_total_w = (
             pad + max_badge_w + self._BADGE_GAP + longest_body_w + pad
         )
-        total_w = max(content_total_w, target_total_w)
+        if self.note.wrap_chars_explicit:
+            total_w = max(content_total_w, target_total_w)
+        else:
+            total_w = content_total_w
         total_h = pad + total_lines * line_h + gap_h + pad
         result = (wrapped_blocks, max_badge_w, line_h, total_w, total_h)
         self._discussion_cache = (key, result)
@@ -1014,8 +1019,9 @@ class NoteItem(QGraphicsSimpleTextItem):
         if self._is_code_note():
             _, visual = self._visual_code_lines()
             _, _, _, tw, th = self._code_metrics(visual)
-            min_w = self._wrap_width_px(self._code_font()) + 2 * self._CODE_PAD
-            tw = max(tw, min_w)
+            if self.note.wrap_chars_explicit:
+                min_w = self._wrap_width_px(self._code_font()) + 2 * self._CODE_PAD
+                tw = max(tw, min_w)
             if target_px is not None:
                 tw = max(tw, target_px)
             r = QRectF(0, 0, tw, th)
@@ -1048,8 +1054,9 @@ class NoteItem(QGraphicsSimpleTextItem):
                     total_w = pad + badge_w + self._BADGE_GAP + body_w + pad
                 else:
                     total_w = pad + body_w + pad
-                min_w = self._wrap_width_px(body_font) + 2 * pad
-                total_w = max(total_w, min_w)
+                if self.note.wrap_chars_explicit:
+                    min_w = self._wrap_width_px(body_font) + 2 * pad
+                    total_w = max(total_w, min_w)
                 if target_px is not None:
                     total_w = max(total_w, target_px)
                 total_h = pad + n_lines * line_h + pad
@@ -1092,8 +1099,9 @@ class NoteItem(QGraphicsSimpleTextItem):
             badge_w = 0
             total_w = pad + body_w + pad
 
-        min_w = self._wrap_width_px(body_font) + 2 * pad
-        total_w = max(total_w, min_w)
+        if self.note.wrap_chars_explicit:
+            min_w = self._wrap_width_px(body_font) + 2 * pad
+            total_w = max(total_w, min_w)
         target_px = getattr(self, "_resize_target_px", None)
         if target_px is not None:
             total_w = max(total_w, target_px)
@@ -1234,8 +1242,9 @@ class NoteItem(QGraphicsSimpleTextItem):
         indent_w = fm.horizontalAdvance("  ")
 
         _, line_h, divider_gap, total_w, total_h = self._code_metrics(visual)
-        min_w = self._wrap_width_px(self._code_font()) + 2 * self._CODE_PAD
-        total_w = max(total_w, min_w)
+        if self.note.wrap_chars_explicit:
+            min_w = self._wrap_width_px(self._code_font()) + 2 * self._CODE_PAD
+            total_w = max(total_w, min_w)
         target_px = getattr(self, "_resize_target_px", None)
         if target_px is not None:
             total_w = max(total_w, target_px)

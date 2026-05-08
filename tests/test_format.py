@@ -1340,11 +1340,30 @@ def test_note_wrap_chars_roundtrip():
 
 
 def test_note_wrap_chars_persists_across_drag():
-    """Simulate a width-resize: wrap_chars set on the model survives serialize."""
+    """Simulate a width-resize: explicit-flag drives ~width emission."""
     from grafli.format import Note, Board
     board = Board()
-    board.add_note(Note(id="n1", x=0, y=0, text="foo", wrap_chars=42))
+    board.add_note(Note(id="n1", x=0, y=0, text="foo",
+                         wrap_chars=42, wrap_chars_explicit=True))
     out = serialize(board)
     assert "~width=42" in out
     re_parsed = parse(out)
     assert re_parsed.notes[0].wrap_chars == 42
+    assert re_parsed.notes[0].wrap_chars_explicit is True
+
+
+def test_note_wrap_chars_implicit_default_not_emitted_even_at_default():
+    """A default-80 note authored without ~width stays implicit."""
+    from grafli.format import Note, Board, DEFAULT_NOTE_WRAP_CHARS
+    board = Board()
+    board.add_note(Note(id="n1", x=0, y=0, text="hello",
+                         wrap_chars=DEFAULT_NOTE_WRAP_CHARS))
+    assert board.notes[0].wrap_chars_explicit is False
+    assert "~width" not in serialize(board)
+
+
+def test_note_wrap_chars_explicit_default_is_emitted():
+    """If author explicitly typed ~width=80 we preserve their intent."""
+    board = parse('@ note n1 0,0 "hello" ~width=80')
+    assert board.notes[0].wrap_chars_explicit is True
+    assert "~width=80" in serialize(board)

@@ -75,6 +75,11 @@ class Note:
     annotation: str = ""
     block_text: bool = False
     wrap_chars: int = DEFAULT_NOTE_WRAP_CHARS  # soft-wrap width in characters
+    # True iff the author chose a width (via ~width=N or by dragging the
+    # resize handle). When False, the wrap_chars value is the implicit
+    # default and the box collapses to content-fit; when True, the box
+    # always reserves the chosen budget.
+    wrap_chars_explicit: bool = False
 
 
 @dataclass
@@ -347,6 +352,7 @@ def parse(text: str) -> Board:
                     textsize=sm.group(2) or "",
                     wrap_chars=int(sm.group(3)) if sm.group(3)
                                                 else DEFAULT_NOTE_WRAP_CHARS,
+                    wrap_chars_explicit=bool(sm.group(3)),
                     style=sm.group(4) or "",
                     url=sm.group(5) or "",
                     parent=sm.group(6) or "",
@@ -379,6 +385,7 @@ def parse(text: str) -> Board:
                 textsize=m.group(6) or "",
                 wrap_chars=int(m.group(7)) if m.group(7)
                                             else DEFAULT_NOTE_WRAP_CHARS,
+                wrap_chars_explicit=bool(m.group(7)),
                 style=m.group(8) or "",
                 url=m.group(9) or "",
                 parent=m.group(10) or "",
@@ -484,7 +491,7 @@ def _serialize_note(note: Note) -> str:
             suffix += f" {note.color}"
         if note.textsize:
             suffix += f" ~{note.textsize}"
-        if note.wrap_chars != DEFAULT_NOTE_WRAP_CHARS:
+        if note.wrap_chars_explicit:
             suffix += f" ~width={note.wrap_chars}"
         if note.style:
             suffix += f" !{note.style}"
@@ -501,7 +508,7 @@ def _serialize_note(note: Note) -> str:
         s += f" {note.color}"
     if note.textsize:
         s += f" ~{note.textsize}"
-    if note.wrap_chars != DEFAULT_NOTE_WRAP_CHARS:
+    if note.wrap_chars_explicit:
         s += f" ~width={note.wrap_chars}"
     if note.style:
         s += f" !{note.style}"

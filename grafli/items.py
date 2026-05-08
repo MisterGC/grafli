@@ -1078,13 +1078,14 @@ class NoteItem(QGraphicsSimpleTextItem):
         if self.note.url:
             _paint_link_glyph(painter, bg_rect)
 
-        # Selection indicator
+        # Selection indicator + always-visible resize grip
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
             painter.drawRect(sel_rect)
+            self._paint_resize_grip(painter, total_w, total_h)
 
     def _paint_discussion(self, painter: QPainter, blocks):
         """Render a multi-speaker discussion note."""
@@ -1268,6 +1269,39 @@ class NoteItem(QGraphicsSimpleTextItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
             painter.drawRect(sel_rect)
+            self._paint_resize_grip(painter, total_w, total_h)
+
+    def _paint_resize_grip(
+        self, painter: QPainter, total_w: float, total_h: float,
+    ) -> None:
+        """Draw a clear, always-visible resize affordance on the right edge.
+
+        Two vertical grip lines on top of a faint coloured band. Spans the
+        full height of the note so the user can grab it from any vertical
+        position regardless of where text wrapping landed.
+        """
+        band_w = 8
+        if total_w < 2 * band_w or total_h < 8:
+            return
+        accent = QColor("#2F5D5C")
+        # Faint background band
+        bg = QColor(accent)
+        bg.setAlphaF(0.10)
+        painter.setBrush(QBrush(bg))
+        painter.setPen(Qt.PenStyle.NoPen)
+        band_rect = QRectF(total_w - band_w, 0, band_w, total_h)
+        painter.drawRect(band_rect)
+        # Two vertical grip lines for clarity
+        line = QColor(accent)
+        line.setAlphaF(0.55)
+        painter.setPen(QPen(line, 1.4))
+        margin_y = max(4.0, min(8.0, total_h * 0.12))
+        for offset in (3, 6):
+            x = total_w - offset
+            painter.drawLine(
+                QPointF(x, margin_y),
+                QPointF(x, total_h - margin_y),
+            )
 
     def _apply_color(self):
         self.update()

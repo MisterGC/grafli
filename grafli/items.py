@@ -952,6 +952,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         if self._is_code_note():
             _, visual = self._visual_code_lines()
             _, _, _, tw, th = self._code_metrics(visual)
+            min_w = self._wrap_width_px(self._code_font()) + 2 * self._CODE_PAD
+            tw = max(tw, min_w)
             if target_px is not None:
                 tw = max(tw, target_px)
             r = QRectF(0, 0, tw, th)
@@ -982,6 +984,8 @@ class NoteItem(QGraphicsSimpleTextItem):
                     total_w = pad + badge_w + self._BADGE_GAP + body_w + pad
                 else:
                     total_w = pad + body_w + pad
+                min_w = self._wrap_width_px(body_font) + 2 * pad
+                total_w = max(total_w, min_w)
                 if target_px is not None:
                     total_w = max(total_w, target_px)
                 total_h = pad + n_lines * line_h + pad
@@ -1024,6 +1028,8 @@ class NoteItem(QGraphicsSimpleTextItem):
             badge_w = 0
             total_w = pad + body_w + pad
 
+        min_w = self._wrap_width_px(body_font) + 2 * pad
+        total_w = max(total_w, min_w)
         target_px = getattr(self, "_resize_target_px", None)
         if target_px is not None:
             total_w = max(total_w, target_px)
@@ -1158,6 +1164,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         indent_w = fm.horizontalAdvance("  ")
 
         _, line_h, divider_gap, total_w, total_h = self._code_metrics(visual)
+        min_w = self._wrap_width_px(self._code_font()) + 2 * self._CODE_PAD
+        total_w = max(total_w, min_w)
         target_px = getattr(self, "_resize_target_px", None)
         if target_px is not None:
             total_w = max(total_w, target_px)

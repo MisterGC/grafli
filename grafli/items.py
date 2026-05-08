@@ -595,6 +595,16 @@ class NoteItem(QGraphicsSimpleTextItem):
     _RESIZE_EDGE_PX = 10
     _RESIZE_EDGE_OUTSIDE = 6  # forgiving overshoot when the cursor exits
 
+    def shape(self):
+        # QGraphicsSimpleTextItem's default shape is the text outline, so
+        # hit-testing only fires on the actual glyphs — that hides the
+        # right-edge resize grip and any whitespace inside the note. Return
+        # the full painted bounding rect instead.
+        from PySide6.QtGui import QPainterPath
+        path = QPainterPath()
+        path.addRect(self.boundingRect())
+        return path
+
     def _on_right_edge(self, pos) -> bool:
         br = self.boundingRect()
         if br.isEmpty():

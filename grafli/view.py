@@ -2710,8 +2710,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._paste()
             event.accept()
             return
-        # / — search by label
-        if event.key() == Qt.Key.Key_Slash and no_mod:
+        # / — search (text-based so Shift+7 on German/EU layouts works)
+        if event.text() == "/" and not (mods & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        )):
             self._start_search()
             event.accept()
             return

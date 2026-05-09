@@ -3054,7 +3054,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Z — zoom to selection (no-op if nothing selected)
         if event.key() == Qt.Key.Key_Z and no_mod:
-            self._zoom_to_selection()
+            self._cycle_zoom_step()
             event.accept()
             return
 
@@ -4253,21 +4253,31 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + dx)
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() + dy)
 
-    def _zoom_to_selection(self):
-        """z key: toggle between 50% and 100% zoom around the current view
-        center. Works regardless of selection state — selection doesn't
-        change what `z` does. For "fit the whole graph" use Shift+Z.
+    _ZOOM_STEPS: tuple[float, ...] = (0.25, 0.5, 1.0, 1.5)
+
+    def _cycle_zoom_step(self):
+        """z key: zoom in to the next-larger step in `_ZOOM_STEPS`,
+        wrapping back to the smallest after the largest. Always zooms
+        *in* relative to current — never sideways or out — so a single
+        keypress has a predictable direction. For "fit the whole graph"
+        use Shift+Z.
         """
         if not self._board:
             return
         self._push_nav_snapshot()
         current = self.transform().m11()
-        # If we're closer to 100% (or above), toggle out to 50%; otherwise
-        # snap to 100%. The 0.75 midpoint avoids ambiguity when the user is
-        # at, say, 80% from a previous fit.
-        target_zoom = 0.5 if current >= 0.75 else 1.0
+        # Small tolerance so an "exactly at a step" zoom still advances
+        # to the next step instead of getting stuck.
+        threshold = current * 1.01
+        next_zoom: float | None = None
+        for step in self._ZOOM_STEPS:
+            if step > threshold:
+                next_zoom = step
+                break
+        if next_zoom is None:
+            next_zoom = self._ZOOM_STEPS[0]
         center = self.mapToScene(self.viewport().rect().center())
-        self._animate_to_zoom_and_center(target_zoom, center)
+        self._animate_to_zoom_and_center(next_zoom, center)
 
     def _zoom_to_fit(self):
         """Shift+Z key: zoom to fit entire diagram."""
@@ -4865,7 +4875,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("Arrow keys", "Pan viewport"),
                 ("Middle-drag", "Pan anywhere"),
                 ("+ / -", "Zoom in / out"),
-                ("z", "Toggle 50% / 100% zoom"),
+                ("z", "Zoom in: 25 → 50 → 100 → 150 % (cycle)"),
                 ("⇧Z", "Zoom to fit (whole graph)"),
                 ("gp", "Select parent (zoom if needed)"),
                 ("F", "Select first child"),

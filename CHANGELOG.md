@@ -38,11 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layouts where typing the slash needs Shift+7.
 
 ### Changed
-- **Zoom hotkeys redesigned.** `z` now toggles between 50% and 100%
-  zoom around the current view center — works regardless of
-  selection state, no longer a multi-stage cycle. `Shift+Z` zooms
-  to fit the whole graph (this was the third stage of the old
-  cycle).
+- **Zoom hotkeys redesigned.** `z` now zooms *in* to the next step
+  in `25% → 50% → 100% → 150%`, wrapping back to 25% after 150%.
+  Works regardless of selection state. Direction is always "in",
+  so a single keypress is predictable; if you ever need to go
+  smaller you keep pressing until it wraps. `Shift+Z` zooms to fit
+  the whole graph.
 - **Search cycling pins zoom at 100%.** Tabbing through search
   matches now lands at a consistent 100% zoom each time, so hits
   are easy to compare regardless of where the user was zoomed

@@ -29,6 +29,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QCursor,
     QDesktopServices,
     QFont,
     QImage,
@@ -282,9 +283,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._anim_start_zoom: float = 1.0
         self._anim_end_zoom: float = 1.0
 
-        # Progressive zoom state (z key levels)
-        self._zoom_z_level: int = 0
-        self._zoom_z_rect: QRectF | None = None
 
         # Hide-notes toggle (Shift+N) — focus on the graph
         self._notes_hidden: bool = False
@@ -331,8 +329,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._search_text = ""
         self._search_matches: list[BoxItem | NoteItem] = []
         self._search_index = 0
-        self._search_label: QGraphicsTextItem | None = None
-        self._search_label_bg: QGraphicsRectItem | None = None
+        self._search_filter_active: bool = False
+        self._search_dimmed_ids: set[str] = set()
 
         self.arrow_update_needed.connect(self._redraw_arrows)
         self._scene.selectionChanged.connect(self._on_selection_changed)
@@ -367,6 +365,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         super().drawForeground(painter, rect)
         self._draw_complexity_legend(painter)
         self._draw_minimap(painter)
+        self._draw_search_badge(painter)
         self._draw_debug_overlay(painter)
 
     def toggle_grid(self):
@@ -2227,7 +2226,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _on_selection_changed(self):
         self._clear_box_mode()
-        self._zoom_z_level = 0
         if self._selected_arrow and self._scene.selectedItems():
             self._deselect_arrow()
         window = self.window()
@@ -2523,6 +2521,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         if event.key() == Qt.Key.Key_Escape:
+            if self._search_filter_active:
+                self._clear_search_filter()
+                event.accept()
+                return
             if self._complexity_active:
                 self._clear_complexity_heatmap()
                 event.accept()
@@ -2703,8 +2705,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._paste()
             event.accept()
             return
-        # / — search by label
-        if event.key() == Qt.Key.Key_Slash and no_mod:
+        # / — search (text-based so Shift+7 on German/EU layouts works)
+        if event.text() == "/" and not (mods & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        )):
             self._start_search()
             event.accept()
             return
@@ -3048,7 +3054,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Z — zoom to selection (no-op if nothing selected)
         if event.key() == Qt.Key.Key_Z and no_mod:
-            self._zoom_to_selection()
+            self._cycle_zoom_step()
             event.accept()
             return
 
@@ -3801,6 +3807,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     # ── Search by label (/) ──
 
     def _start_search(self):
+        # Search is exclusive with the other dim filters (focus / complexity /
+        # arrow-dim). Clear them before opening so the visual stack stays
+        # legible.
+        if self._focus_active:
+            self._clear_focus_filter()
+        if self._complexity_active:
+            self._clear_complexity_heatmap()
+        if self._arrows_dimmed:
+            self._toggle_arrows_dimmed()
         self._search_active = True
         self._search_text = ""
         self._search_matches.clear()
@@ -3817,10 +3832,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if event.key() == Qt.Key.Key_Backspace:
             self._search_text = self._search_text[:-1]
         elif event.key() == Qt.Key.Key_Tab:
-            # Cycle to next match
             if self._search_matches:
-                self._search_index = (self._search_index + 1) % len(self._search_matches)
-                self._highlight_search_match()
+                step = -1 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1
+                self._search_index = (self._search_index + step) % len(self._search_matches)
+                self._focus_current_match(animate=True)
+                self._update_search_badge()
             return
         else:
             ch = event.text()
@@ -3834,6 +3850,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._search_index = 0
         if not self._search_text:
             self._scene.clearSelection()
+            self._clear_search_filter()
             return
         query = self._search_text.lower()
         for item in self._box_items.values():
@@ -3842,81 +3859,174 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         for item in self._note_items.values():
             if query in item.note.text.lower():
                 self._search_matches.append(item)
-        self._highlight_search_match()
-
-    def _highlight_search_match(self):
-        self._scene.clearSelection()
+        self._apply_search_filter()
         if self._search_matches:
-            target = self._search_matches[self._search_index]
-            target.setSelected(True)
-            self.centerOn(target)
+            self._focus_current_match(animate=False)
+        else:
+            self._scene.clearSelection()
+
+    def _apply_search_filter(self):
+        """Dim every item that isn't a match. Arrows always dim — per the
+        agreed UX, only matched items themselves stay full opacity, not the
+        connectors between them.
+        """
+        match_ids: set[str] = set()
+        for m in self._search_matches:
+            if isinstance(m, BoxItem):
+                match_ids.add(m.box.id)
+            elif isinstance(m, NoteItem):
+                match_ids.add(m.note.id)
+
+        dim = 0.08
+        dimmed: set[str] = set()
+        for box_id, item in self._box_items.items():
+            on = box_id in match_ids
+            opacity = 1.0 if on else dim
+            item.setOpacity(opacity)
+            item._label.setOpacity(opacity)
+            if not on:
+                dimmed.add(box_id)
+        for note_id, item in self._note_items.items():
+            on = note_id in match_ids
+            item.setOpacity(1.0 if on else dim)
+            if not on:
+                dimmed.add(note_id)
+        for gfx in self._arrow_items:
+            gfx.setOpacity(dim)
+
+        self._search_filter_active = True
+        self._search_dimmed_ids = dimmed
+        self.viewport().update()
+
+    def _clear_search_filter(self):
+        if not self._search_filter_active:
+            return
+        for item in self._box_items.values():
+            item.setOpacity(1.0)
+            item._label.setOpacity(1.0)
+        for item in self._note_items.values():
+            item.setOpacity(1.0)
+        arrow_opacity = 0.08 if self._arrows_dimmed else 1.0
+        for gfx in self._arrow_items:
+            gfx.setOpacity(arrow_opacity)
+        self._search_filter_active = False
+        self._search_dimmed_ids = set()
+        self.viewport().update()
+
+    def _focus_current_match(self, animate: bool = True):
+        """Move selection + viewport to the current match.
+
+        Search cycling always lands at 100% zoom regardless of where the
+        user was before — consistent zoom across the result set makes hits
+        easier to compare than auto-fitting each individual rect.
+        """
+        if not self._search_matches:
+            return
+        target = self._search_matches[self._search_index]
+        self._scene.clearSelection()
+        target.setSelected(True)
+        if isinstance(target, BoxItem):
+            b = target.box
+            center = QRectF(b.x, b.y, b.w, b.h).center()
+        else:
+            center = target.sceneBoundingRect().center()
+        if animate:
+            self._animate_to_zoom_and_center(1.0, center)
+        else:
+            self.setTransform(QTransform().scale(1.0, 1.0))
+            self.centerOn(center)
+            self._update_status_zoom()
 
     def _accept_search(self):
+        """Enter: dismiss the input badge but keep the dim filter active so
+        the user can pan/zoom around the highlighted result set. Esc clears
+        both."""
         if self._search_matches:
             self._push_nav_snapshot()
-            target = self._search_matches[self._search_index]
-            self._cancel_search()
-            self._scene.clearSelection()
-            target.setSelected(True)
-            if isinstance(target, BoxItem):
-                b = target.box
-                r = QRectF(b.x, b.y, b.w, b.h)
-            else:
-                r = target.sceneBoundingRect()
-            padding = max(60, r.width() * 0.15, r.height() * 0.15)
-            self._animate_to_rect(r.adjusted(-padding, -padding, padding, padding))
-        else:
-            self._cancel_search()
+            self._focus_current_match(animate=True)
+        self._search_active = False
+        self._remove_search_badge()
 
     def _cancel_search(self):
         self._search_active = False
         self._search_text = ""
         self._search_matches.clear()
         self._remove_search_badge()
+        self._clear_search_filter()
 
     def _update_search_badge(self):
-        self._remove_search_badge()
-        vp = self.viewport().rect()
-        # Map viewport top-center to scene coordinates for badge placement
-        scene_top = self.mapToScene(QPointF(vp.width() / 2, 10).toPoint())
+        # The badge is now a viewport overlay (see _draw_search_badge),
+        # so updating it is just a viewport repaint.
+        self.viewport().update()
+
+    def _remove_search_badge(self):
+        # Kept for symmetry with the old API; the overlay is implicitly hidden
+        # whenever _search_active goes False.
+        self.viewport().update()
+
+    def _draw_search_badge(self, painter: QPainter):
+        """Top-center viewport overlay shown while the search input is open.
+
+        Drawn in viewport coordinates so it doesn't pan/zoom with the scene
+        like the previous QGraphicsTextItem implementation did.
+        """
+        if not self._search_active:
+            return
 
         count = len(self._search_matches)
         display = f"/{self._search_text}"
         if self._search_text:
-            display += f"  [{count} match{'es' if count != 1 else ''}]"
+            if count:
+                display += f"  [{self._search_index + 1}/{count}]"
+            else:
+                display += "  [no matches]"
+        hint = "Tab/⇧Tab cycle · Enter keep filter · Esc clear"
 
-        badge = QGraphicsTextItem(display)
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        vp = self.viewport().rect()
         font = QFont(FONT_FAMILY, 12)
-        badge.setFont(font)
-        badge.setDefaultTextColor(QColor("#FFFFFF"))
-        badge.setZValue(10001)
-        br = badge.boundingRect()
+        painter.setFont(font)
+        fm = painter.fontMetrics()
+        text_w = fm.horizontalAdvance(display)
+        text_h = fm.height()
 
-        bg = QGraphicsRectItem()
-        bg_color = QColor("#2F3437")
-        bg_color.setAlphaF(0.9)
-        bg.setBrush(QBrush(bg_color))
-        bg.setPen(QPen(Qt.PenStyle.NoPen))
-        bg.setZValue(10000)
+        hint_font = QFont(FONT_FAMILY, 9)
+        painter.setFont(hint_font)
+        hfm = painter.fontMetrics()
+        hint_w = hfm.horizontalAdvance(hint)
+        hint_h = hfm.height()
 
-        bx = scene_top.x() - br.width() / 2
-        by = scene_top.y()
-        badge.setPos(bx, by)
-        pad = 6
-        bg.setRect(bx - pad, by - pad, br.width() + pad * 2, br.height() + pad * 2)
+        pad = 8
+        gap = 4
+        panel_w = max(text_w, hint_w) + pad * 2
+        panel_h = text_h + gap + hint_h + pad * 2
+        panel_x = (vp.width() - panel_w) / 2
+        panel_y = 10
 
-        self._scene.addItem(bg)
-        self._scene.addItem(badge)
-        self._search_label = badge
-        self._search_label_bg = bg
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.92)
+        painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(panel_x, panel_y, panel_w, panel_h), 6, 6)
 
-    def _remove_search_badge(self):
-        if self._search_label:
-            self._scene.removeItem(self._search_label)
-            self._search_label = None
-        if self._search_label_bg:
-            self._scene.removeItem(self._search_label_bg)
-            self._search_label_bg = None
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(255, 255, 255)))
+        painter.drawText(
+            QPointF(panel_x + (panel_w - text_w) / 2,
+                    panel_y + pad + fm.ascent()),
+            display,
+        )
+        painter.setFont(hint_font)
+        painter.setPen(QPen(QColor(200, 200, 200, 180)))
+        painter.drawText(
+            QPointF(panel_x + (panel_w - hint_w) / 2,
+                    panel_y + pad + text_h + gap + hfm.ascent()),
+            hint,
+        )
+        painter.restore()
 
     # ── Keyboard box creation (Ctrl+Arrow) ──
 
@@ -4056,6 +4166,33 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._zoom_timeline = tl
         tl.start()
 
+    def _animate_to_zoom_and_center(self, zoom: float, center: QPointF):
+        """Smoothly animate to an explicit zoom level centered on a scene
+        point. Unlike `_animate_to_rect` (which derives zoom from a fit),
+        this preserves an exact scale — used by search cycling so every
+        match lands at the same zoom level.
+        """
+        if self._zoom_timeline is not None:
+            self._zoom_timeline.stop()
+            self._zoom_timeline = None
+
+        start_zoom = self.transform().m11()
+        start_center = self.mapToScene(self.viewport().rect().center())
+        target_zoom = max(0.05, min(zoom, 10.0))
+
+        self._anim_start_zoom = start_zoom
+        self._anim_end_zoom = target_zoom
+        self._anim_start_center = start_center
+        self._anim_end_center = center
+
+        tl = QTimeLine(250, self)
+        tl.setUpdateInterval(16)
+        tl.setEasingCurve(QEasingCurve.Type.OutCubic)
+        tl.valueChanged.connect(self._on_zoom_anim_step)
+        tl.finished.connect(self._on_zoom_anim_finished)
+        self._zoom_timeline = tl
+        tl.start()
+
     def _on_zoom_anim_step(self, value: float):
         z = self._anim_start_zoom + (self._anim_end_zoom - self._anim_start_zoom) * value
         cx = self._anim_start_center.x() + (self._anim_end_center.x() - self._anim_start_center.x()) * value
@@ -4076,17 +4213,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._autoscroll_timer.stop()
             return
         vp = self.viewport().rect()
+        cursor_vp = self.viewport().mapFromGlobal(QCursor.pos())
+        if not vp.contains(cursor_vp):
+            return
+        margin = self._AUTOSCROLL_MARGIN
+        speed = self._AUTOSCROLL_SPEED
         dx = dy = 0
-        for item in selected:
-            item_vp = self.mapFromScene(item.sceneBoundingRect()).boundingRect()
-            if item_vp.right() > vp.width() - self._AUTOSCROLL_MARGIN:
-                dx = max(dx, self._AUTOSCROLL_SPEED)
-            if item_vp.left() < self._AUTOSCROLL_MARGIN:
-                dx = min(dx, -self._AUTOSCROLL_SPEED)
-            if item_vp.bottom() > vp.height() - self._AUTOSCROLL_MARGIN:
-                dy = max(dy, self._AUTOSCROLL_SPEED)
-            if item_vp.top() < self._AUTOSCROLL_MARGIN:
-                dy = min(dy, -self._AUTOSCROLL_SPEED)
+        if cursor_vp.x() > vp.width() - margin:
+            dx = speed
+        elif cursor_vp.x() < margin:
+            dx = -speed
+        if cursor_vp.y() > vp.height() - margin:
+            dy = speed
+        elif cursor_vp.y() < margin:
+            dy = -speed
         if dx or dy:
             self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + dx)
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() + dy)
@@ -4113,64 +4253,31 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + dx)
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() + dy)
 
-    def _zoom_to_selection(self):
-        """z key: progressive zoom — selection → 2x context → fit all."""
+    _ZOOM_STEPS: tuple[float, ...] = (0.25, 0.5, 1.0, 1.5)
+
+    def _cycle_zoom_step(self):
+        """z key: zoom in to the next-larger step in `_ZOOM_STEPS`,
+        wrapping back to the smallest after the largest. Always zooms
+        *in* relative to current — never sideways or out — so a single
+        keypress has a predictable direction. For "fit the whole graph"
+        use Shift+Z.
+        """
         if not self._board:
             return
-
         self._push_nav_snapshot()
-        self._zoom_z_level += 1
-
-        # Level 3: fit all, then cycle back to selection on next press
-        if self._zoom_z_level >= 3:
-            self._zoom_to_fit()
-            self._zoom_z_level = 0
-            return
-
-        # Build the base selection rect
-        base_rect: QRectF | None = None
-
-        # Check if an arrow is selected
-        if self._selected_arrow:
-            arrow = self._selected_arrow
-            rects = []
-            for bid in (arrow.from_id, arrow.to_id):
-                if bid in self._box_items:
-                    b = self._box_items[bid].box
-                    rects.append(QRectF(b.x, b.y, b.w, b.h))
-            if rects:
-                base_rect = rects[0]
-                for r in rects[1:]:
-                    base_rect = base_rect.united(r)
-        else:
-            # Check for selected boxes/notes
-            selected = self._scene.selectedItems()
-            if selected:
-                rects = []
-                for item in selected:
-                    if isinstance(item, BoxItem):
-                        b = item.box
-                        rects.append(QRectF(b.x, b.y, b.w, b.h))
-                    elif isinstance(item, NoteItem):
-                        rects.append(QRectF(item.note.x, item.note.y,
-                                            item.boundingRect().width(),
-                                            item.boundingRect().height()))
-                if rects:
-                    base_rect = rects[0]
-                    for r in rects[1:]:
-                        base_rect = base_rect.united(r)
-
-        if not base_rect:
-            self._zoom_z_level = 0
-            return
-
-        padding = max(60, base_rect.width() * 0.15, base_rect.height() * 0.15)
-
-        # Level 2: double the padding for more context
-        if self._zoom_z_level == 2:
-            padding *= 2
-
-        self._animate_to_rect(base_rect.adjusted(-padding, -padding, padding, padding))
+        current = self.transform().m11()
+        # Small tolerance so an "exactly at a step" zoom still advances
+        # to the next step instead of getting stuck.
+        threshold = current * 1.01
+        next_zoom: float | None = None
+        for step in self._ZOOM_STEPS:
+            if step > threshold:
+                next_zoom = step
+                break
+        if next_zoom is None:
+            next_zoom = self._ZOOM_STEPS[0]
+        center = self.mapToScene(self.viewport().rect().center())
+        self._animate_to_zoom_and_center(next_zoom, center)
 
     def _zoom_to_fit(self):
         """Shift+Z key: zoom to fit entire diagram."""
@@ -4768,14 +4875,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("Arrow keys", "Pan viewport"),
                 ("Middle-drag", "Pan anywhere"),
                 ("+ / -", "Zoom in / out"),
-                ("Z", "Zoom to selection (progressive)"),
-                ("Shift+Z", "Zoom to fit all"),
+                ("z", "Zoom in: 25 → 50 → 100 → 150 % (cycle)"),
+                ("⇧Z", "Zoom to fit (whole graph)"),
                 ("gp", "Select parent (zoom if needed)"),
                 ("F", "Select first child"),
-                ("Tab / \u21e7Tab", "Cycle siblings"),
+                ("Tab / \u21e7Tab", "Cycle siblings (or search matches)"),
                 ("Ctrl+J", "Jump to any item (global)"),
                 ("Ctrl+O / Ctrl+I", "Nav history back / forward"),
                 ("Alt (hold)", "Graph nav: follow connectors"),
+                ("/", "Search dim-filter \u2014 Tab/\u21e7Tab cycle, Esc clears"),
             ]),
             ("Edit", [
                 ("e / Dbl-click", "Edit selected element"),
@@ -4794,7 +4902,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("Ctrl+Arrow", "Create adjacent box"),
                 ("Alt+Drag", "Connect boxes (from SELECT)"),
                 ("Alt+Click", "Paste at position"),
-                ("/", "Search by label"),
+            ]),
+            ("Notes", [
+                ("Drag right edge", "Resize note wrap width (persists as ~width=N)"),
+                ("Default wrap", "80 chars — set ~width=N for per-note override"),
             ]),
             ("Style", [
                 ("h / l", "Cycle color"),

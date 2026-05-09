@@ -186,8 +186,20 @@ regardless of how it was typed.
 | Modifier | Values | Effect |
 |----------|--------|--------|
 | `~size` | `~small`, `~large`, `~xlarge`, `~xxlarge`, `~xxxlarge` | text size |
+| `~width=N` | integer, `N` chars per line | soft-wrap width (default 80) |
 | `&url` | any URL | link |
 | `>parent` | `>parent_id` | nest inside parent box |
+
+**Auto-wrap.** Plain-text and code-mode notes wrap at `~width` chars
+(default **80**). Long sentences flow naturally onto multiple readable
+lines — write the prose as a single paragraph and let the renderer lay
+it out. Explicit `\n`, blank lines, and leading indentation are
+preserved across wraps. For code-mode notes, continuations of a wrapped
+logical line use a **two-space hanging indent** so the block structure
+stays visible. Override per-note with `~width=60` (narrow column) or
+`~width=120` (wide). Authors and AI agents can also drag the right
+edge of a note in the desktop app to set the width interactively;
+the chosen value is persisted as `~width=N`.
 
 ### Code-mode notes (`code:`)
 
@@ -260,9 +272,11 @@ If a note grows past ~10 lines, it's trying to be a graph. Split it.
 
 #### Sizing in multi-column phases
 
-Code-mode notes stretch to fit their widest line — there is no wrap.
-When notes sit beside each other in a row of subsystems, a single long
-line will silently push past the column gap and overlap the neighbour.
+Code-mode notes wrap at `~width` (default 80 chars), but a single long
+line will still soft-wrap onto multiple rows and may push past the
+column gap into the neighbouring note. To avoid overlap when notes sit
+side-by-side, set a narrower per-note budget — `~width=40` for a
+typical column-width pseudocode block.
 
 Rules of thumb:
 
@@ -270,6 +284,10 @@ Rules of thumb:
   At default size you have ~24 chars of horizontal budget per column;
   at `~small` you have ~32. Most useful pseudocode lines fit at
   `~small` and stay readable.
+* **Set `~width=N` to match the column width.** Even with auto-wrap, a
+  too-wide note can occupy more horizontal space than its column allows
+  before any line is long enough to wrap. Choosing `~width=40` (or
+  whatever matches the column gap) caps the visual footprint.
 * **Keep ≤7 body lines per note** when columns sit side-by-side, so
   the note's height also fits inside the container.
 * **The rightmost column has the container's right edge as its

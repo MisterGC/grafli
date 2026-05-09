@@ -592,15 +592,56 @@ class NoteItem(QGraphicsSimpleTextItem):
                 return ref
         return None
 
+    _RESIZE_EDGE_PX = 10
+    _RESIZE_EDGE_OUTSIDE = 6  # forgiving overshoot when the cursor exits
+
+    def shape(self):
+        # QGraphicsSimpleTextItem's default shape is the text outline, so
+        # hit-testing only fires on the actual glyphs — that hides the
+        # right-edge resize grip and any whitespace inside the note. Return
+        # the full painted bounding rect instead.
+        from PySide6.QtGui import QPainterPath
+        path = QPainterPath()
+        path.addRect(self.boundingRect())
+        return path
+
+    def _on_right_edge(self, pos) -> bool:
+        br = self.boundingRect()
+        if br.isEmpty():
+            return False
+        # boundingRect() inflates by 4 px when selected (selection halo);
+        # subtract that so the detection zone tracks the *visible* right
+        # edge regardless of selection state.
+        if self.isSelected():
+            br = br.adjusted(4, 4, -4, -4)
+        return (
+            br.right() - self._RESIZE_EDGE_PX
+            <= pos.x()
+            <= br.right() + self._RESIZE_EDGE_OUTSIDE
+            and br.top() <= pos.y() <= br.bottom()
+        )
+
     def hoverMoveEvent(self, event):
         if self._is_code_note() and self._ref_at(event.pos()) is not None:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
+        elif self._on_right_edge(event.pos()):
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
         else:
             self.setCursor(Qt.CursorShape.SizeAllCursor)
         super().hoverMoveEvent(event)
 
     def mousePressEvent(self, event):
         self._pending_ref = None
+        self._resizing = False
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._on_right_edge(event.pos())
+        ):
+            self._resizing = True
+            self._resize_start_x = event.scenePos().x()
+            self._resize_start_chars = self.note.wrap_chars
+            event.accept()
+            return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._is_code_note()
@@ -610,7 +651,43 @@ class NoteItem(QGraphicsSimpleTextItem):
                 self._pending_ref = (ref, event.pos())
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        if getattr(self, "_resizing", False):
+            font = self._note_font()
+            char_w = QFontMetricsF(font).averageCharWidth() or 8.0
+            delta_px = event.scenePos().x() - self._resize_start_x
+            # Continuous pixel target for the visual box — moves with the
+            # cursor at sub-character precision so the box doesn't appear
+            # to snap word-by-word while dragging.
+            start_px = self._resize_start_chars * char_w
+            target_px = max(40.0, start_px + delta_px)
+            # Integer character count drives text wrap (still word-aligned).
+            new_chars = max(10, int(round(target_px / max(1.0, char_w))))
+            prev_target = getattr(self, "_resize_target_px", None)
+            changed = (
+                new_chars != self.note.wrap_chars or target_px != prev_target
+            )
+            if changed:
+                self.prepareGeometryChange()
+                self.note.wrap_chars = new_chars
+                self.note.wrap_chars_explicit = True
+                self._resize_target_px = target_px
+                self.update()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event):
+        if getattr(self, "_resizing", False):
+            self._resizing = False
+            self._resize_target_px = None
+            self.prepareGeometryChange()
+            self.update()
+            view = _get_view(self)
+            if view is not None and hasattr(view, "mark_dirty"):
+                view.mark_dirty()
+            event.accept()
+            return
         pending = self._pending_ref
         self._pending_ref = None
         if (
@@ -627,6 +704,76 @@ class NoteItem(QGraphicsSimpleTextItem):
                     super().mouseReleaseEvent(event)
                     return
         super().mouseReleaseEvent(event)
+
+    def _wrap_cache_key(self) -> tuple:
+        return (self.note.text, self.note.wrap_chars, self.note.textsize,
+                self.note.wrap_chars_explicit)
+
+    def _bbox_cache_key(self, sel: bool) -> tuple:
+        # Include the live drag target so the visible box tracks the cursor
+        # smoothly (text wrap is still keyed on wrap_chars only).
+        return (self._wrap_cache_key(), sel,
+                getattr(self, "_resize_target_px", None))
+
+    def _wrap_width_px(self, font: QFont) -> float:
+        """Pixel width corresponding to ``note.wrap_chars`` for *font*."""
+        fm = QFontMetricsF(font)
+        # Average char width tracks proportional fonts; floor at a small
+        # value so a degenerate metric never produces a zero-width target.
+        return max(40.0, fm.averageCharWidth() * self.note.wrap_chars)
+
+    @staticmethod
+    def _wrap_text_to_width(
+        text: str, font: QFont, max_w: float,
+    ) -> list[str]:
+        """Pure soft-wrap. Preserves \\n, blank lines, leading indent."""
+        fm = QFontMetricsF(font)
+        out: list[str] = []
+        for raw_line in text.split("\n"):
+            if not raw_line.strip():
+                out.append(raw_line)
+                continue
+            indent_len = len(raw_line) - len(raw_line.lstrip())
+            indent = raw_line[:indent_len]
+            words = raw_line[indent_len:].split(" ")
+            cur = ""
+            for w in words:
+                trial = (cur + " " + w) if cur else w
+                if fm.horizontalAdvance(indent + trial) <= max_w or not cur:
+                    cur = trial
+                else:
+                    out.append(indent + cur)
+                    cur = w
+            out.append(indent + cur)
+        return out
+
+    def _wrap_lines(self, text: str, font: QFont) -> list[str]:
+        """Soft-wrap ``text`` for plain-text notes (cached)."""
+        cache = getattr(self, "_plain_wrap_cache", None)
+        key = (text, self._wrap_cache_key())
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        max_w = self._wrap_width_px(font)
+        fm = QFontMetricsF(font)
+        out: list[str] = []
+        for raw_line in text.split("\n"):
+            if not raw_line.strip():
+                out.append(raw_line)
+                continue
+            indent_len = len(raw_line) - len(raw_line.lstrip())
+            indent = raw_line[:indent_len]
+            words = raw_line[indent_len:].split(" ")
+            cur = ""
+            for w in words:
+                trial = (cur + " " + w) if cur else w
+                if fm.horizontalAdvance(indent + trial) <= max_w or not cur:
+                    cur = trial
+                else:
+                    out.append(indent + cur)
+                    cur = w
+            out.append(indent + cur)
+        self._plain_wrap_cache = (key, out)
+        return out
 
     def _parse_note(self):
         """Extract badge prefix, body text, and accent color."""
@@ -674,28 +821,65 @@ class NoteItem(QGraphicsSimpleTextItem):
             for sp, lns in blocks
         ]
 
-    def _discussion_metrics(self, blocks):
-        """Compute shared layout metrics for discussion rendering."""
+    def _wrapped_discussion(self, blocks):
+        """Wrap each speaker block's lines to fit the wrap budget. Cached.
+
+        Returns ``(wrapped_blocks, max_badge_w, line_h, total_w, total_h)``
+        where ``wrapped_blocks`` is the same shape as the parsed blocks
+        but with each line softly wrapped to the body-area budget.
+        """
+        cache = getattr(self, "_discussion_cache", None)
+        key = self._wrap_cache_key()
+        if cache is not None and cache[0] == key:
+            return cache[1]
         font = self._note_font()
         fm = QFontMetricsF(font)
         bold_font = QFont(font)
         bold_font.setBold(True)
         bfm = QFontMetricsF(bold_font)
-        line_h = fm.height()
         pad = self._PAD
+        line_h = fm.height()
 
         max_badge_w = max(
             bfm.horizontalAdvance(sp) + self._BADGE_HPAD * 2
             for sp, _, _ in blocks
         )
-        body_w = max(
-            (fm.horizontalAdvance(ln) for _, lns, _ in blocks for ln in lns),
-            default=0,
+        target_total_w = self._wrap_width_px(font) + 2 * pad
+        body_area_w = max(
+            80.0,
+            target_total_w - 2 * pad - max_badge_w - self._BADGE_GAP,
         )
-        total_lines = sum(len(lns) for _, lns, _ in blocks)
-        gap_h = (len(blocks) - 1) * self._BLOCK_GAP
-        total_w = pad + max_badge_w + self._BADGE_GAP + body_w + pad
+
+        wrapped_blocks = []
+        longest_body_w = 0.0
+        for sp, lns, color in blocks:
+            wrapped: list[str] = []
+            for ln in lns:
+                wrapped.extend(
+                    self._wrap_text_to_width(ln, font, body_area_w)
+                )
+            wrapped_blocks.append((sp, wrapped, color))
+            for ln in wrapped:
+                longest_body_w = max(longest_body_w, fm.horizontalAdvance(ln))
+
+        total_lines = sum(len(lns) for _, lns, _ in wrapped_blocks)
+        gap_h = (len(wrapped_blocks) - 1) * self._BLOCK_GAP
+        content_total_w = (
+            pad + max_badge_w + self._BADGE_GAP + longest_body_w + pad
+        )
+        if self.note.wrap_chars_explicit:
+            total_w = max(content_total_w, target_total_w)
+        else:
+            total_w = content_total_w
         total_h = pad + total_lines * line_h + gap_h + pad
+        result = (wrapped_blocks, max_badge_w, line_h, total_w, total_h)
+        self._discussion_cache = (key, result)
+        return result
+
+    def _discussion_metrics(self, blocks):
+        """Backwards-compatible shim — delegates to wrapped layout."""
+        _, max_badge_w, line_h, total_w, total_h = self._wrapped_discussion(blocks)
+        body_w = total_w - 2 * self._PAD - max_badge_w - self._BADGE_GAP
         return max_badge_w, body_w, line_h, total_w, total_h
 
     _CODE_DIVIDER_GAP = 6
@@ -706,6 +890,79 @@ class NoteItem(QGraphicsSimpleTextItem):
     def _code_lines(self) -> tuple[int | None, list[str]]:
         return split_signature(self.note.text)
 
+    def _visual_code_lines(self):
+        """Expand logical code lines to wrapped visual lines.
+
+        Returns ``(visual_sig_idx, visual_lines)`` where each entry of
+        ``visual_lines`` is ``(text, is_sig, indent_cols)``. Continuations
+        of a wrapped logical line use a hanging indent of two spaces;
+        ``indent_cols`` carries the *original* indent so the indent
+        guides stay vertically aligned to the source's block level.
+        Memoised against the wrap cache key.
+        """
+        cache = getattr(self, "_code_wrap_cache", None)
+        key = self._wrap_cache_key()
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        sig_idx, logical = self._code_lines()
+        font = self._code_font()
+        bold_font = self._code_signature_font()
+        fm = QFontMetricsF(font)
+        bfm = QFontMetricsF(bold_font)
+        max_content_w = max(
+            40.0,
+            self._wrap_width_px(font) - 2 * self._CODE_PAD,
+        )
+
+        def line_w(text: str, is_sig: bool) -> float:
+            w = 0.0
+            for kind, t in tokenize_line(text):
+                if is_sig or kind in _CODE_BOLD_KINDS:
+                    w += bfm.horizontalAdvance(t)
+                else:
+                    w += fm.horizontalAdvance(t)
+            return w
+
+        visual: list[tuple[str, bool, int]] = []
+        new_sig_idx: int | None = None
+        for li, line in enumerate(logical):
+            is_sig = (li == sig_idx)
+            indent_cols = len(line) - len(line.lstrip(" "))
+            if not line.strip():
+                visual.append((line, is_sig, indent_cols))
+                if is_sig:
+                    new_sig_idx = len(visual) - 1
+                continue
+            if line_w(line, is_sig) <= max_content_w:
+                visual.append((line, is_sig, indent_cols))
+                if is_sig:
+                    new_sig_idx = len(visual) - 1
+                continue
+            indent = line[:indent_cols]
+            cont_indent = indent + "  "
+            words = line[indent_cols:].split(" ")
+            cur: list[str] = []
+            first = True
+            for word in words:
+                lead = indent if first else cont_indent
+                trial = cur + [word]
+                trial_text = lead + " ".join(trial)
+                if line_w(trial_text, is_sig) <= max_content_w or not cur:
+                    cur = trial
+                else:
+                    visual.append(((indent if first else cont_indent)
+                                  + " ".join(cur), is_sig, indent_cols))
+                    first = False
+                    cur = [word]
+            if cur:
+                visual.append(((indent if first else cont_indent)
+                              + " ".join(cur), is_sig, indent_cols))
+            if is_sig:
+                new_sig_idx = len(visual) - 1
+        result = (new_sig_idx, visual)
+        self._code_wrap_cache = (key, result)
+        return result
+
     def _code_font(self) -> QFont:
         return self._note_font()
 
@@ -714,7 +971,17 @@ class NoteItem(QGraphicsSimpleTextItem):
         f.setBold(True)
         return f
 
-    def _code_metrics(self, sig_idx: int | None, lines: list[str]):
+    def _code_metrics(self, visual_lines):
+        """Compute width/height/etc for already-wrapped visual lines.
+
+        Memoised against the wrap cache key — Qt asks for boundingRect
+        and paints constantly during drag, so re-tokenising every visual
+        line every frame visibly slows things down on big notes.
+        """
+        cache = getattr(self, "_code_metrics_cache", None)
+        key = self._wrap_cache_key()
+        if cache is not None and cache[0] == key:
+            return cache[1]
         font = self._code_font()
         bold_font = QFont(font)
         bold_font.setBold(True)
@@ -722,64 +989,81 @@ class NoteItem(QGraphicsSimpleTextItem):
         bfm = QFontMetricsF(bold_font)
         pad = self._CODE_PAD
         line_h = fm.height()
-        divider_gap = self._CODE_DIVIDER_GAP if sig_idx is not None else 0
+        has_sig = any(is_sig for _, is_sig, _ in visual_lines)
+        divider_gap = self._CODE_DIVIDER_GAP if has_sig else 0
 
-        def _line_w(i: int, line: str) -> float:
+        def _line_w(line: str, is_sig: bool) -> float:
             w = 0.0
             for kind, text in tokenize_line(line):
-                if i == sig_idx or kind in _CODE_BOLD_KINDS:
+                if is_sig or kind in _CODE_BOLD_KINDS:
                     w += bfm.horizontalAdvance(text)
                 else:
                     w += fm.horizontalAdvance(text)
             return w
 
-        body_w = max((_line_w(i, ln) for i, ln in enumerate(lines)), default=0.0)
+        body_w = max((_line_w(ln, sig) for ln, sig, _ in visual_lines),
+                     default=0.0)
         total_w = pad + body_w + pad
-        total_h = pad + len(lines) * line_h + divider_gap + pad
-        return body_w, line_h, divider_gap, total_w, total_h
+        total_h = pad + len(visual_lines) * line_h + divider_gap + pad
+        result = (body_w, line_h, divider_gap, total_w, total_h)
+        self._code_metrics_cache = (key, result)
+        return result
 
     def boundingRect(self):
+        sel = self.isSelected()
+        cache = getattr(self, "_brect_cache", None)
+        cache_key = self._bbox_cache_key(sel)
+        if cache is not None and cache[0] == cache_key:
+            return cache[1]
+        target_px = getattr(self, "_resize_target_px", None)
         if self._is_code_note():
-            sig_idx, lines = self._code_lines()
-            _, _, _, tw, th = self._code_metrics(sig_idx, lines)
+            _, visual = self._visual_code_lines()
+            _, _, _, tw, th = self._code_metrics(visual)
+            if self.note.wrap_chars_explicit:
+                min_w = self._wrap_width_px(self._code_font()) + 2 * self._CODE_PAD
+                tw = max(tw, min_w)
+            if target_px is not None:
+                tw = max(tw, target_px)
             r = QRectF(0, 0, tw, th)
-            if self.isSelected():
-                return r.adjusted(-4, -4, 4, 4)
-            return r
-
-        discussion = self._parse_discussion()
-        if discussion:
-            _, _, _, tw, th = self._discussion_metrics(discussion)
-            r = QRectF(0, 0, tw, th)
-            if self.isSelected():
-                return r.adjusted(-4, -4, 4, 4)
-            return r
-
-        prefix, body, _ = self._parse_note()
-        font = self._note_font()
-        fm = QFontMetricsF(font)
-        pad = self._PAD
-
-        body_font = QFont(font)
-        body_fm = QFontMetricsF(body_font)
-        lines = body.split("\n")
-        body_w = max((body_fm.horizontalAdvance(ln) for ln in lines), default=0)
-        line_h = fm.height()
-        n_lines = len(lines)
-
-        if prefix:
-            bold_font = QFont(font)
-            bold_font.setBold(True)
-            bfm = QFontMetricsF(bold_font)
-            badge_w = bfm.horizontalAdvance(prefix) + self._BADGE_HPAD * 2
-            total_w = pad + badge_w + self._BADGE_GAP + body_w + pad
         else:
-            total_w = pad + body_w + pad
-
-        total_h = pad + n_lines * line_h + pad
-        r = QRectF(0, 0, total_w, total_h)
-        if self.isSelected():
-            return r.adjusted(-4, -4, 4, 4)
+            discussion = self._parse_discussion()
+            if discussion:
+                _, _, _, tw, th = self._discussion_metrics(discussion)
+                if target_px is not None:
+                    tw = max(tw, target_px)
+                r = QRectF(0, 0, tw, th)
+            else:
+                prefix, body, _ = self._parse_note()
+                font = self._note_font()
+                fm = QFontMetricsF(font)
+                pad = self._PAD
+                body_font = QFont(font)
+                body_fm = QFontMetricsF(body_font)
+                lines = self._wrap_lines(body, body_font)
+                body_w = max(
+                    (body_fm.horizontalAdvance(ln) for ln in lines),
+                    default=0,
+                )
+                line_h = fm.height()
+                n_lines = len(lines)
+                if prefix:
+                    bold_font = QFont(font)
+                    bold_font.setBold(True)
+                    bfm = QFontMetricsF(bold_font)
+                    badge_w = bfm.horizontalAdvance(prefix) + self._BADGE_HPAD * 2
+                    total_w = pad + badge_w + self._BADGE_GAP + body_w + pad
+                else:
+                    total_w = pad + body_w + pad
+                if self.note.wrap_chars_explicit:
+                    min_w = self._wrap_width_px(body_font) + 2 * pad
+                    total_w = max(total_w, min_w)
+                if target_px is not None:
+                    total_w = max(total_w, target_px)
+                total_h = pad + n_lines * line_h + pad
+                r = QRectF(0, 0, total_w, total_h)
+        if sel:
+            r = r.adjusted(-4, -4, 4, 4)
+        self._brect_cache = (cache_key, r)
         return r
 
     def paint(self, painter: QPainter, option, widget=None):
@@ -800,7 +1084,7 @@ class NoteItem(QGraphicsSimpleTextItem):
 
         body_font = QFont(font)
         body_fm = QFontMetricsF(body_font)
-        lines = body.split("\n")
+        lines = self._wrap_lines(body, body_font)
         body_w = max((body_fm.horizontalAdvance(ln) for ln in lines), default=0)
         n_lines = len(lines)
 
@@ -815,6 +1099,12 @@ class NoteItem(QGraphicsSimpleTextItem):
             badge_w = 0
             total_w = pad + body_w + pad
 
+        if self.note.wrap_chars_explicit:
+            min_w = self._wrap_width_px(body_font) + 2 * pad
+            total_w = max(total_w, min_w)
+        target_px = getattr(self, "_resize_target_px", None)
+        if target_px is not None:
+            total_w = max(total_w, target_px)
         total_h = pad + n_lines * line_h + pad
         bg_rect = QRectF(0, 0, total_w, total_h)
 
@@ -860,24 +1150,29 @@ class NoteItem(QGraphicsSimpleTextItem):
         if self.note.url:
             _paint_link_glyph(painter, bg_rect)
 
-        # Selection indicator
+        # Selection indicator + always-visible resize grip
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
             painter.drawRect(sel_rect)
+            self._paint_resize_grip(painter, total_w, total_h)
 
     def _paint_discussion(self, painter: QPainter, blocks):
-        """Render a multi-speaker discussion note."""
+        """Render a multi-speaker discussion note (with auto-wrapped lines)."""
         font = self._note_font()
         fm = QFontMetricsF(font)
         pad = self._PAD
-        line_h = fm.height()
         bold_font = QFont(font)
         bold_font.setBold(True)
 
-        max_badge_w, _, _, total_w, total_h = self._discussion_metrics(blocks)
+        wrapped_blocks, max_badge_w, line_h, total_w, total_h = (
+            self._wrapped_discussion(blocks)
+        )
+        target_px = getattr(self, "_resize_target_px", None)
+        if target_px is not None:
+            total_w = max(total_w, target_px)
         bg_rect = QRectF(0, 0, total_w, total_h)
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -891,7 +1186,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         body_x = pad + max_badge_w + self._BADGE_GAP
         y = pad
 
-        for blk_idx, (speaker, lines, color) in enumerate(blocks):
+        for blk_idx, (speaker, lines, color) in enumerate(wrapped_blocks):
             # Speaker badge on first line
             bfm = QFontMetricsF(bold_font)
             badge_w = bfm.horizontalAdvance(speaker) + self._BADGE_HPAD * 2
@@ -908,14 +1203,14 @@ class NoteItem(QGraphicsSimpleTextItem):
                 QPointF(pad + self._BADGE_HPAD, y + fm.ascent()), speaker
             )
 
-            # Body lines
+            # Body lines (already wrapped)
             painter.setFont(font)
             painter.setPen(color)
             for ln in lines:
                 painter.drawText(QPointF(body_x, y + fm.ascent()), ln)
                 y += line_h
 
-            if blk_idx < len(blocks) - 1:
+            if blk_idx < len(wrapped_blocks) - 1:
                 y += self._BLOCK_GAP
 
         if self.note.url:
@@ -927,9 +1222,10 @@ class NoteItem(QGraphicsSimpleTextItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
             painter.drawRect(sel_rect)
+            self._paint_resize_grip(painter, total_w, total_h)
 
     def _paint_code(self, painter: QPainter):
-        sig_idx, lines = self._code_lines()
+        new_sig_idx, visual = self._visual_code_lines()
         font = self._code_font()
         bold_font = QFont(font)
         bold_font.setBold(True)
@@ -945,9 +1241,13 @@ class NoteItem(QGraphicsSimpleTextItem):
         pad = self._CODE_PAD
         indent_w = fm.horizontalAdvance("  ")
 
-        _, line_h, divider_gap, total_w, total_h = self._code_metrics(
-            sig_idx, lines,
-        )
+        _, line_h, divider_gap, total_w, total_h = self._code_metrics(visual)
+        if self.note.wrap_chars_explicit:
+            min_w = self._wrap_width_px(self._code_font()) + 2 * self._CODE_PAD
+            total_w = max(total_w, min_w)
+        target_px = getattr(self, "_resize_target_px", None)
+        if target_px is not None:
+            total_w = max(total_w, target_px)
         bg_rect = QRectF(0, 0, total_w, total_h)
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -962,31 +1262,33 @@ class NoteItem(QGraphicsSimpleTextItem):
             self._CODE_BG_RADIUS, self._CODE_BG_RADIUS,
         )
 
-        # Per-line top offsets, with a small gap inserted after the signature
+        # Per-visual-line top offsets, with a divider gap after the LAST
+        # visual line that traces back to the signature (handles wrap of
+        # the signature itself).
         line_tops: list[float] = []
         y_acc = pad
-        for i in range(len(lines)):
+        for i in range(len(visual)):
             line_tops.append(y_acc)
             y_acc += line_h
-            if i == sig_idx:
+            if i == new_sig_idx:
                 y_acc += divider_gap
 
         # Divider rule under the signature
-        if sig_idx is not None:
-            div_y = line_tops[sig_idx] + line_h + divider_gap / 2
+        if new_sig_idx is not None:
+            div_y = line_tops[new_sig_idx] + line_h + divider_gap / 2
             painter.setPen(QPen(border_color, 1))
             painter.drawLine(
                 QPointF(pad, div_y),
                 QPointF(total_w - pad, div_y),
             )
 
-        # Indent guides — thin verticals in the gap before each indent level
+        # Indent guides — drawn at each visual line's *original* indent,
+        # so a wrapped continuation aligns with its source block.
         guide_color = QColor(NOTE_CODE_INDENT_GUIDE_COLOR)
         guide_color.setAlphaF(0.5)
         guide_pen = QPen(guide_color, 1)
-        for i, line in enumerate(lines):
-            indent_chars = len(line) - len(line.lstrip(" "))
-            levels = indent_chars // 2
+        for i, (_, _, indent_cols) in enumerate(visual):
+            levels = indent_cols // 2
             if levels <= 0:
                 continue
             y_top = line_tops[i]
@@ -997,8 +1299,7 @@ class NoteItem(QGraphicsSimpleTextItem):
                 painter.drawLine(QPointF(x, y_top), QPointF(x, y_bot))
 
         ref_rects: list[tuple[QRectF, str]] = []
-        for i, line in enumerate(lines):
-            is_sig = (i == sig_idx)
+        for i, (line, is_sig, _) in enumerate(visual):
             x = pad
             y = line_tops[i] + fm.ascent()
             for kind, text in tokenize_line(line):
@@ -1046,6 +1347,39 @@ class NoteItem(QGraphicsSimpleTextItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
             painter.drawRect(sel_rect)
+            self._paint_resize_grip(painter, total_w, total_h)
+
+    def _paint_resize_grip(
+        self, painter: QPainter, total_w: float, total_h: float,
+    ) -> None:
+        """Draw a clear, always-visible resize affordance on the right edge.
+
+        Two vertical grip lines on top of a faint coloured band. Spans the
+        full height of the note so the user can grab it from any vertical
+        position regardless of where text wrapping landed.
+        """
+        band_w = 8
+        if total_w < 2 * band_w or total_h < 8:
+            return
+        accent = QColor("#2F5D5C")
+        # Faint background band
+        bg = QColor(accent)
+        bg.setAlphaF(0.10)
+        painter.setBrush(QBrush(bg))
+        painter.setPen(Qt.PenStyle.NoPen)
+        band_rect = QRectF(total_w - band_w, 0, band_w, total_h)
+        painter.drawRect(band_rect)
+        # Two vertical grip lines for clarity
+        line = QColor(accent)
+        line.setAlphaF(0.55)
+        painter.setPen(QPen(line, 1.4))
+        margin_y = max(4.0, min(8.0, total_h * 0.12))
+        for offset in (3, 6):
+            x = total_w - offset
+            painter.drawLine(
+                QPointF(x, margin_y),
+                QPointF(x, total_h - margin_y),
+            )
 
     def _apply_color(self):
         self.update()

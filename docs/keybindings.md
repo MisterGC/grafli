@@ -39,15 +39,15 @@ lands on the placeholder ready to type-replace.
 | Arrow keys | Pan viewport |
 | Middle-drag | Pan from anywhere |
 | <kbd>+</kbd> / <kbd>-</kbd> | Zoom in / out |
-| <kbd>Z</kbd> | Zoom to selection (progressive) |
-| <kbd>Shift</kbd>+<kbd>Z</kbd> | Zoom to fit all |
+| <kbd>z</kbd> | Zoom-in step cycle: 25 → 50 → 100 → 150 % (wraps) |
+| <kbd>Shift</kbd>+<kbd>Z</kbd> | Zoom to fit (whole graph) |
 | <kbd>g</kbd><kbd>p</kbd> | Select parent (zoom if needed) |
 | <kbd>F</kbd> | Select first child |
-| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle siblings |
+| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle siblings (or search matches when search is open) |
 | <kbd>Ctrl</kbd>+<kbd>J</kbd> | Jump to any item (global) |
 | <kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd> | Nav history back / forward |
 | <kbd>Alt</kbd> (hold) | Graph nav: follow connectors |
-| <kbd>/</kbd> | Search by label |
+| <kbd>/</kbd> | Search dim-filter — see [Search](#search) below |
 
 ## Edit
 
@@ -136,6 +136,24 @@ section.
 | <kbd>Shift</kbd>+click | Toggle selection |
 | <kbd>Alt</kbd>+drag | Connect boxes |
 | <kbd>Alt</kbd>+click | Paste at position |
+
+## Search
+
+Press <kbd>/</kbd> to open the search dim-filter. Typing dims everything that
+doesn't match to ~8% opacity so hits stand out across the canvas at once;
+the minimap reflects the same dimming so off-screen hits stay visible.
+
+| Key | Action |
+|-----|--------|
+| <kbd>/</kbd> | Open search input (works on non-US layouts where `/` needs <kbd>Shift</kbd>+<kbd>7</kbd>) |
+| Type | Live filter — matches box label + box id + note text (case-insensitive substring) |
+| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle to next / previous match (animated, lands at 100 % zoom) |
+| <kbd>Enter</kbd> | Dismiss the input badge but keep the dim filter active |
+| <kbd>Esc</kbd> | Clear the input and the filter |
+| <kbd>Backspace</kbd> | Edit the query |
+
+Search is mutually exclusive with focus / complexity / arrow-dim — opening
+one closes the others.
 
 ## Help
 

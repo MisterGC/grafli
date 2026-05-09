@@ -206,14 +206,24 @@ class MinimapMixin:
             cy = my + (note.y - scene_rect.y() + 10) * sy
             elem_centers[note.id] = (cx, cy)
 
-        painter.setPen(QPen(MINIMAP_CONNECTOR_COLOR, 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
+        connector_color = MINIMAP_CONNECTOR_COLOR
+        connector_dim = QColor(connector_color)
+        connector_dim.setAlpha(40)
+        any_dim = bool(getattr(self, "_search_dimmed_ids", set()))
         for arrow in self._board.arrows:
             src = elem_centers.get(arrow.from_id)
             dst = elem_centers.get(arrow.to_id)
             if src is None or dst is None or src == dst:
                 continue
+            painter.setPen(QPen(connector_dim if any_dim else connector_color, 1))
             painter.drawLine(QPointF(src[0], src[1]), QPointF(dst[0], dst[1]))
+
+        # Dimmed-id set fed by the search filter (and reusable by other
+        # filters later). Items in this set render at low alpha so the user
+        # can still see where they are while highlighted hits stand out.
+        dimmed_ids: set[str] = getattr(self, "_search_dimmed_ids", set()) or set()
+        dim_alpha = 50
 
         # Draw boxes
         painter.setPen(Qt.PenStyle.NoPen)
@@ -223,6 +233,9 @@ class MinimapMixin:
                 c = QColor(color_hex)
             else:
                 c = QColor(BOX_BORDER)
+            if box.id in dimmed_ids:
+                c = QColor(c)
+                c.setAlpha(dim_alpha)
             painter.setBrush(QBrush(c))
             bx = mx + (box.x - scene_rect.x()) * sx
             by = my + (box.y - scene_rect.y()) * sy
@@ -240,6 +253,9 @@ class MinimapMixin:
                 color = NOTE_DISCUSSION_COLOR
             else:
                 color = NOTE_PEN_COLOR
+            if note.id in dimmed_ids:
+                color = QColor(color)
+                color.setAlpha(dim_alpha)
             painter.setBrush(QBrush(color))
             nx = mx + (note.x - scene_rect.x()) * sx
             ny = my + (note.y - scene_rect.y()) * sy

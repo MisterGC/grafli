@@ -58,6 +58,9 @@ class Arrow:
     annotation: str = ""     # deprecated — kept for migration parsing
 
 
+DEFAULT_NOTE_WRAP_CHARS = 80
+
+
 @dataclass
 class Note:
     id: str
@@ -71,6 +74,12 @@ class Note:
     parent: str = ""
     annotation: str = ""
     block_text: bool = False
+    wrap_chars: int = DEFAULT_NOTE_WRAP_CHARS  # soft-wrap width in characters
+    # True iff the author chose a width (via ~width=N or by dragging the
+    # resize handle). When False, the wrap_chars value is the implicit
+    # default and the box collapses to content-fit; when True, the box
+    # always reserves the chosen budget.
+    wrap_chars_explicit: bool = False
 
 
 @dataclass
@@ -216,6 +225,7 @@ _RE_NOTE = re.compile(
     r'^@\s+note\s+(?:([a-zA-Z_]\S*)\s+)?(-?[\d.]+),\s*(-?[\d.]+)\s+"([^"]*)"'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
+    r'(?:\s+~width=(\d+))?'
     r'(?:\s+!(mono))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -232,6 +242,7 @@ _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'^\s*"""'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
+    r'(?:\s+~width=(\d+))?'
     r'(?:\s+!(mono))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -339,10 +350,13 @@ def parse(text: str) -> Board:
                     text=ensure_text_presentation("\n".join(body_lines)),
                     color=sm.group(1) or "",
                     textsize=sm.group(2) or "",
-                    style=sm.group(3) or "",
-                    url=sm.group(4) or "",
-                    parent=sm.group(5) or "",
-                    annotation=(sm.group(6) or "").replace("\\n", "\n"),
+                    wrap_chars=int(sm.group(3)) if sm.group(3)
+                                                else DEFAULT_NOTE_WRAP_CHARS,
+                    wrap_chars_explicit=bool(sm.group(3)),
+                    style=sm.group(4) or "",
+                    url=sm.group(5) or "",
+                    parent=sm.group(6) or "",
+                    annotation=(sm.group(7) or "").replace("\\n", "\n"),
                     block_text=True,
                 )
                 board.notes.append(note)
@@ -369,10 +383,13 @@ def parse(text: str) -> Board:
                 text=ensure_text_presentation(m.group(4).replace("\\n", "\n")),
                 color=m.group(5) or "",
                 textsize=m.group(6) or "",
-                style=m.group(7) or "",
-                url=m.group(8) or "",
-                parent=m.group(9) or "",
-                annotation=(m.group(10) or "").replace("\\n", "\n"),
+                wrap_chars=int(m.group(7)) if m.group(7)
+                                            else DEFAULT_NOTE_WRAP_CHARS,
+                wrap_chars_explicit=bool(m.group(7)),
+                style=m.group(8) or "",
+                url=m.group(9) or "",
+                parent=m.group(10) or "",
+                annotation=(m.group(11) or "").replace("\\n", "\n"),
             )
             board.notes.append(note)
             board._lines.append(("note", note))
@@ -474,6 +491,8 @@ def _serialize_note(note: Note) -> str:
             suffix += f" {note.color}"
         if note.textsize:
             suffix += f" ~{note.textsize}"
+        if note.wrap_chars_explicit:
+            suffix += f" ~width={note.wrap_chars}"
         if note.style:
             suffix += f" !{note.style}"
         if note.url:
@@ -489,6 +508,8 @@ def _serialize_note(note: Note) -> str:
         s += f" {note.color}"
     if note.textsize:
         s += f" ~{note.textsize}"
+    if note.wrap_chars_explicit:
+        s += f" ~width={note.wrap_chars}"
     if note.style:
         s += f" !{note.style}"
     if note.url:

@@ -17,7 +17,7 @@ its version. It is required.
 
 ```text
 @ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]
-@ note [<id>] <x>,<y> "<text>" [color] [~size] [!style] [>parent]
+@ note [<id>] <x>,<y> "<text>" [color] [~size] [~width=N] [!style] [>parent]
 @ arrow <from> <op> <to> ["label"] [!style] [~size]
 ```
 
@@ -44,6 +44,12 @@ its version. It is required.
   `bottomleft`, `bottom`, `bottomright`. Controls how a box's label is
   placed.
 - `~size` — `xsmall`, `small`, `medium`, `large`, `xlarge`.
+- `~width=N` — *(notes only)* override the wrap width in characters.
+  Notes auto-wrap to 80 chars by default so long AI-generated lines stay
+  readable; this modifier sets a different budget per note (e.g.
+  `~width=40` for a narrow caption, `~width=120` for a wide code listing).
+  You can also drag the right edge of a selected note to set this
+  interactively — the value persists on save.
 - `!style` — `flat`, `dashed`, plus arrow-specific styles.
 - `>parent` — nest this element inside the box with the given ID.
 

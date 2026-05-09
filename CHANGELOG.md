@@ -31,7 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (case-insensitive substring). The filter is mutually exclusive
   with focus / complexity / arrow-dim — opening one closes the
   others. The minimap now reflects the dimmed set so off-screen
-  hits are still visible at a glance.
+  hits are still visible at a glance. The search input is a
+  viewport overlay (drawn in viewport coordinates) so it stays put
+  while you pan and zoom — earlier it was a scene item that scaled
+  and scrolled away with the canvas. `/` also works on non-US
+  layouts where typing the slash needs Shift+7.
 
 ### Fixed
 - **Autoscroll fights leftward drags on oversize parents.** The

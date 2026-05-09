@@ -332,8 +332,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._search_text = ""
         self._search_matches: list[BoxItem | NoteItem] = []
         self._search_index = 0
-        self._search_label: QGraphicsTextItem | None = None
-        self._search_label_bg: QGraphicsRectItem | None = None
         self._search_filter_active: bool = False
         self._search_dimmed_ids: set[str] = set()
 
@@ -370,6 +368,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         super().drawForeground(painter, rect)
         self._draw_complexity_legend(painter)
         self._draw_minimap(painter)
+        self._draw_search_badge(painter)
         self._draw_debug_overlay(painter)
 
     def toggle_grid(self):
@@ -3955,10 +3954,23 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._clear_search_filter()
 
     def _update_search_badge(self):
-        self._remove_search_badge()
-        vp = self.viewport().rect()
-        # Map viewport top-center to scene coordinates for badge placement
-        scene_top = self.mapToScene(QPointF(vp.width() / 2, 10).toPoint())
+        # The badge is now a viewport overlay (see _draw_search_badge),
+        # so updating it is just a viewport repaint.
+        self.viewport().update()
+
+    def _remove_search_badge(self):
+        # Kept for symmetry with the old API; the overlay is implicitly hidden
+        # whenever _search_active goes False.
+        self.viewport().update()
+
+    def _draw_search_badge(self, painter: QPainter):
+        """Top-center viewport overlay shown while the search input is open.
+
+        Drawn in viewport coordinates so it doesn't pan/zoom with the scene
+        like the previous QGraphicsTextItem implementation did.
+        """
+        if not self._search_active:
+            return
 
         count = len(self._search_matches)
         display = f"/{self._search_text}"
@@ -3967,39 +3979,53 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 display += f"  [{self._search_index + 1}/{count}]"
             else:
                 display += "  [no matches]"
+        hint = "Tab/⇧Tab cycle · Enter keep filter · Esc clear"
 
-        badge = QGraphicsTextItem(display)
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        vp = self.viewport().rect()
         font = QFont(FONT_FAMILY, 12)
-        badge.setFont(font)
-        badge.setDefaultTextColor(QColor("#FFFFFF"))
-        badge.setZValue(10001)
-        br = badge.boundingRect()
+        painter.setFont(font)
+        fm = painter.fontMetrics()
+        text_w = fm.horizontalAdvance(display)
+        text_h = fm.height()
 
-        bg = QGraphicsRectItem()
-        bg_color = QColor("#2F3437")
-        bg_color.setAlphaF(0.9)
-        bg.setBrush(QBrush(bg_color))
-        bg.setPen(QPen(Qt.PenStyle.NoPen))
-        bg.setZValue(10000)
+        hint_font = QFont(FONT_FAMILY, 9)
+        painter.setFont(hint_font)
+        hfm = painter.fontMetrics()
+        hint_w = hfm.horizontalAdvance(hint)
+        hint_h = hfm.height()
 
-        bx = scene_top.x() - br.width() / 2
-        by = scene_top.y()
-        badge.setPos(bx, by)
-        pad = 6
-        bg.setRect(bx - pad, by - pad, br.width() + pad * 2, br.height() + pad * 2)
+        pad = 8
+        gap = 4
+        panel_w = max(text_w, hint_w) + pad * 2
+        panel_h = text_h + gap + hint_h + pad * 2
+        panel_x = (vp.width() - panel_w) / 2
+        panel_y = 10
 
-        self._scene.addItem(bg)
-        self._scene.addItem(badge)
-        self._search_label = badge
-        self._search_label_bg = bg
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.92)
+        painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(panel_x, panel_y, panel_w, panel_h), 6, 6)
 
-    def _remove_search_badge(self):
-        if self._search_label:
-            self._scene.removeItem(self._search_label)
-            self._search_label = None
-        if self._search_label_bg:
-            self._scene.removeItem(self._search_label_bg)
-            self._search_label_bg = None
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(255, 255, 255)))
+        painter.drawText(
+            QPointF(panel_x + (panel_w - text_w) / 2,
+                    panel_y + pad + fm.ascent()),
+            display,
+        )
+        painter.setFont(hint_font)
+        painter.setPen(QPen(QColor(200, 200, 200, 180)))
+        painter.drawText(
+            QPointF(panel_x + (panel_w - hint_w) / 2,
+                    panel_y + pad + text_h + gap + hfm.ascent()),
+            hint,
+        )
+        painter.restore()
 
     # ── Keyboard box creation (Ctrl+Arrow) ──
 

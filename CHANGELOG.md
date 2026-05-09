@@ -8,21 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Notes auto-wrap to a width budget.** Plain-text and code-mode
+- **Notes auto-wrap to a width budget** ([#27]). Plain-text and code-mode
   notes now soft-wrap to **80 characters by default** — long
   AI-generated sentences flow onto multiple readable lines instead of
   running off the canvas. Explicit `\n`, blank lines, and leading
   indentation are preserved across wraps. Code-mode continuations use
   a two-space hanging indent so block structure stays visible.
-- **Per-note width override** via `~width=N` modifier (placed after
+- **Per-note width override** via `~width=N` modifier ([#28]) (placed after
   `~size`, before `!style`), e.g.
   `@ note n1 0,0 "..." ~small ~width=60`.
-- **Drag-to-resize note width.** The right edge of plain-text and
+- **Drag-to-resize note width** ([#29]). The right edge of plain-text and
   code-mode notes is now a horizontal resize handle: hover shows
   `SizeHorCursor`, drag updates `wrap_chars` live and persists as
   `~width=N` on next save. Height auto-derives from the wrapped
   content.
-- **Search (`/`) is now a dim-filter.** Typing dims everything that
+- **Search (`/`) is now a dim-filter** ([#30]). Typing dims everything that
   doesn't match to 8% opacity so hits stand out across the canvas.
   `Tab` / `Shift+Tab` cycle between matches with an animated zoom and
   the selection follows; `Enter` dismisses the input but keeps the
@@ -38,20 +38,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layouts where typing the slash needs Shift+7.
 
 ### Changed
-- **Zoom hotkeys redesigned.** `z` now zooms *in* to the next step
+- **Zoom hotkeys redesigned** ([#31]). `z` now zooms *in* to the next step
   in `25% → 50% → 100% → 150%`, wrapping back to 25% after 150%.
   Works regardless of selection state. Direction is always "in",
   so a single keypress is predictable; if you ever need to go
   smaller you keep pressing until it wraps. `Shift+Z` zooms to fit
   the whole graph.
-- **Search cycling pins zoom at 100%.** Tabbing through search
+- **Search cycling pins zoom at 100%** ([#32]). Tabbing through search
   matches now lands at a consistent 100% zoom each time, so hits
   are easy to compare regardless of where the user was zoomed
   before. Previously the view fit each match individually,
   producing wildly different zoom levels per result.
 
 ### Fixed
-- **Autoscroll fights leftward drags on oversize parents.** The
+- **Autoscroll fights leftward drags on oversize parents** ([#33]). The
   drag-autoscroll timer triggered whenever any edge of the dragged
   item was past a viewport-edge margin — for a parent box wider or
   taller than the viewport that was always true, so dragging left
@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distance from the viewport edges, which is what reflects user
   intent. If the cursor leaves the viewport entirely mid-drag, the
   timer pauses rather than guessing direction.
-- **`grafli render` clipped wide-and-short diagrams.** Setting
+- **`grafli render` clipped wide-and-short diagrams** ([#34]). Setting
   `QImage.setDevicePixelRatio(2)` *before* `QGraphicsScene.render(...)`
   with a null target rect made Qt drop most of the scene — the bug
   surfaced only for certain aspect ratios (LR pipelines like the new
@@ -68,6 +68,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   defers the DPR setting until after the paint completes. Tall diagrams
   (e.g. the RPG-engine example) were also subtly affected; the fix
   produces complete renders for both shapes.
+
+[#27]: https://github.com/MisterGC/grafli/issues/27
+[#28]: https://github.com/MisterGC/grafli/issues/28
+[#29]: https://github.com/MisterGC/grafli/issues/29
+[#30]: https://github.com/MisterGC/grafli/issues/30
+[#31]: https://github.com/MisterGC/grafli/issues/31
+[#32]: https://github.com/MisterGC/grafli/issues/32
+[#33]: https://github.com/MisterGC/grafli/issues/33
+[#34]: https://github.com/MisterGC/grafli/issues/34
 
 ## [0.2.0] - 2026-05-05
 

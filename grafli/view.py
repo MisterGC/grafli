@@ -4879,10 +4879,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("⇧Z", "Zoom to fit (whole graph)"),
                 ("gp", "Select parent (zoom if needed)"),
                 ("F", "Select first child"),
-                ("Tab / \u21e7Tab", "Cycle siblings"),
+                ("Tab / \u21e7Tab", "Cycle siblings (or search matches)"),
                 ("Ctrl+J", "Jump to any item (global)"),
                 ("Ctrl+O / Ctrl+I", "Nav history back / forward"),
                 ("Alt (hold)", "Graph nav: follow connectors"),
+                ("/", "Search dim-filter \u2014 Tab/\u21e7Tab cycle, Esc clears"),
             ]),
             ("Edit", [
                 ("e / Dbl-click", "Edit selected element"),
@@ -4901,7 +4902,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("Ctrl+Arrow", "Create adjacent box"),
                 ("Alt+Drag", "Connect boxes (from SELECT)"),
                 ("Alt+Click", "Paste at position"),
-                ("/", "Search (filter — Tab/⇧Tab cycle, Esc clears)"),
+            ]),
+            ("Notes", [
+                ("Drag right edge", "Resize note wrap width (persists as ~width=N)"),
+                ("Default wrap", "80 chars — set ~width=N for per-note override"),
             ]),
             ("Style", [
                 ("h / l", "Cycle color"),

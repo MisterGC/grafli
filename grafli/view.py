@@ -334,6 +334,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._search_index = 0
         self._search_label: QGraphicsTextItem | None = None
         self._search_label_bg: QGraphicsRectItem | None = None
+        self._search_filter_active: bool = False
+        self._search_dimmed_ids: set[str] = set()
 
         self.arrow_update_needed.connect(self._redraw_arrows)
         self._scene.selectionChanged.connect(self._on_selection_changed)
@@ -2524,6 +2526,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         if event.key() == Qt.Key.Key_Escape:
+            if self._search_filter_active:
+                self._clear_search_filter()
+                event.accept()
+                return
             if self._complexity_active:
                 self._clear_complexity_heatmap()
                 event.accept()
@@ -3802,6 +3808,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     # ── Search by label (/) ──
 
     def _start_search(self):
+        # Search is exclusive with the other dim filters (focus / complexity /
+        # arrow-dim). Clear them before opening so the visual stack stays
+        # legible.
+        if self._focus_active:
+            self._clear_focus_filter()
+        if self._complexity_active:
+            self._clear_complexity_heatmap()
+        if self._arrows_dimmed:
+            self._toggle_arrows_dimmed()
         self._search_active = True
         self._search_text = ""
         self._search_matches.clear()
@@ -3818,10 +3833,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if event.key() == Qt.Key.Key_Backspace:
             self._search_text = self._search_text[:-1]
         elif event.key() == Qt.Key.Key_Tab:
-            # Cycle to next match
             if self._search_matches:
-                self._search_index = (self._search_index + 1) % len(self._search_matches)
-                self._highlight_search_match()
+                step = -1 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1
+                self._search_index = (self._search_index + step) % len(self._search_matches)
+                self._focus_current_match(animate=True)
+                self._update_search_badge()
             return
         else:
             ch = event.text()
@@ -3835,6 +3851,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._search_index = 0
         if not self._search_text:
             self._scene.clearSelection()
+            self._clear_search_filter()
             return
         query = self._search_text.lower()
         for item in self._box_items.values():
@@ -3843,37 +3860,95 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         for item in self._note_items.values():
             if query in item.note.text.lower():
                 self._search_matches.append(item)
-        self._highlight_search_match()
-
-    def _highlight_search_match(self):
-        self._scene.clearSelection()
+        self._apply_search_filter()
         if self._search_matches:
-            target = self._search_matches[self._search_index]
-            target.setSelected(True)
+            self._focus_current_match(animate=False)
+        else:
+            self._scene.clearSelection()
+
+    def _apply_search_filter(self):
+        """Dim every item that isn't a match. Arrows always dim — per the
+        agreed UX, only matched items themselves stay full opacity, not the
+        connectors between them.
+        """
+        match_ids: set[str] = set()
+        for m in self._search_matches:
+            if isinstance(m, BoxItem):
+                match_ids.add(m.box.id)
+            elif isinstance(m, NoteItem):
+                match_ids.add(m.note.id)
+
+        dim = 0.08
+        dimmed: set[str] = set()
+        for box_id, item in self._box_items.items():
+            on = box_id in match_ids
+            opacity = 1.0 if on else dim
+            item.setOpacity(opacity)
+            item._label.setOpacity(opacity)
+            if not on:
+                dimmed.add(box_id)
+        for note_id, item in self._note_items.items():
+            on = note_id in match_ids
+            item.setOpacity(1.0 if on else dim)
+            if not on:
+                dimmed.add(note_id)
+        for gfx in self._arrow_items:
+            gfx.setOpacity(dim)
+
+        self._search_filter_active = True
+        self._search_dimmed_ids = dimmed
+        self.viewport().update()
+
+    def _clear_search_filter(self):
+        if not self._search_filter_active:
+            return
+        for item in self._box_items.values():
+            item.setOpacity(1.0)
+            item._label.setOpacity(1.0)
+        for item in self._note_items.values():
+            item.setOpacity(1.0)
+        arrow_opacity = 0.08 if self._arrows_dimmed else 1.0
+        for gfx in self._arrow_items:
+            gfx.setOpacity(arrow_opacity)
+        self._search_filter_active = False
+        self._search_dimmed_ids = set()
+        self.viewport().update()
+
+    def _focus_current_match(self, animate: bool = True):
+        """Move selection + viewport to the current match."""
+        if not self._search_matches:
+            return
+        target = self._search_matches[self._search_index]
+        self._scene.clearSelection()
+        target.setSelected(True)
+        if isinstance(target, BoxItem):
+            b = target.box
+            r = QRectF(b.x, b.y, b.w, b.h)
+        else:
+            r = target.sceneBoundingRect()
+        padding = max(60, r.width() * 0.15, r.height() * 0.15)
+        target_rect = r.adjusted(-padding, -padding, padding, padding)
+        if animate:
+            self._animate_to_rect(target_rect)
+        else:
             self.centerOn(target)
 
     def _accept_search(self):
+        """Enter: dismiss the input badge but keep the dim filter active so
+        the user can pan/zoom around the highlighted result set. Esc clears
+        both."""
         if self._search_matches:
             self._push_nav_snapshot()
-            target = self._search_matches[self._search_index]
-            self._cancel_search()
-            self._scene.clearSelection()
-            target.setSelected(True)
-            if isinstance(target, BoxItem):
-                b = target.box
-                r = QRectF(b.x, b.y, b.w, b.h)
-            else:
-                r = target.sceneBoundingRect()
-            padding = max(60, r.width() * 0.15, r.height() * 0.15)
-            self._animate_to_rect(r.adjusted(-padding, -padding, padding, padding))
-        else:
-            self._cancel_search()
+            self._focus_current_match(animate=True)
+        self._search_active = False
+        self._remove_search_badge()
 
     def _cancel_search(self):
         self._search_active = False
         self._search_text = ""
         self._search_matches.clear()
         self._remove_search_badge()
+        self._clear_search_filter()
 
     def _update_search_badge(self):
         self._remove_search_badge()
@@ -3884,7 +3959,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         count = len(self._search_matches)
         display = f"/{self._search_text}"
         if self._search_text:
-            display += f"  [{count} match{'es' if count != 1 else ''}]"
+            if count:
+                display += f"  [{self._search_index + 1}/{count}]"
+            else:
+                display += "  [no matches]"
 
         badge = QGraphicsTextItem(display)
         font = QFont(FONT_FAMILY, 12)
@@ -4798,7 +4876,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("Ctrl+Arrow", "Create adjacent box"),
                 ("Alt+Drag", "Connect boxes (from SELECT)"),
                 ("Alt+Click", "Paste at position"),
-                ("/", "Search by label"),
+                ("/", "Search (filter — Tab/⇧Tab cycle, Esc clears)"),
             ]),
             ("Style", [
                 ("h / l", "Cycle color"),

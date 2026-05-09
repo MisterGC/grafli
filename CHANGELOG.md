@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SizeHorCursor`, drag updates `wrap_chars` live and persists as
   `~width=N` on next save. Height auto-derives from the wrapped
   content.
+- **Search (`/`) is now a dim-filter.** Typing dims everything that
+  doesn't match to 8% opacity so hits stand out across the canvas.
+  `Tab` / `Shift+Tab` cycle between matches with an animated zoom and
+  the selection follows; `Enter` dismisses the input but keeps the
+  filter so you can pan/zoom around the highlighted set; `Esc`
+  clears the filter. Matches search box label + id and note text
+  (case-insensitive substring). The filter is mutually exclusive
+  with focus / complexity / arrow-dim — opening one closes the
+  others. The minimap now reflects the dimmed set so off-screen
+  hits are still visible at a glance.
 
 ### Fixed
 - **Autoscroll fights leftward drags on oversize parents.** The

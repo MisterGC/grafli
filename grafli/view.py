@@ -29,6 +29,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QBrush,
     QColor,
+    QCursor,
     QDesktopServices,
     QFont,
     QImage,
@@ -4076,17 +4077,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._autoscroll_timer.stop()
             return
         vp = self.viewport().rect()
+        cursor_vp = self.viewport().mapFromGlobal(QCursor.pos())
+        if not vp.contains(cursor_vp):
+            return
+        margin = self._AUTOSCROLL_MARGIN
+        speed = self._AUTOSCROLL_SPEED
         dx = dy = 0
-        for item in selected:
-            item_vp = self.mapFromScene(item.sceneBoundingRect()).boundingRect()
-            if item_vp.right() > vp.width() - self._AUTOSCROLL_MARGIN:
-                dx = max(dx, self._AUTOSCROLL_SPEED)
-            if item_vp.left() < self._AUTOSCROLL_MARGIN:
-                dx = min(dx, -self._AUTOSCROLL_SPEED)
-            if item_vp.bottom() > vp.height() - self._AUTOSCROLL_MARGIN:
-                dy = max(dy, self._AUTOSCROLL_SPEED)
-            if item_vp.top() < self._AUTOSCROLL_MARGIN:
-                dy = min(dy, -self._AUTOSCROLL_SPEED)
+        if cursor_vp.x() > vp.width() - margin:
+            dx = speed
+        elif cursor_vp.x() < margin:
+            dx = -speed
+        if cursor_vp.y() > vp.height() - margin:
+            dy = speed
+        elif cursor_vp.y() < margin:
+            dy = -speed
         if dx or dy:
             self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + dx)
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() + dy)

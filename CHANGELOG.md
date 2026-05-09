@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   content.
 
 ### Fixed
+- **Autoscroll fights leftward drags on oversize parents.** The
+  drag-autoscroll timer triggered whenever any edge of the dragged
+  item was past a viewport-edge margin — for a parent box wider or
+  taller than the viewport that was always true, so dragging left
+  scrolled right. Autoscroll is now driven by the **cursor's**
+  distance from the viewport edges, which is what reflects user
+  intent. If the cursor leaves the viewport entirely mid-drag, the
+  timer pauses rather than guessing direction.
 - **`grafli render` clipped wide-and-short diagrams.** Setting
   `QImage.setDevicePixelRatio(2)` *before* `QGraphicsScene.render(...)`
   with a null target rect made Qt drop most of the scene — the bug

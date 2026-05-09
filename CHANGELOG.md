@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-09
+
 ### Added
 - **Notes auto-wrap to a width budget** ([#27]). Plain-text and code-mode
   notes now soft-wrap to **80 characters by default** — long

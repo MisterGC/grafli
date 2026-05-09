@@ -37,6 +37,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and scrolled away with the canvas. `/` also works on non-US
   layouts where typing the slash needs Shift+7.
 
+### Changed
+- **Zoom hotkeys redesigned.** `z` now toggles between 50% and 100%
+  zoom around the current view center — works regardless of
+  selection state, no longer a multi-stage cycle. `Shift+Z` zooms
+  to fit the whole graph (this was the third stage of the old
+  cycle).
+- **Search cycling pins zoom at 100%.** Tabbing through search
+  matches now lands at a consistent 100% zoom each time, so hits
+  are easy to compare regardless of where the user was zoomed
+  before. Previously the view fit each match individually,
+  producing wildly different zoom levels per result.
+
 ### Fixed
 - **Autoscroll fights leftward drags on oversize parents.** The
   drag-autoscroll timer triggered whenever any edge of the dragged

@@ -283,9 +283,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._anim_start_zoom: float = 1.0
         self._anim_end_zoom: float = 1.0
 
-        # Progressive zoom state (z key levels)
-        self._zoom_z_level: int = 0
-        self._zoom_z_rect: QRectF | None = None
 
         # Hide-notes toggle (Shift+N) — focus on the graph
         self._notes_hidden: bool = False
@@ -2229,7 +2226,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _on_selection_changed(self):
         self._clear_box_mode()
-        self._zoom_z_level = 0
         if self._selected_arrow and self._scene.selectedItems():
             self._deselect_arrow()
         window = self.window()
@@ -3918,7 +3914,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self.viewport().update()
 
     def _focus_current_match(self, animate: bool = True):
-        """Move selection + viewport to the current match."""
+        """Move selection + viewport to the current match.
+
+        Search cycling always lands at 100% zoom regardless of where the
+        user was before — consistent zoom across the result set makes hits
+        easier to compare than auto-fitting each individual rect.
+        """
         if not self._search_matches:
             return
         target = self._search_matches[self._search_index]
@@ -3926,15 +3927,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         target.setSelected(True)
         if isinstance(target, BoxItem):
             b = target.box
-            r = QRectF(b.x, b.y, b.w, b.h)
+            center = QRectF(b.x, b.y, b.w, b.h).center()
         else:
-            r = target.sceneBoundingRect()
-        padding = max(60, r.width() * 0.15, r.height() * 0.15)
-        target_rect = r.adjusted(-padding, -padding, padding, padding)
+            center = target.sceneBoundingRect().center()
         if animate:
-            self._animate_to_rect(target_rect)
+            self._animate_to_zoom_and_center(1.0, center)
         else:
-            self.centerOn(target)
+            self.setTransform(QTransform().scale(1.0, 1.0))
+            self.centerOn(center)
+            self._update_status_zoom()
 
     def _accept_search(self):
         """Enter: dismiss the input badge but keep the dim filter active so
@@ -4165,6 +4166,33 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._zoom_timeline = tl
         tl.start()
 
+    def _animate_to_zoom_and_center(self, zoom: float, center: QPointF):
+        """Smoothly animate to an explicit zoom level centered on a scene
+        point. Unlike `_animate_to_rect` (which derives zoom from a fit),
+        this preserves an exact scale — used by search cycling so every
+        match lands at the same zoom level.
+        """
+        if self._zoom_timeline is not None:
+            self._zoom_timeline.stop()
+            self._zoom_timeline = None
+
+        start_zoom = self.transform().m11()
+        start_center = self.mapToScene(self.viewport().rect().center())
+        target_zoom = max(0.05, min(zoom, 10.0))
+
+        self._anim_start_zoom = start_zoom
+        self._anim_end_zoom = target_zoom
+        self._anim_start_center = start_center
+        self._anim_end_center = center
+
+        tl = QTimeLine(250, self)
+        tl.setUpdateInterval(16)
+        tl.setEasingCurve(QEasingCurve.Type.OutCubic)
+        tl.valueChanged.connect(self._on_zoom_anim_step)
+        tl.finished.connect(self._on_zoom_anim_finished)
+        self._zoom_timeline = tl
+        tl.start()
+
     def _on_zoom_anim_step(self, value: float):
         z = self._anim_start_zoom + (self._anim_end_zoom - self._anim_start_zoom) * value
         cx = self._anim_start_center.x() + (self._anim_end_center.x() - self._anim_start_center.x()) * value
@@ -4226,63 +4254,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() + dy)
 
     def _zoom_to_selection(self):
-        """z key: progressive zoom — selection → 2x context → fit all."""
+        """z key: toggle between 50% and 100% zoom around the current view
+        center. Works regardless of selection state — selection doesn't
+        change what `z` does. For "fit the whole graph" use Shift+Z.
+        """
         if not self._board:
             return
-
         self._push_nav_snapshot()
-        self._zoom_z_level += 1
-
-        # Level 3: fit all, then cycle back to selection on next press
-        if self._zoom_z_level >= 3:
-            self._zoom_to_fit()
-            self._zoom_z_level = 0
-            return
-
-        # Build the base selection rect
-        base_rect: QRectF | None = None
-
-        # Check if an arrow is selected
-        if self._selected_arrow:
-            arrow = self._selected_arrow
-            rects = []
-            for bid in (arrow.from_id, arrow.to_id):
-                if bid in self._box_items:
-                    b = self._box_items[bid].box
-                    rects.append(QRectF(b.x, b.y, b.w, b.h))
-            if rects:
-                base_rect = rects[0]
-                for r in rects[1:]:
-                    base_rect = base_rect.united(r)
-        else:
-            # Check for selected boxes/notes
-            selected = self._scene.selectedItems()
-            if selected:
-                rects = []
-                for item in selected:
-                    if isinstance(item, BoxItem):
-                        b = item.box
-                        rects.append(QRectF(b.x, b.y, b.w, b.h))
-                    elif isinstance(item, NoteItem):
-                        rects.append(QRectF(item.note.x, item.note.y,
-                                            item.boundingRect().width(),
-                                            item.boundingRect().height()))
-                if rects:
-                    base_rect = rects[0]
-                    for r in rects[1:]:
-                        base_rect = base_rect.united(r)
-
-        if not base_rect:
-            self._zoom_z_level = 0
-            return
-
-        padding = max(60, base_rect.width() * 0.15, base_rect.height() * 0.15)
-
-        # Level 2: double the padding for more context
-        if self._zoom_z_level == 2:
-            padding *= 2
-
-        self._animate_to_rect(base_rect.adjusted(-padding, -padding, padding, padding))
+        current = self.transform().m11()
+        # If we're closer to 100% (or above), toggle out to 50%; otherwise
+        # snap to 100%. The 0.75 midpoint avoids ambiguity when the user is
+        # at, say, 80% from a previous fit.
+        target_zoom = 0.5 if current >= 0.75 else 1.0
+        center = self.mapToScene(self.viewport().rect().center())
+        self._animate_to_zoom_and_center(target_zoom, center)
 
     def _zoom_to_fit(self):
         """Shift+Z key: zoom to fit entire diagram."""
@@ -4880,8 +4865,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("Arrow keys", "Pan viewport"),
                 ("Middle-drag", "Pan anywhere"),
                 ("+ / -", "Zoom in / out"),
-                ("Z", "Zoom to selection (progressive)"),
-                ("Shift+Z", "Zoom to fit all"),
+                ("z", "Toggle 50% / 100% zoom"),
+                ("⇧Z", "Zoom to fit (whole graph)"),
                 ("gp", "Select parent (zoom if needed)"),
                 ("F", "Select first child"),
                 ("Tab / \u21e7Tab", "Cycle siblings"),

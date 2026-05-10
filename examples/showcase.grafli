@@ -38,7 +38,7 @@
 @ note bake_code 433.6683666702927,217.99831588774094 "code:\nbake() -> Bread\nif flour < 1\n   err OutOfFlour\ndough = mix(flour, water, yeast)\nstate rising -> baking\nemit BatchReady\nreturn bread"
 @ arrow bake_code -- bake
 
-@ note qa_flour 1425.0361010670406,379.3377553014274 "Q: what if flour runs out mid-bake?\nA: the `code:` note bails — `if: flour < 1` raises OutOfFlour and ends the routine for the day."
+@ note qa_flour 1400,380 "Q: what if flour runs out mid-bake?\nA: the `code:` note bails — `if: flour < 1` raises OutOfFlour and ends the routine for the day." ~width=61
 
 # ============================================================
 # Region 2 — Threat reaction (annotations)
@@ -66,18 +66,18 @@
 
 @ note todo -5.769576575522848,1340.638539578403 "T: add audible cue when sense triggers"
 @ note q1 340,1340 "Q: should fear scale with NPC level?"
-@ note disc 683.8763271382929,1345.2969292077053 "Designer: Should child NPCs ever pick fight?\nReviewer: No — clamp to flee/hide when AgeTag is child.\nDesigner: Will add the tag check inside assess."
-@ note qa_recover 410.20212342126865,840.4205841046205 "Q: should Hide auto-recover after a timer?\nA: no — only on `verify: clear` from assess. \nA timer risks re-engaging an active threat."
-@ note assess_code 73.40171656199334,1133.8915636581614 "code:\nassessDanger(npc, threat) -> Action\nratio = threat.power / npc.power\nif ratio > 2.0\n   return flee\nif threat.count > npc.allies\n   return guards\nverify tests/test_assess.py:matrix\nreturn fight  @ai/threat.py:88"
+@ note disc 683.8763271382929,1345.2969292077053 "Designer: Should child NPCs ever pick fight?\nReviewer: No — clamp to flee/hide when AgeTag is child.\nDesigner: Will add the tag check inside assess." ~width=54
+@ note qa_recover 410.20212342126865,840.4205841046205 "Q: should Hide auto-recover after a timer?\nA: no — only on `verify: clear` from assess. \nA timer risks re-engaging an active threat." ~width=47
+@ note assess_code 20,1140 "code:\nassessDanger(npc, threat) -> Action\nratio = threat.power / npc.power\nif ratio > 2.0\n   return flee\nif threat.count > npc.allies\n   return guards\nverify tests/test_assess.py:matrix\nreturn fight  @ai/threat.py:88" ~width=38
 @ arrow assess_code -- assess
 
 # ============================================================
 # Region 3 — Town life (heatmap + jump-labels)
 # ============================================================
 
-@ note title3 -440,1740 "Town life" ~xxlarge
+@ note title3 -440,1640 "Town life" ~xxlarge ~width=10
 
-@ note caption3 -435.1967712668878,1804.434821320418 "NPCs `owns:` a shift,\n`step:` through routines,\nreact to world `event:`s.\nPress A for the heatmap." ~small
+@ note caption3 -435.1967712668878,1804.434821320418 "NPCs `owns:` a shift,\n`step:` through routines,\nreact to world `event:`s.\nPress A for the heatmap." ~small ~width=39
 
 # NPCs (column 1)
 @ box baker "Baker" -31.225890102333537,1830.8493366059504 180x80 %accent
@@ -91,7 +91,7 @@
 @ box smithy "Smithy" 169.56183325412547,2126.6826719758637 180x80 %tertiary
 @ box inn "Inn" -259.275277523341,2183.4636336263507 180x80 %tertiary
 @ box gate "Town gate" 43.616533258049714,2475.10969764214 180x80 %tertiary
-@ box temple "Temple" -397.0434479605445,2585.274276046725 180x80 %tertiary
+@ box temple "Temple" -400,2600 180x80 %tertiary
 
 # Shared spaces (column 3)
 @ box market "Market" -455.0965933225317,1916.1598782874626 180x80 %highlight
@@ -129,5 +129,6 @@
 @ arrow trade -> smith "event: stock_tools"
 @ arrow trade -> innkeep "event: extra_rooms"
 
-@ note qa_busiest -223.07146245985234,1742.9126091537087 "Q: who is the busiest NPC?\nA: Priest — temple shift + well + square + festival + raid. \nFive edges, the brightest hotspot in the heatmap."
+@ note qa_busiest -220,1720 "Q: who is the busiest NPC?\nA: Priest — temple shift + well + square + festival + raid. \nFive edges, the brightest hotspot in the heatmap." ~width=106
 @ arrow disc -> fight
+@ note n1 1400,300 "This is some interesting text which is quite long but I want to have it wrapping among multiple lines, does this work?" ~width=61

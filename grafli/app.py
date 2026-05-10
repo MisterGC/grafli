@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 from grafli.buffers import BufferManager, BufferState, ViewState
 from grafli.constants import Mode
 from grafli.filewatcher import JsonSafeWatcher
-from grafli.format import Board, parse, serialize
+from grafli.format import Board, merge_box_positions, parse, serialize
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
 from grafli.sidepanel import PanelToggleButton, SidePanel
 from grafli.view import GrafliView
@@ -621,13 +621,16 @@ class MainWindow(QMainWindow):
 
         new_board = parse(text)
 
+        # External edits (e.g. AI tools writing the file) must update box
+        # positions on screen. The in-memory positions may differ from
+        # disk because the user dragged boxes in-app — keep those drags
+        # only when the disk position itself didn't change.
         if self.board:
-            old_positions = {
-                b.id: (b.x, b.y) for b in self.board.boxes
-            }
-            for box in new_board.boxes:
-                if box.id in old_positions:
-                    box.x, box.y = old_positions[box.id]
+            try:
+                prev_disk = parse(self._last_written) if self._last_written else None
+            except Exception:
+                prev_disk = None
+            merge_box_positions(new_board, prev_disk, self.board)
 
         self._view.load_board(new_board)
         self._view.mark_clean()

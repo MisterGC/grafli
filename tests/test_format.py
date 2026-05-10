@@ -9,6 +9,7 @@ from grafli.format import (
     Board,
     Box,
     Note,
+    merge_box_positions,
     parse,
     parse_file,
     serialize,
@@ -1367,3 +1368,62 @@ def test_note_wrap_chars_explicit_default_is_emitted():
     board = parse('@ note n1 0,0 "hello" ~width=80')
     assert board.notes[0].wrap_chars_explicit is True
     assert "~width=80" in serialize(board)
+
+
+# ── merge_box_positions: live-reload 3-way merge ──────────────────
+
+
+def _board_with_box(bid: str, x: float, y: float) -> Board:
+    return Board(boxes=[Box(id=bid, label="X", x=x, y=y, w=100, h=50)])
+
+
+def test_merge_external_position_change_wins():
+    """External edit moved a box. In-mem still has the previous disk pos.
+    The new disk position must survive the merge — this is the bug fix."""
+    prev_disk = _board_with_box("a", 0, 0)
+    in_memory = _board_with_box("a", 0, 0)        # never dragged
+    new_disk = _board_with_box("a", 500, 500)     # external edit
+    merged = merge_box_positions(new_disk, prev_disk, in_memory)
+    assert (merged.boxes[0].x, merged.boxes[0].y) == (500, 500)
+
+
+def test_merge_in_app_drag_preserved_when_disk_unchanged():
+    """User dragged a box in-app. External edit only changed something
+    else (e.g. label). The in-app drag must NOT be reverted."""
+    prev_disk = _board_with_box("a", 0, 0)
+    in_memory = _board_with_box("a", 200, 100)    # user drag
+    new_disk = _board_with_box("a", 0, 0)          # disk pos unchanged
+    merged = merge_box_positions(new_disk, prev_disk, in_memory)
+    assert (merged.boxes[0].x, merged.boxes[0].y) == (200, 100)
+
+
+def test_merge_disk_wins_when_both_changed():
+    """Conflict: user dragged AND external edit moved the box.
+    Disk wins (deterministic, matches 'external editor wins')."""
+    prev_disk = _board_with_box("a", 0, 0)
+    in_memory = _board_with_box("a", 200, 100)
+    new_disk = _board_with_box("a", 999, 999)
+    merged = merge_box_positions(new_disk, prev_disk, in_memory)
+    assert (merged.boxes[0].x, merged.boxes[0].y) == (999, 999)
+
+
+def test_merge_handles_no_prev_disk():
+    """First load — no prior disk content. new disk wins by default."""
+    in_memory = _board_with_box("a", 200, 100)
+    new_disk = _board_with_box("a", 0, 0)
+    merged = merge_box_positions(new_disk, None, in_memory)
+    assert (merged.boxes[0].x, merged.boxes[0].y) == (0, 0)
+
+
+def test_merge_handles_new_box_added_externally():
+    """A new box appears on disk that wasn't in memory before.
+    It should land at the disk position (no in-mem to merge from)."""
+    prev_disk = _board_with_box("a", 0, 0)
+    in_memory = _board_with_box("a", 0, 0)
+    new_disk = Board(boxes=[
+        Box(id="a", label="X", x=0, y=0, w=100, h=50),
+        Box(id="b", label="Y", x=300, y=300, w=100, h=50),
+    ])
+    merged = merge_box_positions(new_disk, prev_disk, in_memory)
+    new_b = next(b for b in merged.boxes if b.id == "b")
+    assert (new_b.x, new_b.y) == (300, 300)

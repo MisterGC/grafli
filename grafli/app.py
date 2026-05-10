@@ -820,18 +820,84 @@ def _cmd_render(argv: list[str]) -> int:
     return 0
 
 
+def _make_note_rect_provider():
+    """Return a callable that computes a note's rendered scene rect.
+
+    Initializes a headless Qt app and registers bundled fonts so
+    ``QFontMetrics`` returns accurate widths for Patrick Hand. The
+    provider mirrors what ``NoteItem.boundingRect()`` would produce
+    on screen, so geometric checks see the rect users actually see.
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    from grafli.items import NoteItem
+
+    def provider(note):
+        item = NoteItem(note)
+        br = item.boundingRect()
+        return (note.x, note.y, note.x + br.width(), note.y + br.height())
+
+    return provider
+
+
+def _cmd_diagnose(argv: list[str]) -> int:
+    import json as _json
+    from grafli.diagnostics import run_all
+
+    parser = argparse.ArgumentParser(
+        prog="grafli diagnose",
+        description=(
+            "Run static layout diagnostics on a .grafli file. "
+            "Surfaces children outside parents, sibling overlaps, cramped "
+            "containers, likely-truncated labels, and missing linked resources."
+        ),
+    )
+    parser.add_argument("input", type=Path, help="Input .grafli file")
+    parser.add_argument(
+        "--json", action="store_true",
+        help="Emit JSON instead of human-readable text",
+    )
+    args = parser.parse_args(argv)
+
+    if not args.input.exists():
+        print(f"Input not found: {args.input}", file=sys.stderr)
+        return 2
+
+    text = args.input.read_text(encoding="utf-8")
+    board = parse(text)
+    note_rect = _make_note_rect_provider()
+    diags = run_all(board, args.input.resolve().parent, note_rect=note_rect)
+
+    if args.json:
+        print(_json.dumps([d.to_dict() for d in diags], indent=2))
+        return 0
+
+    if not diags:
+        print("No findings.")
+        return 0
+
+    for d in diags:
+        suffix = "" if d.fixable else "  (may be intentional)"
+        print(f"[{d.severity}] {d.code}: {d.message}{suffix}")
+    print(f"\n{len(diags)} finding(s).")
+    return 0
+
+
 def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
-    if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render"):
+    if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
         if sub == "skill":
             sys.exit(_cmd_skill(rest))
-        sys.exit(_cmd_render(rest))
+        if sub == "render":
+            sys.exit(_cmd_render(rest))
+        sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
-        description="Grafli whiteboard. Subcommands: skill, render.",
+        description="Grafli whiteboard. Subcommands: skill, render, diagnose.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

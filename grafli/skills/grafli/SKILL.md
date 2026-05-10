@@ -53,6 +53,23 @@ any `@ box` / `@ arrow` / `@ note` lines:
    obvious in the rendered image but invisible in the source. Render
    after every non-trivial edit, fix what you see, render again. Don't
    declare a diagram done without at least one render-and-look pass.
+10. **Diagnose.** Run `grafli diagnose <file>.grafli` (add `--json`
+    for machine-readable output) for static checks the eye misses:
+    children outside parents, sibling overlaps, cramped containers,
+    likely-truncated labels, missing `@path` / image refs. Each
+    finding carries a `fixable` flag and a `severity`:
+
+    * `severity: error` (e.g. `invalid-parent-ref`) — always fix.
+    * `fixable: true` — usually a real geometry mistake. Try to fix.
+    * `fixable: false` — heuristic or possibly-intentional (a
+      placeholder reference, an artistic crowding choice).
+      Acknowledge once and move on.
+
+    **One pass, then stop.** Run diagnose, address the obvious
+    findings, run it once more to confirm. If the same warnings
+    persist, accept them as known limitations and ship — do not
+    keep reshuffling the diagram trying to drive the count to zero.
+    Diagnostics are guidance, not a gate.
 
 ## File format quick reference
 

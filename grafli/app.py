@@ -853,6 +853,11 @@ def main():
     tick.timeout.connect(lambda: None)
 
     window = MainWindow(args.file, debug=args.debug)
+    # Pin to primary screen so a sleeping/disconnected external display
+    # cannot swallow the window via macOS's cached window frame.
+    primary = app.primaryScreen()
+    if primary is not None:
+        window.setGeometry(primary.availableGeometry())
     window.showMaximized()
 
     # Single-instance server

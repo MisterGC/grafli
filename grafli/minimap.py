@@ -33,6 +33,31 @@ _RE_SPEAKER = re.compile(r"^([A-Z][A-Za-z0-9_-]{0,15}): ", re.MULTILINE)
 _TIER_LABELS = ("Simple", "Moderate", "Intricate", "Dense")
 
 
+def _box_depth_order(boxes):
+    """Return ``boxes`` ordered by parent-chain depth (top-level first).
+
+    Parents must paint before children so the minimap's solid fill
+    doesn't hide nested boxes (parents are usually declared after
+    their children in `.grafli` files).
+
+    Cyclic parent refs are tolerated — the chain walk bails on
+    revisits and the offending box gets a stable but arbitrary depth.
+    """
+    by_id = {b.id: b for b in boxes}
+
+    def depth(box):
+        d = 0
+        cur = box
+        seen = {cur.id}
+        while cur.parent and cur.parent in by_id and cur.parent not in seen:
+            cur = by_id[cur.parent]
+            seen.add(cur.id)
+            d += 1
+        return d
+
+    return sorted(boxes, key=depth)
+
+
 class MinimapMixin:
     """Mixin providing minimap rendering and click-to-navigate.
 
@@ -225,9 +250,10 @@ class MinimapMixin:
         dimmed_ids: set[str] = getattr(self, "_search_dimmed_ids", set()) or set()
         dim_alpha = 50
 
-        # Draw boxes
+        # Draw boxes — top-level parents first so nested children
+        # render on top instead of being covered by the parent's fill.
         painter.setPen(Qt.PenStyle.NoPen)
-        for box in self._board.boxes:
+        for box in _box_depth_order(self._board.boxes):
             color_hex = _resolve_color(box.color) if box.color else ""
             if color_hex:
                 c = QColor(color_hex)

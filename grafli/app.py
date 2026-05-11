@@ -841,6 +841,30 @@ def _make_note_rect_provider():
     return provider
 
 
+def _make_arrow_label_size_provider():
+    """Return a callable that returns an arrow label's rendered size."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    from PySide6.QtGui import QFont, QFontMetricsF
+    from grafli.constants import ARROW_LABEL_FONT_SIZES, FONT_FAMILY
+
+    def provider(arrow):
+        font = QFont(
+            FONT_FAMILY,
+            ARROW_LABEL_FONT_SIZES.get(arrow.textsize, ARROW_LABEL_FONT_SIZES[""]),
+        )
+        fm = QFontMetricsF(font)
+        text = arrow.label or ""
+        if not text:
+            return (0.0, 0.0)
+        longest_w = max(fm.horizontalAdvance(line) for line in text.split("\n"))
+        height = fm.height() * max(1, len(text.split("\n")))
+        return (longest_w, height)
+
+    return provider
+
+
 def _cmd_diagnose(argv: list[str]) -> int:
     import json as _json
     from grafli.diagnostics import run_all
@@ -867,7 +891,13 @@ def _cmd_diagnose(argv: list[str]) -> int:
     text = args.input.read_text(encoding="utf-8")
     board = parse(text)
     note_rect = _make_note_rect_provider()
-    diags = run_all(board, args.input.resolve().parent, note_rect=note_rect)
+    arrow_label_size = _make_arrow_label_size_provider()
+    diags = run_all(
+        board,
+        args.input.resolve().parent,
+        note_rect=note_rect,
+        arrow_label_size=arrow_label_size,
+    )
 
     if args.json:
         print(_json.dumps([d.to_dict() for d in diags], indent=2))

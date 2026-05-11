@@ -11,13 +11,14 @@ layout engine — agents should treat findings as guidance, not gates.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from grafli.constants import BOX_FONT_SIZES, LAYOUT_PADDING
-from grafli.format import Board, Box, Image, Note
+from grafli.constants import ARROWHEAD_SIZE, BOX_FONT_SIZES, LAYOUT_PADDING
+from grafli.format import Arrow, Board, Box, Image, Note
 
 
 # Optional callable that returns a note's rendered scene rect
@@ -25,6 +26,10 @@ from grafli.format import Board, Box, Image, Note
 # Qt available), notes participate in geometric checks. When None,
 # notes are skipped — keeps the pure-function tests fast.
 NoteRectFn = Callable[[Note], Optional[tuple]]
+
+# Optional callable returning an arrow label's rendered size (w, h) in
+# scene units, using real font metrics. Needed for arrow-label checks.
+ArrowLabelSizeFn = Callable[[Arrow], tuple]
 
 
 ERROR = "error"
@@ -206,6 +211,160 @@ def check_label_truncated(board: Board) -> list[Diagnostic]:
     return diags
 
 
+def _id_rect_map(board: Board, note_rect: NoteRectFn | None = None) -> dict:
+    """Return id -> rect for everything an arrow could connect to."""
+    out: dict = {}
+    for _item, iid, rect in _items_with_rects(board, note_rect):
+        out[iid] = rect
+    return out
+
+
+def _ray_exits_rect(rect: tuple, target: tuple) -> tuple:
+    """Where does a ray from rect's center toward ``target`` leave the rect?
+
+    Mirrors what the renderer's ``_rect_edge_point`` does for arrow
+    endpoints — start of the visible arrow segment.
+    """
+    x1, y1, x2, y2 = rect
+    cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    tx, ty = target
+    dx, dy = tx - cx, ty - cy
+    if dx == 0 and dy == 0:
+        return (cx, cy)
+    hw, hh = (x2 - x1) / 2.0, (y2 - y1) / 2.0
+    tx_factor = math.inf if dx == 0 else hw / abs(dx)
+    ty_factor = math.inf if dy == 0 else hh / abs(dy)
+    t = min(tx_factor, ty_factor)
+    return (cx + dx * t, cy + dy * t)
+
+
+def check_arrow_label_crowded(
+    board: Board,
+    arrow_label_size: ArrowLabelSizeFn | None = None,
+    note_rect: NoteRectFn | None = None,
+) -> list[Diagnostic]:
+    """Flag arrow labels that bleed into an endpoint shape.
+
+    The renderer centers the label on the arrow's visible midpoint, so
+    when the gap between endpoints is shorter than the label, the label
+    sits on top of one of the boxes. Detection is grounded in real Qt
+    font metrics via ``arrow_label_size``; without it, the check is
+    skipped (heuristic would create false positives).
+    """
+    diags: list[Diagnostic] = []
+    if arrow_label_size is None:
+        return diags
+
+    rects = _id_rect_map(board, note_rect)
+
+    for a in board.arrows:
+        if not a.label or a.from_id == a.to_id:
+            continue
+        src = rects.get(a.from_id)
+        dst = rects.get(a.to_id)
+        if src is None or dst is None:
+            continue
+
+        s_cx, s_cy = (src[0] + src[2]) / 2.0, (src[1] + src[3]) / 2.0
+        d_cx, d_cy = (dst[0] + dst[2]) / 2.0, (dst[1] + dst[3]) / 2.0
+        start = _ray_exits_rect(src, (d_cx, d_cy))
+        end = _ray_exits_rect(dst, (s_cx, s_cy))
+
+        seg_len = math.hypot(end[0] - start[0], end[1] - start[1])
+        if seg_len < 1:
+            # Endpoints overlap — sibling-overlap will flag this.
+            continue
+
+        label_w, label_h = arrow_label_size(a)
+        mid_x = (start[0] + end[0]) / 2.0 + a.label_dx
+        mid_y = (start[1] + end[1]) / 2.0 + a.label_dy
+        # Inflate by 4px to match the renderer's line-clip "gap" rect —
+        # captures visual crowding, not just strict glyph overlap.
+        inflate = 4.0
+        label_rect = (
+            mid_x - label_w / 2.0 - inflate,
+            mid_y - label_h / 2.0 - inflate,
+            mid_x + label_w / 2.0 + inflate,
+            mid_y + label_h / 2.0 + inflate,
+        )
+
+        for endpoint_id, endpoint_rect in (
+            (a.from_id, src), (a.to_id, dst),
+        ):
+            if _rects_overlap(label_rect, endpoint_rect):
+                diags.append(Diagnostic(
+                    code="arrow-label-crowded",
+                    severity=WARNING,
+                    message=(
+                        f"arrow {a.from_id!r} -> {a.to_id!r} label "
+                        f"({a.label!r}) overlaps {endpoint_id!r} — "
+                        f"shorten the label, widen the gap, or offset "
+                        f"the label via @dx,dy"
+                    ),
+                    item_ids=[a.from_id, a.to_id],
+                    fixable=True,
+                ))
+                break  # one finding per arrow
+    return diags
+
+
+def check_arrow_label_covers_head(
+    board: Board,
+    arrow_label_size: ArrowLabelSizeFn | None = None,
+    note_rect: NoteRectFn | None = None,
+) -> list[Diagnostic]:
+    """Info: label wider than the visible arrow segment — direction lost.
+
+    When the label fills (or exceeds) the arrow length, the renderer
+    splits the line around the label rect and the arrowhead disappears
+    behind the label. The endpoint-overlap check is the primary signal;
+    this one catches the remaining cases (offset labels, longer gaps
+    that still aren't long enough for the label).
+    """
+    diags: list[Diagnostic] = []
+    if arrow_label_size is None:
+        return diags
+
+    rects = _id_rect_map(board, note_rect)
+
+    for a in board.arrows:
+        if not a.label or a.from_id == a.to_id:
+            continue
+        if not (a.head_to or a.head_from):
+            continue  # no head → nothing to obscure
+        src = rects.get(a.from_id)
+        dst = rects.get(a.to_id)
+        if src is None or dst is None:
+            continue
+
+        s_cx, s_cy = (src[0] + src[2]) / 2.0, (src[1] + src[3]) / 2.0
+        d_cx, d_cy = (dst[0] + dst[2]) / 2.0, (dst[1] + dst[3]) / 2.0
+        start = _ray_exits_rect(src, (d_cx, d_cy))
+        end = _ray_exits_rect(dst, (s_cx, s_cy))
+        seg_len = math.hypot(end[0] - start[0], end[1] - start[1])
+        if seg_len < 1:
+            continue
+
+        label_w, _label_h = arrow_label_size(a)
+        # Reserve one arrowhead worth of clearance on each head end.
+        head_clearance = ARROWHEAD_SIZE * (
+            int(bool(a.head_to)) + int(bool(a.head_from))
+        )
+        if label_w >= seg_len - head_clearance:
+            diags.append(Diagnostic(
+                code="arrow-label-covers-head",
+                severity=INFO,
+                message=(
+                    f"arrow {a.from_id!r} -> {a.to_id!r} label is wider "
+                    f"than the visible segment ({seg_len:.0f}px) — the "
+                    f"arrowhead may be hidden behind it"
+                ),
+                item_ids=[a.from_id, a.to_id],
+                fixable=True,
+            ))
+    return diags
+
+
 # Captures `@<path>:<anything>` where path looks like a file (has an
 # extension). Trailing `:line` / `:anchor` is consumed to keep matching
 # tight, but the anchor itself is not validated.
@@ -256,12 +415,19 @@ def run_all(
     board: Board,
     base_dir: Path | None = None,
     note_rect: NoteRectFn | None = None,
+    arrow_label_size: ArrowLabelSizeFn | None = None,
 ) -> list[Diagnostic]:
     diags: list[Diagnostic] = []
     diags.extend(check_child_outside_parent(board, note_rect=note_rect))
     diags.extend(check_sibling_overlap(board, note_rect=note_rect))
     diags.extend(check_cramped_container(board, note_rect=note_rect))
     diags.extend(check_label_truncated(board))
+    diags.extend(check_arrow_label_crowded(
+        board, arrow_label_size=arrow_label_size, note_rect=note_rect,
+    ))
+    diags.extend(check_arrow_label_covers_head(
+        board, arrow_label_size=arrow_label_size, note_rect=note_rect,
+    ))
     diags.extend(check_missing_resource(board, base_dir))
     diags.sort(key=lambda d: (_SEVERITY_ORDER.get(d.severity, 99), d.code, d.item_ids))
     return diags

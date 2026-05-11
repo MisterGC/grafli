@@ -6,6 +6,8 @@ from pathlib import Path
 
 from grafli.diagnostics import (
     Diagnostic,
+    check_arrow_label_covers_head,
+    check_arrow_label_crowded,
     check_child_outside_parent,
     check_cramped_container,
     check_label_truncated,
@@ -239,3 +241,110 @@ def test_note_outside_parent_detected_via_provider():
         board, note_rect=_qt_note_rect_provider()
     )
     assert any(d.code == "child-outside-parent" and "n" in d.item_ids for d in diags)
+
+
+# ── arrow label crowding ───────────────────────────────────────
+
+def _fixed_size(w: float, h: float):
+    """Stub size provider — returns the same (w, h) for any arrow."""
+    return lambda _arrow: (w, h)
+
+
+def test_arrow_label_crowded_with_adjacent_boxes():
+    """The Stage1→Stage2 case: 20px gap, label wider than gap."""
+    a = Box(id="a", label="A", x=0, y=0, w=160, h=80)
+    b = Box(id="b", label="B", x=180, y=0, w=160, h=80)  # 20px gap
+    arr = Arrow(from_id="a", to_id="b", label="in")
+    board = _make_board(boxes=[a, b], arrows=[arr])
+    diags = check_arrow_label_crowded(board, arrow_label_size=_fixed_size(30, 12))
+    assert len(diags) == 1
+    assert diags[0].code == "arrow-label-crowded"
+    assert set(diags[0].item_ids) == {"a", "b"}
+
+
+def test_arrow_label_clean_with_wide_gap():
+    a = Box(id="a", label="A", x=0, y=0, w=100, h=80)
+    b = Box(id="b", label="B", x=400, y=0, w=100, h=80)  # 300px gap
+    arr = Arrow(from_id="a", to_id="b", label="in")
+    board = _make_board(boxes=[a, b], arrows=[arr])
+    diags = check_arrow_label_crowded(board, arrow_label_size=_fixed_size(30, 12))
+    assert diags == []
+
+
+def test_arrow_label_checks_skipped_without_provider():
+    a = Box(id="a", label="A", x=0, y=0, w=160, h=80)
+    b = Box(id="b", label="B", x=180, y=0, w=160, h=80)
+    arr = Arrow(from_id="a", to_id="b", label="in")
+    board = _make_board(boxes=[a, b], arrows=[arr])
+    assert check_arrow_label_crowded(board) == []
+    assert check_arrow_label_covers_head(board) == []
+
+
+def test_arrow_label_unlabeled_arrows_skipped():
+    a = Box(id="a", label="A", x=0, y=0, w=160, h=80)
+    b = Box(id="b", label="B", x=180, y=0, w=160, h=80)
+    arr = Arrow(from_id="a", to_id="b", label="")
+    board = _make_board(boxes=[a, b], arrows=[arr])
+    assert check_arrow_label_crowded(board, arrow_label_size=_fixed_size(30, 12)) == []
+
+
+def test_arrow_label_offset_via_dx_dy_clears_overlap():
+    """Author used @dx,dy to push the label off the line — no warning."""
+    a = Box(id="a", label="A", x=0, y=0, w=160, h=80)
+    b = Box(id="b", label="B", x=180, y=0, w=160, h=80)
+    arr = Arrow(from_id="a", to_id="b", label="in", label_dy=-100)
+    board = _make_board(boxes=[a, b], arrows=[arr])
+    diags = check_arrow_label_crowded(board, arrow_label_size=_fixed_size(30, 12))
+    assert diags == []
+
+
+def test_arrow_label_covers_head_long_label_short_arrow():
+    """Label wider than the visible segment but doesn't overlap endpoints
+    (e.g. offset above) — still flags the lost arrowhead."""
+    a = Box(id="a", label="A", x=0, y=0, w=80, h=80)
+    b = Box(id="b", label="B", x=120, y=0, w=80, h=80)  # 40px gap
+    # Label offset above, so it doesn't overlap endpoints; but its width
+    # still exceeds the visible 40px segment.
+    arr = Arrow(from_id="a", to_id="b", label="long", label_dy=-80)
+    board = _make_board(boxes=[a, b], arrows=[arr])
+    diags = check_arrow_label_covers_head(
+        board, arrow_label_size=_fixed_size(60, 12),
+    )
+    assert len(diags) == 1
+    assert diags[0].code == "arrow-label-covers-head"
+
+
+def test_arrow_label_covers_head_skipped_when_no_head():
+    """No arrowhead → no direction to obscure."""
+    a = Box(id="a", label="A", x=0, y=0, w=80, h=80)
+    b = Box(id="b", label="B", x=120, y=0, w=80, h=80)
+    arr = Arrow(
+        from_id="a", to_id="b", label="long",
+        head_to=False, head_from=False,
+    )
+    board = _make_board(boxes=[a, b], arrows=[arr])
+    diags = check_arrow_label_covers_head(
+        board, arrow_label_size=_fixed_size(60, 12),
+    )
+    assert diags == []
+
+
+def test_qt_arrow_label_provider_catches_test_grafli_pipeline_case():
+    """End-to-end: replicate the user's 160px Stage1/2 with 20px gap and
+    a real Qt-measured 'in' label — must surface arrow-label-crowded."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from grafli.app import (
+        _register_bundled_fonts, _make_arrow_label_size_provider,
+    )
+    _register_bundled_fonts()
+
+    a = Box(id="s1", label="Stage 1", x=-720, y=290, w=160, h=80)
+    b = Box(id="s2", label="Stage 2", x=-540, y=290, w=160, h=80)
+    arr = Arrow(from_id="s1", to_id="s2", label="in")
+    board = _make_board(boxes=[a, b], arrows=[arr])
+    diags = check_arrow_label_crowded(
+        board, arrow_label_size=_make_arrow_label_size_provider(),
+    )
+    assert any(d.code == "arrow-label-crowded" for d in diags)

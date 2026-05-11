@@ -56,8 +56,9 @@ any `@ box` / `@ arrow` / `@ note` lines:
 10. **Diagnose.** Run `grafli diagnose <file>.grafli` (add `--json`
     for machine-readable output) for static checks the eye misses:
     children outside parents, sibling overlaps, cramped containers,
-    likely-truncated labels, missing `@path` / image refs. Each
-    finding carries a `fixable` flag and a `severity`:
+    likely-truncated labels, arrow labels crowding endpoints or hiding
+    arrowheads, missing `@path` / image refs. Each finding carries a
+    `fixable` flag and a `severity`:
 
     * `severity: error` (e.g. `invalid-parent-ref`) — always fix.
     * `fixable: true` — usually a real geometry mistake. Try to fix.

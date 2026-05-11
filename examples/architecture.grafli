@@ -5,33 +5,33 @@
 # nesting, child text notes, block text, markdown resources, and sub-graflis.
 
 # --- Title / legend ---
-@ note title -142.64805769219618,-93.30944319793657 "Architecture explanation demo" ~xlarge
-@ note legend -335.4432297006256,26.190871260717813 "Edge label prefixes render as chips and color the edge: call:, data:, event:, state:, step:, verify:, owns:, depends:, risk:, note:" ~small
+@ note title -143,-93 "Architecture explanation demo" ~xlarge
+@ note legend -335,26 "Edge label prefixes render as chips and color the edge: call:, data:, event:, state:, step:, verify:, owns:, depends:, risk:, note:" ~small
 
 # --- Visible nesting containers ---
-@ box frontend_layer "Frontend clients" 10.216128384960427,101.7784935756502 500x230 %secondary ^topleft ~small !flat
-@ box api_layer "API boundary" 684.9675628779783,94.83264817843568 500x230 %primary ^topleft ~small !flat
-@ box core_layer "Core domain services" 60.56713475112224,638.0582416010043 760x360 %tertiary ^topleft ~small !flat
-@ box data_layer "Data and external stores" 914.9518738695019,545.2624693673604 560x360 %subtle ^topleft ~small !flat
-@ box observability_layer "Verification / operations" 6.176285612556256,1057.2802719016136 760x280 %muted ^topleft ~small !flat
+@ box frontend_layer "Frontend clients" 10,102 500x230 %secondary ^topleft ~small !flat
+@ box api_layer "API boundary" 685,95 500x230 %primary ^topleft ~small !flat
+@ box core_layer "Core domain services" 61,638 760x360 %tertiary ^topleft ~small !flat
+@ box data_layer "Data and external stores" 915,545 560x360 %subtle ^topleft ~small !flat
+@ box observability_layer "Verification / operations" 6,1057 760x280 %muted ^topleft ~small !flat
 
 # --- Frontend children ---
-@ box web "Web App\nReact + Next.js" 572.12552841975,-85.54731796255707 190x80 %secondary
-@ box mobile "Mobile App\nReact Native" -236.37555387268583,176.75070675159537 190x80 %secondary
-@ note n_frontend_q 50.21612838496043,266.7784935756502 "Q: Should admin UI bypass mobile-oriented caching?" ~small >frontend_layer
+@ box web "Web App\nReact + Next.js" 572,-86 190x80 %secondary
+@ box mobile "Mobile App\nReact Native" -236,177 190x80 %secondary
+@ note n_frontend_q 50,267 "Q: Should admin UI bypass mobile-oriented caching?" ~small >frontend_layer
 
 # --- API children ---
-@ box gateway "API Gateway\nrate limits + auth" 170.21612838496043,171.7784935756502 200x90 %primary >frontend_layer
-@ box graphql "GraphQL Federation\nschema stitching" 802.0935549525444,151.9225791656238 200x90 %primary &architecture-res/graphql.md >api_layer
-@ note n_api_task 830.3447930125569,268.56281561682783 "T: Add p95 latency budget to gateway -> graphql edge" ~small >api_layer
+@ box gateway "API Gateway\nrate limits + auth" 170,172 200x90 %primary >frontend_layer
+@ box graphql "GraphQL Federation\nschema stitching" 802,152 200x90 %primary &architecture-res/graphql.md >api_layer
+@ note n_api_task 830,269 "T: Add p95 latency budget to gateway -> graphql edge" ~small >api_layer
 
 # --- Core service children ---
 @ box auth "Auth Service\nOAuth2 + JWT" 0,400 200x85 %tertiary
 @ box users "User Profile\nService" 240,400 180x85 %tertiary
-@ box orders "Order Processing\n& Fulfillment" 485.17863020914706,414.05558603437254 210x85 %tertiary &architecture-res/orders-flow.grafli
-@ box catalog "Product Catalog\nService" 889.4722050150008,414.0502305973303 210x85 %tertiary
+@ box orders "Order Processing\n& Fulfillment" 485,414 210x85 %tertiary &architecture-res/orders-flow.grafli
+@ box catalog "Product Catalog\nService" 889,414 210x85 %tertiary
 
-@ note n_orders_code -455.416501911354,363.81958174053847 """
+@ note n_orders_code -455,364 """
 code:
 fn: placeOrder(req) -> OrderId
 pre: req.user is authenticated
@@ -45,20 +45,20 @@ verify: test_order_happy_path @tests/orders_test.py:41
 risk: reservation leak if payment timeout is not compensated
 """ ~small !mono
 
-@ note n_core_discussion 115.63943407462125,897.5439704114971 "AI: The graph shows service relationships.\nReviewer: The code note keeps order internals local.\nAI: Deeper order flow is linked as a sub-grafli." ~small >core_layer
+@ note n_core_discussion 116,898 "AI: The graph shows service relationships.\nReviewer: The code note keeps order internals local.\nAI: Deeper order flow is linked as a sub-grafli." ~small >core_layer
 
 # --- Data layer children ---
-@ box redis "Redis\nsessions/cache" -172.66632124352293,694.1818652849742 180x85 %subtle
-@ box postgres "PostgreSQL\nprimary store" 85.34646327677254,711.4393552051313 200x85 %subtle >core_layer
-@ box queue "Kafka\norder events" 489.0295519305754,731.7723570382295 180x85 %subtle >core_layer
-@ box search "Search Index\nElasticsearch" 1110.8393706318195,697.8052904232359 200x85 %subtle >data_layer
-@ note n_data_note 954.9518738695019,875.2624693673604 "Plain child notes move with their parent box; use them for local context." ~small >data_layer
+@ box redis "Redis\nsessions/cache" -173,694 180x85 %subtle
+@ box postgres "PostgreSQL\nprimary store" 85,711 200x85 %subtle >core_layer
+@ box queue "Kafka\norder events" 489,732 180x85 %subtle >core_layer
+@ box search "Search Index\nElasticsearch" 1111,698 200x85 %subtle >data_layer
+@ note n_data_note 955,875 "Plain child notes move with their parent box; use them for local context." ~small >data_layer
 
 # --- Verification / operations children ---
-@ box ci "CI Pipeline\nGitHub Actions" 800.6491973589921,1137.5854113154567 200x85 %muted
-@ box tests "Integration Tests\ncontract + flow" 59.55739921668311,1130.5155290241248 210x85 %muted >observability_layer
-@ box monitor "Prometheus + Grafana\nruntime signals" 368.0875138889694,1195.3690436252004 200x85 %muted >observability_layer
-@ note n_verify_code 46.176285612556256,1242.2802719016136 "code:\nfn: verifyChange(pr)\ncall: pytest(contract_tests)\ncall: smoke(gateway -> graphql)\nassert: no runtime warnings\nverify: dashboard shows p95 below target\nreturn: ready_for_review" ~small !mono >observability_layer
+@ box ci "CI Pipeline\nGitHub Actions" 801,1138 200x85 %muted
+@ box tests "Integration Tests\ncontract + flow" 60,1131 210x85 %muted >observability_layer
+@ box monitor "Prometheus + Grafana\nruntime signals" 368,1195 200x85 %muted >observability_layer
+@ note n_verify_code 46,1242 "code:\nfn: verifyChange(pr)\ncall: pytest(contract_tests)\ncall: smoke(gateway -> graphql)\nassert: no runtime warnings\nverify: dashboard shows p95 below target\nreturn: ready_for_review" ~small !mono >observability_layer
 
 # --- Frontend to API ---
 @ arrow web -> gateway "call: HTTPS /api"
@@ -93,20 +93,20 @@ Block text note:
 Use triple quotes when the text itself contains "quoted strings".
 The canvas still edits this as normal note text.
 """ ~small
-@ note n_subgraph_hint 913.8237143874437,1133.0152145654704 "Sub-grafli demo: open the linked Order Processing box to inspect the detailed order flow." ~small
+@ note n_subgraph_hint 914,1133 "Sub-grafli demo: open the linked Order Processing box to inspect the detailed order flow." ~small
 @ arrow n_orders_code -> auth
-@ box box1 "test" -1500,-160 495.03133382484134x516.9951555758935
+@ box box1 "test" -1500,-160 495x517
 @ box box2 "3" -1220,200 160x80 %subtle >box1
-@ box box3 "1" -1464.0125969060239,15.924418563856193 160x80 %subtle >box1
-@ box box4 "2" -1436.0503876240962,175.92441856385616 160x80 %subtle >box1
-@ box box5 "5" -1220.06298453012,1.2115632417683173 160x80 %subtle >box1
+@ box box3 "1" -1464,16 160x80 %subtle >box1
+@ box box4 "2" -1436,176 160x80 %subtle >box1
+@ box box5 "5" -1220,1 160x80 %subtle >box1
 @ box box6 "4" -1320,-120 160x80 %subtle >box1
 @ arrow box3 -> box6
 @ arrow box6 -> box5
 @ arrow box5 -> box2
 @ arrow box5 -> box4
-@ image img1 "architecture-res/img-20260501-190455.png" -1280.852069082695,632.8103352658841 320x120.06279434850863
-@ note n1 -833.2826241509773,552.4008407292996 """
+@ image img1 "architecture-res/img-20260501-190455.png" -1281,633 320x120
+@ note n1 -833,552 """
 code:
 fn: placeOrder(req) -> OrderId
 pre: req.user is authenticated
@@ -119,4 +119,4 @@ post: audit trail includes "order.created"
 verify: test_order_happy_path @tests/orders_test.py:41
 risk: reservation leak if payment timeout is not compensated
 """ ~small !mono
-@ box box7 "3" -791.5671846682503,175.34270062328628 160x80 %subtle
+@ box box7 "3" -792,175 160x80 %subtle

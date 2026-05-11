@@ -17,16 +17,16 @@
 # Region 1 — Baker's day (hero)
 # ============================================================
 
-@ note title1 1476.537054409133,19.010918447672285 "Baker's day" ~xxlarge
+@ note title1 1477,19 "Baker's day" ~xxlarge
 
-@ note caption1 -300.72953746032147,-108.89470384589161 "A daily routine as a state machine.\nEach arrow's `step:` / `state:` / `event:` prefix renders as a colored chip on the edge." ~small
+@ note caption1 -301,-109 "A daily routine as a state machine.\nEach arrow's `step:` / `state:` / `event:` prefix renders as a colored chip on the edge." ~small
 
-@ box sleep "Sleep" 140,142.19573710323735 160x90 %subtle
-@ box bake "Bake bread" 126.08540922305644,389.9602261378962 180x90 %accent
-@ box shop "Open shop" 479.1980244720821,505.5838972527878 180x90 %tertiary
-@ box lunch "Lunch" 874.0607783666509,391.19624798664864 160x90 %highlight
-@ box deliver "Deliver" 846.494085510205,146.77996554352328 200x90 %tertiary
-@ box dinner "Dinner" 481.5442312766063,28.774266762025334 160x90 %accent
+@ box sleep "Sleep" 140,142 160x90 %subtle
+@ box bake "Bake bread" 126,390 180x90 %accent
+@ box shop "Open shop" 479,506 180x90 %tertiary
+@ box lunch "Lunch" 874,391 160x90 %highlight
+@ box deliver "Deliver" 846,147 200x90 %tertiary
+@ box dinner "Dinner" 482,29 160x90 %accent
 
 @ arrow sleep -> bake "step: 06:00"
 @ arrow bake -> shop "state: ready"
@@ -35,7 +35,7 @@
 @ arrow deliver -> dinner "step: 20:00"
 @ arrow dinner -> sleep "step: 22:00"
 
-@ note bake_code 433.6683666702927,217.99831588774094 "code:\nbake() -> Bread\nif flour < 1\n   err OutOfFlour\ndough = mix(flour, water, yeast)\nstate rising -> baking\nemit BatchReady\nreturn bread"
+@ note bake_code 434,218 "code:\nbake() -> Bread\nif flour < 1\n   err OutOfFlour\ndough = mix(flour, water, yeast)\nstate rising -> baking\nemit BatchReady\nreturn bread"
 @ arrow bake_code -- bake
 
 @ note qa_flour 1400,380 "Q: what if flour runs out mid-bake?\nA: the `code:` note bails — `if: flour < 1` raises OutOfFlour and ends the routine for the day." ~width=61
@@ -44,16 +44,16 @@
 # Region 2 — Threat reaction (annotations)
 # ============================================================
 
-@ note title2 -38.010045408300755,719.0583777077526 "Threat reaction" ~xxlarge
+@ note title2 -38,719 "Threat reaction" ~xxlarge
 
-@ note caption2 -43.35091625087598,781.8723275865401 "Behavior under review. `T:` tasks, `Q:` questions, threaded discussions, and `code:` notes live next to the boxes they describe." ~small
+@ note caption2 -43,782 "Behavior under review. `T:` tasks, `Q:` questions, threaded discussions, and `code:` notes live next to the boxes they describe." ~small
 
-@ box sense "Sense threat" -15.943060517962408,1006.7008582809965 220x90 %subtle
+@ box sense "Sense threat" -16,1007 220x90 %subtle
 @ box assess "Assess danger" 340,1000 240x90 %accent &showcase-res/assess.grafli
-@ box flee "Flee" 878.2093078937904,1001.3971219715272 180x90 %muted
-@ box fight "Fight" 894.4274649918939,1204.877538225958 180x90 %accent
-@ box guards "Call guards" 425.3673853221261,1213.1965668760133 200x90 %tertiary
-@ box hide "Hide" 874.2108017465225,819.0768264130897 180x90 %muted &showcase-res/hide.md
+@ box flee "Flee" 878,1001 180x90 %muted
+@ box fight "Fight" 894,1205 180x90 %accent
+@ box guards "Call guards" 425,1213 200x90 %tertiary
+@ box hide "Hide" 874,819 180x90 %muted &showcase-res/hide.md
 
 @ arrow sense -> assess "call: classify"
 @ arrow assess -> flee "event: weak"
@@ -64,10 +64,10 @@
 @ arrow fight -> flee "risk: outnumbered" !dashed
 @ arrow hide -> assess "verify: clear" !dashed
 
-@ note todo -5.769576575522848,1340.638539578403 "T: add audible cue when sense triggers"
+@ note todo -6,1341 "T: add audible cue when sense triggers"
 @ note q1 340,1340 "Q: should fear scale with NPC level?"
-@ note disc 683.8763271382929,1345.2969292077053 "Designer: Should child NPCs ever pick fight?\nReviewer: No — clamp to flee/hide when AgeTag is child.\nDesigner: Will add the tag check inside assess." ~width=54
-@ note qa_recover 410.20212342126865,840.4205841046205 "Q: should Hide auto-recover after a timer?\nA: no — only on `verify: clear` from assess. \nA timer risks re-engaging an active threat." ~width=47
+@ note disc 684,1345 "Designer: Should child NPCs ever pick fight?\nReviewer: No — clamp to flee/hide when AgeTag is child.\nDesigner: Will add the tag check inside assess." ~width=54
+@ note qa_recover 410,840 "Q: should Hide auto-recover after a timer?\nA: no — only on `verify: clear` from assess. \nA timer risks re-engaging an active threat." ~width=47
 @ note assess_code 20,1140 "code:\nassessDanger(npc, threat) -> Action\nratio = threat.power / npc.power\nif ratio > 2.0\n   return flee\nif threat.count > npc.allies\n   return guards\nverify tests/test_assess.py:matrix\nreturn fight  @ai/threat.py:88" ~width=38
 @ arrow assess_code -- assess
 
@@ -77,30 +77,30 @@
 
 @ note title3 -440,1640 "Town life" ~xxlarge ~width=10
 
-@ note caption3 -435.1967712668878,1804.434821320418 "NPCs `owns:` a shift,\n`step:` through routines,\nreact to world `event:`s.\nPress A for the heatmap." ~small ~width=39
+@ note caption3 -435,1804 "NPCs `owns:` a shift,\n`step:` through routines,\nreact to world `event:`s.\nPress A for the heatmap." ~small ~width=39
 
 # NPCs (column 1)
-@ box baker "Baker" -31.225890102333537,1830.8493366059504 180x80 %accent
-@ box smith "Smith" -20.7041979645699,2000.605628319995 180x80 %accent
-@ box innkeep "Innkeeper" 43.49729606155151,2224.013491138159 180x80 %accent
-@ box guard "Guard" 41.20404947985378,2346.9226694018726 180x80 %accent
-@ box priest "Priest" 39.09406489545282,2595.5938856643634 180x80 %accent
+@ box baker "Baker" -31,1831 180x80 %accent
+@ box smith "Smith" -21,2001 180x80 %accent
+@ box innkeep "Innkeeper" 43,2224 180x80 %accent
+@ box guard "Guard" 41,2347 180x80 %accent
+@ box priest "Priest" 39,2596 180x80 %accent
 
 # Workplaces (column 2)
-@ box bakery "Bakery" 289.19600001982565,1847.071447383281 160.854356394798x62.76892075531828 %tertiary
-@ box smithy "Smithy" 169.56183325412547,2126.6826719758637 180x80 %tertiary
-@ box inn "Inn" -259.275277523341,2183.4636336263507 180x80 %tertiary
-@ box gate "Town gate" 43.616533258049714,2475.10969764214 180x80 %tertiary
+@ box bakery "Bakery" 289,1847 161x63 %tertiary
+@ box smithy "Smithy" 170,2127 180x80 %tertiary
+@ box inn "Inn" -259,2183 180x80 %tertiary
+@ box gate "Town gate" 44,2475 180x80 %tertiary
 @ box temple "Temple" -400,2600 180x80 %tertiary
 
 # Shared spaces (column 3)
-@ box market "Market" -455.0965933225317,1916.1598782874626 180x80 %highlight
-@ box square "Town square" -480.42581859675676,2386.1247142033103 180x80 %highlight
-@ box well "Village well" 502.3714955819046,2583.084750790608 180x80 %highlight
+@ box market "Market" -455,1916 180x80 %highlight
+@ box square "Town square" -480,2386 180x80 %highlight
+@ box well "Village well" 502,2583 180x80 %highlight
 
 # Events (column 4)
-@ box festival "Festival" 652.4330966119542,2331.586373897622 180x80 %primary
-@ box raid "Bandit raid" -479.02697596886605,2220.197687009605 180x80 %primary
+@ box festival "Festival" 652,2332 180x80 %primary
+@ box raid "Bandit raid" -479,2220 180x80 %primary
 @ box trade "Trade day" 580,2020 180x80 %primary
 
 # Each NPC owns a daily shift at their workplace

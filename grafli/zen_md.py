@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QFileSystemWatcher, QRectF, QSettings, Qt, Signal, QTimer
-from PySide6.QtGui import QBrush, QFont, QKeyEvent, QPainter
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QKeyEvent, QPainter, QPen
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
 
@@ -262,6 +262,7 @@ class ZenMarkdownEditor(QWidget):
             self._editor.textChanged.connect(self._schedule_autosave)
         self._vim._set_mode(VimMode.NORMAL)
         self._hint.setText(self._build_hint_text())
+        self.update()  # repaint to add/remove the READ-ONLY badge
 
     def _schedule_autosave(self):
         if self._autosave_timer:
@@ -312,12 +313,36 @@ class ZenMarkdownEditor(QWidget):
         # Dim wash across the full widget — graph stays faintly visible.
         p.fillRect(self.rect(), ZEN_MD_DIM_COLOR)
         # Solid writing card centered at 80% × 80%.
+        card = self._card_rect()
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(ZEN_MD_BG))
-        p.drawRoundedRect(
-            self._card_rect(), ZEN_MD_CARD_RADIUS, ZEN_MD_CARD_RADIUS,
-        )
+        p.drawRoundedRect(card, ZEN_MD_CARD_RADIUS, ZEN_MD_CARD_RADIUS)
+        # Read-only indicator in the corner — quiet but always visible.
+        if self._read_only and self._file_path:
+            self._paint_readonly_badge(p, card)
         p.end()
+
+    def _paint_readonly_badge(self, painter: QPainter, card: QRectF):
+        """Subtle READ-ONLY pill in the card's top-right corner."""
+        badge_font = QFont(FONT_FAMILY, 9, QFont.Weight.DemiBold)
+        fm = QFontMetricsF(badge_font)
+        text = "READ-ONLY"
+        text_w = fm.horizontalAdvance(text)
+        pad_h, pad_v = 10, 3
+        plate_w = text_w + pad_h * 2
+        plate_h = fm.height() + pad_v * 2
+        plate = QRectF(
+            card.right() - plate_w - 14,
+            card.top() + 14,
+            plate_w,
+            plate_h,
+        )
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor("#E0DBD2")))
+        painter.drawRoundedRect(plate, plate_h / 2, plate_h / 2)
+        painter.setFont(badge_font)
+        painter.setPen(QPen(ZEN_HINT_COLOR))
+        painter.drawText(plate, int(Qt.AlignmentFlag.AlignCenter), text)
 
     # ── Resize tracking ──
 

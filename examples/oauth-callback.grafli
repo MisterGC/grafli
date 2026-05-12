@@ -20,7 +20,7 @@
 @ box provider "OAuth Provider\nGoogle / GitHub" 460,140 220x80 %muted
 
 # ── Service boxes (horizontal flow) ────────────────
-@ box cb "Callback Handler\nPOST /auth/callback" 37.62564878892732,297.6458693771626 220x80 %primary
+@ box cb "Callback Handler\nPOST /auth/callback" 38,298 220x80 %primary
 @ box xchg "Token Exchange\noauth client" 460,300 220x80 %tertiary
 @ box users "User Upsert\nidentity store" 840,300 220x80 %tertiary
 @ box sess "Session Mint\ncookie + redis" 1220,300 220x80 %tertiary
@@ -35,7 +35,7 @@
 
 # ── Code notes — one function per service ──────────
 
-@ note n_cb -25.925767733563987,411.76054282006925 """
+@ note n_cb -26,412 """
 code:
 handle_callback(req) -> Response
 pre req.method == POST
@@ -47,7 +47,7 @@ risk timing leak — use constant_time_eq
 return exchange(req.query.code)  @auth/callback.py:23
 """
 
-@ note n_xchg 429.4064121972318,414.1146734429065 """
+@ note n_xchg 429,414 """
 code:
 exchange(code) -> Session
 token = call provider.post(token_url, code)
@@ -57,7 +57,7 @@ profile = call provider.get(userinfo_url, token)
 return upsert_user(profile)  @auth/oauth.py:88
 """
 
-@ note n_users 836.4789143598614,415.2917387543254 """
+@ note n_users 836,415 """
 code:
 upsert_user(profile) -> User
 existing = find_by_provider_id(profile.id)
@@ -69,7 +69,7 @@ emit UserCreated(new.id)
 return new  @users/store.py:14
 """
 
-@ note n_sess 1196.4688040657438,417.6458693771626 """
+@ note n_sess 1196,418 """
 code:
 mint_session(user) -> SessionId
 sid = random_token(32)
@@ -90,7 +90,7 @@ return 302 redirect_to=return_to  @auth/callback.py:78
 """
 
 # ── Cross-cutting concerns: security tests ─────────
-@ box tests "Security Tests\ncontract suite" 892.9477184256054,825.9358780276815 220x80 %muted
+@ box tests "Security Tests\ncontract suite" 893,826 220x80 %muted
 
 @ arrow tests -> cb "verify: csrf" !dashed
 @ arrow tests -> sess "verify: fixation" !dashed

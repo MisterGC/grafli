@@ -432,11 +432,22 @@ def parse_file(path: str) -> Board:
 
 # ── Serializer ──────────────────────────────────────────────────
 
+def _q(value: float) -> int:
+    """Quantize a coordinate / size to integer pixels.
+
+    Why: full float precision in saved files produces noisy diffs (~14
+    digits per moved element) that obscure real edits. Integer pixels
+    are visually indistinguishable in the UI but keep diffs readable
+    and round-trips byte-stable.
+    """
+    return round(value)
+
+
 def _serialize_box(box: Box) -> str:
-    x = int(box.x) if box.x == int(box.x) else box.x
-    y = int(box.y) if box.y == int(box.y) else box.y
-    w = int(box.w) if box.w == int(box.w) else box.w
-    h = int(box.h) if box.h == int(box.h) else box.h
+    x = _q(box.x)
+    y = _q(box.y)
+    w = _q(box.w)
+    h = _q(box.h)
     escaped_label = box.label.replace("\n", "\\n")
     s = f'@ box {box.id} "{escaped_label}" {x},{y} {w}x{h}'
     if box.color:
@@ -466,9 +477,9 @@ def _serialize_arrow(arrow: Arrow) -> str:
     base = f"@ arrow {arrow.from_id} {op} {arrow.to_id}"
     if arrow.label:
         base += f' "{arrow.label}"'
-    if arrow.label_dx or arrow.label_dy:
-        dx = int(arrow.label_dx) if arrow.label_dx == int(arrow.label_dx) else arrow.label_dx
-        dy = int(arrow.label_dy) if arrow.label_dy == int(arrow.label_dy) else arrow.label_dy
+    dx = _q(arrow.label_dx)
+    dy = _q(arrow.label_dy)
+    if dx or dy:
         base += f" @{dx},{dy}"
     if arrow.style:
         base += f" !{arrow.style}"
@@ -480,8 +491,8 @@ def _serialize_arrow(arrow: Arrow) -> str:
 
 
 def _serialize_note(note: Note) -> str:
-    x = int(note.x) if note.x == int(note.x) else note.x
-    y = int(note.y) if note.y == int(note.y) else note.y
+    x = _q(note.x)
+    y = _q(note.y)
     use_block = note.block_text or '"' in note.text
     if use_block:
         parts = [f'@ note {note.id} {x},{y} """']
@@ -520,10 +531,10 @@ def _serialize_note(note: Note) -> str:
 
 
 def _serialize_image(image: Image) -> str:
-    x = int(image.x) if image.x == int(image.x) else image.x
-    y = int(image.y) if image.y == int(image.y) else image.y
-    w = int(image.w) if image.w == int(image.w) else image.w
-    h = int(image.h) if image.h == int(image.h) else image.h
+    x = _q(image.x)
+    y = _q(image.y)
+    w = _q(image.w)
+    h = _q(image.h)
     s = f'@ image {image.id} "{image.image_path}" {x},{y} {w}x{h}'
     if image.parent:
         s += f" >{image.parent}"

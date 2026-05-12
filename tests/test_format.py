@@ -1,5 +1,6 @@
 """Tests for grafli.format — .grafli file parsing and serialization."""
 
+import re
 import tempfile
 from pathlib import Path
 
@@ -123,14 +124,20 @@ def test_box_by_id_missing():
 
 
 def test_float_coordinates():
+    """Float coords parse losslessly but serialize quantized to integers.
+
+    Issue #20: the auto-save must not leak ~14 digits of float noise into
+    diffs. Quantization on save makes drags produce 1-line diffs."""
     text = '@ box f "Float" 10.5,20.3 100.0x50.0\n'
     board = parse(text)
+    # parser preserves the input precision
     assert board.boxes[0].x == 10.5
     assert board.boxes[0].y == 20.3
-    # integer-like floats should serialize without decimals
-    assert "100x50" in serialize(board)
-    # true floats should keep decimals
-    assert "10.5,20.3" in serialize(board)
+    out = serialize(board)
+    # integer-like floats serialize without decimals
+    assert "100x50" in out
+    # fractional coords round to integers (no decimals reach the file)
+    assert "." not in out.split('"Float"')[1].split('\n')[0]
 
 
 def test_negative_coordinates():
@@ -1169,11 +1176,11 @@ def test_arrow_label_offset_zero_omitted():
 
 
 def test_arrow_all_fields_with_offset_roundtrip():
-    text = '@ arrow a <-> b "data" @-5,12.5 !dashed ~xxlarge  # check latency\n'
+    text = '@ arrow a <-> b "data" @-5,12 !dashed ~xxlarge  # check latency\n'
     board = parse(text)
     arrow = board.arrows[0]
     assert arrow.label_dx == -5.0
-    assert arrow.label_dy == 12.5
+    assert arrow.label_dy == 12.0
     assert arrow.style == "dashed"
     assert arrow.textsize == "xxlarge"
     assert arrow.annotation == "check latency"
@@ -1181,7 +1188,7 @@ def test_arrow_all_fields_with_offset_roundtrip():
     assert arrow.head_to is True
     # Annotation is parsed but not serialized
     result = serialize(board)
-    assert '@ arrow a <-> b "data" @-5,12.5 !dashed ~xxlarge\n' in result
+    assert '@ arrow a <-> b "data" @-5,12 !dashed ~xxlarge\n' in result
 
 
 def test_arrow_label_offset_negative():
@@ -1427,3 +1434,110 @@ def test_merge_handles_new_box_added_externally():
     merged = merge_box_positions(new_disk, prev_disk, in_memory)
     new_b = next(b for b in merged.boxes if b.id == "b")
     assert (new_b.x, new_b.y) == (300, 300)
+
+
+# ── Coordinate quantization on save (issue #20) ───────────────────
+
+
+def _no_decimals_in_coords(text: str) -> bool:
+    """No fractional coordinates in serialized output.
+
+    Strips quoted string content from each @ line first so decimals in
+    labels (e.g. "ratio > 2.0") don't trip the check — we only care
+    about coordinate / size tokens like 12.5 in `100.5,200`.
+    """
+    for line in text.splitlines():
+        if not line.startswith("@"):
+            continue
+        outside_quotes = re.sub(r'"[^"]*"', "", line)
+        if re.search(r"\d+\.\d+", outside_quotes):
+            return False
+    return True
+
+
+def test_serialize_quantizes_box_floats():
+    """Issue #20: full-precision floats from drags are rounded on save."""
+    board = Board()
+    board.add_box(Box(
+        id="b1", label="X",
+        x=1476.537054409133, y=217.99831588774094,
+        w=160.0, h=89.5001,
+    ))
+    out = serialize(board)
+    assert "1477,218" in out
+    assert "160x90" in out  # 89.5 → 90 via banker's rounding
+    assert _no_decimals_in_coords(out)
+
+
+def test_serialize_quantizes_note_floats():
+    board = Board()
+    board.add_note(Note(id="n1", x=300.72953746, y=-108.89470385, text="hi"))
+    out = serialize(board)
+    assert "301,-109" in out
+    assert _no_decimals_in_coords(out)
+
+
+def test_serialize_quantizes_image_floats():
+    from grafli.format import Image
+    board = Board()
+    board.add_image(Image(
+        id="img1", image_path="x.png",
+        x=10.4, y=20.6, w=100.49, h=50.51,
+    ))
+    out = serialize(board)
+    assert "10,21" in out
+    assert "100x51" in out
+    assert _no_decimals_in_coords(out)
+
+
+def test_serialize_quantizes_arrow_label_offset():
+    board = Board()
+    board.add_arrow(Arrow(
+        from_id="a", to_id="b", label="x",
+        label_dx=10.7, label_dy=-20.3,
+    ))
+    out = serialize(board)
+    assert "@11,-20" in out
+    assert _no_decimals_in_coords(out)
+
+
+def test_serialize_drops_offset_when_both_round_to_zero():
+    """A label_dx/dy that rounds to (0, 0) is omitted entirely."""
+    board = Board()
+    board.add_arrow(Arrow(
+        from_id="a", to_id="b", label="x",
+        label_dx=0.3, label_dy=-0.4,
+    ))
+    out = serialize(board)
+    assert "@0,0" not in out
+    assert "@-0,0" not in out
+
+
+def test_serialize_no_float_noise_in_showcase():
+    """Round-trip on the showcase example produces no float noise."""
+    from pathlib import Path
+    src = Path(__file__).parent.parent / "examples" / "showcase.grafli"
+    if not src.exists():
+        return  # examples are optional in some checkouts
+    board = parse_file(str(src))
+    out = serialize(board)
+    assert _no_decimals_in_coords(out), \
+        "Serialized showcase still contains fractional coords"
+
+
+def test_double_roundtrip_byte_stable():
+    """parse → serialize → parse → serialize is byte-stable.
+
+    The first serialize is allowed to quantize; the second must produce
+    an identical byte sequence."""
+    text = (
+        '#!grafli v1\n'
+        '@ box auth "Auth" 1476.537054409133,217.99831588774094 160x89.5\n'
+        '@ note n1 -300.72,-108.89 "hi"\n'
+        '@ image img1 "p.png" 10.4,20.6 100.49x50.51\n'
+        '@ arrow auth -> auth "loop" @10.7,-20.3\n'
+    )
+    once = serialize(parse(text))
+    twice = serialize(parse(once))
+    assert once == twice
+    assert _no_decimals_in_coords(once)

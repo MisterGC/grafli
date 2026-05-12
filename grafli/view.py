@@ -2006,7 +2006,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         text = path.read_text(encoding="utf-8")
         self._zen_editor = ZenMarkdownEditor(
             parent=self.window(), text=text, title=path.name,
-            file_path=path, anchor=anchor,
+            file_path=path, anchor=anchor, canvas=self,
         )
         self._zen_editor.cancelled.connect(self._cancel_zen_edit)
 
@@ -5233,9 +5233,10 @@ return out  @parser.py:44</div>
         return f"""
         <p style='{hdr}'>MARKDOWN EDITOR (ZEN MODE)</p>
         <p>Opens when you follow a link to a local <span style='{mono}'>.md</span>
-        file from a node URL, or when you edit an annotation. Read-only for
-        files by default so you can browse without accidental edits; toggle
-        write mode with <b>Ctrl+W</b>. Annotation edits start in write mode.</p>
+        file from a node URL, or when you edit an annotation. The corner pill
+        shows the current perspective (<b>READ</b> or <b>EDIT</b>); files start
+        read-only so browsing never edits by accident. Toggle with <b>Ctrl+W</b>.
+        Annotation edits start in write mode.</p>
 
         <p style='{kw}'>Session</p>
         <table cellpadding='2' style='margin-left:8px'>
@@ -5305,10 +5306,12 @@ return out  @parser.py:44</div>
         mode (no focus paragraph) so the whole document reads as one piece.</p>
 
         <p style='{kw}'>Layout</p>
-        <p>The editor opens as a modal card occupying 80% of the window
-        with the graph dimly visible behind &mdash; you stay in grafli,
-        just focused on the text. Content is centered with a max width of
-        about 700&nbsp;px regardless of window size, so lines stay readable.</p>
+        <p>The editor opens as a centered modal card with a drop shadow.
+        The dim wash falls over grafli's chrome (toolbars, side panel,
+        minimap) but spares the graph canvas, so the diagram you're
+        annotating stays fully saturated behind the card. Card width hugs
+        the text column (max ≈700&nbsp;px) so lines stay readable
+        regardless of window size.</p>
         """
 
     def _show_graph_stats_dialog(self):

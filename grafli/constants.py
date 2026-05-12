@@ -156,10 +156,12 @@ ZEN_MD_SYNTAX_COLOR = QColor("#B8B3AB")
 ZEN_MD_FONT_SIZE = 16
 ZEN_MD_FONT_SIZE_MIN = 10
 ZEN_MD_FONT_SIZE_MAX = 32
-# Modal card occupies 80% × 80% of the parent; rest is dim wash so the
-# graph stays faintly visible behind.
-ZEN_MD_CARD_W_RATIO = 0.80
-ZEN_MD_CARD_H_RATIO = 0.80
+# Modal card: width hugs the text column, height takes most of the window.
+# Card chrome strips (the area outside the canvas) get the dim wash so the
+# graph canvas itself stays fully saturated.
+ZEN_MD_CARD_INNER_PAD_H = 64
+ZEN_MD_CARD_INNER_PAD_V = 40
+ZEN_MD_CARD_H_RATIO = 0.85
 ZEN_MD_CARD_RADIUS = 12
 ZEN_MD_DIM_COLOR = QColor(0, 0, 0, 115)  # ≈ 0.45 alpha
 

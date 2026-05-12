@@ -5,7 +5,17 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QFileSystemWatcher, QRectF, QSettings, Qt, Signal, QTimer
+from PySide6.QtCore import (
+    QEvent,
+    QFileSystemWatcher,
+    QPoint,
+    QRect,
+    QRectF,
+    QSettings,
+    Qt,
+    Signal,
+    QTimer,
+)
 from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QKeyEvent, QPainter, QPen
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
@@ -15,8 +25,9 @@ from grafli.constants import (
     ZEN_HINT_COLOR,
     ZEN_MD_BG,
     ZEN_MD_CARD_H_RATIO,
+    ZEN_MD_CARD_INNER_PAD_H,
+    ZEN_MD_CARD_INNER_PAD_V,
     ZEN_MD_CARD_RADIUS,
-    ZEN_MD_CARD_W_RATIO,
     ZEN_MD_DIM_COLOR,
     ZEN_MD_FONT_SIZE,
     ZEN_MD_FONT_SIZE_MAX,
@@ -45,6 +56,7 @@ class ZenMarkdownEditor(QWidget):
         title: str = "",
         file_path: Path | None = None,
         anchor: str = "",
+        canvas: QWidget | None = None,
     ):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -58,6 +70,9 @@ class ZenMarkdownEditor(QWidget):
         self._read_only = file_path is not None
         self._watcher = None
         self._autosave_timer: QTimer | None = None
+        # The graph canvas widget — the dim wash skips over this rect so
+        # the graph itself stays fully saturated while UI chrome dims.
+        self._canvas = canvas
 
         # Load persisted font size preference
         settings = QSettings("Grafli", "Grafli")
@@ -148,16 +163,8 @@ class ZenMarkdownEditor(QWidget):
         self._update_focus()
 
     def _build_hint_text(self) -> str:
-        parts = []
-        if self._file_path:
-            if self._read_only:
-                parts.append("[READ-ONLY \u00b7 Ctrl+W to edit]")
-            else:
-                parts.append("[EDITING \u00b7 Ctrl+W to lock]")
         mode_name = self._vim.mode.value if hasattr(self, "_vim") else "NORMAL"
-        parts.append(f"-- {mode_name} --")
-        parts.append("Esc to save \u00b7 Shift+Esc to cancel")
-        return "  ".join(parts)
+        return f"-- {mode_name} --  Esc to save \u00b7 Shift+Esc to cancel"
 
     def _on_mode_changed(self, mode: VimMode):
         self._hint.setText(self._build_hint_text())
@@ -288,61 +295,154 @@ class ZenMarkdownEditor(QWidget):
     # ── Modal card geometry ──
 
     def _card_rect(self) -> QRectF:
-        """80% × 80% rect centered in the widget — the writing surface."""
-        w = self.width() * ZEN_MD_CARD_W_RATIO
-        h = self.height() * ZEN_MD_CARD_H_RATIO
+        """Card width hugs the text column (ZEN_MD_MAX_WIDTH + padding);
+        height takes most of the window. Centered.
+        """
+        desired_w = ZEN_MD_MAX_WIDTH + 2 * ZEN_MD_CARD_INNER_PAD_H
+        max_w = max(self.width() - 80, 320)
+        w = min(desired_w, max_w)
+        h = min(self.height() * ZEN_MD_CARD_H_RATIO, self.height() - 60)
         x = (self.width() - w) / 2
         y = (self.height() - h) / 2
         return QRectF(x, y, w, h)
 
     def _apply_card_margins(self, layout):
-        """Anchor layout margins inside the modal card with comfortable
-        padding, while keeping content width ≤ ZEN_MD_MAX_WIDTH."""
+        """Anchor layout margins inside the card with comfortable padding."""
         card = self._card_rect()
-        side = self.width() - card.right()  # symmetric outer gap to card right
-        inner_h = max((card.width() - ZEN_MD_MAX_WIDTH) / 2, 24)
-        h_margin = int(side + inner_h)
-        v_margin = int((self.height() - card.height()) / 2 + 32)
-        layout.setContentsMargins(h_margin, v_margin, h_margin, v_margin)
+        h_outside = (self.width() - card.width()) / 2
+        v_outside = (self.height() - card.height()) / 2
+        layout.setContentsMargins(
+            int(h_outside + ZEN_MD_CARD_INNER_PAD_H),
+            int(v_outside + ZEN_MD_CARD_INNER_PAD_V),
+            int(h_outside + ZEN_MD_CARD_INNER_PAD_H),
+            int(v_outside + ZEN_MD_CARD_INNER_PAD_V),
+        )
+
+    def _canvas_rect_in_self(self) -> QRect | None:
+        """Return the canvas widget's geometry in this widget's coord space,
+        or None if no canvas was supplied / it isn't visible.
+        """
+        if not self._canvas or not self._canvas.isVisible():
+            return None
+        top_left = self.mapFromGlobal(self._canvas.mapToGlobal(QPoint(0, 0)))
+        return QRect(top_left, self._canvas.size())
 
     # ── Paint ──
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # Dim wash across the full widget — graph stays faintly visible.
-        p.fillRect(self.rect(), ZEN_MD_DIM_COLOR)
-        # Solid writing card centered at 80% × 80%.
+
+        # Dim wash — but skip the canvas rect so the graph stays saturated.
+        canvas = self._canvas_rect_in_self()
+        full = self.rect()
+        if canvas is None or not full.intersects(canvas):
+            p.fillRect(full, ZEN_MD_DIM_COLOR)
+        else:
+            clipped = canvas.intersected(full)
+            # Four strips around the canvas — only the chrome dims.
+            if clipped.top() > full.top():
+                p.fillRect(
+                    QRect(full.left(), full.top(),
+                          full.width(), clipped.top() - full.top()),
+                    ZEN_MD_DIM_COLOR,
+                )
+            if clipped.bottom() < full.bottom():
+                p.fillRect(
+                    QRect(full.left(), clipped.bottom() + 1,
+                          full.width(), full.bottom() - clipped.bottom()),
+                    ZEN_MD_DIM_COLOR,
+                )
+            if clipped.left() > full.left():
+                p.fillRect(
+                    QRect(full.left(), clipped.top(),
+                          clipped.left() - full.left(), clipped.height()),
+                    ZEN_MD_DIM_COLOR,
+                )
+            if clipped.right() < full.right():
+                p.fillRect(
+                    QRect(clipped.right() + 1, clipped.top(),
+                          full.right() - clipped.right(), clipped.height()),
+                    ZEN_MD_DIM_COLOR,
+                )
+
+        # Drop shadow, then the solid writing card on top.
         card = self._card_rect()
+        self._paint_card_shadow(p, card)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(ZEN_MD_BG))
         p.drawRoundedRect(card, ZEN_MD_CARD_RADIUS, ZEN_MD_CARD_RADIUS)
-        # Read-only indicator in the corner — quiet but always visible.
-        if self._read_only and self._file_path:
-            self._paint_readonly_badge(p, card)
+
+        # Mode pill (READ / EDIT) in the corner — always shown in file mode.
+        if self._file_path:
+            self._paint_mode_badge(p, card)
         p.end()
 
-    def _paint_readonly_badge(self, painter: QPainter, card: QRectF):
-        """Subtle READ-ONLY pill in the card's top-right corner."""
-        badge_font = QFont(FONT_FAMILY, 9, QFont.Weight.DemiBold)
-        fm = QFontMetricsF(badge_font)
-        text = "READ-ONLY"
-        text_w = fm.horizontalAdvance(text)
-        pad_h, pad_v = 10, 3
-        plate_w = text_w + pad_h * 2
-        plate_h = fm.height() + pad_v * 2
-        plate = QRectF(
-            card.right() - plate_w - 14,
-            card.top() + 14,
-            plate_w,
-            plate_h,
-        )
+    def _paint_card_shadow(self, painter: QPainter, card: QRectF):
+        """Soft drop shadow around the card. Painted before the card; the
+        opaque card covers the inside, so only the spillover at the edges
+        shows. Layers stack outward with decreasing alpha, biased downward
+        for gravity.
+        """
+        drop = 6  # downward bias
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor("#E0DBD2")))
-        painter.drawRoundedRect(plate, plate_h / 2, plate_h / 2)
-        painter.setFont(badge_font)
+        for i in range(1, 14):
+            alpha = 20 - i * 2
+            if alpha <= 0:
+                break
+            painter.setBrush(QBrush(QColor(0, 0, 0, alpha)))
+            shadow = QRectF(
+                card.left() - i,
+                card.top() - i + drop // 2,
+                card.width() + 2 * i,
+                card.height() + 2 * i + drop // 2,
+            )
+            painter.drawRoundedRect(
+                shadow, ZEN_MD_CARD_RADIUS + i, ZEN_MD_CARD_RADIUS + i,
+            )
+
+    def _paint_mode_badge(self, painter: QPainter, card: QRectF):
+        """Mode pill (READ or EDIT) plus a Ctrl+W toggle hint underneath."""
+        is_edit = not self._read_only
+        if is_edit:
+            plate_color = QColor("#D8E0EA")
+            text_color = ZEN_TITLE_COLOR
+            label = "EDIT"
+        else:
+            plate_color = QColor("#E0DBD2")
+            text_color = ZEN_HINT_COLOR
+            label = "READ"
+
+        pill_font = QFont(FONT_FAMILY, 10, QFont.Weight.Bold)
+        fm_pill = QFontMetricsF(pill_font)
+        pad_h, pad_v = 14, 4
+        plate_w = max(fm_pill.horizontalAdvance(label) + pad_h * 2, 64)
+        plate_h = fm_pill.height() + pad_v * 2
+        pill_x = card.right() - plate_w - 14
+        pill_y = card.top() + 14
+        pill = QRectF(pill_x, pill_y, plate_w, plate_h)
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(plate_color))
+        painter.drawRoundedRect(pill, plate_h / 2, plate_h / 2)
+        painter.setFont(pill_font)
+        painter.setPen(QPen(text_color))
+        painter.drawText(pill, int(Qt.AlignmentFlag.AlignCenter), label)
+
+        # Subtitle: small "Ctrl+W toggle" centered under the pill.
+        sub_font = QFont(FONT_FAMILY, 8)
+        fm_sub = QFontMetricsF(sub_font)
+        sub_label = "Ctrl+W toggle"
+        sub_w = fm_sub.horizontalAdvance(sub_label)
+        sub_rect = QRectF(
+            pill_x + (plate_w - sub_w) / 2,
+            pill_y + plate_h + 3,
+            sub_w,
+            fm_sub.height(),
+        )
+        painter.setFont(sub_font)
         painter.setPen(QPen(ZEN_HINT_COLOR))
-        painter.drawText(plate, int(Qt.AlignmentFlag.AlignCenter), text)
+        painter.drawText(sub_rect, int(Qt.AlignmentFlag.AlignCenter), sub_label)
 
     # ── Resize tracking ──
 

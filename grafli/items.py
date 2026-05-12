@@ -90,13 +90,24 @@ _CODE_KIND_COLORS = {
 
 
 def _paint_link_glyph(painter: QPainter, rect: QRectF):
-    """Paint a subtle link icon at the top-right corner of *rect*."""
-    color = QColor("#D4804E")
-    color.setAlphaF(0.6)
-    painter.setPen(QPen(color, 1.2))
+    """Paint a link icon at the top-right of *rect*, on a small label-style
+    plate so it stays legible regardless of box fill color.
+    """
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    # Plate — mirrors BoxLabelItem's background plate.
+    plate = QRectF(rect.right() - 17, rect.top() + 2, 14, 11)
+    bg = QColor("#F2F0EB")
+    bg.setAlphaF(0.6)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(bg))
+    painter.drawRoundedRect(plate, 4, 4)
+
+    # Chain glyph — same color as label text, full alpha (plate carries contrast).
+    painter.setPen(QPen(QColor("#2F3437"), 1.2))
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    cx = rect.right() - 8
-    cy = rect.top() + 8
+    cx = plate.center().x()
+    cy = plate.center().y()
     r1 = QRectF(cx - 4, cy - 3, 6, 4)
     r2 = QRectF(cx - 2, cy - 1, 6, 4)
     painter.drawRoundedRect(r1, 1.5, 1.5)

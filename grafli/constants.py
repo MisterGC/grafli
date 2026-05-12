@@ -163,8 +163,8 @@ ZEN_MD_CARD_INNER_PAD_H = 64
 ZEN_MD_CARD_INNER_PAD_V = 40
 ZEN_MD_CARD_H_RATIO = 0.85
 ZEN_MD_CARD_RADIUS = 12
-ZEN_MD_DIM_COLOR = QColor(0, 0, 0, 115)        # chrome — full wash
-ZEN_MD_CANVAS_DIM_COLOR = QColor(0, 0, 0, 55)  # canvas — gentle, keeps graph readable
+ZEN_MD_DIM_COLOR = QColor(0, 0, 0, 115)         # chrome — full wash
+ZEN_MD_CANVAS_DIM_COLOR = QColor(0, 0, 0, 120)  # canvas — strong step-back
 
 # ── Side panel ───────────────────────────────────────────────────
 SIDE_PANEL_WIDTH = 180

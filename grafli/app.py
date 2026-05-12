@@ -684,6 +684,9 @@ class MainWindow(QMainWindow):
                 elif reply == QMessageBox.StandardButton.Cancel:
                     event.ignore()
                     return
+        QSettings("Grafli", "Grafli").setValue(
+            "window/geometry", self.saveGeometry(),
+        )
         self._stop_watching()
         super().closeEvent(event)
 
@@ -1233,12 +1236,24 @@ def main():
     tick.timeout.connect(lambda: None)
 
     window = MainWindow(args.file, debug=args.debug)
-    # Pin to primary screen so a sleeping/disconnected external display
-    # cannot swallow the window via macOS's cached window frame.
-    primary = app.primaryScreen()
-    if primary is not None:
-        window.setGeometry(primary.availableGeometry())
-    window.showMaximized()
+    # Restore saved geometry if it lands on a currently-attached screen;
+    # otherwise fall back to maximized on the primary screen so a sleeping
+    # or disconnected external display can't swallow the window.
+    restored = False
+    saved_geom = QSettings("Grafli", "Grafli").value("window/geometry")
+    if saved_geom is not None and window.restoreGeometry(saved_geom):
+        frame = window.frameGeometry()
+        if any(
+            s.availableGeometry().intersects(frame) for s in app.screens()
+        ):
+            restored = True
+    if not restored:
+        primary = app.primaryScreen()
+        if primary is not None:
+            window.setGeometry(primary.availableGeometry())
+        window.showMaximized()
+    else:
+        window.show()
 
     # Single-instance server
     server = QLocalServer()

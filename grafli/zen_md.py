@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QFileSystemWatcher, QSettings, Qt, Signal, QTimer
-from PySide6.QtGui import QFont, QKeyEvent, QPainter
+from PySide6.QtCore import QEvent, QFileSystemWatcher, QRectF, QSettings, Qt, Signal, QTimer
+from PySide6.QtGui import QBrush, QFont, QKeyEvent, QPainter
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
 
@@ -14,6 +14,10 @@ from grafli.constants import (
     FONT_FAMILY,
     ZEN_HINT_COLOR,
     ZEN_MD_BG,
+    ZEN_MD_CARD_H_RATIO,
+    ZEN_MD_CARD_RADIUS,
+    ZEN_MD_CARD_W_RATIO,
+    ZEN_MD_DIM_COLOR,
     ZEN_MD_FONT_SIZE,
     ZEN_MD_FONT_SIZE_MAX,
     ZEN_MD_FONT_SIZE_MIN,
@@ -44,6 +48,10 @@ class ZenMarkdownEditor(QWidget):
     ):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        # Translucent so the dim wash painted in paintEvent composites over
+        # the parent's content (the graph) instead of obscuring it.
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAutoFillBackground(False)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._file_path = file_path
         self._original_text = text
@@ -71,9 +79,7 @@ class ZenMarkdownEditor(QWidget):
 
     def _build_ui(self, title: str, text: str):
         layout = QVBoxLayout(self)
-        h_margin = max((self.width() - ZEN_MD_MAX_WIDTH) // 2, 60)
-        v_margin = max(self.height() // 8, 40)
-        layout.setContentsMargins(h_margin, v_margin, h_margin, v_margin)
+        self._apply_card_margins(layout)
         layout.setSpacing(8)
 
         # Title
@@ -145,9 +151,9 @@ class ZenMarkdownEditor(QWidget):
         parts = []
         if self._file_path:
             if self._read_only:
-                parts.append("[READ-ONLY]")
+                parts.append("[READ-ONLY \u00b7 Ctrl+W to edit]")
             else:
-                parts.append("[EDITING]")
+                parts.append("[EDITING \u00b7 Ctrl+W to lock]")
         mode_name = self._vim.mode.value if hasattr(self, "_vim") else "NORMAL"
         parts.append(f"-- {mode_name} --")
         parts.append("Esc to save \u00b7 Shift+Esc to cancel")
@@ -278,11 +284,39 @@ class ZenMarkdownEditor(QWidget):
             self._editor.print_(printer)
         self._highlighter.set_focus_enabled(True)
 
+    # ── Modal card geometry ──
+
+    def _card_rect(self) -> QRectF:
+        """80% × 80% rect centered in the widget — the writing surface."""
+        w = self.width() * ZEN_MD_CARD_W_RATIO
+        h = self.height() * ZEN_MD_CARD_H_RATIO
+        x = (self.width() - w) / 2
+        y = (self.height() - h) / 2
+        return QRectF(x, y, w, h)
+
+    def _apply_card_margins(self, layout):
+        """Anchor layout margins inside the modal card with comfortable
+        padding, while keeping content width ≤ ZEN_MD_MAX_WIDTH."""
+        card = self._card_rect()
+        side = self.width() - card.right()  # symmetric outer gap to card right
+        inner_h = max((card.width() - ZEN_MD_MAX_WIDTH) / 2, 24)
+        h_margin = int(side + inner_h)
+        v_margin = int((self.height() - card.height()) / 2 + 32)
+        layout.setContentsMargins(h_margin, v_margin, h_margin, v_margin)
+
     # ── Paint ──
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.fillRect(self.rect(), ZEN_MD_BG)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # Dim wash across the full widget — graph stays faintly visible.
+        p.fillRect(self.rect(), ZEN_MD_DIM_COLOR)
+        # Solid writing card centered at 80% × 80%.
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(ZEN_MD_BG))
+        p.drawRoundedRect(
+            self._card_rect(), ZEN_MD_CARD_RADIUS, ZEN_MD_CARD_RADIUS,
+        )
         p.end()
 
     # ── Resize tracking ──
@@ -291,9 +325,7 @@ class ZenMarkdownEditor(QWidget):
         super().resizeEvent(event)
         layout = self.layout()
         if layout:
-            h_margin = max((self.width() - ZEN_MD_MAX_WIDTH) // 2, 60)
-            v_margin = max(self.height() // 8, 40)
-            layout.setContentsMargins(h_margin, v_margin, h_margin, v_margin)
+            self._apply_card_margins(layout)
 
     def _parent_resized(self):
         parent = self.parentWidget()

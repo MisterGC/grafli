@@ -16,7 +16,16 @@ from PySide6.QtCore import (
     Signal,
     QTimer,
 )
-from PySide6.QtGui import QBrush, QColor, QFont, QKeyEvent, QPainter
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QKeyEvent,
+    QPainter,
+    QTextBlockFormat,
+    QTextCursor,
+)
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import QPlainTextEdit, QVBoxLayout, QWidget
 
@@ -120,6 +129,11 @@ class ZenMarkdownEditor(QWidget):
         if self._read_only:
             self._highlighter.set_focus_enabled(False)
 
+        # Heading gutter — `#` markers hang to the left of body text.
+        self._applying_layout = False
+        self._apply_heading_layout()
+        self._editor.textChanged.connect(self._on_text_changed_layout)
+
         # Vim key handler
         self._vim = VimKeyHandler(
             editor=self._editor,
@@ -190,6 +204,55 @@ class ZenMarkdownEditor(QWidget):
                 return
             block = block.next()
 
+    # ── Heading-gutter layout ──
+
+    _RE_HEADING_PREFIX = re.compile(r"^(#{1,3})\s+")
+
+    def _gutter_metrics(self) -> tuple[float, float]:
+        """Return (char_width, gutter_width). Gutter fits the longest
+        heading marker (`### ` = 4 chars).
+        """
+        char_w = QFontMetricsF(self._editor.font()).horizontalAdvance(" ")
+        return char_w, char_w * 4
+
+    def _apply_block_layout(self, block) -> None:
+        """Set the block's leftMargin/textIndent so heading `#`s hang in
+        the gutter and heading text aligns with body text.
+        """
+        char_w, gutter = self._gutter_metrics()
+        m = self._RE_HEADING_PREFIX.match(block.text())
+        fmt = QTextBlockFormat()
+        fmt.setLeftMargin(gutter)
+        if m:
+            level = len(m.group(1))
+            fmt.setTextIndent(-char_w * (level + 1))
+        else:
+            fmt.setTextIndent(0)
+        current = block.blockFormat()
+        if (current.leftMargin() == fmt.leftMargin()
+                and current.textIndent() == fmt.textIndent()):
+            return
+        cursor = QTextCursor(block)
+        self._applying_layout = True
+        try:
+            cursor.setBlockFormat(fmt)
+        finally:
+            self._applying_layout = False
+
+    def _apply_heading_layout(self) -> None:
+        """Apply heading-gutter layout to every block in the document."""
+        doc = self._editor.document()
+        block = doc.firstBlock()
+        while block.isValid():
+            self._apply_block_layout(block)
+            block = block.next()
+
+    def _on_text_changed_layout(self) -> None:
+        """Re-apply layout to the block under the cursor on every edit."""
+        if self._applying_layout:
+            return
+        self._apply_block_layout(self._editor.textCursor().block())
+
     # ── File watching & autosave ──
 
     def _setup_file_watcher(self):
@@ -209,6 +272,7 @@ class ZenMarkdownEditor(QWidget):
         cursor_pos = self._editor.textCursor().position()
         text = p.read_text(encoding="utf-8")
         self._editor.setPlainText(text)
+        self._apply_heading_layout()
         cursor = self._editor.textCursor()
         cursor.setPosition(min(cursor_pos, len(text)))
         self._editor.setTextCursor(cursor)
@@ -462,6 +526,8 @@ class ZenMarkdownEditor(QWidget):
         self._font_size = new_size
         self._editor.setFont(QFont(FONT_FAMILY, self._font_size))
         self._highlighter.set_base_size(self._font_size)
+        # Gutter width is char-based; re-apply after font change.
+        self._apply_heading_layout()
         QSettings("Grafli", "Grafli").setValue(
             "zen_md/font_size", self._font_size
         )

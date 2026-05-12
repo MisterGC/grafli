@@ -5233,10 +5233,10 @@ return out  @parser.py:44</div>
         return f"""
         <p style='{hdr}'>MARKDOWN EDITOR (ZEN MODE)</p>
         <p>Opens when you follow a link to a local <span style='{mono}'>.md</span>
-        file from a node URL, or when you edit an annotation. The corner pill
-        shows the current perspective (<b>READ</b> or <b>EDIT</b>); files start
-        read-only so browsing never edits by accident. Toggle with <b>Ctrl+W</b>.
-        Annotation edits start in write mode.</p>
+        file from a node URL, or when you edit an annotation. Pure text, no
+        chrome &mdash; the shortcuts below are the controls. Files open
+        read-only so browsing never edits by accident; toggle with
+        <b>Ctrl+W</b>. Annotation edits start in write mode.</p>
 
         <p style='{kw}'>Session</p>
         <table cellpadding='2' style='margin-left:8px'>
@@ -5309,9 +5309,9 @@ return out  @parser.py:44</div>
         <p>The editor opens as a centered modal card with a drop shadow.
         The dim wash falls over grafli's chrome (toolbars, side panel,
         minimap) but spares the graph canvas, so the diagram you're
-        annotating stays fully saturated behind the card. Card width hugs
-        the text column (max ≈700&nbsp;px) so lines stay readable
-        regardless of window size.</p>
+        annotating stays fully saturated behind the card. The card holds
+        just the text &mdash; no title, no hint bar, no badges. Card width
+        hugs the text column (max ≈700&nbsp;px).</p>
         """
 
     def _show_graph_stats_dialog(self):

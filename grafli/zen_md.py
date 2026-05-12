@@ -16,13 +16,12 @@ from PySide6.QtCore import (
     Signal,
     QTimer,
 )
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QKeyEvent, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QKeyEvent, QPainter
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
-from PySide6.QtWidgets import QLabel, QPlainTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QPlainTextEdit, QVBoxLayout, QWidget
 
 from grafli.constants import (
     FONT_FAMILY,
-    ZEN_HINT_COLOR,
     ZEN_MD_BG,
     ZEN_MD_CARD_H_RATIO,
     ZEN_MD_CARD_INNER_PAD_H,
@@ -34,7 +33,6 @@ from grafli.constants import (
     ZEN_MD_FONT_SIZE_MIN,
     ZEN_MD_MAX_WIDTH,
     ZEN_TEXT_COLOR,
-    ZEN_TITLE_COLOR,
     _CTRL_MOD,
 )
 from grafli.zen_md_highlight import MarkdownHighlighter, compute_focus_range
@@ -95,20 +93,10 @@ class ZenMarkdownEditor(QWidget):
     def _build_ui(self, title: str, text: str):
         layout = QVBoxLayout(self)
         self._apply_card_margins(layout)
-        layout.setSpacing(8)
+        layout.setSpacing(0)
 
-        # Title
-        if title:
-            self._title = QLabel(title)
-            self._title.setFont(QFont(FONT_FAMILY, 11, QFont.Weight.Bold))
-            self._title.setStyleSheet(
-                f"color: {ZEN_TITLE_COLOR.name()}; background: transparent;"
-            )
-            layout.addWidget(self._title)
-        else:
-            self._title = None
-
-        # Text editor
+        # Pure text — no title, no hint bar, no badges. Discoverability
+        # lives in F1 help; the card is just the writing surface.
         self._editor = QPlainTextEdit(text)
         self._editor.setFont(QFont(FONT_FAMILY, self._font_size))
         self._editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
@@ -116,7 +104,7 @@ class ZenMarkdownEditor(QWidget):
         self._editor.setStyleSheet(
             f"QPlainTextEdit {{"
             f" background: {ZEN_MD_BG.name()}; color: {ZEN_TEXT_COLOR.name()};"
-            f" border: none; padding: 16px;"
+            f" border: none; padding: 0px;"
             f" selection-background-color: #B8D4E8;"
             f"}}"
         )
@@ -124,15 +112,6 @@ class ZenMarkdownEditor(QWidget):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         layout.addWidget(self._editor, stretch=1)
-
-        # Hint bar
-        self._hint = QLabel(self._build_hint_text())
-        self._hint.setFont(QFont(FONT_FAMILY, 10))
-        self._hint.setStyleSheet(
-            f"color: {ZEN_HINT_COLOR.name()}; background: transparent;"
-        )
-        self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._hint)
 
         # Markdown highlighter + paragraph focus (disabled in read-only mode)
         self._highlighter = MarkdownHighlighter(self._editor.document())
@@ -162,12 +141,7 @@ class ZenMarkdownEditor(QWidget):
         self._editor.setTextCursor(cursor)
         self._update_focus()
 
-    def _build_hint_text(self) -> str:
-        mode_name = self._vim.mode.value if hasattr(self, "_vim") else "NORMAL"
-        return f"-- {mode_name} --  Esc to save \u00b7 Shift+Esc to cancel"
-
     def _on_mode_changed(self, mode: VimMode):
-        self._hint.setText(self._build_hint_text())
         # Disable macOS input method in normal mode to prevent IMK
         # interference with auto-repeat key events.
         self._editor.setAttribute(
@@ -268,8 +242,6 @@ class ZenMarkdownEditor(QWidget):
             self._autosave_timer.timeout.connect(self._autosave)
             self._editor.textChanged.connect(self._schedule_autosave)
         self._vim._set_mode(VimMode.NORMAL)
-        self._hint.setText(self._build_hint_text())
-        self.update()  # repaint to add/remove the READ-ONLY badge
 
     def _schedule_autosave(self):
         if self._autosave_timer:
@@ -373,9 +345,6 @@ class ZenMarkdownEditor(QWidget):
         p.setBrush(QBrush(ZEN_MD_BG))
         p.drawRoundedRect(card, ZEN_MD_CARD_RADIUS, ZEN_MD_CARD_RADIUS)
 
-        # Mode pill (READ / EDIT) in the corner — always shown in file mode.
-        if self._file_path:
-            self._paint_mode_badge(p, card)
         p.end()
 
     def _paint_card_shadow(self, painter: QPainter, card: QRectF):
@@ -401,48 +370,6 @@ class ZenMarkdownEditor(QWidget):
                 shadow, ZEN_MD_CARD_RADIUS + i, ZEN_MD_CARD_RADIUS + i,
             )
 
-    def _paint_mode_badge(self, painter: QPainter, card: QRectF):
-        """Mode pill (READ or EDIT) plus a Ctrl+W toggle hint underneath."""
-        is_edit = not self._read_only
-        if is_edit:
-            plate_color = QColor("#D8E0EA")
-            text_color = ZEN_TITLE_COLOR
-            label = "EDIT"
-        else:
-            plate_color = QColor("#E0DBD2")
-            text_color = ZEN_HINT_COLOR
-            label = "READ"
-
-        pill_font = QFont(FONT_FAMILY, 10, QFont.Weight.Bold)
-        fm_pill = QFontMetricsF(pill_font)
-        pad_h, pad_v = 14, 4
-        plate_w = max(fm_pill.horizontalAdvance(label) + pad_h * 2, 64)
-        plate_h = fm_pill.height() + pad_v * 2
-        pill_x = card.right() - plate_w - 14
-        pill_y = card.top() + 14
-        pill = QRectF(pill_x, pill_y, plate_w, plate_h)
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(plate_color))
-        painter.drawRoundedRect(pill, plate_h / 2, plate_h / 2)
-        painter.setFont(pill_font)
-        painter.setPen(QPen(text_color))
-        painter.drawText(pill, int(Qt.AlignmentFlag.AlignCenter), label)
-
-        # Subtitle: small "Ctrl+W toggle" centered under the pill.
-        sub_font = QFont(FONT_FAMILY, 8)
-        fm_sub = QFontMetricsF(sub_font)
-        sub_label = "Ctrl+W toggle"
-        sub_w = fm_sub.horizontalAdvance(sub_label)
-        sub_rect = QRectF(
-            pill_x + (plate_w - sub_w) / 2,
-            pill_y + plate_h + 3,
-            sub_w,
-            fm_sub.height(),
-        )
-        painter.setFont(sub_font)
-        painter.setPen(QPen(ZEN_HINT_COLOR))
-        painter.drawText(sub_rect, int(Qt.AlignmentFlag.AlignCenter), sub_label)
 
     # ── Resize tracking ──
 

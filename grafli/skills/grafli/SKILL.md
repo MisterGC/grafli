@@ -40,9 +40,14 @@ any `@ box` / `@ arrow` / `@ note` lines:
 6. **Arrows last.** Every arrow gets a label unless its meaning is
    obvious from context. Use semantic edge prefixes (`call:`, `data:`,
    `event:`, etc.) where they fit.
-7. **Notes for the human.** Add `T:` tasks, `Q:` questions, `code:`
-   notes for review-oriented detail. Don't dump prose on the canvas —
-   notes are headlines, not paragraphs.
+7. **Notes for the human.** Add `T:` tasks and `Q:` questions as
+   short headlines next to the relevant node. For pseudocode,
+   assertion lists, behavioral specs, sequence sketches, or any
+   other multi-line detail, use a `code:` note — that's the right
+   home for content too long for a box label. **Never inline that
+   detail into a box label itself.** Boxes are identifiers; notes
+   are bodies. If you find yourself writing more than a short phrase
+   inside a `@ box` label, stop and move it to a note.
 8. **Re-read.** Pretend you're the user opening the file: does the
    eye land on the right entry point? Are arrows crossing? If yes,
    reposition before saving — repositioning beats decoration.
@@ -160,6 +165,16 @@ explicitly on top-level containers for a more prominent heading.
 Child positions use absolute coordinates — see the container layout
 model in the design principles below.
 
+**Boxes are identifiers, not bodies.** A box label should be the
+shortest phrase that names the node — typically one line, two at
+most. If you're tempted to add bullet points, pseudocode,
+behavioral detail, or a multi-paragraph description inside a box
+label, that content belongs in a `code:` or plain note next to the
+box — not inside it. Notes carry distinct visual affordances (badge
+colours for `T:` / `Q:`, handwriting font, syntax-styled `code:`
+rendering) that you forfeit by inlining the detail. The shape of
+your diagram is the graph; the detail lives in notes adjacent to it.
+
 ## Arrow syntax
 
 ```
@@ -229,6 +244,14 @@ language for summarizing implementations in review-oriented diagrams.
 Goal: a reviewer can verify in seconds that an implementation covers
 the expected steps, branches, and side effects — without opening the
 source.
+
+`code:` notes are the right home for any multi-line detail you might
+otherwise be tempted to cram into a box label: assertion lists,
+phase checklists, configuration snippets, behavioral specs, sequence
+sketches. The syntax-styled rendering (bold signature line, indent
+guides, coloured keywords) gives that content a distinct visual voice
+the diagram needs — flat text inside a box label is a regression in
+both readability and review value.
 
 #### Layout
 
@@ -782,6 +805,11 @@ viewer follows the link.
 * **Orphaned elements**: boxes floating far from their logical group
   look accidental — keep related items close and aligned.
 * **Undersized boxes**: a box should comfortably fit its label.
+* **Text bodies inside box labels**: bullet lists, pseudocode,
+  assertion checklists, multi-paragraph descriptions belong in a
+  `code:` or plain note next to the box, not crammed into the box
+  label. If a box label needs more than a short phrase to identify
+  the node, the extra content is a note opportunity.
 
 ---
 

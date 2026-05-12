@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 from grafli.constants import (
     FONT_FAMILY,
     ZEN_MD_BG,
+    ZEN_MD_CANVAS_DIM_COLOR,
     ZEN_MD_CARD_H_RATIO,
     ZEN_MD_CARD_INNER_PAD_H,
     ZEN_MD_CARD_INNER_PAD_V,
@@ -179,7 +180,7 @@ class ZenMarkdownEditor(QWidget):
 
     def _start_fade_in(self):
         anim = QPropertyAnimation(self._opacity, b"opacity", self)
-        anim.setDuration(180)
+        anim.setDuration(320)
         anim.setStartValue(0.0)
         anim.setEndValue(1.0)
         anim.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -209,7 +210,7 @@ class ZenMarkdownEditor(QWidget):
             return
         self._closing = True
         anim = QPropertyAnimation(self._opacity, b"opacity", self)
-        anim.setDuration(140)
+        anim.setDuration(240)
         anim.setStartValue(self._opacity.opacity())
         anim.setEndValue(0.0)
         anim.setEasingCurve(QEasingCurve.Type.InCubic)
@@ -410,14 +411,16 @@ class ZenMarkdownEditor(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Dim wash — but skip the canvas rect so the graph stays saturated.
+        # Dim wash — chrome gets the full wash; canvas gets a gentler dim
+        # so the graph stays readable but visibly steps back. Both fade
+        # together with the widget's opacity effect.
         canvas = self._canvas_rect_in_self()
         full = self.rect()
         if canvas is None or not full.intersects(canvas):
             p.fillRect(full, ZEN_MD_DIM_COLOR)
         else:
             clipped = canvas.intersected(full)
-            # Four strips around the canvas — only the chrome dims.
+            # Four chrome strips — full dim.
             if clipped.top() > full.top():
                 p.fillRect(
                     QRect(full.left(), full.top(),
@@ -442,6 +445,8 @@ class ZenMarkdownEditor(QWidget):
                           full.right() - clipped.right(), clipped.height()),
                     ZEN_MD_DIM_COLOR,
                 )
+            # Canvas — gentler dim, animates with the editor's opacity.
+            p.fillRect(clipped, ZEN_MD_CANVAS_DIM_COLOR)
 
         # Drop shadow, then the solid writing card on top.
         card = self._card_rect()

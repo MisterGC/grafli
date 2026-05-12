@@ -6,9 +6,11 @@ import re
 from pathlib import Path
 
 from PySide6.QtCore import (
+    QEasingCurve,
     QEvent,
     QFileSystemWatcher,
     QPoint,
+    QPropertyAnimation,
     QRect,
     QRectF,
     QSettings,
@@ -27,7 +29,12 @@ from PySide6.QtGui import (
     QTextCursor,
 )
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
-from PySide6.QtWidgets import QPlainTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QGraphicsOpacityEffect,
+    QPlainTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from grafli.constants import (
     FONT_FAMILY,
@@ -90,12 +97,19 @@ class ZenMarkdownEditor(QWidget):
             ZEN_MD_FONT_SIZE_MIN, min(ZEN_MD_FONT_SIZE_MAX, self._font_size)
         )
 
+        # Opacity effect for fade in/out.
+        self._opacity = QGraphicsOpacityEffect(self)
+        self._opacity.setOpacity(0.0)
+        self.setGraphicsEffect(self._opacity)
+        self._closing = False
+
         self.resize(parent.size())
         self._build_ui(title, text)
         self._setup_file_watcher()
         if anchor:
             self._jump_to_anchor(anchor)
         self.show()
+        self._start_fade_in()
 
     # ── UI construction ──
 
@@ -163,18 +177,45 @@ class ZenMarkdownEditor(QWidget):
             mode == VimMode.INSERT,
         )
 
+    def _start_fade_in(self):
+        anim = QPropertyAnimation(self._opacity, b"opacity", self)
+        anim.setDuration(180)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+        self._fade_in_anim = anim  # hold ref so it doesn't get GC'd mid-run
+
     def _close_save(self):
         if self._file_path:
-            # File mode: just close (autosave handles writes)
-            self.cancelled.emit()
+            self._fade_out_and_close(self._emit_cancelled)
         else:
-            # Annotation mode: emit finished with text
-            self.finished.emit(self._editor.toPlainText())
-        self.close()
+            captured = self._editor.toPlainText()
+            self._fade_out_and_close(lambda: self._emit_finished(captured))
 
     def _close_cancel(self):
+        self._fade_out_and_close(self._emit_cancelled)
+
+    def _emit_cancelled(self):
         self.cancelled.emit()
         self.close()
+
+    def _emit_finished(self, text: str):
+        self.finished.emit(text)
+        self.close()
+
+    def _fade_out_and_close(self, callback):
+        if self._closing:
+            return
+        self._closing = True
+        anim = QPropertyAnimation(self._opacity, b"opacity", self)
+        anim.setDuration(140)
+        anim.setStartValue(self._opacity.opacity())
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        anim.finished.connect(callback)
+        anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+        self._fade_out_anim = anim
 
     def _update_focus(self):
         if self._read_only:

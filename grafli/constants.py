@@ -141,13 +141,13 @@ ZEN_DIM_COLOR = QColor(180, 175, 168, 160)
 ZEN_PANEL_BG = QColor("#F5F2ED")
 ZEN_PANEL_BORDER = QColor("#CDC8BF")
 ZEN_PANEL_WIDTH = 480
-ZEN_TEXT_COLOR = QColor("#2F3437")
+ZEN_TEXT_COLOR = QColor("#403A30")
 ZEN_TITLE_COLOR = QColor("#004578")
 ZEN_HINT_COLOR = QColor("#8A8580")
 
 # ── Zen markdown editor ──────────────────────────────────────────
 ZEN_MD_MAX_WIDTH = 700
-ZEN_MD_BG = QColor("#F5F2ED")
+ZEN_MD_BG = QColor("#EEE5D0")
 ZEN_MD_HEADING_SIZES = {1: 22, 2: 18, 3: 15}
 ZEN_MD_CODE_BG = QColor("#EDE9E3")
 ZEN_MD_LINK_COLOR = QColor("#004578")
@@ -164,7 +164,7 @@ ZEN_MD_CARD_INNER_PAD_V = 40
 ZEN_MD_CARD_H_RATIO = 0.85
 ZEN_MD_CARD_RADIUS = 12
 ZEN_MD_DIM_COLOR = QColor(0, 0, 0, 115)         # chrome — full wash
-ZEN_MD_CANVAS_DIM_COLOR = QColor(0, 0, 0, 120)  # canvas — strong step-back
+ZEN_MD_CANVAS_DIM_COLOR = QColor(0, 0, 0, 165)  # canvas — strong step-back
 
 # ── Side panel ───────────────────────────────────────────────────
 SIDE_PANEL_WIDTH = 180

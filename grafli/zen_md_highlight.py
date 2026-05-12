@@ -112,10 +112,10 @@ class MarkdownHighlighter(QSyntaxHighlighter):
                 m.start(1), len(m.group(1)),
                 _fmt(color=self._alpha(ZEN_MD_SYNTAX_COLOR, focused), size=size),
             )
-            # Heading text
+            # Heading text — same color as body, bold + larger size only.
             self.setFormat(
                 m.start(2), len(m.group(2)),
-                _fmt(color=self._alpha(ZEN_TITLE_COLOR, focused), size=size, bold=True),
+                _fmt(color=self._alpha(ZEN_TEXT_COLOR, focused), size=size, bold=True),
             )
             return
 

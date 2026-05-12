@@ -4869,7 +4869,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("N", "Create node (\u21e7click stays in mode)"),
                 ("T", "Create note (\u21e7click stays in mode)"),
                 ("C", "Connect arrow (one-shot)"),
-                ("\u21e7N", "Dim notes \u2014 concentrate on the graph"),
             ]),
             ("Navigate", [
                 ("Arrow keys", "Pan viewport"),
@@ -4917,6 +4916,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ]),
             ("Focus & Analysis", [
                 (",", "Dim arrows"),
+                ("\u21e7N", "Dim notes \u2014 concentrate on the graph"),
                 ("A", "Complexity analysis heatmap"),
                 ("B", "Subgraph focus (cycle direction)"),
                 ("\u21e7B", "Toggle focus depth (full/1-hop)"),

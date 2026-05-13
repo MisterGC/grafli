@@ -2640,6 +2640,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if event.key() == Qt.Key.Key_P and no_mod:
                 self._record_shortcut("gp → parent")
                 self._select_parent_and_zoom()
+            elif event.key() == Qt.Key.Key_C and no_mod:
+                self._record_shortcut("gc → first child")
+                self._select_first_child()
             event.accept()
             return
 
@@ -3076,9 +3079,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 event.accept()
                 return
 
-        # F — select first child of current box
+        # f — jump mode (alternative to Ctrl+J). First-child now lives on `gc`.
         if event.key() == Qt.Key.Key_F and no_mod:
-            self._select_first_child()
+            self._clear_box_mode()
+            self._start_jump_mode()
             event.accept()
             return
 
@@ -4877,9 +4881,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("z", "Zoom in: 25 → 50 → 100 → 150 % (cycle)"),
                 ("⇧Z", "Zoom to fit (whole graph)"),
                 ("gp", "Select parent (zoom if needed)"),
-                ("F", "Select first child"),
+                ("gc", "Select first child"),
                 ("Tab / \u21e7Tab", "Cycle siblings (or search matches)"),
-                ("Ctrl+J", "Jump to any item (global)"),
+                ("f / Ctrl+J", "Jump to any item (global)"),
                 ("Ctrl+O / Ctrl+I", "Nav history back / forward"),
                 ("Alt (hold)", "Graph nav: follow connectors"),
                 ("/", "Search dim-filter \u2014 Tab/\u21e7Tab cycle, Esc clears"),

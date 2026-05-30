@@ -126,6 +126,10 @@ class MainWindow(QMainWindow):
         self._view.selection_changed_for_panel.connect(
             self._side_panel.update_selection
         )
+        self._view.flows_changed.connect(
+            lambda: self._side_panel.rebuild_flows(self._view.board)
+        )
+        self._side_panel.rebuild_flows(self._view.board)
 
     def _toggle_panel(self):
         visible = not self._side_panel.isVisible()
@@ -157,6 +161,12 @@ class MainWindow(QMainWindow):
             "yank_png":     self._view._yank_png_to_clipboard,
             "export_svg":   self._view._export_svg_file,
         }
+        if action_id.startswith("flow:"):
+            self._view.play_flow(action_id[len("flow:"):])
+            return
+        if action_id.startswith("bm:"):
+            self._view.goto_bookmark(action_id[len("bm:"):])
+            return
         handler = actions.get(action_id)
         if handler:
             handler()

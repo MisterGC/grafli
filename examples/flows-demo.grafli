@@ -1,0 +1,31 @@
+#!grafli v2
+# Bookmarks & Flows demo
+# Play the "Architecture tour" flow from the side panel (\ to open it),
+# or fly to any single bookmark. Capture your own with gb; record a
+# flow with gf, then gb at each stop.
+
+@ box client "Client" 0,0 160x80 %blue
+@ box api "API Gateway" 280,0 180x80 %purple
+@ box auth "Auth Service" 280,160 180x80 %green
+@ box svc "Order Service" 560,0 180x80 %purple
+@ box db "Postgres" 560,160 180x80 %orange
+@ box cache "Redis" 840,0 160x80 %red
+
+@ arrow client -> api "request"
+@ arrow api -> auth "verify token"
+@ arrow api -> svc "route"
+@ arrow svc -> db "read/write"
+@ arrow svc -> cache "cache reads"
+@ arrow auth -> db "user lookup"
+
+@ note n1 280,280 "Every request is authenticated before it is routed."
+
+@ bookmark bm_overview "The whole system" @client,api,auth,svc,db,cache ~pad=80 "Six services: a request enters at the client and fans out across the gateway, auth, orders, and storage."
+@ bookmark bm_entry "Entry point" @client,api "Requests arrive at the API Gateway, the single front door."
+@ bookmark bm_auth "Authentication" @api,auth "Before routing, the gateway verifies the token against the Auth Service."
+@ bookmark bm_data "Data layer" @svc,db,cache "The Order Service reads and writes Postgres, caching hot reads in Redis."
+
+@ flow tour "Architecture tour" bm_overview bm_entry:6 bm_auth:6 bm_data:8 "Start wide, then walk a request from the front door through auth into the data layer."
+@ flow flow1 "test" bm1 bm2
+@ bookmark bm1 "firstbookmark" @api,auth,svc,db,cache,n1 "something\nand more"
+@ bookmark bm2 "another" @client,api,auth,svc,db,n1 "what is this?"

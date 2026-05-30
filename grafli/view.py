@@ -98,7 +98,8 @@ from grafli.constants import (
     _resolve_color,
 )
 from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
-from grafli.format import Arrow, Board, Box, Image, Note, parse, serialize
+from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, parse, serialize
+from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, NoteItem, ResizeHandle
 from grafli.minimap import MinimapMixin
@@ -161,6 +162,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     arrow_update_needed = Signal()
     mode_changed = Signal(Mode)
     selection_changed_for_panel = Signal(bool)
+    flows_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -296,6 +298,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._nav_index: int = -1
         self._NAV_STACK_CAP = 50
 
+        # Bookmarks & flows
+        self._flow_player: FlowPlayer | None = None
+        self._recording_flow: Flow | None = None
+        self._flow_overlay: dict | None = None
+        self._flash_rect: QRectF | None = None
+        self._flash_opacity: float = 0.0
+        self._flash_timeline: QTimeLine | None = None
+
         # Graph navigation (Alt held)
         self._graph_nav_active = False
         self._graph_nav_labels: list[QGraphicsRectItem | QGraphicsSimpleTextItem] = []
@@ -363,9 +373,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
+        self._draw_bookmark_flash(painter)   # scene coords — must come first
         self._draw_complexity_legend(painter)
         self._draw_minimap(painter)
         self._draw_search_badge(painter)
+        self._draw_flow_overlay(painter)
         self._draw_debug_overlay(painter)
 
     def toggle_grid(self):
@@ -564,7 +576,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def load_board(self, board: Board):
         self._board = board
+        # A fresh board invalidates any in-flight flow recording/playback.
+        self._recording_flow = None
+        if self._flow_player is not None:
+            self._flow_player.stop()
         self._rebuild_scene()
+        self.flows_changed.emit()
 
     def snapshot_state(self) -> ViewState:
         """Capture view state for buffer switching."""
@@ -2502,6 +2519,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             super().keyPressEvent(event)
             return
 
+        # Flow playback owns all input while active
+        if self._flow_player is not None and self._flow_player.active:
+            self._flow_player.handle_key(event)
+            event.accept()
+            return
+
         # Graph nav mode handling (Alt held)
         if self._graph_nav_active:
             self._handle_graph_nav_key(event)
@@ -2643,6 +2666,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             elif event.key() == Qt.Key.Key_C and no_mod:
                 self._record_shortcut("gc → first child")
                 self._select_first_child()
+            elif event.key() == Qt.Key.Key_B and no_mod:
+                self._record_shortcut("gb → bookmark")
+                self.capture_bookmark("logical")
+            elif event.key() == Qt.Key.Key_B and shift_only:
+                self._record_shortcut("gB → viewport bookmark")
+                self.capture_bookmark("viewport")
+            elif event.key() == Qt.Key.Key_F and no_mod:
+                self._record_shortcut("gf → flow rec")
+                self.toggle_flow_recording()
             event.accept()
             return
 
@@ -4291,6 +4323,290 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if not items_rect.isNull():
             self._animate_to_rect(items_rect.adjusted(-40, -40, 40, 40))
 
+    # ── Bookmarks & flows ──
+
+    def goto_rect(self, rect: QRectF, animate: bool = True):
+        """Frame ``rect`` in the viewport, eased or as an instant cut."""
+        if rect.isNull():
+            return
+        if animate:
+            self._animate_to_rect(rect)
+            return
+        vp = self.viewport().rect()
+        zoom = min(vp.width() / max(rect.width(), 1),
+                   vp.height() / max(rect.height(), 1))
+        zoom = max(0.05, min(zoom, 10.0))
+        self.setTransform(QTransform().scale(zoom, zoom))
+        self.centerOn(rect.center())
+        self._update_status_zoom()
+
+    def goto_bookmark(self, bookmark_id: str, animate: bool = True):
+        """Fly the canvas to a bookmark's semantic anchor."""
+        if not self._board:
+            return
+        bm = self._board.bookmark_by_id(bookmark_id)
+        if bm is None:
+            return
+        from grafli.flows import bookmark_target_rect
+        target = bookmark_target_rect(self, bm)
+        self.goto_rect(target, animate=animate)
+        self.flash_anchor(target)
+
+    def play_flow(self, flow_id: str):
+        """Enter modal playback for a flow, starting at its first stop."""
+        if not self._board:
+            return
+        flow = self._board.flow_by_id(flow_id)
+        if flow is None or not flow.steps:
+            return
+        if self._flow_player is not None:
+            self._flow_player.stop()
+        self._flow_player = FlowPlayer(self, flow)
+        self._flow_player.start()
+        self.setFocus()
+
+    def capture_bookmark(self, mode: str = "logical"):
+        """Snapshot the current view as a bookmark.
+
+        ``logical`` (gb): anchor to what's shown — the current selection, else
+        every item visible in the viewport — so the saved view re-fits as the
+        layout changes. If nothing is shown (empty space), it transparently
+        falls back to storing the exact viewport, so capture never fails.
+
+        ``viewport`` (gB): always store the exact current viewport, for a
+        hand-tuned framing you want reproduced pixel-faithfully.
+
+        Notes are valid anchors, so a note-only (node-less) bookmark works.
+        """
+        if not self._board:
+            return
+        vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
+        focus: list[str] = []
+        if mode == "logical":
+            focus = [bid for bid, it in self._box_items.items() if it.isSelected()]
+            focus += [nid for nid, it in self._note_items.items() if it.isSelected()]
+            if not focus:
+                for bid, it in self._box_items.items():
+                    if it.sceneBoundingRect().intersects(vp_scene):
+                        focus.append(bid)
+                for nid, it in self._note_items.items():
+                    if it.sceneBoundingRect().intersects(vp_scene):
+                        focus.append(nid)
+
+        view_rect = None if focus else (
+            vp_scene.x(), vp_scene.y(), vp_scene.width(), vp_scene.height()
+        )
+
+        label, ok = QInputDialog.getText(self, "New bookmark", "Label:")
+        if not ok or not label.strip():
+            self._record_shortcut("bookmark cancelled — not created")
+            return
+        description, ok2 = QInputDialog.getMultiLineText(
+            self, "Bookmark", "Description (optional):", ""
+        )
+        bm = Bookmark(
+            id=self._board.next_bookmark_id(),
+            label=label.strip(),
+            focus=focus,
+            description=description.strip() if ok2 else "",
+            view=view_rect,
+        )
+        self._board.add_bookmark(bm)
+        if self._recording_flow is not None:
+            self._recording_flow.steps.append(FlowStep(ref=bm.id))
+            self._update_recording_status()
+        self.mark_dirty()
+        self.flows_changed.emit()
+        kind = "viewport" if view_rect else "logical"
+        self._record_shortcut(f"bookmark “{bm.label}” ({kind})")
+        from grafli.flows import bookmark_target_rect
+        self.flash_anchor(bookmark_target_rect(self, bm))
+
+    def toggle_flow_recording(self):
+        """Start a new flow recording, or stop the active one.
+
+        While recording, each captured bookmark is also appended to the
+        active flow — so a tour accretes as you explore, no separate
+        compose step.
+        """
+        if not self._board:
+            return
+        if self._recording_flow is not None:
+            flow = self._recording_flow
+            self._recording_flow = None
+            if not flow.steps:
+                # An empty recording is noise — drop it.
+                self._board.remove_flow(flow)
+            self.mark_dirty()
+            self.flows_changed.emit()
+            self._update_recording_status()
+            self.viewport().update()
+            return
+        label, ok = QInputDialog.getText(self, "Record flow", "Flow name:")
+        if not ok or not label.strip():
+            return
+        flow = Flow(id=self._board.next_flow_id(), label=label.strip(), steps=[])
+        self._board.add_flow(flow)
+        self._recording_flow = flow
+        self.mark_dirty()
+        self.flows_changed.emit()
+        self._update_recording_status()
+        self.viewport().update()
+
+    def _update_recording_status(self):
+        if self._recording_flow is not None:
+            n = len(self._recording_flow.steps)
+            self._record_shortcut(
+                f"REC {self._recording_flow.label} · {n} stop(s) · gb to add"
+            )
+
+    def _set_flow_overlay(self, overlay: dict):
+        self._flow_overlay = overlay
+        self.viewport().update()
+
+    def _clear_flow_overlay(self):
+        self._flow_overlay = None
+        self.viewport().update()
+
+    def flash_anchor(self, rect: QRectF):
+        """Briefly outline a scene rect in blue, fading out — a confirmation
+        of what a bookmark frames. Drawn in scene coordinates so it hugs the
+        actual items.
+        """
+        if rect is None or rect.isNull():
+            return
+        self._flash_rect = QRectF(rect)
+        self._flash_opacity = 1.0
+        if self._flash_timeline is not None:
+            self._flash_timeline.stop()
+        tl = QTimeLine(700, self)
+        tl.setUpdateInterval(16)
+        tl.setEasingCurve(QEasingCurve.Type.OutCubic)
+        tl.valueChanged.connect(self._on_flash_step)
+        tl.finished.connect(self._on_flash_finished)
+        self._flash_timeline = tl
+        tl.start()
+
+    def _on_flash_step(self, value: float):
+        # Hold full opacity briefly, then fade across the back half.
+        self._flash_opacity = 1.0 if value < 0.35 else max(0.0, 1.0 - (value - 0.35) / 0.65)
+        self.viewport().update()
+
+    def _on_flash_finished(self):
+        self._flash_timeline = None
+        self._flash_rect = None
+        self._flash_opacity = 0.0
+        self.viewport().update()
+
+    def _draw_bookmark_flash(self, painter: QPainter):
+        """Drawn while the painter is still in scene coordinates."""
+        if self._flash_rect is None or self._flash_opacity <= 0.0:
+            return
+        painter.save()
+        alpha = int(220 * self._flash_opacity)
+        pen = QPen(QColor(43, 108, 176, alpha), 0)   # cosmetic blue outline
+        pen.setCosmetic(True)
+        pen.setWidth(2)
+        painter.setPen(pen)
+        fill = QColor(43, 108, 176, int(36 * self._flash_opacity))
+        painter.setBrush(QBrush(fill))
+        painter.drawRoundedRect(self._flash_rect, 8, 8)
+        painter.restore()
+
+    def _draw_flow_overlay(self, painter: QPainter):
+        """Recording badge (top-right) and playback caption (bottom-center).
+
+        Drawn in viewport coordinates so it stays fixed while the scene
+        pans and zooms underneath.
+        """
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        vp = self.viewport().rect()
+
+        if self._recording_flow is not None:
+            n = len(self._recording_flow.steps)
+            text = f"● REC  {self._recording_flow.label}  ·  {n}"
+            font = QFont(FONT_FAMILY, 11)
+            painter.setFont(font)
+            fm = painter.fontMetrics()
+            pad = 8
+            w = fm.horizontalAdvance(text) + pad * 2
+            h = fm.height() + pad
+            x = vp.width() - w - 12
+            y = 12
+            bg = QColor("#7A1F1F")
+            bg.setAlphaF(0.92)
+            painter.setPen(QPen(QColor(255, 255, 255, 50), 1))
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(QRectF(x, y, w, h), 6, 6)
+            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.drawText(QPointF(x + pad, y + pad / 2 + fm.ascent()), text)
+
+        ov = self._flow_overlay
+        if ov is not None:
+            title = f"{ov['index'] + 1}/{ov['total']}  ·  {ov['label']}"
+            mode = "smooth" if ov["smooth"] else "instant"
+            play = "playing" if ov["playing"] else "paused"
+            hint = (f"Space/→ next · ← prev · "
+                    f"t:{mode} · p:{play} · Esc exit")
+
+            title_font = QFont(FONT_FAMILY, 14, QFont.Weight.Bold)
+            desc_font = QFont(FONT_FAMILY, 11)
+            hint_font = QFont(FONT_FAMILY, 9)
+
+            pad = 12
+            gap = 5
+            max_w = min(640, vp.width() - 40)
+
+            painter.setFont(title_font)
+            tfm = painter.fontMetrics()
+            title_disp = tfm.elidedText(title, Qt.TextElideMode.ElideRight, max_w)
+            title_w = tfm.horizontalAdvance(title_disp)
+            title_h = tfm.height()
+
+            painter.setFont(desc_font)
+            dfm = painter.fontMetrics()
+            desc = ov["description"] or ""
+            desc_disp = dfm.elidedText(desc, Qt.TextElideMode.ElideRight, max_w) if desc else ""
+            desc_w = dfm.horizontalAdvance(desc_disp) if desc_disp else 0
+            desc_h = dfm.height() if desc_disp else 0
+
+            painter.setFont(hint_font)
+            hfm = painter.fontMetrics()
+            hint_w = hfm.horizontalAdvance(hint)
+            hint_h = hfm.height()
+
+            content_w = max(title_w, desc_w, hint_w)
+            panel_w = content_w + pad * 2
+            panel_h = title_h + (gap + desc_h if desc_disp else 0) + gap + hint_h + pad * 2
+            panel_x = (vp.width() - panel_w) / 2
+            panel_y = vp.height() - panel_h - 20
+
+            bg = QColor("#2F3437")
+            bg.setAlphaF(0.94)
+            painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(QRectF(panel_x, panel_y, panel_w, panel_h), 8, 8)
+
+            cy = panel_y + pad
+            painter.setFont(title_font)
+            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.drawText(QPointF(panel_x + pad, cy + tfm.ascent()), title_disp)
+            cy += title_h
+            if desc_disp:
+                cy += gap
+                painter.setFont(desc_font)
+                painter.setPen(QPen(QColor(220, 220, 220)))
+                painter.drawText(QPointF(panel_x + pad, cy + dfm.ascent()), desc_disp)
+                cy += desc_h
+            cy += gap
+            painter.setFont(hint_font)
+            painter.setPen(QPen(QColor(150, 150, 150)))
+            painter.drawText(QPointF(panel_x + pad, cy + hfm.ascent()), hint)
+
+        painter.restore()
+
     # ── Navigation jumplist (Ctrl+O / Ctrl+I) ──
 
     def _push_nav_snapshot(self):
@@ -4930,6 +5246,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("M", "Toggle minimap"),
                 ("\\", "Toggle tools panel"),
             ]),
+            ("Bookmarks & Flows", [
+                ("gb", "Bookmark what's shown (logical)"),
+                ("gB", "Bookmark exact viewport"),
+                ("gf", "Start / stop flow recording"),
+                ("Space / →", "Next stop (during playback)"),
+                ("←", "Previous stop"),
+                ("t", "Toggle smooth / instant"),
+                ("p", "Play / pause auto-advance"),
+                ("Esc", "Exit playback"),
+            ]),
             ("Export", [
                 ("Y", "Yank diagram as PNG to clipboard"),
                 ("Ctrl+E", "Export SVG to file"),
@@ -4957,7 +5283,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         columns = [
             ["File", "Modes", "Navigate"],
-            ["Edit", "Create", "Focus & Analysis", "View"],
+            ["Edit", "Create", "Focus & Analysis", "View", "Bookmarks & Flows"],
             ["Style", "Arrow", "Export", "Buffers", "Other"],
         ]
         group_map = {name: entries for name, entries in groups}

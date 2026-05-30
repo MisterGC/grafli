@@ -14,6 +14,14 @@ Format spec:
   @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&url] [>parent]
   @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono] [&url] [>parent]
   @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [&url]
+  @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
+  @ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
+
+Bookmarks/flows (v2) save a guided tour through the graph. A bookmark stores
+a semantic anchor (the item ids to frame), not raw pan/zoom, so it survives
+layout edits. A flow is an ordered list of bookmark refs with optional
+auto-play dwell times. The v2 header is emitted only when such directives
+are present; pure-diagram files stay on v1.
 """
 
 from __future__ import annotations
@@ -24,6 +32,8 @@ from dataclasses import dataclass, field
 from grafli.glyphs import ensure_text_presentation
 
 HEADER = "#!grafli v1"
+HEADER_V2 = "#!grafli v2"
+DEFAULT_BOOKMARK_PAD = 60   # scene px of breathing room around the anchor
 
 
 @dataclass
@@ -96,17 +106,55 @@ class Image:
 
 
 @dataclass
+class Bookmark:
+    """A named, self-describing viewpoint of the graph.
+
+    The viewport is stored *semantically*: ``focus`` lists the item ids the
+    view should frame, and the actual pan/zoom is computed at display time by
+    fitting their combined bounds. This stays correct when the layout changes
+    and is the form an agent can author directly (it knows ids, not matrices).
+    """
+    id: str
+    label: str
+    focus: list[str] = field(default_factory=list)  # item ids to frame
+    pad: int = 0                                     # 0 = use default padding
+    description: str = ""
+    # Exact scene rect (x, y, w, h) to frame when ``focus`` resolves to
+    # nothing — set for viewport bookmarks and the empty-space fallback so
+    # a hand-tuned or node-less view is still reproducible.
+    view: tuple[float, float, float, float] | None = None
+
+
+@dataclass
+class FlowStep:
+    ref: str                  # bookmark id
+    dwell: float | None = None  # auto-play seconds on this stop (None = default)
+
+
+@dataclass
+class Flow:
+    """An ordered narrative path through a set of bookmarks."""
+    id: str
+    label: str
+    steps: list[FlowStep] = field(default_factory=list)
+    description: str = ""
+
+
+@dataclass
 class Board:
     comments: list[str] = field(default_factory=list)
     boxes: list[Box] = field(default_factory=list)
     arrows: list[Arrow] = field(default_factory=list)
     notes: list[Note] = field(default_factory=list)
     images: list[Image] = field(default_factory=list)
+    bookmarks: list[Bookmark] = field(default_factory=list)
+    flows: list[Flow] = field(default_factory=list)
     _lines: list[tuple[str, object | None]] = field(
         default_factory=list, repr=False
     )
     """Ordered list of (kind, element) preserving original line order.
-    kind is one of: 'comment', 'blank', 'box', 'arrow', 'note', 'image'."""
+    kind is one of: 'comment', 'blank', 'box', 'arrow', 'note', 'image',
+    'bookmark', 'flow'."""
 
     def box_by_id(self, box_id: str) -> Box | None:
         for b in self.boxes:
@@ -194,6 +242,58 @@ class Board:
         self.images.remove(image)
         self._lines = [(k, v) for k, v in self._lines if v is not image]
 
+    def bookmark_by_id(self, bookmark_id: str) -> Bookmark | None:
+        for bm in self.bookmarks:
+            if bm.id == bookmark_id:
+                return bm
+        return None
+
+    def flow_by_id(self, flow_id: str) -> Flow | None:
+        for fl in self.flows:
+            if fl.id == flow_id:
+                return fl
+        return None
+
+    def next_bookmark_id(self) -> str:
+        max_n = 0
+        for bm in self.bookmarks:
+            if bm.id.startswith("bm"):
+                try:
+                    max_n = max(max_n, int(bm.id[2:]))
+                except ValueError:
+                    pass
+        return f"bm{max_n + 1}"
+
+    def next_flow_id(self) -> str:
+        max_n = 0
+        for fl in self.flows:
+            if fl.id.startswith("flow"):
+                try:
+                    max_n = max(max_n, int(fl.id[4:]))
+                except ValueError:
+                    pass
+        return f"flow{max_n + 1}"
+
+    def add_bookmark(self, bookmark: Bookmark) -> None:
+        if not bookmark.id:
+            bookmark.id = self.next_bookmark_id()
+        self.bookmarks.append(bookmark)
+        self._lines.append(("bookmark", bookmark))
+
+    def add_flow(self, flow: Flow) -> None:
+        if not flow.id:
+            flow.id = self.next_flow_id()
+        self.flows.append(flow)
+        self._lines.append(("flow", flow))
+
+    def remove_bookmark(self, bookmark: Bookmark) -> None:
+        self.bookmarks.remove(bookmark)
+        self._lines = [(k, v) for k, v in self._lines if v is not bookmark]
+
+    def remove_flow(self, flow: Flow) -> None:
+        self.flows.remove(flow)
+        self._lines = [(k, v) for k, v in self._lines if v is not flow]
+
 
 # ── Regex patterns ──────────────────────────────────────────────
 
@@ -259,8 +359,49 @@ _RE_IMAGE = re.compile(
     r'\s*$'
 )
 
+_RE_BOOKMARK = re.compile(
+    r'^@\s+bookmark\s+(\S+)\s+"([^"]*)"'
+    r'(?:\s+@(\S+))?'                  # focus: comma-separated item ids
+    r'(?:\s+~pad=(\d+))?'
+    r'(?:\s+~view=(-?\d+),(-?\d+),(\d+),(\d+))?'   # exact scene rect fallback
+    r'(?:\s+"([^"]*)")?'               # optional description
+    r'\s*$'
+)
+
+_RE_FLOW = re.compile(
+    r'^@\s+flow\s+(\S+)\s+"([^"]*)"\s*(.*)$'
+)
+
 
 # ── Parser ──────────────────────────────────────────────────────
+
+def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str]:
+    """Split a flow line's tail into (steps, description).
+
+    The tail is bare bookmark refs (``ref`` or ``ref:dwell``) optionally
+    followed by a quoted description. Bookmark ids never contain quotes, so
+    the first ``"`` unambiguously starts the description.
+    """
+    rest = rest.strip()
+    description = ""
+    if '"' in rest:
+        head, _, tail = rest.partition('"')
+        rest = head.strip()
+        description = tail.split('"', 1)[0]
+    steps: list[FlowStep] = []
+    for token in rest.split():
+        ref, sep, dwell = token.partition(":")
+        if not ref:
+            continue
+        parsed_dwell: float | None = None
+        if sep and dwell:
+            try:
+                parsed_dwell = float(dwell.rstrip("s"))
+            except ValueError:
+                parsed_dwell = None
+        steps.append(FlowStep(ref=ref, dwell=parsed_dwell))
+    return steps, description
+
 
 def parse(text: str) -> Board:
     """Parse a .grafli file string into a Board object."""
@@ -276,7 +417,7 @@ def parse(text: str) -> Board:
             board._lines.append(("blank", None))
             continue
 
-        if stripped == HEADER:
+        if stripped in (HEADER, HEADER_V2):
             board._lines.append(("header", stripped))
             continue
 
@@ -393,6 +534,44 @@ def parse(text: str) -> Board:
             )
             board.notes.append(note)
             board._lines.append(("note", note))
+            continue
+
+        m = _RE_BOOKMARK.match(stripped)
+        if m:
+            focus = [fid for fid in (m.group(3) or "").split(",") if fid]
+            view = None
+            if m.group(5) is not None:
+                view = (
+                    float(m.group(5)), float(m.group(6)),
+                    float(m.group(7)), float(m.group(8)),
+                )
+            bookmark = Bookmark(
+                id=m.group(1),
+                label=ensure_text_presentation(m.group(2).replace("\\n", "\n")),
+                focus=focus,
+                pad=int(m.group(4)) if m.group(4) else 0,
+                description=ensure_text_presentation(
+                    (m.group(9) or "").replace("\\n", "\n")
+                ),
+                view=view,
+            )
+            board.bookmarks.append(bookmark)
+            board._lines.append(("bookmark", bookmark))
+            continue
+
+        m = _RE_FLOW.match(stripped)
+        if m:
+            steps, description = _parse_flow_rest(m.group(3))
+            flow = Flow(
+                id=m.group(1),
+                label=ensure_text_presentation(m.group(2).replace("\\n", "\n")),
+                steps=steps,
+                description=ensure_text_presentation(
+                    description.replace("\\n", "\n")
+                ),
+            )
+            board.flows.append(flow)
+            board._lines.append(("flow", flow))
             continue
 
         m = _RE_IMAGE.match(stripped)
@@ -543,15 +722,47 @@ def _serialize_image(image: Image) -> str:
     return s
 
 
+def _serialize_bookmark(bm: Bookmark) -> str:
+    label = bm.label.replace("\n", "\\n")
+    s = f'@ bookmark {bm.id} "{label}"'
+    if bm.focus:
+        s += f' @{",".join(bm.focus)}'
+    if bm.pad:
+        s += f" ~pad={bm.pad}"
+    if bm.view is not None:
+        x, y, w, h = (_q(v) for v in bm.view)
+        s += f" ~view={x},{y},{w},{h}"
+    if bm.description:
+        desc = bm.description.replace("\n", "\\n")
+        s += f' "{desc}"'
+    return s
+
+
+def _serialize_flow(flow: Flow) -> str:
+    label = flow.label.replace("\n", "\\n")
+    s = f'@ flow {flow.id} "{label}"'
+    for step in flow.steps:
+        s += f" {step.ref}"
+        if step.dwell is not None:
+            dwell = int(step.dwell) if step.dwell == int(step.dwell) else step.dwell
+            s += f":{dwell}"
+    if flow.description:
+        desc = flow.description.replace("\n", "\\n")
+        s += f' "{desc}"'
+    return s
+
+
 def serialize(board: Board) -> str:
     """Serialize a Board object back to .grafli format.
 
-    Always emits the #!grafli v1 header as the first line.
+    Emits the v2 header only when the board carries bookmarks or flows;
+    otherwise stays on v1 so existing files round-trip byte-stable.
     If the board was parsed (has _lines), preserves original ordering.
     Otherwise, outputs comments, then boxes, arrows, notes.
     """
+    header = HEADER_V2 if (board.bookmarks or board.flows) else HEADER
     if board._lines:
-        parts = [HEADER]
+        parts = [header]
         for kind, obj in board._lines:
             if kind == "header":
                 continue
@@ -567,9 +778,13 @@ def serialize(board: Board) -> str:
                 parts.append(_serialize_note(obj))
             elif kind == "image":
                 parts.append(_serialize_image(obj))
+            elif kind == "bookmark":
+                parts.append(_serialize_bookmark(obj))
+            elif kind == "flow":
+                parts.append(_serialize_flow(obj))
         return "\n".join(parts) + "\n"
 
-    parts = [HEADER]
+    parts = [header]
     for c in board.comments:
         parts.append(c)
     if board.comments and (board.boxes or board.arrows or board.notes):
@@ -582,6 +797,10 @@ def serialize(board: Board) -> str:
         parts.append(_serialize_note(note))
     for image in board.images:
         parts.append(_serialize_image(image))
+    for bm in board.bookmarks:
+        parts.append(_serialize_bookmark(bm))
+    for flow in board.flows:
+        parts.append(_serialize_flow(flow))
     return "\n".join(parts) + "\n"
 
 

@@ -223,6 +223,51 @@ class SidePanel(QWidget):
             ("export_svg", "󰈔", "SVG",  "^E"),
         ])
 
+    def rebuild_flows(self, board):
+        """Rebuild the dynamic Flows / Bookmarks sections from the board.
+
+        Flow rows play the flow on click; bookmark rows fly the canvas to
+        the bookmark. Action ids are prefixed (``flow:`` / ``bm:``) so the
+        app can dispatch them generically.
+        """
+        for name in ("flows", "bookmarks"):
+            for widget in self._sections.pop(name, []):
+                self._buttons.pop(getattr(widget, "_action_id", ""), None)
+                self._layout.removeWidget(widget)
+                widget.deleteLater()
+
+        if board is None:
+            return
+        flows = getattr(board, "flows", [])
+        bookmarks = getattr(board, "bookmarks", [])
+        # Insert before the trailing stretch so order stays stable.
+        stretch_at = self._layout.count() - 1
+
+        def add(widget):
+            nonlocal stretch_at
+            self._layout.insertWidget(stretch_at, widget)
+            stretch_at += 1
+            return widget
+
+        if flows:
+            section: list[QWidget] = [add(_SectionHeader("Flows", self))]
+            for flow in flows:
+                btn = _ToolButton(f"flow:{flow.id}", "▶", flow.label,
+                                  f"{len(flow.steps)}", self)
+                btn.clicked.connect(self.tool_activated.emit)
+                self._buttons[btn._action_id] = btn
+                section.append(add(btn))
+            self._sections["flows"] = section
+
+        if bookmarks:
+            section = [add(_SectionHeader("Bookmarks", self))]
+            for bm in bookmarks:
+                btn = _ToolButton(f"bm:{bm.id}", "◆", bm.label, "", self)
+                btn.clicked.connect(self.tool_activated.emit)
+                self._buttons[btn._action_id] = btn
+                section.append(add(btn))
+            self._sections["bookmarks"] = section
+
     def set_section_visible(self, name: str, visible: bool):
         for widget in self._sections.get(name, []):
             widget.setVisible(visible)

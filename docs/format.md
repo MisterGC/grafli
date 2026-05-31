@@ -87,6 +87,37 @@ triple-quoted form.
 @ note 100,240 "SPA with React"
 ```
 
+## Bookmarks and flows (v2)
+
+Saved viewpoints and guided tours are stored in the file too. A file that
+contains them uses the `v2` header; pure-diagram files stay on `v1`.
+
+```text
+@ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
+@ bookmark <id> "<label>" ~view=<x>,<y>,<w>,<h> ["<description>"]
+@ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
+```
+
+- `@<ids>` is the **semantic anchor** — the item ids the view frames. The
+  pan/zoom is computed by fitting them, so the bookmark survives layout edits.
+  `~pad=<n>` overrides the framing padding.
+- `~view=<x>,<y>,<w>,<h>` stores an **exact scene rect** instead, used for a
+  hand-tuned framing or a viewpoint that contains no nodes. A bookmark uses
+  one or the other.
+- A `@ flow` lists bookmark ids in order; `:<dwell>` sets that stop's
+  auto-play time in seconds (omit for the flow default).
+
+```text
+#!grafli v2
+@ box api "API Gateway" 280,0 180x80 %secondary
+@ box auth "Auth Service" 280,160 180x80 %soft
+@ bookmark bm_auth "Authentication" @api,auth "Verified before routing."
+@ flow tour "Walkthrough" bm_auth:6 "A short guided tour."
+```
+
+See [Bookmarks & flows](bookmarks-flows.md) for capturing, editing, playback,
+present mode, and PDF export.
+
 ## Why plain text
 
 - **Git-native** — every change is a line-level diff with intent baked in.

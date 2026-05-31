@@ -1,15 +1,15 @@
 #!grafli v2
 # Bookmarks & Flows demo
-# Play the "Architecture tour" flow from the side panel (\ to open it),
-# or fly to any single bookmark. Capture your own with gb; record a
-# flow with gf, then gb at each stop.
+# Open the Flows tab in the side panel (\ toggles the panel) and play a
+# flow, or press F5 to present one fullscreen. Capture your own viewpoints
+# with gb (logical) or gB (exact viewport); gf records a new flow.
 
-@ box client "Client" 0,0 160x80 %blue
-@ box api "API Gateway" 280,0 180x80 %purple
-@ box auth "Auth Service" 280,160 180x80 %green
-@ box svc "Order Service" 560,0 180x80 %purple
-@ box db "Postgres" 560,160 180x80 %orange
-@ box cache "Redis" 840,0 160x80 %red
+@ box client "Client" 0,0 160x80 %primary
+@ box api "API Gateway" 280,0 180x80 %secondary
+@ box auth "Auth Service" 280,160 180x80 %soft
+@ box svc "Order Service" 560,0 180x80 %tertiary
+@ box db "Postgres" 560,160 180x80 %muted
+@ box cache "Redis" 860,0 160x80 %subtle
 
 @ arrow client -> api "request"
 @ arrow api -> auth "verify token"
@@ -26,6 +26,4 @@
 @ bookmark bm_data "Data layer" @svc,db,cache "The Order Service reads and writes Postgres, caching hot reads in Redis."
 
 @ flow tour "Architecture tour" bm_overview bm_entry:6 bm_auth:6 bm_data:8 "Start wide, then walk a request from the front door through auth into the data layer."
-@ flow flow1 "test" bm1 bm2
-@ bookmark bm1 "firstbookmark" @api,auth,svc,db,cache,n1 "something\nand more"
-@ bookmark bm2 "another" @client,api,auth,svc,db,n1 "what is this?"
+@ flow security "Security path" bm_entry:5 bm_auth:6 bm_data:5 "Follow a request through authentication into the data it can reach."

@@ -442,10 +442,12 @@ class MainWindow(QMainWindow):
                     buf.view_state.dirty = False
                 buf.file_mtime = disk_mtime
 
-        # Apply buffer to view
+        # Set the path before loading so the scene rebuild can resolve image
+        # paths (relative to the file's directory) instead of falling back to
+        # grey placeholders.
+        self._file_path = buf.file_path
         self._view.load_board(buf.board)
         self._view.restore_state(buf.view_state)
-        self._file_path = buf.file_path
         self._last_written = buf.last_written
         self._view.set_mode(Mode.SELECT)
 
@@ -519,9 +521,11 @@ class MainWindow(QMainWindow):
                     buf.view_state.dirty = False
                 buf.file_mtime = disk_mtime
 
+        # Set the path before loading so image paths resolve during the scene
+        # rebuild (see _switch_buffer).
+        self._file_path = buf.file_path
         self._view.load_board(buf.board)
         self._view.restore_state(buf.view_state)
-        self._file_path = buf.file_path
         self._last_written = buf.last_written
         self._view.set_mode(Mode.SELECT)
         self._start_watching()

@@ -72,6 +72,12 @@ requests** — phrases like:
 - "make a grafli for …"
 - working on existing `.grafli` files
 
+It also activates when you ask the agent to **explain, walk through, or
+present** an existing graph — it authors a [flow](bookmarks-flows.md): an
+ordered sequence of saved viewpoints with narration, so a big diagram is
+taught as a guided tour (playable in-app, presentable fullscreen, exportable
+to PDF slides) instead of dumped all at once.
+
 It does **not** activate on generic "review this code", "explain this
 function", or "summarize this module" requests unless the user also
 asks for a visual or diagram. Keeping the trigger tight keeps your

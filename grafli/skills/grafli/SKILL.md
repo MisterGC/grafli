@@ -9,6 +9,9 @@ description: >
   this code", "explain this function", "summarize this module" requests
   unless the user also asks for a visual or diagram. When unsure, ask
   the user a one-line clarifier before pulling this skill in.
+  ALSO use when asked to EXPLAIN, walk through, narrate, tour, or
+  present an existing diagram/graph — author `@ bookmark` / `@ flow`
+  directives that turn it into a guided sequence of viewpoints.
 ---
 
 # Grafli (`.grafli`) authoring
@@ -87,7 +90,12 @@ any `@ box` / `@ arrow` / `@ note` lines:
 @ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [!style] [~size] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&url] [>parent] [# annotation]
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [# annotation]
+@ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
+@ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
 ```
+
+The last two are **flows** — see "Explanatory flows" below. A file that
+uses them carries a `#!grafli v2` header (emitted automatically).
 
 * One element per line — minimal git diffs.
 * `#` lines are comments / metadata.
@@ -851,6 +859,88 @@ viewer follows the link.
   `code:` or plain note next to the box, not crammed into the box
   label. If a box label needs more than a short phrase to identify
   the node, the extra content is a note opportunity.
+
+---
+
+# Explanatory flows (guided tours)
+
+When the user asks you to **explain, walk through, narrate, or present** a
+graph, don't dump the whole picture — author a **flow**: an ordered sequence
+of saved viewpoints with narration. It plays in-app (manual step or auto-play,
+`p` cycles paused/playing/loop), presents fullscreen (`F5`), and exports to
+PDF slides. It lives in the same `.grafli` file as plain text, so you write it
+the same way you write boxes.
+
+## The two directives
+
+```
+@ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
+@ flow     <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
+```
+
+* A **bookmark** is one viewpoint. `@<ids>` is a **semantic anchor** — list
+  the box / note ids to frame; the app fits them at display time, so the
+  bookmark stays correct when the layout changes. **Always anchor on ids —
+  never raw coordinates.** You know the ids; you don't know good pan/zoom
+  numbers. (`~view=x,y,w,h` exists for a node-less viewpoint, but you'll
+  rarely want it — prefer anchors.)
+* A **flow** lists bookmark ids in order. `:<dwell>` is that stop's auto-play
+  time in seconds (omit for the default); it only matters for auto-play / booth
+  playback.
+
+## Compose the narrative deliberately
+
+This is the whole point — the *order and framing* are the explanation:
+
+1. **Open wide.** First stop frames the entire graph (or its top-level
+   containers) so the viewer gets the map.
+2. **Go to the entry point.** Where the story starts — the request ingress,
+   the user, the trigger.
+3. **Follow the path.** One stop per meaningful hop, in causal / temporal
+   order. Frame just the 1–3 items that matter at each step (anchor on those
+   ids), not the whole graph — that zoom *is* the focus.
+4. **End on the payoff.** The data store, the result, the conclusion.
+
+## Narration — and when to stay silent
+
+* Each stop's **description is the narration**: it's the on-canvas caption
+  during playback and the slide caption in the PDF. Write *why this stop
+  matters*, not what's already visibly labeled.
+* **Let the graph speak when it already does.** If the framed boxes, arrows,
+  and notes already carry the point, give the stop a **blank label and no
+  description** — it exports as a clean diagram-only slide. Add words only to
+  say something the picture doesn't.
+* **Reuse** a bookmark across flows when the same viewpoint serves two
+  different narratives.
+
+## Verify
+
+* Confirm every `@<id>` in a bookmark and every bookmark id in a flow exists
+  in the file (a dangling ref renders an empty / "missing" stop).
+* Preview the tour as slides and look at it:
+  `grafli export <file>.grafli /tmp/tour.pdf --flow <flow_id>`.
+
+## Worked example
+
+```
+#!grafli v2
+@ box client "Client" 0,0 160x80
+@ box api "API Gateway" 280,0 180x80
+@ box auth "Auth Service" 280,160 180x80
+@ box db "Postgres" 560,160 180x80
+@ arrow client -> api "request"
+@ arrow api -> auth "verify token"
+@ arrow auth -> db "user lookup"
+
+@ bookmark bm_all "The system" @client,api,auth,db ~pad=80 "Three services behind one gateway."
+@ bookmark bm_in "Entry point" @client,api "Every request lands at the gateway first."
+@ bookmark bm_authz "" @api,auth
+@ bookmark bm_data "Data layer" @auth,db "Auth resolves the user against Postgres."
+@ flow tour "How a request flows" bm_all bm_in:6 bm_authz:5 bm_data:8 "From the front door through auth into the data layer."
+```
+
+`bm_authz` is intentionally graph-only: the two boxes and the "verify token"
+arrow already tell that part of the story, so it needs no caption.
 
 ---
 

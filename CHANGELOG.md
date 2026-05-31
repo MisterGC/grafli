@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Markdown-mode notes** ([#65]). A note whose first non-empty line is
+  `md:` (or `markdown:`) renders its body as a small subset of
+  GitHub-flavoured Markdown — headings, bullet / ordered / task lists,
+  blockquotes, horizontal rules, fenced and inline code (on a muted
+  plate), inline `**bold**` / `*italic*` / `~~strike~~`, and clickable
+  `[text](url)` links. A sibling of code-mode: a formatted block on the
+  same beige plate with near-black body text. Rendered via Qt's
+  `QTextDocument` Markdown engine, so it honours `~size` / `~width` and
+  drag-to-resize like other notes.
+
 ## [0.3.0] - 2026-05-09
 
 ### Added
@@ -79,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#32]: https://github.com/MisterGC/grafli/issues/32
 [#33]: https://github.com/MisterGC/grafli/issues/33
 [#34]: https://github.com/MisterGC/grafli/issues/34
+[#65]: https://github.com/MisterGC/grafli/issues/65
 
 ## [0.2.0] - 2026-05-05
 

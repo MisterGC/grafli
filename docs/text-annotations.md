@@ -106,6 +106,46 @@ return ok  @grafli/api.py:42
 """
 ```
 
+## Markdown-mode notes
+
+A note whose first non-empty line is `md:` (or `markdown:`) renders its
+body as lightly formatted Markdown — for prose annotations that want a
+bit of structure. It's a sibling of code-mode: a formatted block on the
+same beige plate, sharing the near-black body text.
+
+Markdown notes are small canvas annotations, not documents. The
+*recommended* subset is GitHub-flavoured:
+
+| Markdown | Renders as |
+|----------|------------|
+| `# ` / `## ` / `### ` | Headings (3 levels, bold) |
+| `- ` / `* ` | Bullet list |
+| `1. ` | Ordered list |
+| `- [ ]` / `- [x]` | Task checkboxes |
+| `> ` | Blockquote |
+| `---` | Horizontal rule |
+| ` ``` ` fenced / `` `code` `` | Code block / inline code (muted plate) |
+| `**bold**`, `*italic*`, `~~strike~~` | Inline emphasis |
+| `[text](url)` | Link — click to open (reuses the `&url` handling) |
+
+Heavier Markdown (tables, images, raw HTML, footnotes) is parsed by the
+underlying engine but isn't part of the supported surface and rarely
+fits a canvas annotation — if a note wants that much, it's a document;
+link it as a [Markdown resource](#markdown-resources) instead.
+
+```text
+@ note plan 100,320 """
+md:
+# Release checklist
+Ship **0.4.0** with the new *Markdown* note.
+
+- [x] Parser + rendering
+- [ ] Docs and changelog
+
+> See the [tracking issue](https://github.com/MisterGC/grafli/issues/65).
+"""
+```
+
 ## Semantic edge labels
 
 Arrow labels can carry a relationship kind via a one-word prefix. The

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPen, QPixmap, QTextOption
+from PySide6.QtGui import QAbstractTextDocumentLayout, QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QTextCharFormat, QTextCursor, QTextDocument, QTextOption
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
@@ -55,6 +55,7 @@ def note_prefix(text: str) -> tuple[str, str] | None:
         return "Q:", text[m.end():]
     return None
 from grafli.code_note import is_code_note, split_signature, tokenize_line
+from grafli.md_note import is_md_note, md_body
 from grafli.format import Box, Image, Note
 
 # Code-note palette — deliberately minimal so the snippet doesn't fight
@@ -73,6 +74,33 @@ NOTE_CODE_REF_COLOR = QColor("#2B6CB0")
 NOTE_CODE_COMMENT_COLOR = QColor("#8A8580")
 NOTE_CODE_TEXT_COLOR = QColor("#2F3437")
 NOTE_CODE_INDENT_GUIDE_COLOR = QColor("#B5B0A8")
+
+# Markdown-note styling. Qt's setMarkdown only honours *font* properties
+# (size / weight) from the default stylesheet; text colour comes from the
+# paint-context palette (near-black body, blue links — see _paint_markdown)
+# and code-span backgrounds are applied as char formats (_style_code_spans),
+# because colour / background CSS rules are ignored on a Markdown import.
+NOTE_MD_CODE_BG_COLOR = QColor("#E7E3DA")
+
+
+def _md_stylesheet(base_pt: float) -> str:
+    """Font-only CSS applied to a Markdown note's QTextDocument.
+
+    Heading sizes are relative to the note's base point size so ``~size``
+    still scales the whole note. Tuned so an ``md:`` note reads at the same
+    visual weight as neighbouring notes when zoomed out.
+    """
+    if base_pt <= 0:
+        base_pt = 13.0
+    h1 = base_pt * 1.45
+    h2 = base_pt * 1.25
+    h3 = base_pt * 1.1
+    return f"""
+        h1 {{ font-size: {h1:.1f}pt; font-weight: bold; }}
+        h2 {{ font-size: {h2:.1f}pt; font-weight: bold; }}
+        h3, h4, h5, h6 {{ font-size: {h3:.1f}pt; font-weight: bold; }}
+    """
+
 
 _CODE_BOLD_KINDS = {"kw_struct", "kw_effect", "kw_contract", "ref"}
 _CODE_KIND_COLORS = {
@@ -635,6 +663,8 @@ class NoteItem(QGraphicsSimpleTextItem):
     def hoverMoveEvent(self, event):
         if self._is_code_note() and self._ref_at(event.pos()) is not None:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
+        elif self._is_md_note() and self._md_anchor_at(event.pos()) is not None:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
         elif self._on_right_edge(event.pos()):
             self.setCursor(Qt.CursorShape.SizeHorCursor)
         else:
@@ -643,6 +673,7 @@ class NoteItem(QGraphicsSimpleTextItem):
 
     def mousePressEvent(self, event):
         self._pending_ref = None
+        self._pending_link = None
         self._resizing = False
         if (
             event.button() == Qt.MouseButton.LeftButton
@@ -660,6 +691,13 @@ class NoteItem(QGraphicsSimpleTextItem):
             ref = self._ref_at(event.pos())
             if ref is not None:
                 self._pending_ref = (ref, event.pos())
+        elif (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._is_md_note()
+        ):
+            href = self._md_anchor_at(event.pos())
+            if href is not None:
+                self._pending_link = (href, event.pos())
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -711,6 +749,21 @@ class NoteItem(QGraphicsSimpleTextItem):
                 view = _get_view(self)
                 if view is not None and hasattr(view, "_open_code_ref"):
                     view._open_code_ref(ref)
+                    event.accept()
+                    super().mouseReleaseEvent(event)
+                    return
+        pending_link = getattr(self, "_pending_link", None)
+        self._pending_link = None
+        if (
+            pending_link is not None
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            href, press_pos = pending_link
+            if (event.pos() - press_pos).manhattanLength() <= 4 \
+                    and self._md_anchor_at(event.pos()) == href:
+                view = _get_view(self)
+                if view is not None and hasattr(view, "_open_url_string"):
+                    view._open_url_string(href)
                     event.accept()
                     super().mouseReleaseEvent(event)
                     return
@@ -898,6 +951,86 @@ class NoteItem(QGraphicsSimpleTextItem):
     def _is_code_note(self) -> bool:
         return is_code_note(self.note.text)
 
+    def _is_md_note(self) -> bool:
+        return is_md_note(self.note.text)
+
+    def _md_document(self) -> QTextDocument:
+        """Build (cached) a laid-out QTextDocument for a Markdown note.
+
+        Keyed on the same wrap cache key as the other note modes — Qt
+        re-queries geometry and repaints constantly during drag, and
+        re-parsing Markdown every frame is wasteful.
+        """
+        cache = getattr(self, "_md_doc_cache", None)
+        key = self._wrap_cache_key()
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        font = self._note_font()
+        doc = QTextDocument()
+        doc.setDefaultFont(font)
+        doc.setDefaultStyleSheet(_md_stylesheet(font.pointSizeF()))
+        doc.setDocumentMargin(0)
+        # GitHub-flavoured: task lists, strikethrough, tables. We document
+        # a smaller recommended subset; extras degrade rather than break.
+        doc.setMarkdown(
+            md_body(self.note.text),
+            QTextDocument.MarkdownFeature.MarkdownDialectGitHub,
+        )
+        doc.setTextWidth(self._wrap_width_px(font))
+        self._style_code_spans(doc)
+        self._md_doc_cache = (key, doc)
+        return doc
+
+    @staticmethod
+    def _style_code_spans(doc: QTextDocument):
+        """Give inline code and fenced blocks a muted plate.
+
+        The note font is already monospace, so code spans would otherwise
+        be invisible. Background brushes (unlike text colour) do render via
+        the document layout, so we set them directly on the char formats
+        Qt marked as fixed-pitch during the Markdown import.
+        """
+        bg = QBrush(NOTE_MD_CODE_BG_COLOR)
+        cursor = QTextCursor(doc)
+        block = doc.begin()
+        while block.isValid():
+            it = block.begin()
+            while not it.atEnd():
+                frag = it.fragment()
+                if frag.isValid() and frag.charFormat().fontFixedPitch():
+                    fmt = QTextCharFormat()
+                    fmt.setBackground(bg)
+                    cursor.setPosition(frag.position())
+                    cursor.setPosition(
+                        frag.position() + frag.length(),
+                        QTextCursor.MoveMode.KeepAnchor,
+                    )
+                    cursor.mergeCharFormat(fmt)
+                it += 1
+            block = block.next()
+
+    def _md_metrics(self):
+        """Return ``(content_w, total_w, total_h)`` for a Markdown note."""
+        doc = self._md_document()
+        pad = self._PAD
+        # idealWidth is the width the laid-out text actually used, so a
+        # short note doesn't stretch to the full wrap budget.
+        content_w = doc.idealWidth()
+        total_w = pad + content_w + pad
+        total_h = pad + doc.size().height() + pad
+        if self.note.wrap_chars_explicit:
+            total_w = max(total_w, self._wrap_width_px(self._note_font()) + 2 * pad)
+        return content_w, total_w, total_h
+
+    def _md_anchor_at(self, pos: QPointF) -> str | None:
+        """Return the link href under *pos* (item coords), or None."""
+        if not self._is_md_note():
+            return None
+        doc = self._md_document()
+        layout = doc.documentLayout()
+        href = layout.anchorAt(QPointF(pos.x() - self._PAD, pos.y() - self._PAD))
+        return href or None
+
     def _code_lines(self) -> tuple[int | None, list[str]]:
         return split_signature(self.note.text)
 
@@ -1036,6 +1169,11 @@ class NoteItem(QGraphicsSimpleTextItem):
             if target_px is not None:
                 tw = max(tw, target_px)
             r = QRectF(0, 0, tw, th)
+        elif self._is_md_note():
+            _, tw, th = self._md_metrics()
+            if target_px is not None:
+                tw = max(tw, target_px)
+            r = QRectF(0, 0, tw, th)
         else:
             discussion = self._parse_discussion()
             if discussion:
@@ -1080,6 +1218,10 @@ class NoteItem(QGraphicsSimpleTextItem):
     def paint(self, painter: QPainter, option, widget=None):
         if self._is_code_note():
             self._paint_code(painter)
+            return
+
+        if self._is_md_note():
+            self._paint_markdown(painter)
             return
 
         discussion = self._parse_discussion()
@@ -1162,6 +1304,45 @@ class NoteItem(QGraphicsSimpleTextItem):
             _paint_link_glyph(painter, bg_rect)
 
         # Selection indicator + always-visible resize grip
+        if self.isSelected():
+            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
+            painter.setPen(sel_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
+            painter.drawRect(sel_rect)
+            self._paint_resize_grip(painter, total_w, total_h)
+
+    def _paint_markdown(self, painter: QPainter):
+        doc = self._md_document()
+        pad = self._PAD
+        _, total_w, total_h = self._md_metrics()
+        target_px = getattr(self, "_resize_target_px", None)
+        if target_px is not None:
+            total_w = max(total_w, target_px)
+        bg_rect = QRectF(0, 0, total_w, total_h)
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        bg = QColor("#F2F0EB")
+        bg.setAlphaF(0.85)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+
+        painter.save()
+        painter.translate(pad, pad)
+        ctx = QAbstractTextDocumentLayout.PaintContext()
+        # Markdown notes are a sibling of code notes — a formatted block on
+        # the beige plate — so they share the near-black body text, with
+        # links picked out in the plain-note blue.
+        ctx.palette.setColor(QPalette.ColorRole.Text, NOTE_CODE_TEXT_COLOR)
+        ctx.palette.setColor(QPalette.ColorRole.Link, NOTE_PEN_COLOR)
+        doc.documentLayout().draw(painter, ctx)
+        painter.restore()
+
+        if self.note.url:
+            _paint_link_glyph(painter, bg_rect)
+
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)

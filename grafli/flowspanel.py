@@ -78,6 +78,8 @@ class _InlineDesc(QPlainTextEdit):
 
     committed = Signal(str)
 
+    _MAX_H = 130
+
     def __init__(self, text: str, parent=None):
         super().__init__(text, parent)
         self.setFont(QFont(FONT_FAMILY, 10))
@@ -85,13 +87,25 @@ class _InlineDesc(QPlainTextEdit):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setPlaceholderText("Add description…")
-        self.setFixedHeight(52)
         self.setStyleSheet(
             f"QPlainTextEdit {{ color: #4A4A4A; background: transparent;"
             f" border: none; }}"
             f" QPlainTextEdit:focus {{ background: #FFFFFF;"
             f" border: 1px solid {_BORDER}; border-radius: 3px; }}")
         self._initial = text
+        self.textChanged.connect(self._fit_height)
+
+    def _fit_height(self):
+        # Grow with content (clamped) so a 1-line description doesn't reserve
+        # three lines of empty space. Note: a plain-text document reports its
+        # height as a LINE COUNT, so convert to pixels via line spacing.
+        lines = max(1, self.document().size().height())
+        h = int(lines * self.fontMetrics().lineSpacing()) + 12
+        self.setFixedHeight(max(22, min(h, self._MAX_H)))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_height()
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
@@ -414,9 +428,16 @@ class FlowsPanel(QWidget):
     def _toggle_flow(self, flow_id):
         if flow_id in self._expanded_flows:
             self._expanded_flows.discard(flow_id)
+            if self._view._active_flow and self._view._active_flow.id == flow_id:
+                self._view.set_flow_edit_target(None, -1)
         else:
             self._expanded_flows.add(flow_id)
+            # Make the expanded flow the capture target: gb appends to it
+            # (and selecting a step inserts right after that step).
+            self._selected = None
+            self._view.set_flow_edit_target(self._board().flow_by_id(flow_id), -1)
         self.refresh()
+        self._view.setFocus()
 
     def _toggle_bookmarks(self):
         self._bookmarks_expanded = not self._bookmarks_expanded

@@ -74,6 +74,10 @@ class MainWindow(QMainWindow):
         self._autosave_timer.timeout.connect(self._autosave)
         self._last_written = ""
 
+        self._presenting = False
+        self._present_panel_visible = True
+        self._view.playback_ended.connect(self._on_playback_ended)
+
         self._setup_shortcuts()
         self._setup_status_bar()
         self.menuBar().setVisible(False)
@@ -165,6 +169,54 @@ class MainWindow(QMainWindow):
         if handler:
             handler()
 
+    # ── Present (fullscreen demo) mode ───────────────────────────
+
+    def _present_current(self):
+        """F5: present the selected/current flow fullscreen, chrome hidden.
+
+        Starts on the first stop, paused — drive it with Space/←/→ and cycle
+        play/loop with p; Esc exits back to the editor.
+        """
+        if self._presenting:
+            self._exit_present()
+            return
+        board = self.board
+        flow_id = None
+        if self._view._active_flow is not None:
+            flow_id = self._view._active_flow.id
+        elif board and board.flows:
+            flow_id = board.flows[0].id
+        if not flow_id:
+            self._view._record_shortcut("no flow to present")
+            return
+
+        self._present_panel_visible = self._side_panel.isVisible()
+        self._side_panel.hide()
+        self.statusBar().hide()
+        self._panel_toggle.hide()
+        self._presenting = True
+        self.showFullScreen()
+        self._view.setFocus()
+        self._view.play_flow(flow_id)
+
+    def _exit_present(self):
+        if not self._presenting:
+            return
+        self._presenting = False
+        if self._view._flow_player is not None:
+            self._view._flow_player.stop()
+        self.showNormal()
+        self._side_panel.setVisible(self._present_panel_visible)
+        self.statusBar().show()
+        self._panel_toggle.show()
+        self._panel_toggle.reposition()
+        self._view.setFocus()
+
+    def _on_playback_ended(self):
+        # Esc during a presentation stops playback — leave fullscreen too.
+        if self._presenting:
+            self._exit_present()
+
     def _export_flow_pdf(self):
         """Pick a flow (auto when there's one) and export it to a PDF."""
         from PySide6.QtWidgets import QFileDialog, QInputDialog
@@ -223,6 +275,11 @@ class MainWindow(QMainWindow):
         zoom_fit.setShortcut(QKeySequence("Ctrl+0"))
         zoom_fit.triggered.connect(self._zoom_fit)
         self.addAction(zoom_fit)
+
+        present = QAction(self)
+        present.setShortcut(QKeySequence("F5"))
+        present.triggered.connect(self._present_current)
+        self.addAction(present)
 
         # Buffer shortcuts
         act_fuzzy_picker = QAction(self)

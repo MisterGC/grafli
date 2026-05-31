@@ -85,16 +85,22 @@ def bookmark_target_rect(view, bookmark: Bookmark) -> QRectF:
 class FlowPlayer:
     """Steps a flow on the live canvas, manually or auto-played."""
 
+    _MODES = ("paused", "playing", "loop")
+
     def __init__(self, view, flow: Flow):
         self.view = view
         self.flow = flow
         self.index = 0
         self.smooth = True       # smooth camera vs instant cuts
-        self.playing = False     # auto-advancing
+        self.mode = "paused"     # paused | playing | loop
         self.active = True
         self._timer = QTimer(view)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._auto_advance)
+
+    @property
+    def playing(self) -> bool:
+        return self.mode != "paused"
 
     # ── lifecycle ──────────────────────────────────────────────
     def start(self) -> None:
@@ -105,11 +111,12 @@ class FlowPlayer:
 
     def stop(self) -> None:
         self.active = False
-        self.playing = False
+        self.mode = "paused"
         self._timer.stop()
         self.view._clear_flow_overlay()
         if self.view._flow_player is self:
             self.view._flow_player = None
+        self.view.playback_ended.emit()
 
     # ── navigation ─────────────────────────────────────────────
     def goto(self, index: int) -> None:
@@ -131,9 +138,11 @@ class FlowPlayer:
     def next(self) -> None:
         if self.index < len(self.flow.steps) - 1:
             self.goto(self.index + 1)
-        elif self.playing:
-            # Reached the end while auto-playing — stop advancing but stay open.
-            self.playing = False
+        elif self.mode == "loop":
+            self.goto(0)
+        elif self.mode == "playing":
+            # Reached the end (non-loop) — stop advancing but stay open.
+            self.mode = "paused"
             self._timer.stop()
             self._refresh_overlay(self._current_bookmark())
 
@@ -145,12 +154,13 @@ class FlowPlayer:
         self.smooth = not self.smooth
         self._refresh_overlay(self._current_bookmark())
 
-    def toggle_play(self) -> None:
-        self.playing = not self.playing
-        if self.playing:
-            self._schedule_next(self.flow.steps[self.index])
-        else:
+    def cycle_play_mode(self) -> None:
+        """paused → playing → loop → paused."""
+        self.mode = self._MODES[(self._MODES.index(self.mode) + 1) % len(self._MODES)]
+        if self.mode == "paused":
             self._timer.stop()
+        else:
+            self._schedule_next(self.flow.steps[self.index])
         self._refresh_overlay(self._current_bookmark())
 
     # ── auto-play timing ───────────────────────────────────────
@@ -179,7 +189,7 @@ class FlowPlayer:
             "label": label,
             "description": description,
             "smooth": self.smooth,
-            "playing": self.playing,
+            "mode": self.mode,
         })
 
     # ── input ──────────────────────────────────────────────────
@@ -194,4 +204,4 @@ class FlowPlayer:
         elif key == Qt.Key.Key_T:
             self.toggle_transition()
         elif key == Qt.Key.Key_P:
-            self.toggle_play()
+            self.cycle_play_mode()

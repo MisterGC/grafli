@@ -113,6 +113,52 @@ def test_inline_label_and_description_edit():
     assert bm.label == "Renamed"
 
 
+def test_play_mode_cycles_and_loops():
+    from grafli.flows import FlowPlayer
+    board = parse(SAMPLE)
+    view, panel = _panel(board)
+    p = FlowPlayer(view, board.flow_by_id("tour"))
+    p.start()
+    assert p.mode == "paused"
+    p.cycle_play_mode(); assert p.mode == "playing"
+    p.cycle_play_mode(); assert p.mode == "loop"
+    p.cycle_play_mode(); assert p.mode == "paused"
+    # loop wraps at the end; plain playing stops
+    p.mode = "loop"; p.index = len(p.flow.steps) - 1; p.next()
+    assert p.index == 0
+    p.mode = "playing"; p.index = len(p.flow.steps) - 1; p.next()
+    assert p.mode == "paused"
+    p.stop()
+
+
+def test_present_mode_enters_and_exits():
+    app = _app()
+    from grafli.app import MainWindow
+    import tempfile, os
+    path = os.path.join(tempfile.gettempdir(), "present_test.grafli")
+    with open(path, "w") as f:
+        f.write(SAMPLE)
+    w = MainWindow(path)
+    w.resize(900, 600)
+    w.show()
+    w._side_panel.setVisible(True)        # make chrome visible to test restore
+    app.processEvents()
+    assert w._side_panel.isVisible()
+
+    w._present_current()
+    app.processEvents()
+    assert w._presenting
+    assert not w._side_panel.isVisible()  # chrome hidden while presenting
+    assert w._view._flow_player is not None
+
+    # Esc ends playback, which leaves present mode and restores chrome.
+    w._view._flow_player.stop()
+    app.processEvents()
+    assert not w._presenting
+    assert w._side_panel.isVisible()      # restored to its prior state
+    w.close()
+
+
 def test_new_and_delete_flow():
     board = parse(SAMPLE)
     view, panel = _panel(board)

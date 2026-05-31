@@ -163,6 +163,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     mode_changed = Signal(Mode)
     selection_changed_for_panel = Signal(bool)
     flows_changed = Signal()
+    playback_ended = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -4612,10 +4613,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         ov = self._flow_overlay
         if ov is not None:
             title = f"{ov['index'] + 1}/{ov['total']}  ·  {ov['label']}"
-            mode = "smooth" if ov["smooth"] else "instant"
-            play = "playing" if ov["playing"] else "paused"
+            transition = "smooth" if ov["smooth"] else "instant"
+            play = {"paused": "paused", "playing": "playing",
+                    "loop": "playing ⟳"}.get(ov.get("mode", "paused"), "paused")
             hint = (f"Space/→ next · ← prev · "
-                    f"t:{mode} · p:{play} · Esc exit")
+                    f"t:{transition} · p:{play} · Esc exit")
 
             title_font = QFont(FONT_FAMILY, 14, QFont.Weight.Bold)
             desc_font = QFont(FONT_FAMILY, 11)
@@ -5321,8 +5323,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("Space / →", "Next stop (during playback)"),
                 ("←", "Previous stop"),
                 ("t", "Toggle smooth / instant"),
-                ("p", "Play / pause auto-advance"),
-                ("Esc", "Exit playback"),
+                ("p", "Cycle paused / playing / loop"),
+                ("F5", "Present flow fullscreen"),
+                ("Esc", "Exit playback / present"),
             ]),
             ("Export", [
                 ("Y", "Yank diagram as PNG to clipboard"),

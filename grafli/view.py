@@ -2310,6 +2310,34 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self.scale(factor, factor)
         self._update_status_zoom()
 
+    def _zoom_keyboard(self, factor: float):
+        """Zoom for the +/- shortcuts, anchored on what the user cares about.
+
+        With a selection, the combined bounding-rect center of the selected
+        items is held fixed on screen; otherwise the viewport center is. Either
+        way the focal point stays put while the rest of the canvas scales around
+        it. (Wheel zoom keeps its own under-the-mouse anchor.)
+        """
+        items = self._scene.selectedItems()
+        if items:
+            rect = items[0].sceneBoundingRect()
+            for it in items[1:]:
+                rect = rect.united(it.sceneBoundingRect())
+            anchor_scene = rect.center()
+        else:
+            anchor_scene = self.mapToScene(self.viewport().rect().center())
+        prev_anchor = self.transformationAnchor()
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        before = self.mapFromScene(anchor_scene)
+        self.scale(factor, factor)
+        delta = self.mapFromScene(anchor_scene) - before
+        self.horizontalScrollBar().setValue(
+            self.horizontalScrollBar().value() + delta.x())
+        self.verticalScrollBar().setValue(
+            self.verticalScrollBar().value() + delta.y())
+        self.setTransformationAnchor(prev_anchor)
+        self._update_status_zoom()
+
     def mousePressEvent(self, event):
         # Middle-click pan always works
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -2771,14 +2799,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Zoom with + (Shift+= produces Key_Plus)
         if event.key() == Qt.Key.Key_Plus:
             self._record_shortcut("+ \u2192 zoom in")
-            self.scale(1.15, 1.15)
-            self._update_status_zoom()
+            self._zoom_keyboard(1.15)
             event.accept()
             return
         if event.key() == Qt.Key.Key_Minus:
             self._record_shortcut("- \u2192 zoom out")
-            self.scale(1 / 1.15, 1 / 1.15)
-            self._update_status_zoom()
+            self._zoom_keyboard(1 / 1.15)
             event.accept()
             return
 

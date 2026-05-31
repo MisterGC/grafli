@@ -43,11 +43,13 @@ any `@ box` / `@ arrow` / `@ note` lines:
 7. **Notes for the human.** Add `T:` tasks and `Q:` questions as
    short headlines next to the relevant node. For pseudocode,
    assertion lists, behavioral specs, sequence sketches, or any
-   other multi-line detail, use a `code:` note — that's the right
-   home for content too long for a box label. **Never inline that
-   detail into a box label itself.** Boxes are identifiers; notes
-   are bodies. If you find yourself writing more than a short phrase
-   inside a `@ box` label, stop and move it to a note.
+   other multi-line detail, use a `code:` note; for prose with light
+   structure (rationale, checklists, review notes), use an `md:`
+   Markdown note — those are the right home for content too long for
+   a box label. **Never inline that detail into a box label itself.**
+   Boxes are identifiers; notes are bodies. If you find yourself
+   writing more than a short phrase inside a `@ box` label, stop and
+   move it to a note.
 8. **Re-read.** Pretend you're the user opening the file: does the
    eye land on the right entry point? Are arrows crossing? If yes,
    reposition before saving — repositioning beats decoration.
@@ -343,6 +345,45 @@ Rules of thumb:
   embedding string literals that need quote characters; drop the
   quotes or rewrite the line.
 * Indent nested blocks with **two spaces**.
+
+### Markdown-mode notes (`md:`)
+
+A note whose first non-empty line is `md:` (or `markdown:`) renders its
+body as a small subset of Markdown. Use it for **prose annotations with
+light structure** — rationale, checklists, review notes — where
+code-mode would be the wrong shape and a plain note too flat. It's a
+sibling of code-mode: a formatted block on the same beige plate, with
+near-black body text.
+
+Supported (GitHub-flavoured) subset:
+
+| Markdown | Renders as |
+|----------|------------|
+| `# ` / `## ` / `### ` | Headings (3 levels, bold) |
+| `- ` / `* ` / `1. ` | Bullet / ordered list |
+| `- [ ]` / `- [x]` | Task checkboxes |
+| `> ` | Blockquote |
+| `---` | Horizontal rule |
+| ` ``` ` / `` `code` `` | Code block / inline code (muted plate) |
+| `**bold**`, `*italic*`, `~~strike~~` | Inline emphasis |
+| `[text](url)` | Clickable link (reuses `&url` handling) |
+
+Honours `~size` / `~width` and drag-to-resize like other notes. Keep
+notes small — tables, images, and raw HTML are parsed but rarely fit a
+canvas annotation; if a note wants that much, link a `.md` resource
+instead. The `.grafli` format does not escape `"`, so avoid quote
+characters in inline text (the same constraint as code-mode).
+
+```text
+@ note plan 100,320 ~small """
+md:
+# Release checklist
+Ship **0.4.0** with the new note type.
+
+- [x] Parser + rendering
+- [ ] Docs and changelog
+"""
+```
 
 #### Combined graph + code-mode example
 

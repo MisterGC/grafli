@@ -24,7 +24,7 @@ its version. It is required.
 | Element | Purpose |
 |---------|---------|
 | `box`   | Rectangular container with a label. Can nest via `>parent`. |
-| `note`  | Free-form text block. Supports tasks, questions, code-mode, and discussions (see [Text annotations](text-annotations.md)). |
+| `note`  | Free-form text block. Supports tasks, questions, code-mode, Markdown-mode, and discussions (see [Text annotations](text-annotations.md)). |
 | `arrow` | Directed/bidirectional connector between two elements. |
 
 ### Arrow operators

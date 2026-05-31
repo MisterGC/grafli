@@ -19,7 +19,7 @@ box; vim power is one `Esc` away.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QFont, QKeyEvent, QTextCursor
 from PySide6.QtWidgets import QFrame, QPlainTextEdit
 
@@ -83,6 +83,12 @@ class InlineVimEditor(QPlainTextEdit):
     @property
     def mode(self) -> VimMode:
         return self._vim.mode
+
+    def minimumSizeHint(self) -> QSize:
+        # QPlainTextEdit's default minimum is several lines tall, which a
+        # QGraphicsProxyWidget would enforce — leaving an oversized editor
+        # with empty space. The host sizes us to fit the content instead.
+        return QSize(40, 24)
 
     # ── Key routing ──
 

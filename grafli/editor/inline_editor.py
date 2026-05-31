@@ -57,7 +57,10 @@ class InlineVimEditor(QPlainTextEdit):
         self.setPlainText(text)
         self.setFrameShape(QFrame.Shape.NoFrame)  # host supplies chrome
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # No scrollbars on a small canvas editor — they're visual noise and
+        # the platform overlay style never spans the box cleanly. Content
+        # taller than the box still scrolls via the caret / mouse wheel.
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         # Optional Markdown highlighting (for md: notes). Paragraph-focus

@@ -167,9 +167,45 @@ class MainWindow(QMainWindow):
         if action_id.startswith("bm:"):
             self._view.goto_bookmark(action_id[len("bm:"):])
             return
+        if action_id == "export_flow_pdf":
+            self._export_flow_pdf()
+            return
         handler = actions.get(action_id)
         if handler:
             handler()
+
+    def _export_flow_pdf(self):
+        """Pick a flow (auto when there's one) and export it to a PDF."""
+        from PySide6.QtWidgets import QFileDialog, QInputDialog
+        board = self._view.board
+        flows = board.flows if board else []
+        if not flows:
+            self._view._record_shortcut("no flows to export")
+            return
+        if len(flows) == 1:
+            flow = flows[0]
+        else:
+            labels = [f"{f.label}  ({f.id})" for f in flows]
+            choice, ok = QInputDialog.getItem(
+                self, "Export flow", "Flow:", labels, 0, False,
+            )
+            if not ok:
+                return
+            flow = flows[labels.index(choice)]
+
+        default_name = ""
+        if self._file_path:
+            default_name = str(self._file_path.with_name(
+                f"{self._file_path.stem}-{flow.id}.pdf"))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export flow to PDF", default_name,
+            "PDF files (*.pdf);;All Files (*)",
+        )
+        if not path:
+            return
+        from grafli.pdfexport import export_flow_to_pdf
+        slides = export_flow_to_pdf(self._view, flow, path)
+        self._view._record_shortcut(f"PDF exported ({slides} slides)")
 
     def _setup_shortcuts(self):
         self._view.mode_changed.connect(self._on_mode_changed)
@@ -1117,6 +1153,60 @@ def _cmd_render(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_export(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="grafli export",
+        description="Export a flow as a slide-style PDF presentation.",
+    )
+    parser.add_argument("input", type=Path, help="Input .grafli file")
+    parser.add_argument("output", type=Path, help="Output .pdf")
+    parser.add_argument(
+        "--flow", default=None,
+        help="Flow id to export (default: the only flow; required if several)",
+    )
+    args = parser.parse_args(argv)
+
+    if not args.input.exists():
+        print(f"Input not found: {args.input}", file=sys.stderr)
+        return 2
+    if args.output.suffix.lower() != ".pdf":
+        print(f"Unsupported output format: {args.output.suffix} (expected .pdf)",
+              file=sys.stderr)
+        return 2
+
+    text = args.input.resolve().read_text(encoding="utf-8")
+    board = parse(text)
+    if not board.flows:
+        print("No flows in this file — nothing to export.", file=sys.stderr)
+        return 1
+    if args.flow:
+        flow = board.flow_by_id(args.flow)
+        if flow is None:
+            ids = ", ".join(f.id for f in board.flows)
+            print(f"Flow '{args.flow}' not found. Available: {ids}", file=sys.stderr)
+            return 2
+    elif len(board.flows) == 1:
+        flow = board.flows[0]
+    else:
+        ids = ", ".join(f.id for f in board.flows)
+        print(f"Multiple flows — pass --flow <id>. Available: {ids}",
+              file=sys.stderr)
+        return 2
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    from grafli.view import GrafliView
+    from grafli.pdfexport import export_flow_to_pdf
+    view = GrafliView()
+    view.load_board(board)
+    slides = export_flow_to_pdf(view, flow, args.output)
+    print(f"Wrote {args.output} ({slides} slides)", file=sys.stderr)
+    del view
+    del app
+    return 0
+
+
 def _make_note_rect_provider():
     """Return a callable that computes a note's rendered scene rect.
 
@@ -1213,18 +1303,20 @@ def _cmd_diagnose(argv: list[str]) -> int:
 
 def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
-    if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose"):
+    if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose", "export"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
         if sub == "skill":
             sys.exit(_cmd_skill(rest))
         if sub == "render":
             sys.exit(_cmd_render(rest))
+        if sub == "export":
+            sys.exit(_cmd_export(rest))
         sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
-        description="Grafli whiteboard. Subcommands: skill, render, diagnose.",
+        description="Grafli whiteboard. Subcommands: skill, render, diagnose, export.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

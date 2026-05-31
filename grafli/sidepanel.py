@@ -219,8 +219,9 @@ class SidePanel(QWidget):
 
     def _build_export_section(self):
         self._add_section("export", "Export", [
-            ("yank_png",   "󰆏", "PNG",  "Y"),
-            ("export_svg", "󰈔", "SVG",  "^E"),
+            ("yank_png",        "󰆏", "PNG",       "Y"),
+            ("export_svg",      "󰈔", "SVG",       "^E"),
+            ("export_flow_pdf", "󰈦", "Flow PDF",  ""),
         ])
 
     def rebuild_flows(self, board):

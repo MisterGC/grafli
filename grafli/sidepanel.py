@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -143,12 +144,16 @@ class SidePanel(QWidget):
 
         self._buttons: dict[str, _ToolButton] = {}
         self._sections: dict[str, list[QWidget]] = {}
+        self._view = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Scrollable content
+        # Tools | Flows tab switcher.
+        root.addWidget(self._build_tabbar())
+
+        # Tools page — scrollable tool buttons.
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -169,7 +174,64 @@ class SidePanel(QWidget):
 
         self._layout.addStretch(1)
         scroll.setWidget(content)
-        root.addWidget(scroll)
+
+        # Flows page — dedicated editor (wired once the view is attached).
+        from grafli.flowspanel import FlowsPanel
+        self._flows_panel = FlowsPanel(self)
+
+        self._stack = QStackedWidget()
+        self._stack.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._stack.addWidget(scroll)              # index 0: Tools
+        self._stack.addWidget(self._flows_panel)   # index 1: Flows
+        root.addWidget(self._stack, stretch=1)
+
+    _TOOLS_WIDTH = SIDE_PANEL_WIDTH
+    _FLOWS_WIDTH = 300
+
+    def _build_tabbar(self) -> QWidget:
+        bar = QWidget()
+        bar.setFixedHeight(34)
+        bar.setStyleSheet(f"background: {SIDE_PANEL_BG.name()};")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(8, 4, 8, 0)
+        h.setSpacing(4)
+        self._tab_buttons: list[QLabel] = []
+        for i, name in enumerate(("Tools", "Flows")):
+            tab = QLabel(name)
+            tab.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            tab.setFont(QFont(FONT_FAMILY, 11, QFont.Weight.Bold))
+            tab.setCursor(Qt.CursorShape.PointingHandCursor)
+            tab.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            tab.mousePressEvent = lambda _e, idx=i: self.switch_tab(idx)
+            h.addWidget(tab, stretch=1)
+            self._tab_buttons.append(tab)
+        return bar
+
+    def attach_view(self, view):
+        self._view = view
+        self._flows_panel.attach(view)
+        self.switch_tab(0)
+
+    def switch_tab(self, index: int):
+        self._stack.setCurrentIndex(index)
+        self.setFixedWidth(self._FLOWS_WIDTH if index == 1 else self._TOOLS_WIDTH)
+        for i, tab in enumerate(self._tab_buttons):
+            active = i == index
+            color = BOX_BORDER.name() if active else SIDE_PANEL_SECTION_COLOR.name()
+            weight = "bold" if active else "normal"
+            border = (f"2px solid {BOX_BORDER.name()}" if active
+                      else "2px solid transparent")
+            tab.setStyleSheet(
+                f"color: {color}; background: transparent;"
+                f" border-bottom: {border}; padding-bottom: 2px;"
+                f" font-weight: {weight};")
+        # Editing only targets a flow while the Flows tab is open.
+        if self._view is not None:
+            if index == 1:
+                self._flows_panel.refresh()
+            else:
+                self._view.set_flow_edit_target(None, -1)
+            self._view.setFocus()
 
     def _add_section(self, name: str, title: str,
                      buttons: list[tuple[str, str, str, str]]):
@@ -224,50 +286,9 @@ class SidePanel(QWidget):
             ("export_flow_pdf", "󰈦", "Flow PDF",  ""),
         ])
 
-    def rebuild_flows(self, board):
-        """Rebuild the dynamic Flows / Bookmarks sections from the board.
-
-        Flow rows play the flow on click; bookmark rows fly the canvas to
-        the bookmark. Action ids are prefixed (``flow:`` / ``bm:``) so the
-        app can dispatch them generically.
-        """
-        for name in ("flows", "bookmarks"):
-            for widget in self._sections.pop(name, []):
-                self._buttons.pop(getattr(widget, "_action_id", ""), None)
-                self._layout.removeWidget(widget)
-                widget.deleteLater()
-
-        if board is None:
-            return
-        flows = getattr(board, "flows", [])
-        bookmarks = getattr(board, "bookmarks", [])
-        # Insert before the trailing stretch so order stays stable.
-        stretch_at = self._layout.count() - 1
-
-        def add(widget):
-            nonlocal stretch_at
-            self._layout.insertWidget(stretch_at, widget)
-            stretch_at += 1
-            return widget
-
-        if flows:
-            section: list[QWidget] = [add(_SectionHeader("Flows", self))]
-            for flow in flows:
-                btn = _ToolButton(f"flow:{flow.id}", "▶", flow.label,
-                                  f"{len(flow.steps)}", self)
-                btn.clicked.connect(self.tool_activated.emit)
-                self._buttons[btn._action_id] = btn
-                section.append(add(btn))
-            self._sections["flows"] = section
-
-        if bookmarks:
-            section = [add(_SectionHeader("Bookmarks", self))]
-            for bm in bookmarks:
-                btn = _ToolButton(f"bm:{bm.id}", "◆", bm.label, "", self)
-                btn.clicked.connect(self.tool_activated.emit)
-                self._buttons[btn._action_id] = btn
-                section.append(add(btn))
-            self._sections["bookmarks"] = section
+    def refresh_flows(self):
+        """Refresh the dedicated Flows editor (kept in sync with the board)."""
+        self._flows_panel.refresh()
 
     def set_section_visible(self, name: str, visible: bool):
         for widget in self._sections.get(name, []):

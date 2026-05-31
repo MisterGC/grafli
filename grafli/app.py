@@ -126,10 +126,7 @@ class MainWindow(QMainWindow):
         self._view.selection_changed_for_panel.connect(
             self._side_panel.update_selection
         )
-        self._view.flows_changed.connect(
-            lambda: self._side_panel.rebuild_flows(self._view.board)
-        )
-        self._side_panel.rebuild_flows(self._view.board)
+        self._side_panel.attach_view(self._view)
 
     def _toggle_panel(self):
         visible = not self._side_panel.isVisible()
@@ -161,12 +158,6 @@ class MainWindow(QMainWindow):
             "yank_png":     self._view._yank_png_to_clipboard,
             "export_svg":   self._view._export_svg_file,
         }
-        if action_id.startswith("flow:"):
-            self._view.play_flow(action_id[len("flow:"):])
-            return
-        if action_id.startswith("bm:"):
-            self._view.goto_bookmark(action_id[len("bm:"):])
-            return
         if action_id == "export_flow_pdf":
             self._export_flow_pdf()
             return
@@ -408,7 +399,9 @@ class MainWindow(QMainWindow):
         self._update_buf_status()
 
         if zoom_fit:
-            self._zoom_fit(animate=False)
+            # Defer so the viewport has its real size — fitInView with a
+            # not-yet-laid-out (or zero-size) viewport lands far zoomed out.
+            QTimer.singleShot(0, lambda: self._zoom_fit(animate=False))
 
     def close_buffer(self):
         """Close the active buffer (called from Q key or programmatically)."""

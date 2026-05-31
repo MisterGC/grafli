@@ -8,10 +8,10 @@ stepping, auto-play timing, and smooth/instant transition state.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, QTimer
-from PySide6.QtGui import QKeyEvent
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtGui import QImage, QKeyEvent, QPainter, QPixmap
 
+from grafli.constants import SCENE_BG
 from grafli.format import DEFAULT_BOOKMARK_PAD, Bookmark, Flow
 
 DEFAULT_DWELL = 4.0   # seconds to rest on a stop during auto-play
@@ -35,6 +35,34 @@ def resolve_focus_rect(view, focus_ids: list[str]) -> QRectF:
         r = item.sceneBoundingRect()
         rect = QRectF(r) if rect.isNull() else rect.united(r)
     return rect
+
+
+def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
+                           max_h: int) -> QPixmap | None:
+    """A small preview of what a bookmark frames, fit within max_w x max_h.
+
+    Renders the bookmark's target region the same way the PDF export and
+    on-canvas view do, so the thumbnail matches the real framing. Returns
+    None when the anchor resolves to nothing.
+    """
+    rect = bookmark_target_rect(view, bookmark)
+    if rect.isNull():
+        return None
+    ar = rect.width() / rect.height()
+    if max_w / max_h > ar:
+        ih = max_h
+        iw = max(1, round(ih * ar))
+    else:
+        iw = max_w
+        ih = max(1, round(iw / ar))
+    img = QImage(iw, ih, QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(SCENE_BG)
+    p = QPainter(img)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    view._scene.render(p, QRectF(0, 0, iw, ih), rect)
+    p.end()
+    return QPixmap.fromImage(img)
 
 
 def bookmark_target_rect(view, bookmark: Bookmark) -> QRectF:

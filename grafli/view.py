@@ -302,6 +302,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._flow_player: FlowPlayer | None = None
         self._recording_flow: Flow | None = None
         self._flow_overlay: dict | None = None
+        # Flows-panel edit target: a captured bookmark is inserted after the
+        # selected step of this flow (instead of just creating a loose one).
+        self._active_flow: Flow | None = None
+        self._active_step_index: int = -1
         self._flash_rect: QRectF | None = None
         self._flash_opacity: float = 0.0
         self._flash_timeline: QTimeLine | None = None
@@ -351,16 +355,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         border_color = HEATMAP_CONTENT_BORDER if self._complexity_active else CONTENT_BORDER_COLOR
         if self._grid_visible:
             spacing = self.GRID_SPACING
-            left = int(rect.left()) - (int(rect.left()) % spacing)
-            top = int(rect.top()) - (int(rect.top()) % spacing)
-            painter.setPen(QPen(grid_color, 2.0))
-            x = left
-            while x <= rect.right():
-                y = top
-                while y <= rect.bottom():
-                    painter.drawPoint(int(x), int(y))
-                    y += spacing
-                x += spacing
+            # Skip the grid when zoomed out far enough that it would be a dense
+            # smear anyway — drawing a point per cell across a huge visible area
+            # is O(area) and makes panning crawl.
+            cols = (rect.width() / spacing) + 1
+            rows = (rect.height() / spacing) + 1
+            if cols * rows <= 20000:
+                left = int(rect.left()) - (int(rect.left()) % spacing)
+                top = int(rect.top()) - (int(rect.top()) % spacing)
+                painter.setPen(QPen(grid_color, 2.0))
+                x = left
+                while x <= rect.right():
+                    y = top
+                    while y <= rect.bottom():
+                        painter.drawPoint(int(x), int(y))
+                        y += spacing
+                    x += spacing
 
         # Content-area border — always drawn as an orientation aid
         items_rect = self._scene.itemsBoundingRect()
@@ -4413,8 +4423,21 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         )
         self._board.add_bookmark(bm)
         if self._recording_flow is not None:
+            # Recording is sequential — always append to the tour.
             self._recording_flow.steps.append(FlowStep(ref=bm.id))
             self._update_recording_status()
+        elif self._active_flow is not None:
+            # A flow is open in the panel — insert right after the selected
+            # step (or append), then advance the selection so the next
+            # capture continues the chain.
+            steps = self._active_flow.steps
+            idx = self._active_step_index
+            if 0 <= idx < len(steps):
+                steps.insert(idx + 1, FlowStep(ref=bm.id))
+                self._active_step_index = idx + 1
+            else:
+                steps.append(FlowStep(ref=bm.id))
+                self._active_step_index = len(steps) - 1
         self.mark_dirty()
         self.flows_changed.emit()
         kind = "viewport" if view_rect else "logical"
@@ -4459,6 +4482,49 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._record_shortcut(
                 f"REC {self._recording_flow.label} · {n} stop(s) · gb to add"
             )
+
+    # ── Flow / bookmark editing (driven by the Flows panel) ──
+
+    def set_flow_edit_target(self, flow, step_index: int = -1):
+        """Remember which flow/step the panel has selected, so a captured
+        bookmark is inserted after it."""
+        self._active_flow = flow
+        self._active_step_index = step_index
+
+    def _commit_flow_edit(self):
+        """Persist a flow/bookmark mutation and refresh the panel."""
+        self.mark_dirty()
+        self.flows_changed.emit()
+
+    def create_flow(self, label: str, description: str = ""):
+        if not self._board:
+            return None
+        flow = Flow(id=self._board.next_flow_id(), label=label,
+                    description=description)
+        self._board.add_flow(flow)
+        self._commit_flow_edit()
+        return flow
+
+    def delete_flow(self, flow):
+        if not self._board or flow is None:
+            return
+        if self._recording_flow is flow:
+            self._recording_flow = None
+        if self._active_flow is flow:
+            self._active_flow = None
+            self._active_step_index = -1
+        self._board.remove_flow(flow)
+        self._commit_flow_edit()
+
+    def delete_bookmark(self, bookmark):
+        """Delete a bookmark and prune any flow steps that referenced it, so
+        no flow is left pointing at a missing stop."""
+        if not self._board or bookmark is None:
+            return
+        for flow in self._board.flows:
+            flow.steps = [s for s in flow.steps if s.ref != bookmark.id]
+        self._board.remove_bookmark(bookmark)
+        self._commit_flow_edit()
 
     def _set_flow_overlay(self, overlay: dict):
         self._flow_overlay = overlay
@@ -5250,6 +5316,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("gb", "Bookmark what's shown (logical)"),
                 ("gB", "Bookmark exact viewport"),
                 ("gf", "Start / stop flow recording"),
+                ("Flows tab (\\)", "Edit flows: reorder, add/remove, dwell"),
+                ("Select step + gb", "Insert new bookmark after it"),
                 ("Space / →", "Next stop (during playback)"),
                 ("←", "Previous stop"),
                 ("t", "Toggle smooth / instant"),

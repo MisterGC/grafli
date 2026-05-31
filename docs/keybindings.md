@@ -53,8 +53,8 @@ lands on the placeholder ready to type-replace.
 
 | Key | Action |
 |-----|--------|
-| <kbd>e</kbd> / Double-click | Edit selected element |
-| <kbd>E</kbd> | Edit annotation |
+| <kbd>e</kbd> / Double-click | Edit selected element (inline) |
+| <kbd>E</kbd> | Open the full-window zen editor — edits a **note's own text**; for a box/image, opens (or creates) its attached markdown file |
 | <kbd>W</kbd> | Set URL on selected item |
 | <kbd>Return</kbd> | Open URL in browser |
 | <kbd>Enter</kbd> | Accept edit |
@@ -63,6 +63,20 @@ lands on the placeholder ready to type-replace.
 | <kbd>Ctrl</kbd>+<kbd>R</kbd> / <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Redo |
 | <kbd>x</kbd> / <kbd>Delete</kbd> | Delete selection |
 | <kbd>⌘</kbd>+<kbd>G</kbd> | Insert glyph / replace label |
+
+### Editing a note (vim)
+
+Editing a note (<kbd>e</kbd> / double-click) opens a small **vim-capable**
+editor in place — the same keybindings as the full-window zen editor,
+without leaving the canvas. It opens in INSERT mode so you can type right
+away; Markdown (`md:`) notes are syntax-highlighted.
+
+| Key | Action |
+|-----|--------|
+| <kbd>Esc</kbd> (in INSERT) | Drop to NORMAL mode (vim motions/edits) |
+| <kbd>Esc</kbd> (in NORMAL) | Commit and close |
+| <kbd>Shift</kbd>+<kbd>Esc</kbd> (in NORMAL) | Discard and close |
+| Click elsewhere | Commit and close |
 
 ## Create
 

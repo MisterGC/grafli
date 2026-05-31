@@ -227,8 +227,12 @@ class MinimapMixin:
             cy = my + (box.y - scene_rect.y() + box.h / 2) * sy
             elem_centers[box.id] = (cx, cy)
         for note in self._board.notes:
-            cx = mx + (note.x - scene_rect.x() + 10) * sx
-            cy = my + (note.y - scene_rect.y() + 10) * sy
+            ni = self._note_items.get(note.id)
+            br = ni.boundingRect() if ni is not None else None
+            half_w = br.width() / 2 if br is not None else 10
+            half_h = br.height() / 2 if br is not None else 10
+            cx = mx + (note.x - scene_rect.x() + half_w) * sx
+            cy = my + (note.y - scene_rect.y() + half_h) * sy
             elem_centers[note.id] = (cx, cy)
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -282,10 +286,19 @@ class MinimapMixin:
             if note.id in dimmed_ids:
                 color = QColor(color)
                 color.setAlpha(dim_alpha)
-            painter.setBrush(QBrush(color))
             nx = mx + (note.x - scene_rect.x()) * sx
             ny = my + (note.y - scene_rect.y()) * sy
-            painter.drawRect(QRectF(nx, ny, max(3, 20 * sx), max(3, 20 * sy)))
+            # Scale to the note's rendered size, like boxes, so a big note
+            # reads as a big marker instead of a fixed square.
+            ni = self._note_items.get(note.id)
+            if ni is not None:
+                br = ni.boundingRect()
+                nw = max(br.width() * sx, 2)
+                nh = max(br.height() * sy, 2)
+            else:
+                nw = nh = max(3, 20 * sx)
+            self._draw_minimap_note(painter, QRectF(nx, ny, nw, nh), color,
+                                    dimmed=note.id in dimmed_ids)
 
         # Viewport indicator
         vp_scene = self.mapToScene(vp).boundingRect()
@@ -304,6 +317,39 @@ class MinimapMixin:
         painter.setPen(QPen(MINIMAP_STATS_COLOR))
         hint_y = panel_y + panel_h - panel_pad
         painter.drawText(QPointF(mx, hint_y), "F1 Help")
+
+    def _draw_minimap_note(self, painter, rect, accent, *, dimmed=False):
+        """Draw a note marker as a light 'card' with an accent border and a
+        few short text lines — so notes read as text at a glance and stand
+        out from the solid box markers. ``accent`` already carries any dim
+        alpha applied by the caller.
+        """
+        # Too small for a card: a solid accent dot keeps it visible.
+        if rect.width() < 10 or rect.height() < 8:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(accent))
+            painter.drawRect(rect)
+            return
+
+        card = QColor("#F4F1EA")
+        if dimmed:
+            card.setAlpha(50)
+        painter.setBrush(QBrush(card))
+        painter.setPen(QPen(accent, 1))
+        painter.drawRoundedRect(rect, 2, 2)
+
+        # Text lines suggesting prose; widths vary for a texty rhythm.
+        inset = 2.5
+        gap = 3.0
+        fracs = (0.85, 0.6, 0.75, 0.5, 0.8)
+        y = rect.top() + inset + 1.0
+        i = 0
+        while y <= rect.bottom() - inset and i < 8:
+            line_w = (rect.width() - 2 * inset) * fracs[i % len(fracs)]
+            painter.drawLine(QPointF(rect.left() + inset, y),
+                             QPointF(rect.left() + inset + line_w, y))
+            y += gap
+            i += 1
 
     def _minimap_viewport_rect(self) -> QRectF:
         """Compute the viewport indicator rect in minimap (widget) coords."""

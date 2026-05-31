@@ -64,6 +64,22 @@ def test_export_handles_viewport_only_bookmark(tmp_path):
     assert out.read_bytes().startswith(b"%PDF")
 
 
+def test_export_graph_only_stop(tmp_path):
+    # A label-less, description-less bookmark exports as a clean diagram-only
+    # slide (no chrome) without error, and the scene background is restored.
+    from grafli.pdfexport import export_flow_to_pdf
+    src = SAMPLE.replace('@ flow tour "Tour" bm1 bm2:5',
+                         '@ bookmark bm0 "" @a,b\n@ flow tour "Tour" bm0 bm1 bm2:5')
+    board = parse(src)
+    view = _view(board)
+    bg_before = view._scene.backgroundBrush().color().name()
+    out = tmp_path / "graphonly.pdf"
+    slides = export_flow_to_pdf(view, board.flow_by_id("tour"), out)
+    assert slides == 4
+    assert out.read_bytes().startswith(b"%PDF")
+    assert view._scene.backgroundBrush().color().name() == bg_before
+
+
 def test_export_restores_selection(tmp_path):
     from grafli.pdfexport import export_flow_to_pdf
     board = parse(SAMPLE)

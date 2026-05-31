@@ -4408,18 +4408,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             vp_scene.x(), vp_scene.y(), vp_scene.width(), vp_scene.height()
         )
 
-        label, ok = QInputDialog.getText(self, "New bookmark", "Label:")
-        if not ok or not label.strip():
+        label, ok = QInputDialog.getText(
+            self, "New bookmark", "Label (blank = graph-only slide):")
+        if not ok:
             self._record_shortcut("bookmark cancelled — not created")
             return
-        description, ok2 = QInputDialog.getMultiLineText(
-            self, "Bookmark", "Description (optional):", ""
-        )
+        label = label.strip()
+        # A blank label means "let the graph speak" — no title/caption chrome,
+        # so we skip the description prompt too.
+        description = ""
+        if label:
+            desc, ok2 = QInputDialog.getMultiLineText(
+                self, "Bookmark", "Description (optional):", "")
+            if ok2:
+                description = desc.strip()
         bm = Bookmark(
             id=self._board.next_bookmark_id(),
-            label=label.strip(),
+            label=label,
             focus=focus,
-            description=description.strip() if ok2 else "",
+            description=description,
             view=view_rect,
         )
         self._board.add_bookmark(bm)
@@ -4612,7 +4619,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         ov = self._flow_overlay
         if ov is not None:
-            title = f"{ov['index'] + 1}/{ov['total']}  ·  {ov['label']}"
+            title = f"{ov['index'] + 1}/{ov['total']}"
+            if ov["label"]:
+                title += f"  ·  {ov['label']}"
             transition = "smooth" if ov["smooth"] else "instant"
             play = {"paused": "paused", "playing": "playing",
                     "loop": "playing ⟳"}.get(ov.get("mode", "paused"), "paused")

@@ -64,6 +64,7 @@ class _InlineTitle(QLineEdit):
             f" border: none; padding: 0; }}"
             f" QLineEdit:focus {{ background: #FFFFFF;"
             f" border: 1px solid {_BORDER}; border-radius: 3px; }}")
+        self.setPlaceholderText("Untitled")
         self._initial = text
         self.editingFinished.connect(self._maybe_commit)
 
@@ -510,8 +511,9 @@ class FlowsPanel(QWidget):
         self._view._commit_flow_edit()
 
     def _set_label(self, bm, text):
+        # Empty is allowed: a label-less bookmark is a graph-only slide.
         text = text.strip()
-        if text and text != bm.label:
+        if text != bm.label:
             bm.label = text
             self._view._commit_flow_edit()
 

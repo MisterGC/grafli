@@ -108,9 +108,9 @@ def test_inline_label_and_description_edit():
     assert bm.label == "Renamed"
     panel._set_description(bm, "now with detail")
     assert bm.description == "now with detail"
-    # empty label is ignored (keeps previous)
+    # clearing the label is allowed — it becomes a graph-only stop
     panel._set_label(bm, "   ")
-    assert bm.label == "Renamed"
+    assert bm.label == ""
 
 
 def test_play_mode_cycles_and_loops():

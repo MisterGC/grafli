@@ -64,6 +64,11 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
     sel = list(view._scene.selectedItems())
     for item in sel:
         item.setSelected(False)
+    # Suppress the scene's paper background while rendering so the embedded
+    # diagram images are transparent outside their items — they then drop onto
+    # the (same-paper) slide with no rectangular seam.
+    old_bg = view._scene.backgroundBrush()
+    view._scene.setBackgroundBrush(Qt.GlobalColor.transparent)
 
     painter = QPainter(writer)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -76,6 +81,7 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
             _draw_content_slide(painter, page, view, flow, bm, i, len(flow.steps))
     finally:
         painter.end()
+        view._scene.setBackgroundBrush(old_bg)
         for item in sel:
             item.setSelected(True)
     return len(flow.steps) + 1
@@ -140,36 +146,46 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
 
     label = bm.label if bm else "(missing bookmark)"
     description = bm.description if bm else ""
+    # A label-less, description-less stop is a "graph-only" slide: the framed
+    # diagram fills the page with no title bar or caption — what the graph
+    # shows and nothing more. Chrome appears only for the parts that have text.
+    has_title = bool(label)
+    has_desc = bool(description)
 
-    # ── title bar: label (left) + progress (right) ──
-    bar_h = ph * 0.12
-    painter.setFont(_font(int(ph * 0.050), bold=True))
-    painter.setPen(QPen(_TITLE_COLOR))
-    painter.drawText(QRectF(margin, margin * 0.5, pw - margin * 2, bar_h),
-                     int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-                     label)
-    painter.setFont(_font(int(ph * 0.034)))
-    painter.setPen(QPen(_MUTED_COLOR))
-    painter.drawText(QRectF(margin, margin * 0.5, pw - margin * 2, bar_h),
-                     int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-                     f"{index + 1} / {total}")
-    rule_y = margin * 0.5 + bar_h
-    painter.setPen(QPen(_FRAME, max(1, ph * 0.002)))
-    painter.drawLine(int(margin), int(rule_y), int(pw - margin), int(rule_y))
+    hero_top = margin * 0.5
+    hero_bottom = ph - margin * 0.5
 
-    # ── description band (bottom) ──
-    band_h = ph * 0.22
-    band = QRectF(margin, ph - margin - band_h, pw - margin * 2, band_h)
-    if description:
+    if has_title:
+        bar_h = ph * 0.12
+        painter.setFont(_font(int(ph * 0.050), bold=True))
+        painter.setPen(QPen(_TITLE_COLOR))
+        painter.drawText(
+            QRectF(margin, margin * 0.5, pw - margin * 2, bar_h),
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+            label)
+        painter.setFont(_font(int(ph * 0.034)))
+        painter.setPen(QPen(_MUTED_COLOR))
+        painter.drawText(
+            QRectF(margin, margin * 0.5, pw - margin * 2, bar_h),
+            int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+            f"{index + 1} / {total}")
+        rule_y = margin * 0.5 + bar_h
+        painter.setPen(QPen(_FRAME, max(1, ph * 0.002)))
+        painter.drawLine(int(margin), int(rule_y), int(pw - margin), int(rule_y))
+        hero_top = rule_y + margin * 0.5
+
+    if has_desc:
+        band_h = ph * 0.22
+        band = QRectF(margin, ph - margin - band_h, pw - margin * 2, band_h)
         _draw_fit_text(painter, band, description, _DESC_COLOR,
                        max_px=int(ph * 0.038), min_px=int(ph * 0.024),
                        flags=int(Qt.TextFlag.TextWordWrap
                                  | Qt.AlignmentFlag.AlignLeft
                                  | Qt.AlignmentFlag.AlignVCenter))
+        hero_bottom = band.top() - margin * 0.5
 
     # ── hero: the bookmark's framed diagram region ──
-    hero = QRectF(margin, rule_y + margin * 0.5, pw - margin * 2,
-                  band.top() - (rule_y + margin * 0.5) - margin * 0.5)
+    hero = QRectF(margin, hero_top, pw - margin * 2, hero_bottom - hero_top)
     source = bookmark_target_rect(view, bm) if bm else QRectF()
     if source.isNull():
         painter.setFont(_font(int(ph * 0.03)))
@@ -193,7 +209,7 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
         k = cap / max(iw, ih)
         iw, ih = max(1, round(iw * k)), max(1, round(ih * k))
     img = QImage(iw, ih, QImage.Format.Format_ARGB32_Premultiplied)
-    img.fill(SCENE_BG)
+    img.fill(Qt.GlobalColor.transparent)
     ip = QPainter(img)
     ip.setRenderHint(QPainter.RenderHint.Antialiasing)
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)

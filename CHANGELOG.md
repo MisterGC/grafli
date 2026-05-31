@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Minimap shows notes at their real size.** Notes now render scaled to
+  their rendered dimensions (like boxes) instead of a fixed blue square,
+  so a large note reads as a large marker.
+
 ### Added
 - **Inline vim-capable note editing** ([#66]). Editing a note (`e` /
   double-click) now opens a small vim editor in place on the canvas —

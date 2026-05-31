@@ -227,8 +227,12 @@ class MinimapMixin:
             cy = my + (box.y - scene_rect.y() + box.h / 2) * sy
             elem_centers[box.id] = (cx, cy)
         for note in self._board.notes:
-            cx = mx + (note.x - scene_rect.x() + 10) * sx
-            cy = my + (note.y - scene_rect.y() + 10) * sy
+            ni = self._note_items.get(note.id)
+            br = ni.boundingRect() if ni is not None else None
+            half_w = br.width() / 2 if br is not None else 10
+            half_h = br.height() / 2 if br is not None else 10
+            cx = mx + (note.x - scene_rect.x() + half_w) * sx
+            cy = my + (note.y - scene_rect.y() + half_h) * sy
             elem_centers[note.id] = (cx, cy)
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -285,7 +289,16 @@ class MinimapMixin:
             painter.setBrush(QBrush(color))
             nx = mx + (note.x - scene_rect.x()) * sx
             ny = my + (note.y - scene_rect.y()) * sy
-            painter.drawRect(QRectF(nx, ny, max(3, 20 * sx), max(3, 20 * sy)))
+            # Scale to the note's rendered size, like boxes, so a big note
+            # reads as a big marker instead of a fixed square.
+            ni = self._note_items.get(note.id)
+            if ni is not None:
+                br = ni.boundingRect()
+                nw = max(br.width() * sx, 2)
+                nh = max(br.height() * sy, 2)
+            else:
+                nw = nh = max(3, 20 * sx)
+            painter.drawRect(QRectF(nx, ny, nw, nh))
 
         # Viewport indicator
         vp_scene = self.mapToScene(vp).boundingRect()

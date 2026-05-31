@@ -8,9 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **Minimap shows notes at their real size.** Notes now render scaled to
-  their rendered dimensions (like boxes) instead of a fixed blue square,
-  so a large note reads as a large marker.
+- **Minimap notes are distinct and sized to the real note.** Notes now
+  render scaled to their rendered dimensions (like boxes) instead of a
+  fixed blue square, and draw as a light "card" with an accent-colored
+  border and a few text lines — so they read as text at a glance, stay
+  high-contrast against the panel, and keep their task / question /
+  discussion colour.
 
 ### Added
 - **Inline vim-capable note editing** ([#66]). Editing a note (`e` /

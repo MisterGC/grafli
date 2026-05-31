@@ -92,6 +92,22 @@ def test_real_key_path_type_then_commit():
     assert v._note_widget is None
 
 
+def test_view_forwards_keys_to_inline_editor():
+    """Keys delivered to the view must reach the embedded editor.
+
+    Regression: the view's keyPressEvent guard must forward (super) to the
+    scene's focus item, not swallow the event — otherwise typing does
+    nothing while a note is being edited.
+    """
+    v = _view('@ note n1 0,0 "hi"')
+    note = v._note_items["n1"]
+    v._start_editing(note)
+    assert v._scene.focusItem() is v._note_proxy
+    v.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_X,
+                              Qt.KeyboardModifier.NoModifier, "x"))
+    assert v._note_widget.toPlainText() == "hix"
+
+
 def test_editing_second_note_commits_first():
     v = _view('@ note n1 0,0 "one"\n@ note n2 0,200 "two"')
     n1 = v._note_items["n1"]

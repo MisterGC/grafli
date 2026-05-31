@@ -2140,7 +2140,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         widget.cancelled.connect(self._cancel_note_editor)
         self._note_proxy = proxy
         self._note_widget = widget
-        widget.setFocus(Qt.FocusReason.OtherFocusReason)
+
+        # The view must hold Qt focus and route to the proxy as the scene's
+        # focus item; the proxy then forwards focus to the embedded editor.
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+        proxy.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _commit_note_editor(self, text: str):
         target = self._edit_target
@@ -2625,8 +2629,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if self._zen_editor:
             return
 
-        # Inline note editor (proxy widget) handles all its own keys.
+        # Inline note editor: the view is the focused Qt widget, so forward
+        # keys down to the scene's focus item (the proxy → embedded editor)
+        # instead of running canvas shortcuts. Without super() the proxy
+        # would never receive any keystrokes.
         if self._note_widget is not None:
+            super().keyPressEvent(event)
             return
 
         # Editor key handling

@@ -64,6 +64,20 @@ lands on the placeholder ready to type-replace.
 | <kbd>x</kbd> / <kbd>Delete</kbd> | Delete selection |
 | <kbd>⌘</kbd>+<kbd>G</kbd> | Insert glyph / replace label |
 
+### Editing a note (vim)
+
+Editing a note (<kbd>e</kbd> / double-click) opens a small **vim-capable**
+editor in place — the same keybindings as the full-window zen editor,
+without leaving the canvas. It opens in INSERT mode so you can type right
+away; Markdown (`md:`) notes are syntax-highlighted.
+
+| Key | Action |
+|-----|--------|
+| <kbd>Esc</kbd> (in INSERT) | Drop to NORMAL mode (vim motions/edits) |
+| <kbd>Esc</kbd> (in NORMAL) | Commit and close |
+| <kbd>Shift</kbd>+<kbd>Esc</kbd> (in NORMAL) | Discard and close |
+| Click elsewhere | Commit and close |
+
 ## Create
 
 | Key | Action |

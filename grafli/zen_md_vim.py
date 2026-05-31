@@ -28,13 +28,18 @@ class VimKeyHandler:
         mode_changed: Callable[[VimMode], None],
         close_save: Callable[[], None],
         close_cancel: Callable[[], None],
+        initial_mode: VimMode = VimMode.NORMAL,
     ):
         self._editor = editor
         self._mode_changed = mode_changed
         self._close_save = close_save
         self._close_cancel = close_cancel
-        self._mode = VimMode.NORMAL
+        self._mode = initial_mode
         self._pending = ""
+        # Block cursor in normal mode, caret in insert. Callers that want a
+        # different start (e.g. inline editing opens in INSERT) pass
+        # ``initial_mode``; the zen editor keeps the NORMAL default.
+        self._editor.setOverwriteMode(initial_mode == VimMode.NORMAL)
 
     @property
     def mode(self) -> VimMode:

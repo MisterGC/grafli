@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Inline vim-capable note editing** ([#66]). Editing a note (`e` /
+  double-click) now opens a small vim editor in place on the canvas —
+  the same keybindings as the full-window zen editor, without leaving
+  the diagram. Opens in INSERT (type right away); `Esc` drops to NORMAL,
+  a second `Esc` commits, `Shift+Esc` discards, clicking away commits.
+  Markdown (`md:`) notes are syntax-highlighted while editing. The
+  editor lives in a new dependency-clean `grafli.editor` package so the
+  reusable widget can later move into a standalone editor project.
 - **Markdown-mode notes** ([#65]). A note whose first non-empty line is
   `md:` (or `markdown:`) renders its body as a small subset of
   GitHub-flavoured Markdown — headings, bullet / ordered / task lists,
@@ -91,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#33]: https://github.com/MisterGC/grafli/issues/33
 [#34]: https://github.com/MisterGC/grafli/issues/34
 [#65]: https://github.com/MisterGC/grafli/issues/65
+[#66]: https://github.com/MisterGC/grafli/issues/66
 
 ## [0.2.0] - 2026-05-05
 

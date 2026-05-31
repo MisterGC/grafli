@@ -32,6 +32,7 @@ from PySide6.QtGui import (
     QCursor,
     QDesktopServices,
     QFont,
+    QFontMetricsF,
     QImage,
     QPainter,
     QPen,
@@ -50,6 +51,7 @@ from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsPolygonItem,
+    QGraphicsProxyWidget,
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsSimpleTextItem,
@@ -69,6 +71,7 @@ from grafli.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_po
 from grafli.buffers import ViewState
 from grafli.commands import CommandsMixin
 from grafli.complexity import ComplexityMixin
+from grafli.editor import InlineVimEditor
 from grafli.constants import (
     ANNOTATION_ARROW_COLOR,
     ANNOTATION_ARROW_WIDTH,
@@ -102,6 +105,7 @@ from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, No
 from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, NoteItem, ResizeHandle
+from grafli.md_note import is_md_note
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
 from grafli.zen_md import ZenMarkdownEditor
@@ -210,6 +214,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Inline text editor
         self._editor: QGraphicsTextItem | None = None
         self._edit_target: BoxItem | NoteItem | None = None
+        # Notes use a vim-capable widget hosted in a proxy (boxes/arrows
+        # keep the plain QGraphicsTextItem above).
+        self._note_proxy: QGraphicsProxyWidget | None = None
+        self._note_widget: InlineVimEditor | None = None
 
         # Zen annotation editor
         self._zen_editor: ZenOverlay | None = None
@@ -641,6 +649,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._image_items.clear()
         self._editor = None
         self._edit_target = None
+        self._note_proxy = None
+        self._note_widget = None
         self._rect_preview = None
         self._connect_line = None
         self._connect_source = None
@@ -2052,41 +2062,36 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._commit_editor()
         self._edit_target = target
 
-        if isinstance(target, BoxItem):
-            text = target.box.label
-            pos = target.scenePos()
-            rect = target.rect()
-            font = target._box_font()
-            target._label.setVisible(False)
-        else:
-            text = target.note.text
-            font = target._note_font()
-            target.setVisible(False)
+        if isinstance(target, NoteItem):
+            self._start_note_editing(target)
+            return
+
+        text = target.box.label
+        pos = target.scenePos()
+        rect = target.rect()
+        font = target._box_font()
+        target._label.setVisible(False)
 
         editor = QGraphicsTextItem(text)
         editor.setFont(font)
         editor.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         editor.setDefaultTextColor(QColor("#2F3437"))
-        if isinstance(target, BoxItem):
-            editor.setTextWidth(rect.width() - 16)
+        editor.setTextWidth(rect.width() - 16)
         br = editor.boundingRect()
 
-        if isinstance(target, BoxItem):
-            anchor = target._get_effective_anchor()
-            if anchor == "topleft":
-                editor.setPos(pos.x() + 8, pos.y() + 8)
-            elif anchor == "topcenter":
-                editor.setPos(
-                    pos.x() + (rect.width() - br.width()) / 2,
-                    pos.y() + 8,
-                )
-            else:
-                editor.setPos(
-                    pos.x() + rect.width() / 2 - br.width() / 2,
-                    pos.y() + rect.height() / 2 - br.height() / 2,
-                )
+        anchor = target._get_effective_anchor()
+        if anchor == "topleft":
+            editor.setPos(pos.x() + 8, pos.y() + 8)
+        elif anchor == "topcenter":
+            editor.setPos(
+                pos.x() + (rect.width() - br.width()) / 2,
+                pos.y() + 8,
+            )
         else:
-            editor.setPos(target.scenePos())
+            editor.setPos(
+                pos.x() + rect.width() / 2 - br.width() / 2,
+                pos.y() + rect.height() / 2 - br.height() / 2,
+            )
 
         self._scene.addItem(editor)
         editor.setZValue(1000)
@@ -2095,6 +2100,80 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         cursor.select(QTextCursor.SelectionType.Document)
         editor.setTextCursor(cursor)
         self._editor = editor
+
+    def _start_note_editing(self, target: NoteItem):
+        """Edit a note in place with the vim-capable inline editor.
+
+        The editor is a plain `QPlainTextEdit` (vim keys, no grafli
+        coupling) hosted in a proxy so it scales/pans with the canvas. It
+        opens in INSERT mode; Esc drops to NORMAL, a second Esc commits,
+        Shift+Esc discards. Markdown notes get syntax highlighting.
+        """
+        text = target.note.text
+        font = target._note_font()
+
+        widget = InlineVimEditor(text, markdown=is_md_note(text), font=font)
+        widget.setStyleSheet(
+            "QPlainTextEdit {"
+            " background: #FBFAF7; color: #2F3437;"
+            " border: 1px solid #2F5D5C; border-radius: 4px; padding: 4px;"
+            " selection-background-color: #B8D4E8;"
+            "}"
+        )
+
+        # Size to the note's wrap budget; height fits the raw text with a
+        # little room to grow. A scrollbar handles anything taller.
+        fm = QFontMetricsF(font)
+        width_px = max(target._wrap_width_px(font) + 16, 160)
+        n_lines = text.count("\n") + 1
+        height_px = max((n_lines + 1) * fm.height() + 12, fm.height() * 2 + 12)
+        widget.resize(int(width_px), int(height_px))
+
+        proxy = QGraphicsProxyWidget()
+        proxy.setWidget(widget)
+        proxy.setZValue(1000)
+        proxy.setPos(target.scenePos())
+        self._scene.addItem(proxy)
+        target.setVisible(False)
+
+        widget.committed.connect(self._commit_note_editor)
+        widget.cancelled.connect(self._cancel_note_editor)
+        self._note_proxy = proxy
+        self._note_widget = widget
+        widget.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _commit_note_editor(self, text: str):
+        target = self._edit_target
+        if not isinstance(target, NoteItem):
+            return
+        new_text = text.strip()
+        if new_text and new_text != target.note.text:
+            self._push_undo()
+            target.update_text(new_text)
+            self.mark_dirty()
+        self._teardown_note_editor()
+
+    def _cancel_note_editor(self):
+        self._teardown_note_editor()
+
+    def _teardown_note_editor(self):
+        target = self._edit_target
+        proxy = self._note_proxy
+        self._note_proxy = None
+        self._note_widget = None
+        self._edit_target = None
+        if isinstance(target, NoteItem):
+            target.setVisible(True)
+        if proxy is not None:
+            # We may be inside the widget's own key handler (Esc commits),
+            # so defer removal — destroying the widget synchronously under
+            # its running event handler would crash.
+            proxy.setVisible(False)
+            QTimer.singleShot(0, lambda p=proxy: self._safe_remove_item(p))
+
+    def _safe_remove_item(self, item):
+        if item.scene() is self._scene:
+            self._scene.removeItem(item)
 
     def _start_editing_arrow(self, arrow: Arrow):
         self._commit_editor()
@@ -2130,6 +2209,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._editor = editor
 
     def _commit_editor(self):
+        if self._note_widget is not None:
+            self._commit_note_editor(self._note_widget.toPlainText())
+            return
         if not self._editor or not self._edit_target:
             return
         self._push_undo()
@@ -2159,6 +2241,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._edit_target = None
 
     def _cancel_editor(self):
+        if self._note_widget is not None:
+            self._cancel_note_editor()
+            return
         if self._editor:
             if isinstance(self._edit_target, Arrow):
                 self._scene.removeItem(self._editor)
@@ -2538,6 +2623,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Zen overlay handles its own input
         if self._zen_editor:
+            return
+
+        # Inline note editor (proxy widget) handles all its own keys.
+        if self._note_widget is not None:
             return
 
         # Editor key handling

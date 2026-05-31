@@ -76,6 +76,18 @@ def test_normal_mode_motion_does_not_insert():
     assert ed.toPlainText() == "abc"
 
 
+def test_autosizes_height_to_content_with_cap():
+    ed = _editor("one", max_lines=10)
+    ed.fit_to_width(240)
+    h1 = ed.height()
+    ed.setPlainText("a\nb\nc\nd\ne\nf")
+    assert ed.height() > h1  # grew to fit more lines
+    ed.setPlainText("\n".join(str(i) for i in range(100)))
+    capped = ed.height()
+    ls = ed.fontMetrics().lineSpacing()
+    assert capped <= 10 * ls + ed._CHROME + 1  # never beyond the cap
+
+
 def test_markdown_highlighter_attached_only_when_requested():
     assert _editor("# h", markdown=True)._highlighter is not None
     assert _editor("# h", markdown=False)._highlighter is None

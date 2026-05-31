@@ -2121,21 +2121,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             "}"
         )
 
-        # Size snugly to the content: width tracks the widest line (bounded
-        # by the wrap budget), height fits all lines up to a cap, then a
-        # scrollbar appears. The +pad covers the border/padding chrome.
+        # Width tracks the widest line (bounded by the wrap budget); the
+        # widget grows its own height to fit the text as you type.
         fm = QFontMetricsF(font)
         pad = 14
         lines = text.split("\n") or [""]
         content_w = max((fm.horizontalAdvance(ln) for ln in lines), default=0)
-        width_px = min(
+        width_px = int(min(
             max(content_w + 2 * pad + 16, 140),
             target._wrap_width_px(font) + 2 * pad,
-        )
-        height_px = min(
-            max(len(lines), 1) * fm.height() + 2 * pad,
-            16 * fm.height() + 2 * pad,
-        )
+        ))
 
         proxy = QGraphicsProxyWidget()
         proxy.setWidget(widget)
@@ -2144,11 +2139,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._scene.addItem(proxy)
         target.setVisible(False)
 
-        # Force widget and proxy to the same content size (the small
-        # minimumSizeHint above keeps the proxy from clamping it larger).
-        w_px, h_px = int(width_px), int(height_px)
-        widget.resize(w_px, h_px)
-        proxy.resize(w_px, h_px)
+        widget.fit_to_width(width_px)
 
         widget.committed.connect(self._commit_note_editor)
         widget.cancelled.connect(self._cancel_note_editor)

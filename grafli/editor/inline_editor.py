@@ -46,11 +46,13 @@ class InlineVimEditor(QPlainTextEdit):
         markdown: bool = False,
         font: QFont | None = None,
         commit_on_focus_out: bool = True,
+        max_lines: int = 24,
         parent=None,
     ):
         super().__init__(parent)
         self._done = False
         self._commit_on_focus_out = commit_on_focus_out
+        self._max_lines = max_lines
 
         if font is not None:
             self.setFont(font)
@@ -83,6 +85,15 @@ class InlineVimEditor(QPlainTextEdit):
         self.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, True)
         self.moveCursor(QTextCursor.MoveOperation.End)
 
+        # Grow to fit the text as the user types (the host pins the width).
+        self.document().documentLayout().documentSizeChanged.connect(
+            self._autosize
+        )
+
+    # Vertical chrome around the text lines: document margin (4) + the
+    # host stylesheet's border (1) + padding (4), top and bottom = 18.
+    _CHROME = 18
+
     @property
     def mode(self) -> VimMode:
         return self._vim.mode
@@ -92,6 +103,26 @@ class InlineVimEditor(QPlainTextEdit):
         # QGraphicsProxyWidget would enforce — leaving an oversized editor
         # with empty space. The host sizes us to fit the content instead.
         return QSize(40, 24)
+
+    def fit_to_width(self, width: int):
+        """Set the editor width and grow the height to fit the content.
+
+        The width stays fixed (text wraps to it); height tracks the
+        document up to ``max_lines``, after which the editor keeps the
+        caret visible by scrolling internally.
+        """
+        self.resize(width, self.height())
+        self._autosize()
+
+    def _autosize(self, *_):
+        # QPlainTextDocumentLayout reports document height as a line count
+        # (visual lines, wrapping included), not pixels — convert to pixels.
+        n_lines = max(self.document().size().height(), 1)
+        line_h = self.fontMetrics().lineSpacing()
+        wanted = min(n_lines, self._max_lines) * line_h + self._CHROME
+        wanted = max(int(wanted), int(line_h + self._CHROME))
+        if wanted != self.height():
+            self.resize(self.width(), wanted)
 
     # ── Key routing ──
 

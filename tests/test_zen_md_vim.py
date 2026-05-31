@@ -5,10 +5,10 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QKeyEvent, QTextCursor
 from PySide6.QtWidgets import QApplication, QPlainTextEdit
 
-from grafli.zen_md_vim import VimKeyHandler
+from grafli.zen_md_vim import VimKeyHandler, VimMode
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -62,3 +62,17 @@ def test_normal_mode_autorepeat_deletes_one_char():
 
     assert handler.handle_key(event) is True
     assert editor.toPlainText() == "bcdef"
+
+
+def test_insert_mode_enter_inserts_newline():
+    """Enter in insert mode inserts a newline and is consumed (the handler
+    does it explicitly so macOS input-method handling can't swallow it)."""
+    editor, handler = _handler("ab")
+    editor.moveCursor(QTextCursor.MoveOperation.End)
+    handler._set_mode(VimMode.INSERT)
+    event = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Return,
+        Qt.KeyboardModifier.NoModifier, "\r",
+    )
+    assert handler.handle_key(event) is True
+    assert editor.toPlainText() == "ab\n"

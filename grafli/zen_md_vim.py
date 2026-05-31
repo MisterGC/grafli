@@ -65,6 +65,14 @@ class VimKeyHandler:
             self._set_mode(VimMode.NORMAL)
             self._move(QTextCursor.MoveOperation.Left)
             return True
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Insert the newline ourselves rather than passing through. On
+            # macOS the input method (enabled in insert mode) swallows a
+            # bare Return so the default handler never inserts a line break
+            # — only Shift+Return got through. Handling it here makes Enter
+            # work everywhere and keeps behaviour identical across platforms.
+            self._editor.textCursor().insertText("\n")
+            return True
         return False  # pass through to editor
 
     # ── Normal mode ──

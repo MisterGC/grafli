@@ -74,6 +74,20 @@ def test_md_note_gets_markdown_highlighting():
     assert v._note_widget._highlighter is not None
 
 
+def test_zen_edit_note_edits_text_not_attached_md():
+    v = _view('@ note n1 0,0 "hello"')
+    note = v._note_items["n1"]
+    note.setSelected(True)
+    v._quick_edit_markdown()  # the Shift+E action
+    assert v._zen_editor is not None
+    assert v._zen_target is note
+    assert note.note.url == ""  # no attached markdown file was created
+    # Simulate the zen editor saving edited text back to the note.
+    v._commit_zen_note("hello\n\nmore prose")
+    assert note.note.text == "hello\n\nmore prose"
+    assert v._zen_editor is None
+
+
 def _key(w, key, mods=Qt.KeyboardModifier.NoModifier, text=""):
     w.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, key, mods, text))
 

@@ -53,8 +53,8 @@ lands on the placeholder ready to type-replace.
 
 | Key | Action |
 |-----|--------|
-| <kbd>e</kbd> / Double-click | Edit selected element |
-| <kbd>E</kbd> | Edit annotation |
+| <kbd>e</kbd> / Double-click | Edit selected element (inline) |
+| <kbd>E</kbd> | Open the full-window zen editor — edits a **note's own text**; for a box/image, opens (or creates) its attached markdown file |
 | <kbd>W</kbd> | Set URL on selected item |
 | <kbd>Return</kbd> | Open URL in browser |
 | <kbd>Enter</kbd> | Accept edit |

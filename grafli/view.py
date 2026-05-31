@@ -1944,6 +1944,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         """Quick-create/open markdown resource for the selected element."""
         if self._zen_editor:
             return
+
+        # A note is its own text — edit it in the zen editor in memory.
+        # This works even on an unsaved diagram (no resource file needed),
+        # so it runs before the grafli-file guard below.
+        if not self._selected_arrow:
+            for item in self._scene.selectedItems():
+                if isinstance(item, NoteItem):
+                    self._zen_edit_note(item)
+                    return
+
         window = self.window()
         if not hasattr(window, '_file_path') or not window._file_path:
             return
@@ -1971,15 +1981,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         for item in self._scene.selectedItems():
-            if isinstance(item, (BoxItem, NoteItem, ImageItem)):
+            if isinstance(item, (BoxItem, ImageItem)):
                 url = ""
                 element_id = ""
                 if isinstance(item, BoxItem):
                     url = item.box.url
                     element_id = item.box.id
-                elif isinstance(item, NoteItem):
-                    url = item.note.url
-                    element_id = item.note.id
                 elif isinstance(item, ImageItem):
                     url = item.image.url
                     element_id = item.image.id
@@ -2047,6 +2054,35 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             file_path=path, anchor=anchor, canvas=self,
         )
         self._zen_editor.cancelled.connect(self._cancel_zen_edit)
+
+    def _zen_edit_note(self, item: NoteItem):
+        """Edit a note's own text in the full-window zen editor.
+
+        Unlike boxes/images, a note *is* its text — so the zen experience
+        edits the note in memory rather than spawning an attached markdown
+        file. Saved text is written straight back to the note.
+        """
+        if self._zen_editor:
+            return
+        self._zen_target = item
+        self._zen_editor = ZenMarkdownEditor(
+            parent=self.window(), text=item.note.text, title=item.note.id,
+            file_path=None, canvas=self,
+        )
+        self._zen_editor.finished.connect(self._commit_zen_note)
+        self._zen_editor.cancelled.connect(self._cancel_zen_edit)
+
+    def _commit_zen_note(self, text: str):
+        item = self._zen_target
+        self._zen_editor = None
+        self._zen_target = None
+        if not isinstance(item, NoteItem):
+            return
+        new_text = text.strip()
+        if new_text and new_text != item.note.text:
+            self._push_undo()
+            item.update_text(new_text)
+            self.mark_dirty()
 
     def _edit_selected(self):
         for item in self._scene.selectedItems():
@@ -5410,8 +5446,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("/", "Search dim-filter \u2014 Tab/\u21e7Tab cycle, Esc clears"),
             ]),
             ("Edit", [
-                ("e / Dbl-click", "Edit selected element"),
-                ("E", "Edit annotation"),
+                ("e / Dbl-click", "Edit selected element (inline)"),
+                ("E", "Zen editor — note text / box-image markdown"),
                 ("W", "Set URL on selected item"),
                 ("Return", "Open URL in browser"),
                 ("Enter", "Accept edit"),

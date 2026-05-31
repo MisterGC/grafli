@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Markdown (`md:`) notes are syntax-highlighted while editing. The
   editor lives in a new dependency-clean `grafli.editor` package so the
   reusable widget can later move into a standalone editor project.
+- **`E` opens the zen editor on a note's own text** ([#66]). For longer
+  prose, `Shift+E` on a note now opens the full-window zen editor seeded
+  with the note's text and writes the result straight back — instead of
+  implicitly creating an attached markdown file. Boxes and images keep
+  the attached-markdown behaviour.
 - **Markdown-mode notes** ([#65]). A note whose first non-empty line is
   `md:` (or `markdown:`) renders its body as a small subset of
   GitHub-flavoured Markdown — headings, bullet / ordered / task lists,

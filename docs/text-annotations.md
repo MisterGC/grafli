@@ -173,11 +173,24 @@ prefix renders as a colored chip and tints the edge:
 Unknown `word:` prefixes are left as plain label text — ordinary labels
 with colons are not affected.
 
+## Editing notes
+
+Two ways to edit a note's text:
+
+* <kbd>e</kbd> (or double-click) — a small **inline** vim editor right on
+  the canvas; it grows to fit as you type. Best for quick edits.
+* <kbd>E</kbd> — the **full-window zen editor** (iA-Writer style, vim
+  keybindings) on the note's own text. Best for longer prose. Saving
+  writes straight back to the note — no separate file is created.
+
+Both open in INSERT mode; <kbd>Esc</kbd> drops to NORMAL, a second
+<kbd>Esc</kbd> commits, <kbd>Shift</kbd>+<kbd>Esc</kbd> discards.
+
 ## Markdown resources
 
-Any element can link to a markdown file. Open the linked resource with
-<kbd>E</kbd> on the selected element to edit it in a full-window zen
-editor with vim-style keybindings.
+Boxes and images can link to a separate markdown file. Open (or create)
+the linked resource with <kbd>E</kbd> on the selected element to edit it
+in the full-window zen editor.
 
 The path is stored in the `.grafli` file; grafli tracks it and migrates
 references when you rename the file.

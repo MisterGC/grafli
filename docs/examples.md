@@ -23,6 +23,20 @@ git clone https://github.com/MisterGC/grafli.git
 grafli grafli/examples/architecture.grafli
 ```
 
+## Bookmarks & flows demo
+
+`examples/flows-demo.grafli` is a small six-service architecture wired up with
+**bookmarks** and two **flows** — a guided tour through the system and a
+security-path walkthrough. Open it, toggle the side panel with <kbd>\\</kbd>,
+switch to the **Flows** tab, and play a flow; press <kbd>F5</kbd> to present one
+fullscreen, or export it to a slide PDF:
+
+```bash
+grafli export grafli/examples/flows-demo.grafli tour.pdf --flow tour
+```
+
+See [Bookmarks & flows](bookmarks-flows.md) for the full feature.
+
 ## Try it yourself
 
 The format is small enough that the fastest way to learn is to read a

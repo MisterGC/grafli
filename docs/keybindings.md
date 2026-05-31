@@ -128,6 +128,28 @@ section.
 | <kbd>Ctrl</kbd>+<kbd>6</kbd> | Toggle last buffer |
 | <kbd>Q</kbd> | Close buffer (no selection) |
 
+## Bookmarks & flows
+
+Save labeled viewpoints and string them into guided tours — see
+[Bookmarks & flows](bookmarks-flows.md).
+
+| Key | Action |
+|-----|--------|
+| <kbd>g</kbd><kbd>b</kbd> | Bookmark what's shown (selection, else everything visible) |
+| <kbd>g</kbd><kbd>B</kbd> | Bookmark the exact viewport (pixel-faithful framing) |
+| <kbd>g</kbd><kbd>f</kbd> | Start / stop flow recording (each capture is appended) |
+| <kbd>F5</kbd> | Present the current flow fullscreen (chrome hidden, paused) |
+
+During playback (in-app or presenting):
+
+| Key | Action |
+|-----|--------|
+| <kbd>Space</kbd> / <kbd>→</kbd> | Next stop |
+| <kbd>←</kbd> | Previous stop |
+| <kbd>t</kbd> | Toggle smooth camera ↔ instant cuts |
+| <kbd>p</kbd> | Cycle paused → playing → playing (loop) |
+| <kbd>Esc</kbd> | Exit playback |
+
 ## Mouse
 
 | Action | Effect |

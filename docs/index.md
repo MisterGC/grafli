@@ -116,6 +116,23 @@ Real diagrams sprawl. A handful of view-toggles turn a busy diagram into a focus
 
 ![The same town ecosystem with jump-mode active — every visible item carries a one- or two-character jump label](assets/screenshots/jump-labels.png)
 
+## Explain a graph as a guided tour
+
+A big diagram doesn't have to land all at once. **Bookmarks** save labeled
+viewpoints; **flows** string them into a guided tour you can step through,
+auto-play, present fullscreen, or export as a slide PDF.
+
+- **Semantic anchors** — a bookmark frames *item ids*, not pixel coordinates,
+  so it stays correct after you move boxes around.
+- **Frictionless capture** — <kbd>g</kbd><kbd>b</kbd> bookmarks what's on
+  screen; <kbd>g</kbd><kbd>f</kbd> records a flow as you navigate.
+- **Present & export** — <kbd>F5</kbd> presents a flow like a slide deck;
+  `grafli export … --flow` writes a PDF for people who don't run grafli.
+- **AI-authorable** — because it's plain text, your agent can write an
+  explanatory tour through a graph instead of dumping the whole thing.
+
+[Read more →](bookmarks-flows.md)
+
 ## Where grafli fits
 
 <div class="grafli-pillars" markdown>

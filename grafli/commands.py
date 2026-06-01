@@ -9,9 +9,10 @@ from PySide6.QtCore import QPointF
 
 from grafli.constants import (
     LAYOUT_PADDING,
+    resolve_textsize_px,
+    step_textsize_px,
     _BOX_STYLE_CYCLE,
     _COLOR_VALUES,
-    _SIZE_SEQUENCE,
     _UNDO_LIMIT,
 )
 from grafli.format import Arrow, Box, Image, Note, parse, serialize
@@ -293,28 +294,28 @@ class CommandsMixin:
         self.mark_dirty()
 
     def _cycle_textsize(self, direction: int):
-        """direction: +1 = increase (toward large), -1 = decrease (toward small)."""
+        """Step selected nodes' text size by one ladder rung.
+
+        direction: +1 = larger, -1 = smaller. Sizes are stored numerically
+        (fine-grained); a parent's small-header default still applies when its
+        size is unset, but stepping always yields an explicit size so a parent
+        can reach the same sizes as any other node.
+        """
         self._push_undo()
         new_textsize = None
         for item in self._scene.selectedItems():
             if isinstance(item, BoxItem):
-                cur = item.box.textsize
-                if cur in _SIZE_SEQUENCE:
-                    idx = _SIZE_SEQUENCE.index(cur)
-                else:
-                    idx = 1  # default to medium
-                idx = max(0, min(len(_SIZE_SEQUENCE) - 1, idx + direction))
-                item.set_textsize(_SIZE_SEQUENCE[idx])
-                new_textsize = _SIZE_SEQUENCE[idx]
+                is_parent = self._has_children(item.box.id)
+                cur_px = resolve_textsize_px(
+                    item.box.textsize, "small" if is_parent else "")
+                new = str(step_textsize_px(cur_px, direction))
+                item.set_textsize(new)
+                new_textsize = new
             elif isinstance(item, NoteItem):
-                cur = item.note.textsize
-                if cur in _SIZE_SEQUENCE:
-                    idx = _SIZE_SEQUENCE.index(cur)
-                else:
-                    idx = 1
-                idx = max(0, min(len(_SIZE_SEQUENCE) - 1, idx + direction))
-                item.set_textsize(_SIZE_SEQUENCE[idx])
-                self._last_note_textsize = _SIZE_SEQUENCE[idx]
+                cur_px = resolve_textsize_px(item.note.textsize, "")
+                new = str(step_textsize_px(cur_px, direction))
+                item.set_textsize(new)
+                self._last_note_textsize = new
         if new_textsize is not None:
             self._last_box_textsize = new_textsize
         self.mark_dirty()

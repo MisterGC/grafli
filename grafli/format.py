@@ -46,7 +46,7 @@ class Box:
     h: float
     color: str = ""
     anchor: str = ""      # "topleft", "topcenter", or "" (= center)
-    textsize: str = ""    # "small", "large", or "" (= medium)
+    textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
     style: str = ""       # "" (node) or "flat"
     url: str = ""
     parent: str = ""
@@ -61,7 +61,7 @@ class Arrow:
     label_dx: float = 0.0
     label_dy: float = 0.0
     style: str = ""       # "dashed", "dotted", "thick", or "" (solid)
-    textsize: str = ""    # "small", "large", "xlarge", "xxlarge", "xxxlarge", or "" (default)
+    textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
     head_from: bool = False  # arrowhead at from_id end
     head_to: bool = True     # arrowhead at to_id end
     url: str = ""
@@ -306,7 +306,7 @@ _RE_BOX = re.compile(
     r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
     r'(?:\s+!(flat))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -328,7 +328,7 @@ _RE_ARROW = re.compile(
 _RE_NOTE = re.compile(
     r'^@\s+note\s+(?:([a-zA-Z_]\S*)\s+)?(-?[\d.]+),\s*(-?[\d.]+)\s+"([^"]*)"'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
     r'(?:\s+~width=(\d+))?'
     r'(?:\s+!(mono))?'
     r'(?:\s+&(\S+))?'
@@ -345,7 +345,7 @@ _RE_NOTE_BLOCK_START = re.compile(
 _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'^\s*"""'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
     r'(?:\s+~width=(\d+))?'
     r'(?:\s+!(mono))?'
     r'(?:\s+&(\S+))?'

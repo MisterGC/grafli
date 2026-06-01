@@ -28,6 +28,7 @@ from grafli.constants import (
     NOTE_PEN_COLOR,
     NOTE_QUESTION_COLOR,
     NOTE_TASK_COLOR,
+    resolve_textsize_px,
     SCENE_BG,
     _resolve_color,
 )
@@ -316,7 +317,14 @@ class BoxItem(QGraphicsRectItem):
         return ""
 
     def _box_font(self) -> QFont:
-        return QFont(FONT_FAMILY, BOX_FONT_SIZES.get(self._get_effective_textsize(), 13))
+        view = _get_view(self)
+        is_parent = bool(view and hasattr(view, '_has_children')
+                         and view._has_children(self.box.id))
+        # Unset size: a parent defaults to the small header, a normal node to
+        # medium. An explicit size (numeric or named) is always honoured — so
+        # a parent can be set to the same size as any other node.
+        px = resolve_textsize_px(self.box.textsize, "small" if is_parent else "")
+        return QFont(FONT_FAMILY, px)
 
     def _position_label(self):
         br = self._label.boundingRect()
@@ -1631,7 +1639,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.update()
 
     def _note_font(self) -> QFont:
-        return QFont(FONT_FAMILY, BOX_FONT_SIZES.get(self.note.textsize, 13))
+        return QFont(FONT_FAMILY, resolve_textsize_px(self.note.textsize, ""))
 
     def set_color(self, color: str):
         self.note.color = color

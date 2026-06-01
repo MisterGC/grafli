@@ -192,8 +192,35 @@ LAYOUT_PADDING = 20     # px padding inside parent box
 # ── Sequences & cycles ───────────────────────────────────────────
 
 _SIZE_SEQUENCE = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge"]
+# Fine-grained size ladder that box/note text-size cycling steps through.
+# Stored numerically (e.g. textsize="16"); legacy named sizes still resolve.
+_SIZE_LADDER = [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 40, 48]
 _BOX_STYLE_CYCLE = ["", "flat"]
 _ARROW_STYLE_CYCLE = ["", "thick", "dashed", "dotted"]
+
+
+def resolve_textsize_px(textsize: str, default_key: str) -> int:
+    """Resolve a box/note ``textsize`` token to a font size.
+
+    Accepts a numeric size string (e.g. "16"), a legacy named size
+    ("small"/"large"/…), or "" / unknown which falls back to ``default_key``
+    in ``BOX_FONT_SIZES`` (use "small" for a parent header, "" for a normal
+    node default).
+    """
+    if textsize:
+        if textsize.isdigit():
+            return max(1, int(textsize))
+        if textsize in BOX_FONT_SIZES:
+            return BOX_FONT_SIZES[textsize]
+    return BOX_FONT_SIZES[default_key]
+
+
+def step_textsize_px(px: int, direction: int) -> int:
+    """Next ladder size up (+1) or down (-1) from ``px`` (a font size) — always moves."""
+    if direction > 0:
+        return next((v for v in _SIZE_LADDER if v > px), _SIZE_LADDER[-1])
+    return next((v for v in reversed(_SIZE_LADDER) if v < px), _SIZE_LADDER[0])
+
 
 # ── Modifier helpers ─────────────────────────────────────────────
 

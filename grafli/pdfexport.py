@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QMarginsF, QRectF, QSizeF, Qt
+from PySide6.QtCore import QMarginsF, QPointF, QRectF, QSizeF, Qt
 from PySide6.QtGui import (
     QAbstractTextDocumentLayout,
+    QBrush,
     QColor,
     QFont,
     QImage,
@@ -23,10 +24,13 @@ from PySide6.QtGui import (
     QPalette,
     QPdfWriter,
     QPen,
+    QTextCharFormat,
+    QTextCursor,
     QTextDocument,
+    QTextListFormat,
 )
 
-from grafli.constants import FONT_FAMILY, SCENE_BG
+from grafli.constants import FONT_FAMILY, NOTE_PEN_COLOR, SCENE_BG
 from grafli.flows import bookmark_target_rect, isolate_focus, text_slide_note
 from grafli.md_note import is_md_note, md_body
 
@@ -236,13 +240,25 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     painter.drawImage(fitted, img)
 
 
+_UNORDERED = (
+    QTextListFormat.Style.ListDisc,
+    QTextListFormat.Style.ListCircle,
+    QTextListFormat.Style.ListSquare,
+)
+
+
 def _draw_text_hero(painter, hero: QRectF, note) -> None:
     """Render a note as native, selectable, clickable PDF text in ``hero``.
 
     Markdown reflows to the hero width — line length adapts to the slide, not
-    the note's on-canvas wrap — and the font shrinks to fit on one page. Links
-    survive as real PDF link annotations. Body/link colours come from the
-    paint-context palette (Qt's Markdown import ignores CSS colours).
+    the note's on-canvas wrap — and the base font is sized so the text fills
+    the available space (presentation slides should use it). Links survive as
+    real PDF link annotations; body/link colours come from the paint-context
+    palette (Qt's Markdown import ignores CSS colours).
+
+    Unordered-list bullets are drawn by us as vector discs and Qt's own list
+    markers suppressed: Qt's auto markers don't render reliably through the PDF
+    backend with some fonts (they vanish), but vector discs always do.
     """
     is_md = is_md_note(note.text)
     body = md_body(note.text) if is_md else note.text
@@ -250,27 +266,83 @@ def _draw_text_hero(painter, hero: QRectF, note) -> None:
     doc = QTextDocument()
     doc.setDocumentMargin(0)
     font = QFont(FONT_FAMILY)
+    font.setPixelSize(16)
+    doc.setDefaultFont(font)
     if is_md:
-        font.setPixelSize(16)
-        doc.setDefaultFont(font)
         doc.setMarkdown(body, QTextDocument.MarkdownFeature.MarkdownDialectGitHub)
     else:
-        font.setPixelSize(16)
-        doc.setDefaultFont(font)
         doc.setPlainText(body)
 
-    # Shrink-to-fit: reduce the base font until the laid-out text fits the
-    # hero height (markdown heading sizes scale with the default font).
-    max_px = max(14, int(hero.height() * 0.060))
-    min_px = max(9, int(hero.height() * 0.026))
+    # Detach unordered-list blocks from Qt's lists: its auto markers don't
+    # render reliably through the PDF backend with some fonts (they vanish),
+    # and its indent is a fixed 40px that doesn't scale. We give each a
+    # font-proportional hanging indent and draw the bullet ourselves as a
+    # vector disc, which always renders. Ordered lists keep Qt's numbering.
+    bullets = []  # block positions that get a disc
+    blk = doc.begin()
+    while blk.isValid():
+        tl = blk.textList()
+        if tl is not None and tl.format().style() in _UNORDERED:
+            bullets.append(blk.position())
+        blk = blk.next()
+    cursor = QTextCursor(doc)
+    for pos in bullets:
+        b = doc.findBlock(pos)
+        if b.textList() is not None:
+            b.textList().remove(b)
+
+    # Fit-to-fill: pick the largest base font (capped) whose laid-out text
+    # still fits the hero height, so short notes fill the slide instead of
+    # floating tiny in the middle. The bullet hanging indent scales with the
+    # font, so it's re-applied each trial. Markdown headings scale too.
+    max_px = max(16, int(hero.height() * 0.10))
+    min_px = max(9, int(hero.height() * 0.028))
     size = max_px
     while True:
         font.setPixelSize(size)
         doc.setDefaultFont(font)
+        gutter = size * 1.4
+        for pos in bullets:
+            b = doc.findBlock(pos)
+            bf = b.blockFormat()
+            bf.setLeftMargin(gutter)
+            bf.setTextIndent(0)
+            cursor.setPosition(b.position())
+            cursor.setBlockFormat(bf)
         doc.setTextWidth(hero.width())
         if size <= min_px or doc.size().height() <= hero.height():
             break
-        size -= 1
+        size -= 2
+
+    # Colour links the same blue as the canvas. Set it on the anchor char
+    # formats explicitly — the PDF backend ignores the paint-context Link
+    # palette role, so the markdown default (bright blue) would leak through.
+    link_fmt = QTextCharFormat()
+    link_fmt.setForeground(NOTE_PEN_COLOR)
+    b = doc.begin()
+    while b.isValid():
+        it = b.begin()
+        while not it.atEnd():
+            frag = it.fragment()
+            if frag.isValid() and frag.charFormat().isAnchor():
+                cursor.setPosition(frag.position())
+                cursor.setPosition(frag.position() + frag.length(),
+                                   QTextCursor.MoveMode.KeepAnchor)
+                cursor.mergeCharFormat(link_fmt)
+            it += 1
+        b = b.next()
+
+    lay = doc.documentLayout()
+    gutter = size * 1.4
+    discs = []
+    for pos in bullets:
+        b = doc.findBlock(pos)
+        lyt = b.layout()
+        if lyt.lineCount() > 0:
+            line = lyt.lineAt(0)
+            br = lay.blockBoundingRect(b)
+            cy = br.top() + line.y() + line.height() / 2
+            discs.append((br.left() + line.x(), cy))
 
     dh = min(doc.size().height(), hero.height())
     oy = hero.top() + max(0.0, (hero.height() - dh) / 2)
@@ -279,9 +351,15 @@ def _draw_text_hero(painter, hero: QRectF, note) -> None:
     painter.translate(hero.left(), oy)
     ctx = QAbstractTextDocumentLayout.PaintContext()
     ctx.palette.setColor(QPalette.ColorRole.Text, _TITLE_COLOR)
-    ctx.palette.setColor(QPalette.ColorRole.Link, _ACCENT)
+    ctx.palette.setColor(QPalette.ColorRole.Link, NOTE_PEN_COLOR)
     ctx.clip = QRectF(0, 0, hero.width(), hero.height())
-    doc.documentLayout().draw(painter, ctx)
+    lay.draw(painter, ctx)
+
+    r = max(2.0, gutter * 0.16)
+    painter.setBrush(QBrush(_TITLE_COLOR))
+    painter.setPen(Qt.PenStyle.NoPen)
+    for text_left, cy in discs:
+        painter.drawEllipse(QPointF(text_left - gutter * 0.55, cy), r, r)
     painter.restore()
 
 

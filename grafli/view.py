@@ -1424,19 +1424,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 if new_item._is_parent != was_parent:
                     new_item._apply_color()
                 self._refresh_auto_layout(elem.parent)
-                self._grow_parent_to_fit_children(elem.parent)
             self.mark_dirty()
+
+        # Keep the (possibly unchanged) parent large enough to contain the
+        # item, even when it was moved/resized within its existing parent.
+        if elem.parent and elem.parent in self._box_items:
+            self._grow_parent_to_fit_children(elem.parent)
 
     def _grow_parent_to_fit_children(self, parent_id: str):
         """Grow a parent box so it contains all its direct children, plus padding.
 
         Used after an interactive drop, where a node may be nested while still
         sticking out of the parent. Only grows — never shrinks — so existing
-        layout is left undisturbed.
+        layout is left undisturbed. The top edge reserves room for the parent's
+        headline (label band) so children never sit under it.
         """
         if not self._board or parent_id not in self._box_items:
             return
-        parent = self._box_items[parent_id].box
+        parent_item = self._box_items[parent_id]
+        parent = parent_item.box
 
         child_rect: QRectF | None = None
         for b in self._board.boxes:
@@ -1453,8 +1459,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         pad = LAYOUT_PADDING
+        # Reserve the headline band at the top so children clear the label.
+        top_reserve = pad
+        if parent_item._get_effective_anchor() in ("topleft", "topcenter"):
+            top_reserve = parent_item._label.boundingRect().height() + 16
         left = min(parent.x, child_rect.left() - pad)
-        top = min(parent.y, child_rect.top() - pad)
+        top = min(parent.y, child_rect.top() - top_reserve)
         right = max(parent.x + parent.w, child_rect.right() + pad)
         bottom = max(parent.y + parent.h, child_rect.bottom() + pad)
         if (left, top, right, bottom) != (

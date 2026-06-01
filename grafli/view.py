@@ -243,9 +243,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._clipboard_arrows: list[Arrow] = []
         self._clipboard_images: list[Image] = []
 
-        # Reparenting drag highlight
-        self._highlight_parent: BoxItem | None = None
-        self._highlight_orig_pen: QPen | None = None
+        # Reparenting drag highlight: a dashed rectangle previewing the target
+        # parent's auto-grown bounds (or None when the drop would detach).
+        self._grow_preview: QGraphicsRectItem | None = None
 
         # Jump-to mode state
         self._jump_active = False
@@ -657,8 +657,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._connect_source = None
         self._selected_arrow = None
         self._selected_arrow_items.clear()
-        self._highlight_parent = None
-        self._highlight_orig_pen = None
+        self._grow_preview = None
         self._mode_badge = None
         self._mode_badge_bg = None
         self._box_mode = ""
@@ -1368,6 +1367,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return item.note
         return item.image
 
+    def _item_fit_rect(self, item) -> QRectF:
+        """Scene rect used for containment fitting, matching ``_fit_parent_rect``.
+
+        Boxes use their exact geometry; notes/images use their scene bounds.
+        """
+        if isinstance(item, BoxItem):
+            b = item.box
+            return QRectF(b.x, b.y, b.w, b.h)
+        sr = item.sceneBoundingRect()
+        return QRectF(sr.x(), sr.y(), sr.width(), sr.height())
+
     def _check_nesting(self, item: BoxItem | NoteItem | ImageItem, cursor_scene: QPointF | None = None):
         """Update parent of a box, note or image after it has been moved.
 
@@ -1431,20 +1441,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if elem.parent and elem.parent in self._box_items:
             self._grow_parent_to_fit_children(elem.parent)
 
-    def _grow_parent_to_fit_children(self, parent_id: str):
-        """Grow a parent box so it contains all its direct children, plus padding.
+    def _fit_parent_rect(self, parent_id: str, extra_rect: QRectF | None = None) -> QRectF | None:
+        """Outer rect a parent must occupy to contain its children (grow-only).
 
-        Used after an interactive drop, where a node may be nested while still
-        sticking out of the parent. Only grows — never shrinks — so existing
-        layout is left undisturbed. The top edge reserves room for the parent's
-        headline (label band) so children never sit under it.
+        Unions the parent's direct children (boxes/notes/images) with an
+        optional ``extra_rect`` (e.g. a child being dragged but not yet
+        reparented), padded, and with the headline band reserved at the top.
+        Never shrinks below the parent's current bounds. Returns None when
+        there is nothing to fit. Shared by the on-release grow and the live
+        drag preview so the two can never drift.
         """
         if not self._board or parent_id not in self._box_items:
-            return
+            return None
         parent_item = self._box_items[parent_id]
         parent = parent_item.box
 
-        child_rect: QRectF | None = None
+        child_rect: QRectF | None = None if extra_rect is None else QRectF(extra_rect)
         for b in self._board.boxes:
             if b.parent == parent_id:
                 r = QRectF(b.x, b.y, b.w, b.h)
@@ -1456,22 +1468,40 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if iitem.image.parent == parent_id:
                 child_rect = self._unite_scene_rect(child_rect, iitem)
         if child_rect is None:
-            return
+            return None
 
         pad = LAYOUT_PADDING
         # Reserve the headline band at the top so children clear the label.
+        # Parents default to a top headline unless an explicit anchor says otherwise.
         top_reserve = pad
-        if parent_item._get_effective_anchor() in ("topleft", "topcenter"):
+        top_anchored = (
+            parent.anchor in ("topleft", "topcenter")
+            or (not parent.anchor and (self._has_children(parent_id) or extra_rect is not None))
+        )
+        if top_anchored:
             top_reserve = parent_item._label.boundingRect().height() + 16
         left = min(parent.x, child_rect.left() - pad)
         top = min(parent.y, child_rect.top() - top_reserve)
         right = max(parent.x + parent.w, child_rect.right() + pad)
         bottom = max(parent.y + parent.h, child_rect.bottom() + pad)
-        if (left, top, right, bottom) != (
+        return QRectF(left, top, right - left, bottom - top)
+
+    def _grow_parent_to_fit_children(self, parent_id: str):
+        """Grow a parent box so it contains all its direct children, plus padding.
+
+        Used after an interactive drop, where a node may be nested while still
+        sticking out of the parent. Only grows — never shrinks — so existing
+        layout is left undisturbed.
+        """
+        target = self._fit_parent_rect(parent_id)
+        if target is None:
+            return
+        parent = self._box_items[parent_id].box
+        if (target.x(), target.y(), target.right(), target.bottom()) != (
             parent.x, parent.y, parent.x + parent.w, parent.y + parent.h
         ):
             self._box_items[parent_id].set_geometry(
-                left, top, right - left, bottom - top
+                target.x(), target.y(), target.width(), target.height()
             )
 
     @staticmethod
@@ -1481,7 +1511,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         return r if child_rect is None else child_rect.united(r)
 
     def _update_reparent_highlight(self, cursor_scene: QPointF | None = None):
-        """Highlight the box under the cursor as the potential parent during drag."""
+        """Preview the auto-grow of the box under the cursor during a drag.
+
+        Draws a dashed rectangle at the target parent's projected grown bounds
+        (children plus the dragged item, with padding and headline reserve). No
+        rectangle means the drop would detach the item to top level.
+        """
         selected = [i for i in self._scene.selectedItems() if isinstance(i, (BoxItem, NoteItem, ImageItem))]
         if len(selected) != 1 or cursor_scene is None:
             self._clear_reparent_highlight()
@@ -1494,7 +1529,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         else:
             desc_ids = set()
 
-        best_parent = None
+        best_parent_id = None
         best_area = float('inf')
         for other_id, other_item in self._box_items.items():
             if other_id == item_id or other_id in desc_ids:
@@ -1505,26 +1540,34 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 area = other.w * other.h
                 if area < best_area:
                     best_area = area
-                    best_parent = other_item
+                    best_parent_id = other_id
 
-        if best_parent is self._highlight_parent:
+        if not best_parent_id:
+            self._clear_reparent_highlight()
             return
 
-        self._clear_reparent_highlight()
-        if best_parent:
-            self._highlight_orig_pen = best_parent.pen()
+        target = self._fit_parent_rect(best_parent_id, self._item_fit_rect(item))
+        if target is None:
+            self._clear_reparent_highlight()
+            return
+        self._show_grow_preview(target)
+
+    def _show_grow_preview(self, rect: QRectF):
+        if self._grow_preview is None or self._grow_preview.scene() is None:
             pen = QPen(QColor("#2F5D5C"), 3, Qt.PenStyle.DashLine)
-            best_parent.setPen(pen)
-            self._highlight_parent = best_parent
+            self._grow_preview = self._scene.addRect(rect, pen)
+            self._grow_preview.setZValue(10000)
+        else:
+            self._grow_preview.setRect(rect)
 
     def _clear_reparent_highlight(self):
-        if self._highlight_parent and self._highlight_orig_pen is not None:
+        if self._grow_preview is not None:
             try:
-                self._highlight_parent.setPen(self._highlight_orig_pen)
+                if self._grow_preview.scene() is not None:
+                    self._scene.removeItem(self._grow_preview)
             except RuntimeError:
                 pass  # C++ object already deleted (scene rebuild)
-        self._highlight_parent = None
-        self._highlight_orig_pen = None
+        self._grow_preview = None
 
     # ── Box mode (vim-like style / dimension) ──
 

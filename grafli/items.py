@@ -1744,16 +1744,17 @@ class ImageItem(QGraphicsPixmapItem):
             _CORNER_BL: (0, h),
             _CORNER_BR: (w, h),
         }
+        visible = self.isSelected()
         for handle in self._handles:
             pos = positions.get(handle.corner)
             if pos:
                 handle.setPos(*pos)
-            handle.setVisible(False)
+            handle.setVisible(visible)
 
     def _handle_at(self, pos: QPointF) -> int | None:
         """Return corner handle id if pos is near a corner, else None."""
         r = QRectF(0, 0, self.image.w, self.image.h)
-        margin = 10
+        margin = 12
         near_l = abs(pos.x() - r.left()) < margin
         near_r = abs(pos.x() - r.right()) < margin
         near_t = abs(pos.y() - r.top()) < margin

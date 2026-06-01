@@ -110,6 +110,19 @@ def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
     return QPixmap.fromImage(img)
 
 
+def text_slide_note(view, bookmark: Bookmark):
+    """The single focused Note a step should render as native text, or None.
+
+    A step becomes a text slide when the bookmark has no description and its
+    focus resolves to exactly one note (no boxes/images) — then its markdown
+    is rendered as selectable, clickable PDF text rather than a diagram image.
+    """
+    if bookmark is None or bookmark.description or len(bookmark.focus) != 1:
+        return None
+    item = view._note_items.get(bookmark.focus[0])
+    return item.note if item is not None else None
+
+
 def bookmark_target_rect(view, bookmark: Bookmark) -> QRectF:
     """The scene rect a bookmark wants the viewport to frame.
 

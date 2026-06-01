@@ -4753,12 +4753,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self._active_step_index = len(steps) - 1
         self.mark_dirty()
         self.flows_changed.emit()
-        if isolate:
+        from grafli.flows import bookmark_target_rect, text_slide_note
+        if text_slide_note(self, bm) is not None:
+            kind = "text slide"
+        elif isolate:
             kind = f"scoped: {len(focus)} item{'s' if len(focus) != 1 else ''}"
         else:
             kind = "viewport" if view_rect else "logical"
         self._record_shortcut(f"bookmark “{bm.label}” ({kind})")
-        from grafli.flows import bookmark_target_rect
         self.flash_anchor(bookmark_target_rect(self, bm))
 
     def toggle_flow_recording(self):
@@ -5633,6 +5635,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ]),
             ("Bookmarks & Flows", [
                 ("gb", "Bookmark what's shown (logical)"),
+                ("Select + gb", "Scope step to selection"),
+                ("1 note + gb, no caption", "Text slide (clickable links)"),
                 ("gB", "Bookmark exact viewport"),
                 ("gf", "Start / stop flow recording"),
                 ("Flows tab (\\)", "Edit flows: reorder, add/remove, dwell"),

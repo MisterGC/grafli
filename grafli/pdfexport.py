@@ -13,18 +13,22 @@ from pathlib import Path
 
 from PySide6.QtCore import QMarginsF, QRectF, QSizeF, Qt
 from PySide6.QtGui import (
+    QAbstractTextDocumentLayout,
     QColor,
     QFont,
     QImage,
     QPageLayout,
     QPageSize,
     QPainter,
+    QPalette,
     QPdfWriter,
     QPen,
+    QTextDocument,
 )
 
 from grafli.constants import FONT_FAMILY, SCENE_BG
-from grafli.flows import bookmark_target_rect, isolate_focus
+from grafli.flows import bookmark_target_rect, isolate_focus, text_slide_note
+from grafli.md_note import is_md_note, md_body
 
 # Slide palette — the slide IS the canvas: paper background everywhere so the
 # diagram region blends in seamlessly (boxes stay border-defined, as on-canvas,
@@ -184,8 +188,16 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
                                  | Qt.AlignmentFlag.AlignVCenter))
         hero_bottom = band.top() - margin * 0.5
 
-    # ── hero: the bookmark's framed diagram region ──
+    # ── hero: the bookmark's framed diagram region (or a text slide) ──
     hero = QRectF(margin, hero_top, pw - margin * 2, hero_bottom - hero_top)
+
+    # A single-note step with no description renders its note as native,
+    # selectable, clickable text instead of a rasterized diagram.
+    note = text_slide_note(view, bm) if bm else None
+    if note is not None:
+        _draw_text_hero(painter, hero, note)
+        return
+
     source = bookmark_target_rect(view, bm) if bm else QRectF()
     if source.isNull():
         painter.setFont(_font(int(ph * 0.03)))
@@ -222,6 +234,55 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     # Slide and diagram share the paper background, so the image drops in with
     # no visible seam — no frame needed.
     painter.drawImage(fitted, img)
+
+
+def _draw_text_hero(painter, hero: QRectF, note) -> None:
+    """Render a note as native, selectable, clickable PDF text in ``hero``.
+
+    Markdown reflows to the hero width — line length adapts to the slide, not
+    the note's on-canvas wrap — and the font shrinks to fit on one page. Links
+    survive as real PDF link annotations. Body/link colours come from the
+    paint-context palette (Qt's Markdown import ignores CSS colours).
+    """
+    is_md = is_md_note(note.text)
+    body = md_body(note.text) if is_md else note.text
+
+    doc = QTextDocument()
+    doc.setDocumentMargin(0)
+    font = QFont(FONT_FAMILY)
+    if is_md:
+        font.setPixelSize(16)
+        doc.setDefaultFont(font)
+        doc.setMarkdown(body, QTextDocument.MarkdownFeature.MarkdownDialectGitHub)
+    else:
+        font.setPixelSize(16)
+        doc.setDefaultFont(font)
+        doc.setPlainText(body)
+
+    # Shrink-to-fit: reduce the base font until the laid-out text fits the
+    # hero height (markdown heading sizes scale with the default font).
+    max_px = max(14, int(hero.height() * 0.060))
+    min_px = max(9, int(hero.height() * 0.026))
+    size = max_px
+    while True:
+        font.setPixelSize(size)
+        doc.setDefaultFont(font)
+        doc.setTextWidth(hero.width())
+        if size <= min_px or doc.size().height() <= hero.height():
+            break
+        size -= 1
+
+    dh = min(doc.size().height(), hero.height())
+    oy = hero.top() + max(0.0, (hero.height() - dh) / 2)
+    painter.save()
+    painter.setClipRect(hero)
+    painter.translate(hero.left(), oy)
+    ctx = QAbstractTextDocumentLayout.PaintContext()
+    ctx.palette.setColor(QPalette.ColorRole.Text, _TITLE_COLOR)
+    ctx.palette.setColor(QPalette.ColorRole.Link, _ACCENT)
+    ctx.clip = QRectF(0, 0, hero.width(), hero.height())
+    doc.documentLayout().draw(painter, ctx)
+    painter.restore()
 
 
 def _draw_fit_text(painter, rect: QRectF, text: str, color, *, max_px: int,

@@ -32,7 +32,7 @@ from grafli.constants import (
     SIDE_PANEL_BTN_ACTIVE,
     SIDE_PANEL_SECTION_COLOR,
 )
-from grafli.flows import render_bookmark_pixmap
+from grafli.flows import render_bookmark_pixmap, text_slide_note
 from grafli.format import FlowStep
 
 _THUMB_W, _THUMB_H = 250, 120
@@ -352,6 +352,14 @@ class FlowsPanel(QWidget):
         head.addWidget(num)
         if bm is not None:
             head.addWidget(self._title_edit(bm), stretch=1)
+            if self._view is not None and text_slide_note(self._view, bm) is not None:
+                tag = QLabel("text")
+                tag.setFont(QFont(FONT_FAMILY, 9))
+                tag.setToolTip(
+                    "Text slide — the note renders as clickable text in the PDF")
+                tag.setStyleSheet(f"color: {_ACCENT}; background: transparent;")
+                tag.setAlignment(Qt.AlignmentFlag.AlignTop)
+                head.addWidget(tag)
         else:
             warn = QLabel(f"⚠ {step.ref}")
             warn.setStyleSheet("color: #C53030; background: transparent;")

@@ -30,6 +30,26 @@ On capture a blue frame briefly flashes around what the bookmark anchors, so
 you can confirm it grabbed the right region. Notes are valid anchors, so a
 node-less, note-only bookmark works too.
 
+### Scoping a step to a selection
+
+With an explicit **selection**, <kbd>g</kbd><kbd>b</kbd> scopes the step to
+exactly those items: the thumbnail and the exported PDF render **only** the
+selected items (and the arrows between them), not everything inside the framed
+region. So you can show a single child of a parent without the parent and its
+siblings bleeding in. No selection keeps the default "everything visible"
+framing. The capture badge confirms the scope (e.g. *scoped: 1 item*).
+
+### Text slides (clickable links)
+
+Select a **single text note** and capture it with **no description**, and that
+step becomes a **text slide**: the note's Markdown is rendered in the PDF as
+real, selectable text with **clickable links** — not a flattened image. Use it
+to author link-rich slides straight from the graph. The text reflows to the
+slide width and shrinks to fit one page, so it reads as a slide rather than a
+screenshot of the note. The capture badge says *text slide*, and the step's
+card in the Flows tab is marked **text**. Add a description (or scope to more
+than the one note) and it reverts to a normal diagram slide.
+
 ## The Flows tab
 
 Toggle the side panel with <kbd>\\</kbd> and switch to the **Flows** tab. Flows
@@ -70,7 +90,10 @@ booth screen. <kbd>Esc</kbd> exits and restores the editor.
 ## Export to PDF
 
 Export a flow as a slide-style PDF — a title slide followed by one slide per
-stop (label, the framed diagram, and the description).
+stop (label, the framed diagram, and the description). Labels and descriptions
+are real selectable text; scoped steps render only their selected items; and a
+single-note step with no description becomes a text slide with clickable links
+(see *Scoping a step* and *Text slides* above).
 
 - **In the app**: the **Flow PDF** button in the side panel's Export section.
 - **Headless / scripted**:

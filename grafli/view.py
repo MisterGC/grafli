@@ -182,7 +182,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
 
-        self._grid_visible: bool = True
+        # Grid mode: "off" (no dots, free move), "visual" (dots, free move),
+        # "snap" (dots + snapping). Remembered across restarts via QSettings.
+        mode = QSettings("Grafli", "Grafli").value("grid/mode", "snap", type=str)
+        self._grid_mode: str = mode if mode in self._GRID_CYCLE else "snap"
         self.GRID_SPACING = 20
 
         self._board: Board | None = None
@@ -363,7 +366,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         super().drawBackground(painter, rect)
         grid_color = HEATMAP_GRID_COLOR if self._complexity_active else GRID_COLOR
         border_color = HEATMAP_CONTENT_BORDER if self._complexity_active else CONTENT_BORDER_COLOR
-        if self._grid_visible:
+        if self._grid_shown:
             spacing = self.GRID_SPACING
             # Skip the grid when zoomed out far enough that it would be a dense
             # smear anyway — drawing a point per cell across a huge visible area
@@ -373,12 +376,19 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if cols * rows <= 20000:
                 left = int(rect.left()) - (int(rect.left()) % spacing)
                 top = int(rect.top()) - (int(rect.top()) % spacing)
+                # Snap mode draws small crosses (snap targets) so it reads
+                # distinctly from the plain dots of visual-only mode.
+                snap = self._grid_snap
                 painter.setPen(QPen(grid_color, 2.0))
                 x = left
                 while x <= rect.right():
                     y = top
                     while y <= rect.bottom():
-                        painter.drawPoint(int(x), int(y))
+                        if snap:
+                            painter.drawLine(int(x) - 2, int(y), int(x) + 2, int(y))
+                            painter.drawLine(int(x), int(y) - 2, int(x), int(y) + 2)
+                        else:
+                            painter.drawPoint(int(x), int(y))
                         y += spacing
                     x += spacing
 
@@ -400,8 +410,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._draw_flow_overlay(painter)
         self._draw_debug_overlay(painter)
 
+    # Grid mode cycle order for the # key / "grid" action.
+    _GRID_CYCLE = ("off", "visual", "snap")
+    _GRID_LABELS = {"off": "off", "visual": "grid", "snap": "grid + snap"}
+
+    @property
+    def _grid_shown(self) -> bool:
+        """Whether the grid dots are drawn."""
+        return self._grid_mode in ("visual", "snap")
+
+    @property
+    def _grid_snap(self) -> bool:
+        """Whether movement snaps to the grid."""
+        return self._grid_mode == "snap"
+
     def toggle_grid(self):
-        self._grid_visible = not self._grid_visible
+        """Cycle the grid mode (off -> visual -> snap) and remember it."""
+        idx = self._GRID_CYCLE.index(self._grid_mode)
+        self._grid_mode = self._GRID_CYCLE[(idx + 1) % len(self._GRID_CYCLE)]
+        QSettings("Grafli", "Grafli").setValue("grid/mode", self._grid_mode)
         self.viewport().update()
 
     @property
@@ -3120,7 +3147,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
             only_shift = shift and not (mods & ~Qt.KeyboardModifier.ShiftModifier & _SIGNIFICANT_MODS)
 
-            if self._grid_visible:
+            if self._grid_snap:
                 step = self.GRID_SPACING
                 big_step = self.GRID_SPACING * 5
             else:
@@ -3294,8 +3321,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # # — toggle grid
         if event.text() == "#":
-            self._record_shortcut("# \u2192 grid")
             self.toggle_grid()
+            self._record_shortcut(f"# \u2192 {self._GRID_LABELS[self._grid_mode]}")
             event.accept()
             return
 

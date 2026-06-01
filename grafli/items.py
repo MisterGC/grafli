@@ -481,7 +481,7 @@ class BoxItem(QGraphicsRectItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             view = _get_view(self)
-            if view and hasattr(view, '_grid_visible') and view._grid_visible:
+            if view and getattr(view, '_grid_snap', False):
                 spacing = view.GRID_SPACING
                 new_pos = value
                 return QPointF(
@@ -1660,7 +1660,7 @@ class NoteItem(QGraphicsSimpleTextItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             view = _get_view(self)
-            if view and hasattr(view, '_grid_visible') and view._grid_visible:
+            if view and getattr(view, '_grid_snap', False):
                 spacing = view.GRID_SPACING
                 new_pos = value
                 return QPointF(
@@ -1890,7 +1890,7 @@ class ImageItem(QGraphicsPixmapItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             view = _get_view(self)
-            if view and hasattr(view, '_grid_visible') and view._grid_visible:
+            if view and getattr(view, '_grid_snap', False):
                 spacing = view.GRID_SPACING
                 new_pos = value
                 return QPointF(

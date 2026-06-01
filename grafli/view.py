@@ -4689,10 +4689,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
         vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
         focus: list[str] = []
+        isolate = False
         if mode == "logical":
             focus = [bid for bid, it in self._box_items.items() if it.isSelected()]
             focus += [nid for nid, it in self._note_items.items() if it.isSelected()]
             focus += [iid for iid, it in self._image_items.items() if it.isSelected()]
+            # An explicit selection narrows the step's scope: render only these
+            # items in thumbnails/PDF. No selection falls back to the viewport.
+            isolate = bool(focus)
             if not focus:
                 for bid, it in self._box_items.items():
                     if it.sceneBoundingRect().intersects(vp_scene):
@@ -4728,6 +4732,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             focus=focus,
             description=description,
             view=view_rect,
+            isolate=isolate,
         )
         self._board.add_bookmark(bm)
         if self._recording_flow is not None:
@@ -4748,7 +4753,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self._active_step_index = len(steps) - 1
         self.mark_dirty()
         self.flows_changed.emit()
-        kind = "viewport" if view_rect else "logical"
+        if isolate:
+            kind = f"scoped: {len(focus)} item{'s' if len(focus) != 1 else ''}"
+        else:
+            kind = "viewport" if view_rect else "logical"
         self._record_shortcut(f"bookmark “{bm.label}” ({kind})")
         from grafli.flows import bookmark_target_rect
         self.flash_anchor(bookmark_target_rect(self, bm))

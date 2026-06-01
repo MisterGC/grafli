@@ -123,6 +123,10 @@ class Bookmark:
     # nothing — set for viewport bookmarks and the empty-space fallback so
     # a hand-tuned or node-less view is still reproducible.
     view: tuple[float, float, float, float] | None = None
+    # When True the focus items are an explicit, narrowed selection: thumbnails
+    # and the exported PDF render only those items (and the arrows between
+    # them), not everything inside the framed region.
+    isolate: bool = False
 
 
 @dataclass
@@ -364,6 +368,7 @@ _RE_BOOKMARK = re.compile(
     r'(?:\s+@(\S+))?'                  # focus: comma-separated item ids
     r'(?:\s+~pad=(\d+))?'
     r'(?:\s+~view=(-?\d+),(-?\d+),(\d+),(\d+))?'   # exact scene rect fallback
+    r'(\s+~iso)?'                      # focus items are a narrowed selection
     r'(?:\s+"([^"]*)")?'               # optional description
     r'\s*$'
 )
@@ -551,9 +556,10 @@ def parse(text: str) -> Board:
                 focus=focus,
                 pad=int(m.group(4)) if m.group(4) else 0,
                 description=ensure_text_presentation(
-                    (m.group(9) or "").replace("\\n", "\n")
+                    (m.group(10) or "").replace("\\n", "\n")
                 ),
                 view=view,
+                isolate=m.group(9) is not None,
             )
             board.bookmarks.append(bookmark)
             board._lines.append(("bookmark", bookmark))
@@ -732,6 +738,8 @@ def _serialize_bookmark(bm: Bookmark) -> str:
     if bm.view is not None:
         x, y, w, h = (_q(v) for v in bm.view)
         s += f" ~view={x},{y},{w},{h}"
+    if bm.isolate:
+        s += " ~iso"
     if bm.description:
         desc = bm.description.replace("\n", "\\n")
         s += f' "{desc}"'

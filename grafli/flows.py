@@ -8,6 +8,8 @@ stepping, auto-play timing, and smooth/instant transition state.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QImage, QKeyEvent, QPainter, QPixmap
 
@@ -15,6 +17,45 @@ from grafli.constants import SCENE_BG
 from grafli.format import DEFAULT_BOOKMARK_PAD, Bookmark, Flow
 
 DEFAULT_DWELL = 4.0   # seconds to rest on a stop during auto-play
+
+
+@contextmanager
+def isolate_focus(view, focus_ids: list[str]):
+    """Temporarily hide everything except the focus items while rendering.
+
+    Used for scoped (``isolate``) bookmarks so thumbnails and the PDF show
+    only the narrowed selection: every box/note/image not in ``focus_ids``
+    is hidden (along with each box's separate scene-level label), as is every
+    arrow that does not run between two focus items. Visibility is restored on
+    exit, so the live canvas is unaffected.
+    """
+    keep = set(focus_ids)
+    hidden = []
+
+    def hide(item):
+        if item is not None and item.isVisible():
+            item.setVisible(False)
+            hidden.append(item)
+
+    for bid, item in view._box_items.items():
+        if bid not in keep:
+            hide(item)
+            hide(item._label)
+    for nid, item in view._note_items.items():
+        if nid not in keep:
+            hide(item)
+    for iid, item in view._image_items.items():
+        if iid not in keep:
+            hide(item)
+    for aitem in view._arrow_items:
+        arrow = aitem.data(0)
+        if arrow is None or arrow.from_id not in keep or arrow.to_id not in keep:
+            hide(aitem)
+    try:
+        yield
+    finally:
+        for item in hidden:
+            item.setVisible(True)
 
 
 def resolve_focus_rect(view, focus_ids: list[str]) -> QRectF:
@@ -60,7 +101,11 @@ def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
     p = QPainter(img)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-    view._scene.render(p, QRectF(0, 0, iw, ih), rect)
+    if bookmark.isolate and bookmark.focus:
+        with isolate_focus(view, bookmark.focus):
+            view._scene.render(p, QRectF(0, 0, iw, ih), rect)
+    else:
+        view._scene.render(p, QRectF(0, 0, iw, ih), rect)
     p.end()
     return QPixmap.fromImage(img)
 

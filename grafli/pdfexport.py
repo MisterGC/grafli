@@ -24,7 +24,7 @@ from PySide6.QtGui import (
 )
 
 from grafli.constants import FONT_FAMILY, SCENE_BG
-from grafli.flows import bookmark_target_rect
+from grafli.flows import bookmark_target_rect, isolate_focus
 
 # Slide palette — the slide IS the canvas: paper background everywhere so the
 # diagram region blends in seamlessly (boxes stay border-defined, as on-canvas,
@@ -213,7 +213,11 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     ip = QPainter(img)
     ip.setRenderHint(QPainter.RenderHint.Antialiasing)
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-    view._scene.render(ip, QRectF(0, 0, iw, ih), source)
+    if bm.isolate and bm.focus:
+        with isolate_focus(view, bm.focus):
+            view._scene.render(ip, QRectF(0, 0, iw, ih), source)
+    else:
+        view._scene.render(ip, QRectF(0, 0, iw, ih), source)
     ip.end()
     # Slide and diagram share the paper background, so the image drops in with
     # no visible seam — no frame needed.

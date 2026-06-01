@@ -3838,7 +3838,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         """Return labels from top-level ancestor down to target."""
         if isinstance(target, Arrow):
             return [f"{target.from_id}\u2192{target.to_id}"]
-        elem = target.box if isinstance(target, BoxItem) else target.note
+        elem = self._item_elem(target)
         chain: list[str] = []
         current_id = elem.parent
         while current_id and self._board:
@@ -3850,8 +3850,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         chain.reverse()  # root-first
         if isinstance(target, BoxItem):
             chain.append(elem.label or elem.id)
-        else:
+        elif isinstance(target, NoteItem):
             chain.append(elem.text[:15])
+        else:  # ImageItem
+            chain.append(elem.image_path.rsplit("/", 1)[-1] or elem.id)
         return chain
 
     def _render_offscreen_badge(self, off_labels, offscreen, prefix_filter=""):

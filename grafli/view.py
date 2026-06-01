@@ -91,6 +91,7 @@ from grafli.constants import (
     MINIMAP_MARGIN,
     HEATMAP_CONTENT_BORDER,
     HEATMAP_GRID_COLOR,
+    LAYOUT_PADDING,
     MIN_BOX_SIZE,
     SCENE_BG,
     Mode,
@@ -1352,23 +1353,33 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                         best, best_area = oid, a
             n.parent = best
 
-    def _check_nesting(self, item: BoxItem | NoteItem):
-        """Update parent of a box or note after it has been moved or resized."""
+    def _check_nesting(self, item: BoxItem | NoteItem, cursor_scene: QPointF | None = None):
+        """Update parent of a box or note after it has been moved or resized.
+
+        Nesting follows the mouse cursor: the dragged item becomes a child of
+        the smallest box the cursor is over, and detaches when the cursor is
+        over no box. Falls back to the item's centre if no cursor is given.
+        """
         if not self._board:
             return
 
         is_box = isinstance(item, BoxItem)
         if is_box:
             box = item.box
-            item_rect = QRectF(box.x, box.y, box.w, box.h)
             item_id = box.id
             desc_ids = {d.box.id for d in self._descendants(box.id) if isinstance(d, BoxItem)}
         else:
             note = item.note
-            sr = item.sceneBoundingRect()
-            item_rect = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
             item_id = note.id
             desc_ids = set()
+
+        if cursor_scene is not None:
+            point = cursor_scene
+        elif is_box:
+            point = QRectF(box.x, box.y, box.w, box.h).center()
+        else:
+            sr = item.sceneBoundingRect()
+            point = QRectF(sr.x(), sr.y(), sr.width(), sr.height()).center()
 
         best_parent = None
         best_area = float('inf')
@@ -1377,7 +1388,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 continue
             other = other_item.box
             other_rect = QRectF(other.x, other.y, other.w, other.h)
-            if other_rect.contains(item_rect):
+            if other_rect.contains(point):
                 area = other.w * other.h
                 if area < best_area:
                     best_area = area
@@ -1385,19 +1396,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         elem = item.box if is_box else item.note
         old_parent = elem.parent
-        if best_parent:
-            elem.parent = best_parent
-        elif elem.parent:
-            parent_box = self._board.box_by_id(elem.parent)
-            if parent_box:
-                parent_rect = QRectF(
-                    parent_box.x, parent_box.y,
-                    parent_box.w, parent_box.h,
-                )
-                if not parent_rect.contains(item_rect):
-                    elem.parent = ""
-            else:
-                elem.parent = ""
+        elem.parent = best_parent or ""
 
         if elem.parent != old_parent:
             self._update_z_values()
@@ -1407,6 +1406,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 old_item._is_parent = self._has_children(old_parent)
                 if old_item._is_parent != was_parent:
                     old_item._apply_color()
+                    if not old_item._is_parent:
+                        old_item._fit_to_label()
                 self._refresh_auto_layout(old_parent)
             if elem.parent and elem.parent in self._box_items:
                 new_item = self._box_items[elem.parent]
@@ -1415,23 +1416,64 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 if new_item._is_parent != was_parent:
                     new_item._apply_color()
                 self._refresh_auto_layout(elem.parent)
+                self._grow_parent_to_fit_children(elem.parent)
             self.mark_dirty()
 
-    def _update_reparent_highlight(self):
-        """Highlight potential parent box during drag."""
+    def _grow_parent_to_fit_children(self, parent_id: str):
+        """Grow a parent box so it contains all its direct children, plus padding.
+
+        Used after an interactive drop, where a node may be nested while still
+        sticking out of the parent. Only grows — never shrinks — so existing
+        layout is left undisturbed.
+        """
+        if not self._board or parent_id not in self._box_items:
+            return
+        parent = self._box_items[parent_id].box
+
+        child_rect: QRectF | None = None
+        for b in self._board.boxes:
+            if b.parent == parent_id:
+                r = QRectF(b.x, b.y, b.w, b.h)
+                child_rect = r if child_rect is None else child_rect.united(r)
+        for nitem in self._note_items.values():
+            if nitem.note.parent == parent_id:
+                child_rect = self._unite_scene_rect(child_rect, nitem)
+        for iitem in self._image_items.values():
+            if iitem.image.parent == parent_id:
+                child_rect = self._unite_scene_rect(child_rect, iitem)
+        if child_rect is None:
+            return
+
+        pad = LAYOUT_PADDING
+        left = min(parent.x, child_rect.left() - pad)
+        top = min(parent.y, child_rect.top() - pad)
+        right = max(parent.x + parent.w, child_rect.right() + pad)
+        bottom = max(parent.y + parent.h, child_rect.bottom() + pad)
+        if (left, top, right, bottom) != (
+            parent.x, parent.y, parent.x + parent.w, parent.y + parent.h
+        ):
+            self._box_items[parent_id].set_geometry(
+                left, top, right - left, bottom - top
+            )
+
+    @staticmethod
+    def _unite_scene_rect(child_rect: QRectF | None, item) -> QRectF:
+        sr = item.sceneBoundingRect()
+        r = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
+        return r if child_rect is None else child_rect.united(r)
+
+    def _update_reparent_highlight(self, cursor_scene: QPointF | None = None):
+        """Highlight the box under the cursor as the potential parent during drag."""
         selected = [i for i in self._scene.selectedItems() if isinstance(i, (BoxItem, NoteItem))]
-        if len(selected) != 1:
+        if len(selected) != 1 or cursor_scene is None:
             self._clear_reparent_highlight()
             return
 
         item = selected[0]
         if isinstance(item, BoxItem):
-            item_rect = QRectF(item.box.x, item.box.y, item.box.w, item.box.h)
             item_id = item.box.id
             desc_ids = {d.box.id for d in self._descendants(item.box.id) if isinstance(d, BoxItem)}
         else:
-            sr = item.sceneBoundingRect()
-            item_rect = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
             item_id = item.note.id
             desc_ids = set()
 
@@ -1442,7 +1484,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 continue
             other = other_item.box
             other_rect = QRectF(other.x, other.y, other.w, other.h)
-            if other_rect.contains(item_rect):
+            if other_rect.contains(cursor_scene):
                 area = other.w * other.h
                 if area < best_area:
                     best_area = area
@@ -2559,7 +2601,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self.mark_dirty()
             else:
                 super().mouseMoveEvent(event)
-            self._update_reparent_highlight()
+            self._update_reparent_highlight(scene_pos)
         elif self._mode == Mode.RECT:
             self._update_create_preview_pos(scene_pos)
             self._move_rect(event)
@@ -2622,9 +2664,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._autoscroll_timer.stop()
             super().mouseReleaseEvent(event)
             if event.button() == Qt.MouseButton.LeftButton:
+                cursor_scene = self.mapToScene(event.position().toPoint())
                 for item in self._scene.selectedItems():
                     if isinstance(item, (BoxItem, NoteItem)):
-                        self._check_nesting(item)
+                        self._check_nesting(item, cursor_scene)
                 self._commit_pre_action_snapshot()
         elif self._mode == Mode.RECT:
             self._release_rect(event)

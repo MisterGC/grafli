@@ -19,6 +19,8 @@ from grafli.constants import (
     BOX_BORDER_WIDTH,
     BOX_FONT_SIZES,
     BOX_RADIUS,
+    DEFAULT_BOX_H,
+    DEFAULT_BOX_W,
     DISCUSSION_COLORS,
     FONT_FAMILY,
     HANDLE_SIZE,
@@ -361,6 +363,58 @@ class BoxItem(QGraphicsRectItem):
         self._label.setTextWidth(self.box.w - 16)
         self._auto_grow()
         self._position_label()
+
+    def set_geometry(self, x: float, y: float, w: float, h: float):
+        """Set the box's full geometry and refresh dependent visuals."""
+        self.box.x = x
+        self.box.y = y
+        self.box.w = w
+        self.box.h = h
+        self._min_h = h
+        self.setPos(x, y)
+        self.setRect(0, 0, w, h)
+        self._label.setTextWidth(w - 16)
+        self._update_handles()
+        self._position_label()
+        view = _get_view(self)
+        if view and hasattr(view, 'arrow_update_needed'):
+            view.arrow_update_needed.emit()
+            view.mark_dirty()
+
+    def _fit_to_label(self):
+        """Shrink the box down to comfortably fit its text label.
+
+        Used when a node stops being a parent (its last child was dragged
+        out) so it doesn't keep the enlarged container size and leave a big
+        empty box. Floors at the default node size, never grows beyond the
+        current size, and collapses around the box centre so the label
+        stays roughly in place.
+        """
+        cx = self.box.x + self.box.w / 2
+        cy = self.box.y + self.box.h / 2
+
+        self._label.setFont(self._box_font())
+        # Natural (unwrapped) label width, then height wrapped at the new width.
+        self._label.setTextWidth(-1)
+        natural_w = self._label.boundingRect().width()
+        new_w = min(self.box.w, max(DEFAULT_BOX_W, natural_w + 32))
+        self._label.setTextWidth(new_w - 16)
+        needed_h = self._label.boundingRect().height() + 16
+        new_h = min(self.box.h, max(DEFAULT_BOX_H, needed_h))
+
+        self.box.w = new_w
+        self.box.h = new_h
+        self.box.x = cx - new_w / 2
+        self.box.y = cy - new_h / 2
+        self._min_h = new_h
+        self.setPos(self.box.x, self.box.y)
+        self.setRect(0, 0, new_w, new_h)
+        self._update_handles()
+        self._position_label()
+        view = _get_view(self)
+        if view and hasattr(view, 'arrow_update_needed'):
+            view.arrow_update_needed.emit()
+            view.mark_dirty()
 
     def _auto_grow(self):
         needed = self._label.boundingRect().height() + 16

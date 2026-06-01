@@ -1308,6 +1308,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 note_item.setZValue(max(pd, note_z))
             else:
                 note_item.setZValue(note_z)
+        for img_item in self._image_items.values():
+            if img_item.image.parent:
+                pd = self._box_depth(img_item.image.parent) + 1
+                img_item.setZValue(max(pd, note_z))
+            else:
+                img_item.setZValue(note_z)
         for item in self._arrow_items:
             if isinstance(item, LabelItem):
                 item.setZValue(note_z)
@@ -1353,8 +1359,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                         best, best_area = oid, a
             n.parent = best
 
-    def _check_nesting(self, item: BoxItem | NoteItem, cursor_scene: QPointF | None = None):
-        """Update parent of a box or note after it has been moved or resized.
+    @staticmethod
+    def _item_elem(item: BoxItem | NoteItem | ImageItem):
+        """The underlying dataclass (Box/Note/Image) carried by a scene item."""
+        if isinstance(item, BoxItem):
+            return item.box
+        if isinstance(item, NoteItem):
+            return item.note
+        return item.image
+
+    def _check_nesting(self, item: BoxItem | NoteItem | ImageItem, cursor_scene: QPointF | None = None):
+        """Update parent of a box, note or image after it has been moved.
 
         Nesting follows the mouse cursor: the dragged item becomes a child of
         the smallest box the cursor is over, and detaches when the cursor is
@@ -1363,23 +1378,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if not self._board:
             return
 
-        is_box = isinstance(item, BoxItem)
-        if is_box:
-            box = item.box
-            item_id = box.id
-            desc_ids = {d.box.id for d in self._descendants(box.id) if isinstance(d, BoxItem)}
+        elem = self._item_elem(item)
+        item_id = elem.id
+        if isinstance(item, BoxItem):
+            desc_ids = {d.box.id for d in self._descendants(item_id) if isinstance(d, BoxItem)}
         else:
-            note = item.note
-            item_id = note.id
             desc_ids = set()
 
         if cursor_scene is not None:
             point = cursor_scene
-        elif is_box:
-            point = QRectF(box.x, box.y, box.w, box.h).center()
         else:
-            sr = item.sceneBoundingRect()
-            point = QRectF(sr.x(), sr.y(), sr.width(), sr.height()).center()
+            point = item.sceneBoundingRect().center()
 
         best_parent = None
         best_area = float('inf')
@@ -1394,7 +1403,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     best_area = area
                     best_parent = other_id
 
-        elem = item.box if is_box else item.note
         old_parent = elem.parent
         elem.parent = best_parent or ""
 
@@ -1464,17 +1472,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _update_reparent_highlight(self, cursor_scene: QPointF | None = None):
         """Highlight the box under the cursor as the potential parent during drag."""
-        selected = [i for i in self._scene.selectedItems() if isinstance(i, (BoxItem, NoteItem))]
+        selected = [i for i in self._scene.selectedItems() if isinstance(i, (BoxItem, NoteItem, ImageItem))]
         if len(selected) != 1 or cursor_scene is None:
             self._clear_reparent_highlight()
             return
 
         item = selected[0]
+        item_id = self._item_elem(item).id
         if isinstance(item, BoxItem):
-            item_id = item.box.id
-            desc_ids = {d.box.id for d in self._descendants(item.box.id) if isinstance(d, BoxItem)}
+            desc_ids = {d.box.id for d in self._descendants(item_id) if isinstance(d, BoxItem)}
         else:
-            item_id = item.note.id
             desc_ids = set()
 
         best_parent = None
@@ -2666,7 +2673,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if event.button() == Qt.MouseButton.LeftButton:
                 cursor_scene = self.mapToScene(event.position().toPoint())
                 for item in self._scene.selectedItems():
-                    if isinstance(item, (BoxItem, NoteItem)):
+                    if isinstance(item, (BoxItem, NoteItem, ImageItem)):
                         self._check_nesting(item, cursor_scene)
                 self._commit_pre_action_snapshot()
         elif self._mode == Mode.RECT:
@@ -4603,6 +4610,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if mode == "logical":
             focus = [bid for bid, it in self._box_items.items() if it.isSelected()]
             focus += [nid for nid, it in self._note_items.items() if it.isSelected()]
+            focus += [iid for iid, it in self._image_items.items() if it.isSelected()]
             if not focus:
                 for bid, it in self._box_items.items():
                     if it.sceneBoundingRect().intersects(vp_scene):
@@ -4610,6 +4618,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 for nid, it in self._note_items.items():
                     if it.sceneBoundingRect().intersects(vp_scene):
                         focus.append(nid)
+                for iid, it in self._image_items.items():
+                    if it.sceneBoundingRect().intersects(vp_scene):
+                        focus.append(iid)
 
         view_rect = None if focus else (
             vp_scene.x(), vp_scene.y(), vp_scene.width(), vp_scene.height()

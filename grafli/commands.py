@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 
 from PySide6.QtCore import QPointF
 
@@ -74,11 +75,34 @@ class CommandsMixin:
 
     # ── Copy / Paste ──
 
+    @staticmethod
+    def _clipboard_image_fp():
+        """Fingerprint the system-clipboard image, or None if there isn't one.
+
+        Used to detect whether the clipboard image changed (an external copy)
+        relative to when an internal grafli copy was made.
+        """
+        from PySide6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        if not clipboard:
+            return None
+        img = clipboard.image()
+        if img.isNull():
+            return None
+        try:
+            return (img.width(), img.height(),
+                    hashlib.md5(bytes(img.constBits())).hexdigest())
+        except Exception:
+            return (img.width(), img.height(), img.sizeInBytes())
+
     def _copy_selected(self):
         self._clipboard_boxes.clear()
         self._clipboard_notes.clear()
         self._clipboard_arrows.clear()
         self._clipboard_images.clear()
+        # Remember the clipboard image present *now*, so a later paste can tell
+        # this internal copy is more recent than that image.
+        self._copy_clip_img_fp = self._clipboard_image_fp()
 
         selected_box_ids = set()
         selected_note_ids = set()
@@ -101,14 +125,25 @@ class CommandsMixin:
     def _paste(self):
         cursor_viewport = self.mapFromGlobal(self.cursor().pos())
         cursor_scene = self.mapToScene(cursor_viewport)
-        # If internal clipboard is empty, try system clipboard for images
-        if not (self._clipboard_boxes or self._clipboard_notes or self._clipboard_images):
-            from PySide6.QtWidgets import QApplication
-            clipboard = QApplication.clipboard()
-            if clipboard and not clipboard.image().isNull():
-                self._paste_clipboard_image(cursor_scene, clipboard.image())
-                return
-        self._paste_at(cursor_scene)
+
+        from PySide6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        has_image = clipboard is not None and not clipboard.image().isNull()
+        has_internal = bool(
+            self._clipboard_boxes or self._clipboard_notes or self._clipboard_images
+        )
+
+        # Prefer whichever is more recent. A system-clipboard image wins when
+        # there's no internal copy, or when the image changed since the last
+        # internal copy (i.e. it was copied afterwards). Otherwise the internal
+        # copy wins. This stops an internal copy from permanently shadowing a
+        # freshly copied image.
+        if has_image and (not has_internal
+                          or self._clipboard_image_fp() != self._copy_clip_img_fp):
+            self._paste_clipboard_image(cursor_scene, clipboard.image())
+            return
+        if has_internal:
+            self._paste_at(cursor_scene)
 
     def _paste_clipboard_image(self, center: QPointF, qimage):
         """Save a QImage from the system clipboard and add it as an image element."""

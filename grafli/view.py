@@ -245,6 +245,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._clipboard_notes: list[Note] = []
         self._clipboard_arrows: list[Arrow] = []
         self._clipboard_images: list[Image] = []
+        # Fingerprint of the system-clipboard image at the last internal copy,
+        # so paste can tell whether an image was copied *after* it (and should
+        # win) or was already there (internal copy wins).
+        self._copy_clip_img_fp: tuple | None = None
 
         # Reparenting drag highlight: a dashed rectangle previewing the target
         # parent's auto-grown bounds (or None when the drop would detach).

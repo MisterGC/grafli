@@ -271,6 +271,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._label_drag_start: QPointF | None = None
         self._label_drag_orig_offset: tuple[float, float] = (0.0, 0.0)
 
+        # Item drag state: distinguishes a real move (which may reparent) from
+        # a plain/shift click that only changes the selection.
+        self._mouse_press_pos: QPointF | None = None
+        self._drag_moved: bool = False
+
         # Sticky style defaults for new boxes / notes
         self._last_box_color: str = ""
         self._last_box_textsize: str = ""
@@ -2630,6 +2635,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if self._mode == Mode.SELECT:
             # Save snapshot before potential move
             self._save_pre_action_snapshot()
+            self._mouse_press_pos = event.position()
+            self._drag_moved = False
             self._press_select(event)
         elif self._mode == Mode.RECT:
             self._press_rect(event)
@@ -2681,6 +2688,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 )
                 event.accept()
                 return
+            if (event.buttons() & Qt.MouseButton.LeftButton
+                    and self._mouse_press_pos is not None
+                    and (event.position() - self._mouse_press_pos).manhattanLength()
+                        >= QApplication.startDragDistance()):
+                self._drag_moved = True
             selected = self._scene.selectedItems()
             if selected and not self._autoscroll_timer.isActive() and event.buttons() & Qt.MouseButton.LeftButton:
                 self._autoscroll_timer.start()
@@ -2755,11 +2767,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._autoscroll_timer.stop()
             super().mouseReleaseEvent(event)
             if event.button() == Qt.MouseButton.LeftButton:
-                cursor_scene = self.mapToScene(event.position().toPoint())
-                for item in self._scene.selectedItems():
-                    if isinstance(item, (BoxItem, NoteItem, ImageItem)):
-                        self._check_nesting(item, cursor_scene)
+                # Only a real drag may reparent — a plain or shift+click just
+                # changes the selection and must not nest items under the cursor.
+                if self._drag_moved:
+                    cursor_scene = self.mapToScene(event.position().toPoint())
+                    for item in self._scene.selectedItems():
+                        if isinstance(item, (BoxItem, NoteItem, ImageItem)):
+                            self._check_nesting(item, cursor_scene)
                 self._commit_pre_action_snapshot()
+                self._drag_moved = False
         elif self._mode == Mode.RECT:
             self._release_rect(event)
         elif self._mode == Mode.CONNECT:

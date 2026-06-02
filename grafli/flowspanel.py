@@ -223,6 +223,8 @@ class FlowsPanel(QWidget):
                     self._layout.addWidget(self._step_row(flow, i, step))
                 self._layout.addWidget(self._add_row(flow))
                 self._layout.addWidget(self._captioned(
+                    "Title background (all flows)", self._title_bg_edit()))
+                self._layout.addWidget(self._captioned(
                     "Footer (markdown — branding on every exported slide)",
                     self._footer_edit()))
 
@@ -387,6 +389,21 @@ class FlowsPanel(QWidget):
         edit = _InlineDesc(board.footer if board else "")
         edit.committed.connect(self._set_footer)
         return edit
+
+    _TITLE_BG_OPTIONS = (("Empty", ""), ("Thumbnail art", "thumbnail-art"))
+
+    def _title_bg_edit(self) -> QComboBox:
+        board = self._board()
+        current = board.title_bg if board else ""
+        combo = QComboBox()
+        combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        for label, value in self._TITLE_BG_OPTIONS:
+            combo.addItem(label, value)
+        idx = combo.findData(current)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        combo.currentIndexChanged.connect(
+            lambda _i, c=combo: self._set_title_bg(c.currentData()))
+        return combo
 
     def _step_row(self, flow, index, step) -> QWidget:
         board = self._board()
@@ -600,6 +617,12 @@ class FlowsPanel(QWidget):
         board = self._board()
         if board is not None and text.strip() != board.footer:
             board.footer = text.strip()
+            self._view._commit_flow_edit()
+
+    def _set_title_bg(self, value):
+        board = self._board()
+        if board is not None and value != board.title_bg:
+            board.title_bg = value
             self._view._commit_flow_edit()
 
 

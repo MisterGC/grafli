@@ -17,6 +17,7 @@ Format spec:
   @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
   @ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
   @ footer "<markdown>"                            (board-global PDF footer)
+  @ title-bg <style>                               (title-slide background: thumbnail-art)
 
 Bookmarks/flows (v2) save a guided tour through the graph. A bookmark stores
 a semantic anchor (the item ids to frame), not raw pan/zoom, so it survives
@@ -156,6 +157,7 @@ class Board:
     bookmarks: list[Bookmark] = field(default_factory=list)
     flows: list[Flow] = field(default_factory=list)
     footer: str = ""   # board-global markdown branding footer for PDF exports
+    title_bg: str = ""   # title-slide background: "" (none) or "thumbnail-art"
     _lines: list[tuple[str, object | None]] = field(
         default_factory=list, repr=False
     )
@@ -384,6 +386,10 @@ _RE_FOOTER = re.compile(
     r'^@\s+footer\s+"([^"]*)"\s*$'      # board-global markdown branding footer
 )
 
+_RE_TITLE_BG = re.compile(
+    r'^@\s+title-bg\s+(\S+)\s*$'        # title-slide background style
+)
+
 
 # ── Parser ──────────────────────────────────────────────────────
 
@@ -577,6 +583,11 @@ def parse(text: str) -> Board:
             board.footer = ensure_text_presentation(
                 m.group(1).replace("\\n", "\n")
             )
+            continue
+
+        m = _RE_TITLE_BG.match(stripped)
+        if m:
+            board.title_bg = m.group(1)
             continue
 
         m = _RE_FLOW.match(stripped)
@@ -779,6 +790,10 @@ def _serialize_footer(footer: str) -> str:
     return f'@ footer "{escaped}"'
 
 
+def _serialize_title_bg(title_bg: str) -> str:
+    return f'@ title-bg {title_bg}'
+
+
 def serialize(board: Board) -> str:
     """Serialize a Board object back to .grafli format.
 
@@ -787,13 +802,15 @@ def serialize(board: Board) -> str:
     If the board was parsed (has _lines), preserves original ordering.
     Otherwise, outputs comments, then boxes, arrows, notes.
     """
-    header = (HEADER_V2 if (board.bookmarks or board.flows or board.footer)
-              else HEADER)
-    footer_line = _serialize_footer(board.footer) if board.footer else None
+    header = (HEADER_V2 if (board.bookmarks or board.flows or board.footer
+                            or board.title_bg) else HEADER)
+    meta_lines = []
+    if board.footer:
+        meta_lines.append(_serialize_footer(board.footer))
+    if board.title_bg:
+        meta_lines.append(_serialize_title_bg(board.title_bg))
     if board._lines:
-        parts = [header]
-        if footer_line:
-            parts.append(footer_line)
+        parts = [header, *meta_lines]
         for kind, obj in board._lines:
             if kind == "header":
                 continue
@@ -815,9 +832,7 @@ def serialize(board: Board) -> str:
                 parts.append(_serialize_flow(obj))
         return "\n".join(parts) + "\n"
 
-    parts = [header]
-    if footer_line:
-        parts.append(footer_line)
+    parts = [header, *meta_lines]
     for c in board.comments:
         parts.append(c)
     if board.comments and (board.boxes or board.arrows or board.notes):

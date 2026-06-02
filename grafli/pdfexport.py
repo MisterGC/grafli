@@ -1,6 +1,7 @@
 """Export a flow as a slide-style PDF presentation.
 
-One title slide (flow name + optional markdown description) followed by one slide per
+One title slide (flow name + optional markdown description, over an optional
+faint thumbnail-collage background) followed by one slide per
 stop: a title bar (label + progress), the bookmark's framed diagram region
 rendered as crisp vectors via ``QGraphicsScene.render``, and a caption band
 with the description. Kept separate from the view so it can run both in-app
@@ -9,6 +10,8 @@ and headless from the CLI.
 
 from __future__ import annotations
 
+import random
+import zlib
 from pathlib import Path
 
 from PySide6.QtCore import QMarginsF, QPointF, QRectF, QSizeF, Qt
@@ -24,6 +27,7 @@ from PySide6.QtGui import (
     QPalette,
     QPdfWriter,
     QPen,
+    QRadialGradient,
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
@@ -31,7 +35,12 @@ from PySide6.QtGui import (
 )
 
 from grafli.constants import FONT_FAMILY, NOTE_PEN_COLOR, SCENE_BG
-from grafli.flows import bookmark_target_rect, isolate_focus, text_slide_note
+from grafli.flows import (
+    bookmark_target_rect,
+    isolate_focus,
+    render_bookmark_pixmap,
+    text_slide_note,
+)
 from grafli.md_note import is_md_note, md_body
 
 # Slide palette — the slide IS the canvas: paper background everywhere so the
@@ -88,7 +97,7 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     try:
-        _draw_title_slide(painter, page, flow, footer)
+        _draw_title_slide(painter, page, view, board, flow, footer)
         _draw_footer(painter, page, footer)
         for i, step in enumerate(flow.steps):
             writer.newPage()
@@ -135,8 +144,11 @@ def _draw_footer(painter, page: QRectF, footer: str) -> None:
                    font_step=1)
 
 
-def _draw_title_slide(painter, page: QRectF, flow, footer: str = "") -> None:
+def _draw_title_slide(painter, page: QRectF, view, board, flow,
+                      footer: str = "") -> None:
     painter.fillRect(page, _SLIDE_BG)
+    if board is not None and board.title_bg == "thumbnail-art":
+        _draw_thumbnail_art(painter, page, view, board, flow)
     ph = page.height()
     margin = ph * 0.10
     x = margin
@@ -163,6 +175,80 @@ def _draw_title_slide(painter, page: QRectF, flow, footer: str = "") -> None:
         _draw_markdown(painter, drect, flow.description, markdown=True,
                        max_px=int(ph * 0.035), min_px=int(ph * 0.024),
                        color=_DESC_COLOR, vcenter=False)
+
+
+def _draw_thumbnail_art(painter, page: QRectF, view, board, flow) -> None:
+    """Scatter the flow's step thumbnails as a faint, deterministic collage
+    behind the title.
+
+    Tiles are placed at seeded pseudo-random positions, rotations and (low)
+    opacities — the seed comes from the flow, so re-exporting the same flow
+    always yields the same artwork. A paper-coloured radial wash then fades the
+    collage back to the page colour around the title block (left of centre) so
+    the headline and description stay crisp on top.
+    """
+    thumbs = []
+    for step in flow.steps:
+        bm = board.bookmark_by_id(step.ref)
+        if bm is None:
+            continue
+        pix = render_bookmark_pixmap(view, bm, 480, 270)
+        if pix is not None and not pix.isNull():
+            thumbs.append(pix)
+    if not thumbs:
+        return
+
+    seed = zlib.crc32(("|".join(s.ref for s in flow.steps) + flow.id).encode())
+    rng = random.Random(seed)
+
+    # Compose the collage on an offscreen image, then drop it onto the page as
+    # a single raster. The PDF paint engine ignores per-stop alpha in gradients
+    # (the vignette would fill opaque and wipe the tiles) and is unreliable with
+    # semi-transparent rotated pixmaps; rendering to a QImage avoids both.
+    aw, ah = 1600, int(1600 * page.height() / page.width())
+    art = QImage(aw, ah, QImage.Format.Format_ARGB32_Premultiplied)
+    art.fill(Qt.GlobalColor.transparent)
+    ap = QPainter(art)
+    ap.setRenderHint(QPainter.RenderHint.Antialiasing)
+    ap.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+    tile_w = aw * 0.22
+    # Repeat thumbnails as needed so even a short flow fills the page. The
+    # tiles are mostly paper (box fill == slide paper), so only their thin
+    # linework shows — opacity is set higher than a photo collage would need.
+    count = max(16, len(thumbs) * 3)
+    for i in range(count):
+        pix = thumbs[i % len(thumbs)]
+        scale = tile_w / pix.width()
+        tw, th = tile_w, pix.height() * scale
+        cx = rng.uniform(-0.04, 1.04) * aw
+        cy = rng.uniform(-0.06, 1.06) * ah
+        angle = rng.uniform(-16, 16)
+        op = rng.uniform(0.18, 0.32)
+        ap.save()
+        ap.translate(cx, cy)
+        ap.rotate(angle)
+        ap.setOpacity(op)
+        target = QRectF(-tw / 2, -th / 2, tw, th)
+        ap.drawPixmap(target, pix, QRectF(pix.rect()))
+        ap.setPen(QPen(_FRAME, 1))
+        ap.setBrush(Qt.BrushStyle.NoBrush)
+        ap.drawRect(target)
+        ap.restore()
+
+    # Clear-center vignette: wash back to paper around the title block (left of
+    # centre) so the headline/description stay crisp; edges keep the collage.
+    grad = QRadialGradient(QPointF(aw * 0.34, ah * 0.42), aw * 0.66)
+    inner = QColor(_SLIDE_BG); inner.setAlpha(225)
+    mid = QColor(_SLIDE_BG); mid.setAlpha(110)
+    outer = QColor(_SLIDE_BG); outer.setAlpha(0)
+    grad.setColorAt(0.0, inner)
+    grad.setColorAt(0.5, mid)
+    grad.setColorAt(1.0, outer)
+    ap.fillRect(QRectF(0, 0, aw, ah), QBrush(grad))
+    ap.end()
+
+    painter.drawImage(page, art)
 
 
 def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,

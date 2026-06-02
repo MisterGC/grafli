@@ -138,6 +138,29 @@ def test_footer_multiline_escaped():
     assert parse(out).footer == "line one\nline two"
 
 
+def test_title_bg_roundtrips():
+    src = (
+        '#!grafli v2\n'
+        '@ footer "brand"\n'
+        '@ title-bg thumbnail-art\n'
+        '@ box a "A" 0,0 100x50\n'
+    )
+    board = parse(src)
+    assert board.title_bg == "thumbnail-art"
+    assert serialize(board) == src
+
+
+def test_title_bg_absent_is_empty_and_byte_stable():
+    src = '#!grafli v1\n@ box a "A" 0,0 100x50\n'
+    board = parse(src)
+    assert board.title_bg == ""
+    assert serialize(board) == src
+    board.title_bg = "thumbnail-art"
+    out = serialize(board)
+    assert out.splitlines()[0] == "#!grafli v2"
+    assert "@ title-bg thumbnail-art" in out
+
+
 def test_legacy_file_gets_header():
     """Legacy .board files without header get the header on serialize."""
     board = parse(SAMPLE_LEGACY)

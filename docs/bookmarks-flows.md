@@ -76,6 +76,11 @@ small slide-style card showing a live thumbnail of what it frames.
   expanded — is **board-global** (one per `.grafli` file, shared by every
   flow). It renders as a small muted branding line at the bottom of every
   exported slide; leave it empty for no footer.
+- **Title background** (board-global): the *Title background* dropdown chooses
+  the export title slide's backdrop — **Empty** (default) or **Thumbnail art**,
+  a faint, procedurally-scattered collage of the flow's own slide thumbnails
+  that fades to paper behind the title so the text stays crisp. The layout is
+  seeded from the flow, so re-exports look identical.
 - **Export this flow**: when a flow is expanded, an export (PDF) icon appears
   in its header next to ▶ and 🗑 — it exports that flow directly, skipping the
   flow picker.

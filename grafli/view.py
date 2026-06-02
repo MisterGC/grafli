@@ -5070,9 +5070,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     self._board.remove_bookmark(bm)
         flow.steps = []
 
+    def _node_exists(self, node_id: str) -> bool:
+        """True if ``node_id`` is a real graph node (box or note)."""
+        return bool(self._board and (self._board.box_by_id(node_id)
+                                     or self._board.note_by_id(node_id)))
+
     def create_auto_flow(self, start_id: str, label: str):
         """Create a flow by walking forward arrows from ``start_id``."""
-        if not self._board or self._board.box_by_id(start_id) is None:
+        if not self._node_exists(start_id):
             self._record_shortcut("auto-flow needs a node")
             return None
         self._push_undo()
@@ -5088,7 +5093,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         the title page (label/description)."""
         if not self._board or flow is None or not flow.auto_start:
             return
-        if self._board.box_by_id(flow.auto_start) is None:
+        if not self._node_exists(flow.auto_start):
             self._record_shortcut("auto-flow: start node is gone")
             return
         self._push_undo()
@@ -5097,15 +5102,19 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._commit_flow_edit()
 
     def new_auto_flow_from_selection(self):
-        """gz/panel: auto-flow from the single selected box."""
-        boxes = [b for b in self._scene.selectedItems()
-                 if isinstance(b, BoxItem)]
-        if len(boxes) != 1:
+        """gF/panel: auto-flow from the single selected node (box or note)."""
+        nodes = [i for i in self._scene.selectedItems()
+                 if isinstance(i, (BoxItem, NoteItem))]
+        if len(nodes) != 1:
             self._record_shortcut("auto-flow: select exactly one node first")
             return None
-        start = boxes[0].box
-        label = (start.label.replace("\n", " ").strip() or "Auto flow")
-        return self.create_auto_flow(start.id, label)
+        item = nodes[0]
+        if isinstance(item, BoxItem):
+            text = item.box.label
+        else:
+            text = item.note.text
+        label = (text.replace("\n", " ").strip() or "Auto flow")[:60]
+        return self.create_auto_flow(self._item_id(item), label)
 
     def delete_flow(self, flow):
         if not self._board or flow is None:

@@ -136,6 +136,24 @@ def test_mixed_note_is_a_node_no_spotlight():
     assert not view._note_highlight_active
 
 
+def test_auto_flow_from_note_start_via_selection():
+    view = _view("""\
+#!grafli v2
+@ note n1 0,0 "First"
+@ note n2 300,0 "Second"
+@ note n3 600,0 "Third"
+@ arrow n1 -> n2 "" ~kind=graph
+@ arrow n2 -> n3 "" ~kind=graph
+""")
+    view._note_items["n1"].setSelected(True)
+    flow = view.new_auto_flow_from_selection()
+    assert flow is not None
+    assert flow.auto_start == "n1"
+    assert len(flow.steps) == 3
+    view.regenerate_auto_flow(flow)
+    assert len(flow.steps) == 3
+
+
 def test_back_compat_note_arrow_derives_annotation():
     view = _view("""\
 #!grafli v2

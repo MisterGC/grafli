@@ -1,11 +1,11 @@
 """Export a flow as a slide-style PDF presentation.
 
 One title slide (flow name + optional markdown description, over an optional
-faint thumbnail-collage background) followed by one slide per
-stop: a title bar (label + progress), the bookmark's framed diagram region
-rendered as crisp vectors via ``QGraphicsScene.render``, and a caption band
-with the description. Kept separate from the view so it can run both in-app
-and headless from the CLI.
+faint thumbnail-collage background; no footer — it's a clean cover) followed by
+one slide per stop: a title bar (label + progress), the bookmark's framed
+diagram region rendered as crisp vectors via ``QGraphicsScene.render``, a
+caption band with the description, and the board-global branding footer. Kept
+separate from the view so it can run both in-app and headless from the CLI.
 """
 
 from __future__ import annotations
@@ -21,13 +21,13 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QImage,
+    QLinearGradient,
     QPageLayout,
     QPageSize,
     QPainter,
     QPalette,
     QPdfWriter,
     QPen,
-    QRadialGradient,
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
@@ -97,8 +97,8 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     try:
-        _draw_title_slide(painter, page, view, board, flow, footer)
-        _draw_footer(painter, page, footer)
+        # Title slide is the clean cover — no footer band there.
+        _draw_title_slide(painter, page, view, board, flow)
         for i, step in enumerate(flow.steps):
             writer.newPage()
             bm = board.bookmark_by_id(step.ref)
@@ -144,8 +144,7 @@ def _draw_footer(painter, page: QRectF, footer: str) -> None:
                    font_step=1)
 
 
-def _draw_title_slide(painter, page: QRectF, view, board, flow,
-                      footer: str = "") -> None:
+def _draw_title_slide(painter, page: QRectF, view, board, flow) -> None:
     painter.fillRect(page, _SLIDE_BG)
     if board is not None and board.title_bg == "thumbnail-art":
         _draw_thumbnail_art(painter, page, view, board, flow)
@@ -170,8 +169,7 @@ def _draw_title_slide(painter, page: QRectF, view, board, flow,
         # Markdown, just below the headline — so the description can carry
         # links, emphasis and lists, matching how notes render on text slides.
         # This replaces the old auto-agenda of stop titles.
-        drect = QRectF(x, ry + ph * 0.03, w,
-                       ph * 0.60 - _footer_reserve(page, footer))
+        drect = QRectF(x, ry + ph * 0.03, w, ph * 0.60)
         _draw_markdown(painter, drect, flow.description, markdown=True,
                        max_px=int(ph * 0.035), min_px=int(ph * 0.024),
                        color=_DESC_COLOR, vcenter=False)
@@ -212,39 +210,46 @@ def _draw_thumbnail_art(painter, page: QRectF, view, board, flow) -> None:
     ap.setRenderHint(QPainter.RenderHint.Antialiasing)
     ap.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-    tile_w = aw * 0.22
-    # Repeat thumbnails as needed so even a short flow fills the page. The
-    # tiles are mostly paper (box fill == slide paper), so only their thin
-    # linework shows — opacity is set higher than a photo collage would need.
-    count = max(16, len(thumbs) * 3)
-    for i in range(count):
-        pix = thumbs[i % len(thumbs)]
-        scale = tile_w / pix.width()
-        tw, th = tile_w, pix.height() * scale
-        cx = rng.uniform(-0.04, 1.04) * aw
-        cy = rng.uniform(-0.06, 1.06) * ah
-        angle = rng.uniform(-16, 16)
-        op = rng.uniform(0.18, 0.32)
-        ap.save()
-        ap.translate(cx, cy)
-        ap.rotate(angle)
-        ap.setOpacity(op)
-        target = QRectF(-tw / 2, -th / 2, tw, th)
-        ap.drawPixmap(target, pix, QRectF(pix.rect()))
-        ap.setPen(QPen(_FRAME, 1))
-        ap.setBrush(Qt.BrushStyle.NoBrush)
-        ap.drawRect(target)
-        ap.restore()
+    # Even coverage via a jittered grid: one rotated tile per cell, nudged
+    # within the cell. This keeps the scattered look but avoids the random
+    # clumps/holes that made a sparse "gap" appear mid-page. Tiles are mostly
+    # paper (box fill == slide paper) so only their thin linework shows —
+    # opacity runs higher than a photo collage would need.
+    cols, rows = 6, 4
+    cw, chh = aw / cols, ah / rows
+    tile_w = cw * 1.35   # overlap neighbours so the field reads as continuous
+    k = 0
+    for r in range(rows):
+        for c in range(cols):
+            pix = thumbs[k % len(thumbs)]
+            k += 1
+            scale = tile_w / pix.width()
+            tw, th = tile_w, pix.height() * scale
+            cx = (c + 0.5) * cw + rng.uniform(-0.45, 0.45) * cw
+            cy = (r + 0.5) * chh + rng.uniform(-0.45, 0.45) * chh
+            angle = rng.uniform(-15, 15)
+            op = rng.uniform(0.16, 0.30)
+            ap.save()
+            ap.translate(cx, cy)
+            ap.rotate(angle)
+            ap.setOpacity(op)
+            target = QRectF(-tw / 2, -th / 2, tw, th)
+            ap.drawPixmap(target, pix, QRectF(pix.rect()))
+            ap.setPen(QPen(_FRAME, 1))
+            ap.setBrush(Qt.BrushStyle.NoBrush)
+            ap.drawRect(target)
+            ap.restore()
 
-    # Clear-center vignette: wash back to paper around the title block (left of
-    # centre) so the headline/description stay crisp; edges keep the collage.
-    grad = QRadialGradient(QPointF(aw * 0.34, ah * 0.42), aw * 0.66)
-    inner = QColor(_SLIDE_BG); inner.setAlpha(225)
-    mid = QColor(_SLIDE_BG); mid.setAlpha(110)
-    outer = QColor(_SLIDE_BG); outer.setAlpha(0)
-    grad.setColorAt(0.0, inner)
-    grad.setColorAt(0.5, mid)
-    grad.setColorAt(1.0, outer)
+    # Left-weighted wash: the left column (title + description) fades to paper
+    # so the text stays crisp, while the right keeps the collage — an
+    # intentional text-panel look rather than a hole in the middle.
+    grad = QLinearGradient(QPointF(0, 0), QPointF(aw, 0))
+    near = QColor(_SLIDE_BG); near.setAlpha(232)
+    mid = QColor(_SLIDE_BG); mid.setAlpha(140)
+    far = QColor(_SLIDE_BG); far.setAlpha(0)
+    grad.setColorAt(0.0, near)
+    grad.setColorAt(0.40, mid)
+    grad.setColorAt(0.72, far)
     ap.fillRect(QRectF(0, 0, aw, ah), QBrush(grad))
     ap.end()
 

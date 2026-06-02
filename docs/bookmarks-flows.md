@@ -75,7 +75,8 @@ small slide-style card showing a live thumbnail of what it frames.
 - **Footer** (Markdown, optional): the *Footer* field — shown when a flow is
   expanded — is **board-global** (one per `.grafli` file, shared by every
   flow). It renders as a small muted branding line at the bottom of every
-  exported slide; leave it empty for no footer.
+  exported **content** slide (the title slide stays a clean cover); leave it
+  empty for no footer.
 - **Title background** (board-global): the *Title background* dropdown chooses
   the export title slide's backdrop — **Empty** (default) or **Thumbnail art**,
   a faint, procedurally-scattered collage of the flow's own slide thumbnails

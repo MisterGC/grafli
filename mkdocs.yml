@@ -87,6 +87,7 @@ nav:
   - Install: install.md
   - Pair with your AI: ai.md
   - File format: format.md
+  - Navigating graphs: navigating.md
   - Bookmarks & flows: bookmarks-flows.md
   - Text annotations: text-annotations.md
   - Keybindings: keybindings.md

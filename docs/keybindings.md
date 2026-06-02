@@ -43,9 +43,9 @@ lands on the placeholder ready to type-replace.
 | <kbd>Shift</kbd>+<kbd>Z</kbd> | Zoom to fit (whole graph) |
 | <kbd>g</kbd><kbd>z</kbd> | Focus: zoom the selection to fill the viewport; press again to fly back. Re-press after changing the selection to re-focus |
 | <kbd>g</kbd><kbd>p</kbd> | Select parent (zoom if needed) |
-| <kbd>F</kbd> | Select first child |
+| <kbd>g</kbd><kbd>c</kbd> | Select first child |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle siblings (or search matches when search is open) |
-| <kbd>Ctrl</kbd>+<kbd>J</kbd> | Jump to any item (global) |
+| <kbd>f</kbd> / <kbd>Ctrl</kbd>+<kbd>J</kbd> | Jump to any item (global) |
 | <kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd> | Nav history back / forward |
 | <kbd>Alt</kbd> (hold) | Graph nav: follow connectors |
 | <kbd>/</kbd> | Search dim-filter — see [Search](#search) below |

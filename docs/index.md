@@ -110,11 +110,14 @@ Real diagrams sprawl. A handful of view-toggles turn a busy diagram into a focus
 - **Jump labels** (<kbd>Ctrl</kbd>+<kbd>J</kbd>) — every visible item gets a one-or-two-key label; press it to select.
 - **Search** (<kbd>/</kbd>) by label, fuzzy-matched.
 - **Graph navigation** — hold <kbd>Alt</kbd>, see connector keys, follow edges chord by chord.
-- **Hierarchy traversal** — <kbd>P</kbd> parent, <kbd>F</kbd> first child, <kbd>Tab</kbd> cycle siblings, with a breadcrumb in the status bar.
+- **Hierarchy traversal** — <kbd>g</kbd><kbd>p</kbd> parent, <kbd>g</kbd><kbd>c</kbd> first child, <kbd>Tab</kbd> cycle siblings, with a breadcrumb in the status bar.
+- **Focus loop** — <kbd>g</kbd><kbd>z</kbd> zooms the selection to fill the screen and flies you back again, for a tight overview → edit → overview rhythm.
 - **Jumplist** (<kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd>) — vim-style viewport history.
 - **Sub-graflis** — link any node to a deeper diagram in its own file. Click through, edit, return.
 
 ![The same town ecosystem with jump-mode active — every visible item carries a one- or two-character jump label](assets/screenshots/jump-labels.png)
+
+[Read more →](navigating.md)
 
 ## Explain a graph as a guided tour
 

@@ -106,6 +106,36 @@ def test_annotation_note_still_dims():
     assert view._note_highlight_active                # derived annotation → spotlight
 
 
+def test_style_badge_works_on_note_connector():
+    # A note↔note connector must resolve a midpoint so the STYLE badge shows.
+    view = _view("""\
+#!grafli v2
+@ note n1 0,0 "A"
+@ note n2 300,0 "B"
+@ arrow n1 -> n2 ""
+""")
+    arrow = view.board.arrows[0]
+    view._select_arrow(arrow)
+    assert view._arrow_label_midpoint() is not None
+    view._set_arrow_mode("style")
+    assert view._mode_badge is not None
+
+
+def test_mixed_note_is_a_node_no_spotlight():
+    # A note with an annotation link AND a graph edge is a node → no spotlight.
+    view = _view("""\
+#!grafli v2
+@ box box1 "X" 0,0 100x60
+@ note mid 300,0 "mixed"
+@ note y 600,0 "Y"
+@ arrow box1 -> mid ""
+@ arrow mid -> y "" ~kind=graph
+""")
+    view._note_items["mid"].setSelected(True)
+    view._update_note_selection_highlight()
+    assert not view._note_highlight_active
+
+
 def test_back_compat_note_arrow_derives_annotation():
     view = _view("""\
 #!grafli v2

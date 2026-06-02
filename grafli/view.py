@@ -1228,10 +1228,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         note_id = selected[0].note.id
-        # Only annotation links make this note an annotation of its targets; a
-        # note joined by graph edges is a real node, so it gets no spotlight.
+        # Node-ness wins: a note that participates in ANY graph edge is a real
+        # node, so it never gets the annotation spotlight — even if it also has
+        # annotation links.
+        touching = [a for a in self._board.arrows
+                    if a.from_id == note_id or a.to_id == note_id]
+        if any(self._is_graph_edge(a) for a in touching):
+            if self._note_highlight_active:
+                self._clear_note_selection_highlight()
+            return
+
+        # Otherwise it's a pure annotation note: its annotation-link targets
+        # become the spotlight.
         connected: set[str] = set()
-        for arrow in self._board.arrows:
+        for arrow in touching:
             if not self._is_annotation_link(arrow):
                 continue
             if arrow.from_id == note_id:
@@ -1739,19 +1749,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     # ── Arrow mode (vim-like style) ──
 
     def _arrow_label_midpoint(self) -> QPointF | None:
-        """Return scene midpoint of the selected arrow's line."""
+        """Return scene midpoint of the selected arrow's line.
+
+        Resolves any endpoint type (box, note, image) via its graphics item, so
+        the style-mode badge appears on note/image connectors too.
+        """
         arrow = self._selected_arrow
         if not arrow or not self._board:
             return None
-        fb = self._board.box_by_id(arrow.from_id)
-        tb = self._board.box_by_id(arrow.to_id)
-        if not fb or not tb:
+        fi = (self._box_items.get(arrow.from_id)
+              or self._note_items.get(arrow.from_id)
+              or self._image_items.get(arrow.from_id))
+        ti = (self._box_items.get(arrow.to_id)
+              or self._note_items.get(arrow.to_id)
+              or self._image_items.get(arrow.to_id))
+        if fi is None or ti is None:
             return None
-        sx = fb.x + fb.w / 2
-        sy = fb.y + fb.h / 2
-        ex = tb.x + tb.w / 2
-        ey = tb.y + tb.h / 2
-        return QPointF((sx + ex) / 2, (sy + ey) / 2)
+        sc = fi.sceneBoundingRect().center()
+        ec = ti.sceneBoundingRect().center()
+        return QPointF((sc.x() + ec.x()) / 2, (sc.y() + ec.y()) / 2)
 
     def _set_arrow_mode(self, mode: str):
         self._arrow_mode = mode

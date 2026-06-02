@@ -150,6 +150,33 @@ def test_title_bg_roundtrips():
     assert serialize(board) == src
 
 
+def test_arrow_kind_roundtrips():
+    src = (
+        '#!grafli v1\n'
+        '@ box a "A" 0,0 100x50\n'
+        '@ box b "B" 300,0 100x50\n'
+        '@ arrow a -> b "x" !dashed &http://k.io ~kind=annotation\n'
+    )
+    board = parse(src)
+    assert board.arrows[0].kind == "annotation"
+    assert board.arrows[0].style == "dashed"
+    assert serialize(board) == src
+
+
+def test_arrow_without_kind_is_byte_stable():
+    src = (
+        '#!grafli v1\n'
+        '@ box a "A" 0,0 100x50\n'
+        '@ note n1 300,0 "hi"\n'
+        '@ arrow a -> n1 "explains"\n'
+    )
+    board = parse(src)
+    assert board.arrows[0].kind == ""
+    out = serialize(board)
+    assert "~kind" not in out
+    assert out == src
+
+
 def test_flow_auto_start_roundtrips():
     src = (
         '#!grafli v2\n'

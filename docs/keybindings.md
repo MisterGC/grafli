@@ -134,6 +134,7 @@ section.
 | <kbd>h</kbd> / <kbd>l</kbd> | Toggle arrowheads |
 | <kbd>j</kbd> / <kbd>k</kbd> | Arrow label size |
 | <kbd>Shift</kbd>+<kbd>J</kbd> / <kbd>Shift</kbd>+<kbd>K</kbd> | Cycle arrow style |
+| <kbd>s</kbd> then <kbd>a</kbd> | Toggle connector kind: **graph edge** ⇄ **annotation** (a graph edge to a note makes it a node) |
 
 ## Buffers
 

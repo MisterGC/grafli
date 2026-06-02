@@ -11,6 +11,7 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" @<dx>,<dy>  (label offset)
   @ arrow <from_id> -> <to_id> "label" !dashed     (arrow styles: dashed/dotted/thick)
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
+  @ arrow <from_id> -> <to_id> "label" ~kind=graph (connector kind: graph / annotation; default derives from endpoints)
   @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&url] [>parent]
   @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono] [&url] [>parent]
   @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [&url]
@@ -68,6 +69,9 @@ class Arrow:
     head_from: bool = False  # arrowhead at from_id end
     head_to: bool = True     # arrowhead at to_id end
     url: str = ""
+    # Connector kind: "" derives from endpoints (a note endpoint ⇒ annotation,
+    # box↔box ⇒ graph); "graph"/"annotation" override that default.
+    kind: str = ""
     annotation: str = ""     # deprecated — kept for migration parsing
 
 
@@ -329,6 +333,7 @@ _RE_ARROW = re.compile(
     r'(?:\s+!(dashed|dotted|thick))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
     r'(?:\s+&(\S+))?'
+    r'(?:\s+~kind=(graph|annotation))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
 )
@@ -487,7 +492,8 @@ def parse(text: str) -> Board:
                 head_from=op in ("<->", "<-"),
                 head_to=op in ("<->", "->"),
                 url=m.group(9) or "",
-                annotation=(m.group(10) or "").replace("\\n", "\n"),
+                kind=m.group(10) or "",
+                annotation=(m.group(11) or "").replace("\\n", "\n"),
             )
             board.arrows.append(arrow)
             board._lines.append(("arrow", arrow))
@@ -706,6 +712,8 @@ def _serialize_arrow(arrow: Arrow) -> str:
         base += f" ~{arrow.textsize}"
     if arrow.url:
         base += f" &{arrow.url}"
+    if arrow.kind:
+        base += f" ~kind={arrow.kind}"
     return base
 
 

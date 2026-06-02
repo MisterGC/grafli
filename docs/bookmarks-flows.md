@@ -107,11 +107,13 @@ one slide per node:
   scratch. Your **title page is kept** — the flow's name and description (and the
   board-global footer) survive; only the steps are regenerated.
 
-!!! note "Notes and arrows today"
-    An arrow touching a note is currently an *annotation* link, not a graph
-    edge, so auto-flow walks **box-to-box** paths. Making notes/images
-    first-class graph nodes (so note-to-note connections are followed too) is a
-    planned follow-up.
+!!! note "Notes as graph nodes"
+    An arrow touching a note defaults to an *annotation* link (muted, "just
+    extra text"), which auto-flow skips. Promote a connector to a **graph edge**
+    — select it and press <kbd>s</kbd> then <kbd>a</kbd> — to make that note a
+    first-class node that auto-flow and graph-nav follow. Once you promote one,
+    new note connectors default to graph too, so a chain of connected notes
+    becomes a flow. (Images aren't connectable yet — that's the next step.)
 
 ## Playback
 

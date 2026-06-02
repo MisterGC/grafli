@@ -320,6 +320,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._nav_index: int = -1
         self._NAV_STACK_CAP = 50
 
+        # Focus-zoom toggle (gz): the viewport to fly back to, and the items we
+        # focused on (so re-pressing after changing the selection re-focuses).
+        self._focus_return: QRectF | None = None
+        self._focus_target_ids: set[str] = set()
+
         # Bookmarks & flows
         self._flow_player: FlowPlayer | None = None
         self._recording_flow: Flow | None = None
@@ -3002,6 +3007,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             elif event.key() == Qt.Key.Key_F and no_mod:
                 self._record_shortcut("gf → flow rec")
                 self.toggle_flow_recording()
+            elif event.key() == Qt.Key.Key_Z and no_mod:
+                self._record_shortcut("gz → focus zoom")
+                self._toggle_focus_zoom()
             event.accept()
             return
 
@@ -5063,6 +5071,53 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._nav_index += 1
         self._animate_to_rect(self._nav_stack[self._nav_index])
 
+    def _selection_scene_rect(self) -> QRectF | None:
+        """Union of the scene rects of the selected boxes/notes/images, or None."""
+        rect: QRectF | None = None
+        for it in self._scene.selectedItems():
+            if isinstance(it, (BoxItem, NoteItem, ImageItem)):
+                r = it.sceneBoundingRect()
+                rect = QRectF(r) if rect is None else rect.united(r)
+        return rect
+
+    def _toggle_focus_zoom(self):
+        """gz: zoom the current selection to fill the viewport; press again to
+        fly back to the previous overview.
+
+        Re-pressing after changing the selection re-focuses on the new
+        selection while keeping the original return view, so a final press
+        always lands you back where you started.
+        """
+        if not self._board:
+            return
+        sel_ids = {self._item_id(i) for i in self._scene.selectedItems()
+                   if isinstance(i, (BoxItem, NoteItem, ImageItem))}
+
+        if self._focus_return is not None:
+            # Already focused: re-focus on a new selection, else return.
+            if sel_ids and sel_ids != self._focus_target_ids:
+                rect = self._selection_scene_rect()
+                if rect is not None:
+                    self._focus_target_ids = sel_ids
+                    pad = max(40.0, rect.width() * 0.08, rect.height() * 0.08)
+                    self._animate_to_rect(rect.adjusted(-pad, -pad, pad, pad))
+                    return
+            ret = self._focus_return
+            self._focus_return = None
+            self._focus_target_ids = set()
+            self._animate_to_rect(ret)
+            return
+
+        # Not focused: need a selection to zoom into.
+        rect = self._selection_scene_rect()
+        if rect is None:
+            self._record_shortcut("gz → select an element first")
+            return
+        self._focus_return = self.mapToScene(self.viewport().rect()).boundingRect()
+        self._focus_target_ids = sel_ids
+        pad = max(40.0, rect.width() * 0.08, rect.height() * 0.08)
+        self._animate_to_rect(rect.adjusted(-pad, -pad, pad, pad))
+
     def _select_parent_and_zoom(self):
         """P key: select parent box, zoom to it if not fully visible."""
         if not self._board:
@@ -5609,6 +5664,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("+ / -", "Zoom in / out"),
                 ("z", "Zoom in: 25 → 50 → 100 → 150 % (cycle)"),
                 ("⇧Z", "Zoom to fit (whole graph)"),
+                ("gz", "Focus: zoom to selection ⇄ back"),
                 ("gp", "Select parent (zoom if needed)"),
                 ("gc", "Select first child"),
                 ("Tab / \u21e7Tab", "Cycle siblings (or search matches)"),

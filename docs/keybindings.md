@@ -41,6 +41,7 @@ lands on the placeholder ready to type-replace.
 | <kbd>+</kbd> / <kbd>-</kbd> | Zoom in / out |
 | <kbd>z</kbd> | Zoom-in step cycle: 25 → 50 → 100 → 150 % (wraps) |
 | <kbd>Shift</kbd>+<kbd>Z</kbd> | Zoom to fit (whole graph) |
+| <kbd>g</kbd><kbd>z</kbd> | Focus: zoom the selection to fill the viewport; press again to fly back. Re-press after changing the selection to re-focus |
 | <kbd>g</kbd><kbd>p</kbd> | Select parent (zoom if needed) |
 | <kbd>F</kbd> | Select first child |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle siblings (or search matches when search is open) |

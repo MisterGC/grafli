@@ -1,6 +1,6 @@
 """Export a flow as a slide-style PDF presentation.
 
-One title slide (flow name + description + agenda) followed by one slide per
+One title slide (flow name + optional markdown description) followed by one slide per
 stop: a title bar (label + progress), the bookmark's framed diagram region
 rendered as crisp vectors via ``QGraphicsScene.render``, and a caption band
 with the description. Kept separate from the view so it can run both in-app
@@ -88,7 +88,7 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     try:
-        _draw_title_slide(painter, page, board, flow, footer)
+        _draw_title_slide(painter, page, flow, footer)
         _draw_footer(painter, page, footer)
         for i, step in enumerate(flow.steps):
             writer.newPage()
@@ -135,7 +135,7 @@ def _draw_footer(painter, page: QRectF, footer: str) -> None:
                    font_step=1)
 
 
-def _draw_title_slide(painter, page: QRectF, board, flow, footer: str = "") -> None:
+def _draw_title_slide(painter, page: QRectF, flow, footer: str = "") -> None:
     painter.fillRect(page, _SLIDE_BG)
     ph = page.height()
     margin = ph * 0.10
@@ -157,24 +157,12 @@ def _draw_title_slide(painter, page: QRectF, board, flow, footer: str = "") -> N
     if flow.description:
         # Markdown, just below the headline — so the description can carry
         # links, emphasis and lists, matching how notes render on text slides.
-        drect = QRectF(x, ry + ph * 0.03, w, ph * 0.20)
+        # This replaces the old auto-agenda of stop titles.
+        drect = QRectF(x, ry + ph * 0.03, w,
+                       ph * 0.60 - _footer_reserve(page, footer))
         _draw_markdown(painter, drect, flow.description, markdown=True,
                        max_px=int(ph * 0.035), min_px=int(ph * 0.024),
                        color=_DESC_COLOR, vcenter=False)
-
-    # Agenda — the ordered stop labels (kept clear of the footer band).
-    labels = []
-    for n, step in enumerate(flow.steps, start=1):
-        bm = board.bookmark_by_id(step.ref)
-        labels.append(f"{n}.  {bm.label if bm else step.ref}")
-    if labels:
-        painter.setFont(_font(int(ph * 0.030)))
-        painter.setPen(QPen(_MUTED_COLOR))
-        arect = QRectF(x, ph * 0.66, w, ph * 0.28 - _footer_reserve(page, footer))
-        painter.drawText(arect, int(Qt.TextFlag.TextWordWrap
-                                    | Qt.AlignmentFlag.AlignLeft
-                                    | Qt.AlignmentFlag.AlignTop),
-                         "   ".join(labels) if len(labels) <= 4 else "\n".join(labels))
 
 
 def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,

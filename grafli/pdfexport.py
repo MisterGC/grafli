@@ -31,6 +31,7 @@ from PySide6.QtGui import (
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
+    QTextFormat,
     QTextListFormat,
 )
 
@@ -357,16 +358,26 @@ _UNORDERED = (
     QTextListFormat.Style.ListSquare,
 )
 
+_ORDERED = (
+    QTextListFormat.Style.ListDecimal,
+    QTextListFormat.Style.ListLowerAlpha,
+    QTextListFormat.Style.ListUpperAlpha,
+    QTextListFormat.Style.ListLowerRoman,
+    QTextListFormat.Style.ListUpperRoman,
+)
+
 
 def _draw_text_hero(painter, hero: QRectF, note) -> None:
     """Render a note as native, selectable, clickable PDF text in ``hero``.
 
     Fills the hero: the base font grows (capped) so a short note uses the slide
     rather than floating tiny in the middle, and the text is vertically
-    centred. Thin wrapper over :func:`_draw_markdown`.
+    centred. The cap is deliberately modest — a presentation body font, not
+    poster-sized — so short notes read as expected rather than blowing up.
+    Thin wrapper over :func:`_draw_markdown`.
     """
-    max_px = max(16, int(hero.height() * 0.10))
-    min_px = max(9, int(hero.height() * 0.028))
+    max_px = max(16, int(hero.height() * 0.058))
+    min_px = max(9, int(hero.height() * 0.024))
     # Notes opt into markdown via a ``md:`` prefix; otherwise render verbatim.
     is_md = is_md_note(note.text)
     body = md_body(note.text) if is_md else note.text
@@ -404,20 +415,54 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     else:
         doc.setPlainText(body)
 
-    # Detach unordered-list blocks from Qt's lists: its auto markers don't
-    # render reliably through the PDF backend with some fonts (they vanish),
-    # and its indent is a fixed 40px that doesn't scale. We give each a
-    # font-proportional hanging indent and draw the bullet ourselves as a
-    # vector disc, which always renders. Ordered lists keep Qt's numbering.
-    bullets = []  # block positions that get a disc
+    # Inline code spans bake the import-time default size into an *explicit*
+    # font size, so the fit loop below (which only changes the default font)
+    # would shrink the prose but leave code rendered at the huge import size.
+    # Clear that explicit size so code inherits the default like everything
+    # else, keeping only its fixed-pitch family.
+    norm = QTextCursor(doc)
+    code_ranges = []
+    blk = doc.begin()
+    while blk.isValid():
+        it = blk.begin()
+        while not it.atEnd():
+            frag = it.fragment()
+            cf = frag.charFormat()
+            if (frag.isValid() and cf.fontFixedPitch()
+                    and cf.hasProperty(QTextFormat.Property.FontPixelSize)):
+                code_ranges.append((frag.position(), frag.length(), cf))
+            it += 1
+        blk = blk.next()
+    for pos, length, cf in code_ranges:
+        m = QTextCharFormat(cf)
+        m.clearProperty(QTextFormat.Property.FontPixelSize)
+        m.clearProperty(QTextFormat.Property.FontPointSize)
+        norm.setPosition(pos)
+        norm.setPosition(pos + length, QTextCursor.MoveMode.KeepAnchor)
+        norm.setCharFormat(m)
+
+    # Detach list blocks from Qt's lists and draw the markers ourselves: Qt's
+    # auto markers don't render reliably through the PDF backend with some
+    # fonts (unordered discs vanish; ordered numbers sit in a fixed 40px
+    # hanging indent that falls outside our clip and gets cut off). We give
+    # each item a font-proportional hanging indent and paint the marker — a
+    # vector disc for bullets, the captured number/letter for ordered items.
+    # ``markers`` holds (block_position, marker_text|None); None means a disc.
+    markers = []
     blk = doc.begin()
     while blk.isValid():
         tl = blk.textList()
-        if tl is not None and tl.format().style() in _UNORDERED:
-            bullets.append(blk.position())
+        if tl is not None:
+            style = tl.format().style()
+            if style in _UNORDERED:
+                markers.append((blk.position(), None))
+            elif style in _ORDERED:
+                # Capture the formatted marker ("1.", "a.", …) before removal,
+                # which would renumber the remaining items.
+                markers.append((blk.position(), tl.itemText(blk)))
         blk = blk.next()
     cursor = QTextCursor(doc)
-    for pos in bullets:
+    for pos, _marker in markers:
         b = doc.findBlock(pos)
         if b.textList() is not None:
             b.textList().remove(b)
@@ -430,7 +475,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
         font.setPixelSize(size)
         doc.setDefaultFont(font)
         gutter = size * 1.4
-        for pos in bullets:
+        for pos, _marker in markers:
             b = doc.findBlock(pos)
             bf = b.blockFormat()
             bf.setLeftMargin(gutter)
@@ -462,15 +507,18 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
 
     lay = doc.documentLayout()
     gutter = size * 1.4
-    discs = []
-    for pos in bullets:
+    # Resolve each detached list item's first-line geometry so we can paint its
+    # marker (disc or number) in the hanging indent we reserved.
+    drawn_markers = []  # (text_left, line_top, line_height, marker_text|None)
+    for pos, marker in markers:
         b = doc.findBlock(pos)
         lyt = b.layout()
         if lyt.lineCount() > 0:
             line = lyt.lineAt(0)
             br = lay.blockBoundingRect(b)
-            cy = br.top() + line.y() + line.height() / 2
-            discs.append((br.left() + line.x(), cy))
+            top = br.top() + line.y()
+            drawn_markers.append(
+                (br.left() + line.x(), top, line.height(), marker))
 
     dh = min(doc.size().height(), rect.height())
     oy = rect.top() + (max(0.0, (rect.height() - dh) / 2) if vcenter else 0.0)
@@ -484,10 +532,21 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     lay.draw(painter, ctx)
 
     r = max(2.0, gutter * 0.16)
-    painter.setBrush(QBrush(color))
-    painter.setPen(Qt.PenStyle.NoPen)
-    for text_left, cy in discs:
-        painter.drawEllipse(QPointF(text_left - gutter * 0.55, cy), r, r)
+    marker_font = QFont(FONT_FAMILY)
+    marker_font.setPixelSize(size)
+    for text_left, top, line_h, marker in drawn_markers:
+        if marker is None:
+            painter.setBrush(QBrush(color))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(
+                QPointF(text_left - gutter * 0.55, top + line_h / 2), r, r)
+        else:
+            painter.setFont(marker_font)
+            painter.setPen(QPen(color))
+            # Right-align the number/letter in the gutter, just left of text.
+            box = QRectF(text_left - gutter, top, gutter * 0.82, line_h)
+            painter.drawText(box, int(Qt.AlignmentFlag.AlignRight
+                                      | Qt.AlignmentFlag.AlignVCenter), marker)
     painter.restore()
     return doc.size().height()
 

@@ -48,6 +48,10 @@ _FRAME = QColor("#D5D0C8")
 _PAGE_PT = QSizeF(960, 540)
 _RESOLUTION = 300
 
+# Branding footer band (board-global). Reserve a slice at the bottom of every
+# slide so content never overlaps it; empty footer reserves nothing.
+_FOOTER_RESERVE_RATIO = 0.10
+
 
 def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
     """Render ``flow`` to a PDF at ``out_path``. Returns the slide count.
@@ -78,15 +82,20 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
     old_bg = view._scene.backgroundBrush()
     view._scene.setBackgroundBrush(Qt.GlobalColor.transparent)
 
+    footer = board.footer or ""
+
     painter = QPainter(writer)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     try:
-        _draw_title_slide(painter, page, board, flow)
+        _draw_title_slide(painter, page, board, flow, footer)
+        _draw_footer(painter, page, footer)
         for i, step in enumerate(flow.steps):
             writer.newPage()
             bm = board.bookmark_by_id(step.ref)
-            _draw_content_slide(painter, page, view, flow, bm, i, len(flow.steps))
+            _draw_content_slide(painter, page, view, flow, bm, i,
+                                len(flow.steps), footer)
+            _draw_footer(painter, page, footer)
     finally:
         painter.end()
         view._scene.setBackgroundBrush(old_bg)
@@ -104,7 +113,29 @@ def _font(px: int, *, bold: bool = False) -> QFont:
     return f
 
 
-def _draw_title_slide(painter, page: QRectF, board, flow) -> None:
+def _footer_reserve(page: QRectF, footer: str) -> float:
+    """Vertical slice reserved at the bottom for the branding footer (0 if none)."""
+    return page.height() * _FOOTER_RESERVE_RATIO if footer else 0.0
+
+
+def _draw_footer(painter, page: QRectF, footer: str) -> None:
+    """Draw the board-global branding footer as a muted, left-aligned markdown
+    line at the bottom of the slide, with a thin rule above it."""
+    if not footer:
+        return
+    pw, ph = page.width(), page.height()
+    margin = ph * 0.06
+    band_h = ph * 0.05
+    band = QRectF(margin, ph - margin * 0.35 - band_h, pw - margin * 2, band_h)
+    ry = band.top() - ph * 0.012
+    painter.setPen(QPen(_FRAME, max(1, ph * 0.0015)))
+    painter.drawLine(int(margin), int(ry), int(pw - margin), int(ry))
+    _draw_markdown(painter, band, footer, markdown=True, max_px=int(ph * 0.026),
+                   min_px=int(ph * 0.018), color=_MUTED_COLOR, vcenter=True,
+                   font_step=1)
+
+
+def _draw_title_slide(painter, page: QRectF, board, flow, footer: str = "") -> None:
     painter.fillRect(page, _SLIDE_BG)
     ph = page.height()
     margin = ph * 0.10
@@ -124,14 +155,14 @@ def _draw_title_slide(painter, page: QRectF, board, flow) -> None:
     painter.drawLine(int(x), int(ry), int(x + w * 0.5), int(ry))
 
     if flow.description:
-        painter.setFont(_font(int(ph * 0.035)))
-        painter.setPen(QPen(_DESC_COLOR))
-        drect = QRectF(x, ry + ph * 0.03, w, ph * 0.18)
-        painter.drawText(drect, int(Qt.TextFlag.TextWordWrap
-                                    | Qt.AlignmentFlag.AlignLeft
-                                    | Qt.AlignmentFlag.AlignTop), flow.description)
+        # Markdown, just below the headline — so the description can carry
+        # links, emphasis and lists, matching how notes render on text slides.
+        drect = QRectF(x, ry + ph * 0.03, w, ph * 0.20)
+        _draw_markdown(painter, drect, flow.description, markdown=True,
+                       max_px=int(ph * 0.035), min_px=int(ph * 0.024),
+                       color=_DESC_COLOR, vcenter=False)
 
-    # Agenda — the ordered stop labels.
+    # Agenda — the ordered stop labels (kept clear of the footer band).
     labels = []
     for n, step in enumerate(flow.steps, start=1):
         bm = board.bookmark_by_id(step.ref)
@@ -139,7 +170,7 @@ def _draw_title_slide(painter, page: QRectF, board, flow) -> None:
     if labels:
         painter.setFont(_font(int(ph * 0.030)))
         painter.setPen(QPen(_MUTED_COLOR))
-        arect = QRectF(x, ph * 0.66, w, ph * 0.28)
+        arect = QRectF(x, ph * 0.66, w, ph * 0.28 - _footer_reserve(page, footer))
         painter.drawText(arect, int(Qt.TextFlag.TextWordWrap
                                     | Qt.AlignmentFlag.AlignLeft
                                     | Qt.AlignmentFlag.AlignTop),
@@ -147,7 +178,7 @@ def _draw_title_slide(painter, page: QRectF, board, flow) -> None:
 
 
 def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
-                        total: int) -> None:
+                        total: int, footer: str = "") -> None:
     painter.fillRect(page, _SLIDE_BG)
     pw, ph = page.width(), page.height()
     margin = ph * 0.06
@@ -161,7 +192,7 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     has_desc = bool(description)
 
     hero_top = margin * 0.5
-    hero_bottom = ph - margin * 0.5
+    hero_bottom = ph - margin * 0.5 - _footer_reserve(page, footer)
 
     if has_title:
         bar_h = ph * 0.12
@@ -184,7 +215,8 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
 
     if has_desc:
         band_h = ph * 0.22
-        band = QRectF(margin, ph - margin - band_h, pw - margin * 2, band_h)
+        band = QRectF(margin, ph - margin - band_h - _footer_reserve(page, footer),
+                      pw - margin * 2, band_h)
         _draw_fit_text(painter, band, description, _DESC_COLOR,
                        max_px=int(ph * 0.038), min_px=int(ph * 0.024),
                        flags=int(Qt.TextFlag.TextWordWrap
@@ -250,23 +282,43 @@ _UNORDERED = (
 def _draw_text_hero(painter, hero: QRectF, note) -> None:
     """Render a note as native, selectable, clickable PDF text in ``hero``.
 
-    Markdown reflows to the hero width — line length adapts to the slide, not
-    the note's on-canvas wrap — and the base font is sized so the text fills
-    the available space (presentation slides should use it). Links survive as
-    real PDF link annotations; body/link colours come from the paint-context
-    palette (Qt's Markdown import ignores CSS colours).
+    Fills the hero: the base font grows (capped) so a short note uses the slide
+    rather than floating tiny in the middle, and the text is vertically
+    centred. Thin wrapper over :func:`_draw_markdown`.
+    """
+    max_px = max(16, int(hero.height() * 0.10))
+    min_px = max(9, int(hero.height() * 0.028))
+    # Notes opt into markdown via a ``md:`` prefix; otherwise render verbatim.
+    is_md = is_md_note(note.text)
+    body = md_body(note.text) if is_md else note.text
+    _draw_markdown(painter, hero, body, markdown=is_md, max_px=max_px,
+                   min_px=min_px, color=_TITLE_COLOR, vcenter=True)
+
+
+def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
+                   max_px: int, min_px: int, color, vcenter: bool,
+                   font_step: int = 2) -> float:
+    """Render ``body`` as native, selectable, clickable PDF text in ``rect``.
+
+    When ``markdown`` the body is parsed as GitHub-flavoured Markdown, else it
+    is laid out verbatim. Text reflows to ``rect`` width — line length adapts
+    to the slide, not the source's on-canvas wrap — and the base font shrinks
+    from ``max_px`` until the laid-out text fits ``rect`` height (down to
+    ``min_px``). Links survive as real PDF link annotations; body text uses
+    ``color`` and links the canvas blue. When ``vcenter`` the text is
+    vertically centred in ``rect``, otherwise top-aligned. Returns the
+    laid-out text height.
 
     Unordered-list bullets are drawn by us as vector discs and Qt's own list
     markers suppressed: Qt's auto markers don't render reliably through the PDF
     backend with some fonts (they vanish), but vector discs always do.
     """
-    is_md = is_md_note(note.text)
-    body = md_body(note.text) if is_md else note.text
+    is_md = markdown
 
     doc = QTextDocument()
     doc.setDocumentMargin(0)
     font = QFont(FONT_FAMILY)
-    font.setPixelSize(16)
+    font.setPixelSize(max(1, max_px))
     doc.setDefaultFont(font)
     if is_md:
         doc.setMarkdown(body, QTextDocument.MarkdownFeature.MarkdownDialectGitHub)
@@ -291,13 +343,10 @@ def _draw_text_hero(painter, hero: QRectF, note) -> None:
         if b.textList() is not None:
             b.textList().remove(b)
 
-    # Fit-to-fill: pick the largest base font (capped) whose laid-out text
-    # still fits the hero height, so short notes fill the slide instead of
-    # floating tiny in the middle. The bullet hanging indent scales with the
-    # font, so it's re-applied each trial. Markdown headings scale too.
-    max_px = max(16, int(hero.height() * 0.10))
-    min_px = max(9, int(hero.height() * 0.028))
-    size = max_px
+    # Fit-to-fit: pick the largest base font (capped) whose laid-out text still
+    # fits ``rect`` height. The bullet hanging indent scales with the font, so
+    # it's re-applied each trial. Markdown headings scale too.
+    size = max(1, max_px)
     while True:
         font.setPixelSize(size)
         doc.setDefaultFont(font)
@@ -309,10 +358,10 @@ def _draw_text_hero(painter, hero: QRectF, note) -> None:
             bf.setTextIndent(0)
             cursor.setPosition(b.position())
             cursor.setBlockFormat(bf)
-        doc.setTextWidth(hero.width())
-        if size <= min_px or doc.size().height() <= hero.height():
+        doc.setTextWidth(rect.width())
+        if size <= min_px or doc.size().height() <= rect.height():
             break
-        size -= 2
+        size -= font_step
 
     # Colour links the same blue as the canvas. Set it on the anchor char
     # formats explicitly — the PDF backend ignores the paint-context Link
@@ -344,23 +393,24 @@ def _draw_text_hero(painter, hero: QRectF, note) -> None:
             cy = br.top() + line.y() + line.height() / 2
             discs.append((br.left() + line.x(), cy))
 
-    dh = min(doc.size().height(), hero.height())
-    oy = hero.top() + max(0.0, (hero.height() - dh) / 2)
+    dh = min(doc.size().height(), rect.height())
+    oy = rect.top() + (max(0.0, (rect.height() - dh) / 2) if vcenter else 0.0)
     painter.save()
-    painter.setClipRect(hero)
-    painter.translate(hero.left(), oy)
+    painter.setClipRect(rect)
+    painter.translate(rect.left(), oy)
     ctx = QAbstractTextDocumentLayout.PaintContext()
-    ctx.palette.setColor(QPalette.ColorRole.Text, _TITLE_COLOR)
+    ctx.palette.setColor(QPalette.ColorRole.Text, color)
     ctx.palette.setColor(QPalette.ColorRole.Link, NOTE_PEN_COLOR)
-    ctx.clip = QRectF(0, 0, hero.width(), hero.height())
+    ctx.clip = QRectF(0, 0, rect.width(), rect.height())
     lay.draw(painter, ctx)
 
     r = max(2.0, gutter * 0.16)
-    painter.setBrush(QBrush(_TITLE_COLOR))
+    painter.setBrush(QBrush(color))
     painter.setPen(Qt.PenStyle.NoPen)
     for text_left, cy in discs:
         painter.drawEllipse(QPointF(text_left - gutter * 0.55, cy), r, r)
     painter.restore()
+    return doc.size().height()
 
 
 def _draw_fit_text(painter, rect: QRectF, text: str, color, *, max_px: int,

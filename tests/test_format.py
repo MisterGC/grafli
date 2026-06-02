@@ -110,6 +110,34 @@ def test_empty_file():
     assert serialize(board) == HEADER + "\n"
 
 
+def test_footer_roundtrips():
+    src = (
+        '#!grafli v2\n'
+        '@ footer "© [Klebert](https://k.io) — **2026**"\n'
+        '@ box a "A" 0,0 100x50\n'
+    )
+    board = parse(src)
+    assert board.footer == "© [Klebert](https://k.io) — **2026**"
+    assert serialize(board) == src
+
+
+def test_footer_bumps_v2_header_when_added_at_runtime():
+    board = parse('#!grafli v1\n@ box a "A" 0,0 100x50\n')
+    assert "@ footer" not in serialize(board)        # absent → nothing emitted
+    board.footer = "branding"
+    out = serialize(board)
+    assert out.splitlines()[0] == "#!grafli v2"      # footer implies v2
+    assert '@ footer "branding"' in out
+
+
+def test_footer_multiline_escaped():
+    board = parse("")
+    board.footer = "line one\nline two"
+    out = serialize(board)
+    assert '@ footer "line one\\nline two"' in out
+    assert parse(out).footer == "line one\nline two"
+
+
 def test_legacy_file_gets_header():
     """Legacy .board files without header get the header on serialize."""
     board = parse(SAMPLE_LEGACY)

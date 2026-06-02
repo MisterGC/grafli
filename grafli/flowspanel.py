@@ -212,6 +212,9 @@ class FlowsPanel(QWidget):
             expanded = flow.id in self._expanded_flows
             self._layout.addWidget(self._flow_header(flow, expanded))
             if expanded:
+                self._layout.addWidget(self._captioned(
+                    "Description (markdown — shown on the title slide)",
+                    self._flow_desc_edit(flow)))
                 if not flow.steps:
                     self._layout.addWidget(self._hint(
                         "No stops. Add a bookmark below, or select a step and "
@@ -219,6 +222,9 @@ class FlowsPanel(QWidget):
                 for i, step in enumerate(flow.steps):
                     self._layout.addWidget(self._step_row(flow, i, step))
                 self._layout.addWidget(self._add_row(flow))
+                self._layout.addWidget(self._captioned(
+                    "Footer (markdown — branding on every exported slide)",
+                    self._footer_edit()))
 
         self._layout.addWidget(self._collapsible_header(
             "Bookmarks", len(board.bookmarks), self._bookmarks_expanded,
@@ -289,13 +295,18 @@ class FlowsPanel(QWidget):
         return row
 
     def _flow_header(self, flow, expanded) -> QWidget:
+        actions = [
+            ("▶", "Play flow", lambda: self._view.play_flow(flow.id)),
+            ("🗑", "Delete flow", lambda: self._view.delete_flow(flow)),
+        ]
+        if expanded:
+            # Export appears only for the open (selected) flow.
+            actions.insert(0, ("󰈦", "Export flow to PDF",
+                               lambda: self._view.export_flow(flow)))
         return self._collapsible_header(
             flow.label or flow.id, len(flow.steps), expanded,
             lambda: self._toggle_flow(flow.id),
-            actions=(
-                ("▶", "Play flow", lambda: self._view.play_flow(flow.id)),
-                ("🗑", "Delete flow", lambda: self._view.delete_flow(flow)),
-            ),
+            actions=tuple(actions),
             prominent=True)
 
     def _slide_card(self, selected: bool, on_select) -> _ClickableFrame:
@@ -332,6 +343,33 @@ class FlowsPanel(QWidget):
         desc = _InlineDesc(bm.description)
         desc.committed.connect(lambda t, b=bm: self._set_description(b, t))
         return desc
+
+    def _captioned(self, caption: str, widget: QWidget) -> QWidget:
+        """A small muted caption stacked above an editor field."""
+        box = QWidget()
+        box.setStyleSheet("background: transparent;")
+        col = QVBoxLayout(box)
+        col.setContentsMargins(14, 4, 8, 2)
+        col.setSpacing(1)
+        lbl = QLabel(caption)
+        lbl.setWordWrap(True)
+        lbl.setFont(QFont(FONT_FAMILY, 9))
+        lbl.setStyleSheet(f"color: {SIDE_PANEL_SECTION_COLOR.name()};"
+                          f" background: transparent;")
+        col.addWidget(lbl)
+        col.addWidget(widget)
+        return box
+
+    def _flow_desc_edit(self, flow) -> _InlineDesc:
+        desc = _InlineDesc(flow.description)
+        desc.committed.connect(lambda t, f=flow: self._set_flow_description(f, t))
+        return desc
+
+    def _footer_edit(self) -> _InlineDesc:
+        board = self._board()
+        edit = _InlineDesc(board.footer if board else "")
+        edit.committed.connect(self._set_footer)
+        return edit
 
     def _step_row(self, flow, index, step) -> QWidget:
         board = self._board()
@@ -528,6 +566,17 @@ class FlowsPanel(QWidget):
     def _set_description(self, bm, text):
         if text.strip() != bm.description:
             bm.description = text.strip()
+            self._view._commit_flow_edit()
+
+    def _set_flow_description(self, flow, text):
+        if text.strip() != flow.description:
+            flow.description = text.strip()
+            self._view._commit_flow_edit()
+
+    def _set_footer(self, text):
+        board = self._board()
+        if board is not None and text.strip() != board.footer:
+            board.footer = text.strip()
             self._view._commit_flow_edit()
 
 

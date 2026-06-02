@@ -217,24 +217,25 @@ class MainWindow(QMainWindow):
         if self._presenting:
             self._exit_present()
 
-    def _export_flow_pdf(self):
-        """Pick a flow (auto when there's one) and export it to a PDF."""
+    def _export_flow_pdf(self, flow=None):
+        """Export ``flow`` to a PDF; when not given, pick one (auto if single)."""
         from PySide6.QtWidgets import QFileDialog, QInputDialog
         board = self._view.board
         flows = board.flows if board else []
         if not flows:
             self._view._record_shortcut("no flows to export")
             return
-        if len(flows) == 1:
-            flow = flows[0]
-        else:
-            labels = [f"{f.label}  ({f.id})" for f in flows]
-            choice, ok = QInputDialog.getItem(
-                self, "Export flow", "Flow:", labels, 0, False,
-            )
-            if not ok:
-                return
-            flow = flows[labels.index(choice)]
+        if flow is None:
+            if len(flows) == 1:
+                flow = flows[0]
+            else:
+                labels = [f"{f.label}  ({f.id})" for f in flows]
+                choice, ok = QInputDialog.getItem(
+                    self, "Export flow", "Flow:", labels, 0, False,
+                )
+                if not ok:
+                    return
+                flow = flows[labels.index(choice)]
 
         default_name = ""
         if self._file_path:

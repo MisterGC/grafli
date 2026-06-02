@@ -66,6 +66,16 @@ small slide-style card showing a live thumbnail of what it frames.
 - **Add a stop**: expand a flow and either pick a bookmark from the *add*
   dropdown, or select a step and press <kbd>g</kbd><kbd>b</kbd> while
   navigating — the new bookmark is inserted right after the selected step.
+- **Flow description** (Markdown): expand a flow and edit the *Description*
+  field below its header. It renders below the headline on the exported title
+  slide, so it can carry emphasis, lists, and clickable links.
+- **Footer** (Markdown, optional): the *Footer* field — shown when a flow is
+  expanded — is **board-global** (one per `.grafli` file, shared by every
+  flow). It renders as a small muted branding line at the bottom of every
+  exported slide; leave it empty for no footer.
+- **Export this flow**: when a flow is expanded, an export (PDF) icon appears
+  in its header next to ▶ and 🗑 — it exports that flow directly, skipping the
+  flow picker.
 
 ## Playback
 
@@ -89,13 +99,17 @@ booth screen. <kbd>Esc</kbd> exits and restores the editor.
 
 ## Export to PDF
 
-Export a flow as a slide-style PDF — a title slide followed by one slide per
-stop (label, the framed diagram, and the description). Labels and descriptions
-are real selectable text; scoped steps render only their selected items; and a
-single-note step with no description becomes a text slide with clickable links
-(see *Scoping a step* and *Text slides* above).
+Export a flow as a slide-style PDF — a title slide (with the flow's Markdown
+description) followed by one slide per stop (label, the framed diagram, and the
+description). Labels and descriptions are real selectable text; scoped steps
+render only their selected items; a single-note step with no description
+becomes a text slide with clickable links (see *Scoping a step* and *Text
+slides* above); and the board-global Markdown footer, if set, brands every
+slide.
 
-- **In the app**: the **Flow PDF** button in the side panel's Export section.
+- **In the app**: the export (PDF) icon on an expanded flow's header (exports
+  that flow), or the **Flow PDF** button in the side panel's Export section
+  (prompts for a flow when there is more than one).
 - **Headless / scripted**:
 
 ```bash

@@ -16,12 +16,14 @@ Format spec:
   @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [&url]
   @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
   @ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
+  @ footer "<markdown>"                            (board-global PDF footer)
 
 Bookmarks/flows (v2) save a guided tour through the graph. A bookmark stores
 a semantic anchor (the item ids to frame), not raw pan/zoom, so it survives
 layout edits. A flow is an ordered list of bookmark refs with optional
-auto-play dwell times. The v2 header is emitted only when such directives
-are present; pure-diagram files stay on v1.
+auto-play dwell times. ``footer`` is a single board-global markdown branding
+line rendered at the bottom of every exported PDF slide. The v2 header is
+emitted only when such directives are present; pure-diagram files stay on v1.
 """
 
 from __future__ import annotations
@@ -153,6 +155,7 @@ class Board:
     images: list[Image] = field(default_factory=list)
     bookmarks: list[Bookmark] = field(default_factory=list)
     flows: list[Flow] = field(default_factory=list)
+    footer: str = ""   # board-global markdown branding footer for PDF exports
     _lines: list[tuple[str, object | None]] = field(
         default_factory=list, repr=False
     )
@@ -377,6 +380,10 @@ _RE_FLOW = re.compile(
     r'^@\s+flow\s+(\S+)\s+"([^"]*)"\s*(.*)$'
 )
 
+_RE_FOOTER = re.compile(
+    r'^@\s+footer\s+"([^"]*)"\s*$'      # board-global markdown branding footer
+)
+
 
 # ── Parser ──────────────────────────────────────────────────────
 
@@ -563,6 +570,13 @@ def parse(text: str) -> Board:
             )
             board.bookmarks.append(bookmark)
             board._lines.append(("bookmark", bookmark))
+            continue
+
+        m = _RE_FOOTER.match(stripped)
+        if m:
+            board.footer = ensure_text_presentation(
+                m.group(1).replace("\\n", "\n")
+            )
             continue
 
         m = _RE_FLOW.match(stripped)
@@ -760,6 +774,11 @@ def _serialize_flow(flow: Flow) -> str:
     return s
 
 
+def _serialize_footer(footer: str) -> str:
+    escaped = footer.replace("\n", "\\n")
+    return f'@ footer "{escaped}"'
+
+
 def serialize(board: Board) -> str:
     """Serialize a Board object back to .grafli format.
 
@@ -768,9 +787,13 @@ def serialize(board: Board) -> str:
     If the board was parsed (has _lines), preserves original ordering.
     Otherwise, outputs comments, then boxes, arrows, notes.
     """
-    header = HEADER_V2 if (board.bookmarks or board.flows) else HEADER
+    header = (HEADER_V2 if (board.bookmarks or board.flows or board.footer)
+              else HEADER)
+    footer_line = _serialize_footer(board.footer) if board.footer else None
     if board._lines:
         parts = [header]
+        if footer_line:
+            parts.append(footer_line)
         for kind, obj in board._lines:
             if kind == "header":
                 continue
@@ -793,6 +816,8 @@ def serialize(board: Board) -> str:
         return "\n".join(parts) + "\n"
 
     parts = [header]
+    if footer_line:
+        parts.append(footer_line)
     for c in board.comments:
         parts.append(c)
     if board.comments and (board.boxes or board.arrows or board.notes):

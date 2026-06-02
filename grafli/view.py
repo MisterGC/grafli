@@ -4676,6 +4676,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._flow_player.start()
         self.setFocus()
 
+    def export_flow(self, flow):
+        """Export a specific flow to PDF via the main window's save dialog."""
+        window = self.window()
+        if window is not None and hasattr(window, "_export_flow_pdf"):
+            window._export_flow_pdf(flow)
+
     def capture_bookmark(self, mode: str = "logical"):
         """Snapshot the current view as a bookmark.
 

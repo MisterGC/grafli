@@ -260,7 +260,7 @@ class FlowsPanel(QWidget):
         return lbl
 
     def _collapsible_header(self, title, count, expanded, on_toggle,
-                            actions=(), prominent=False) -> QWidget:
+                            actions=(), prominent=False, on_rename=None) -> QWidget:
         row = _ClickableFrame()
         row.clicked.connect(on_toggle)
         row.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -273,10 +273,26 @@ class FlowsPanel(QWidget):
                 f"_ClickableFrame {{ background: {_SELECT_BG};"
                 f" border-left: 3px solid {_ACCENT}; }}")
             h.setContentsMargins(8, 7, 8, 7)
-            lbl = QLabel(f"{arrow}  {title}")
-            lbl.setFont(QFont(FONT_FAMILY, 12, QFont.Weight.Bold))
-            lbl.setStyleSheet(f"color: {BOX_BORDER.name()}; background: transparent;")
-            h.addWidget(lbl, stretch=1)
+            arrow_lbl = QLabel(arrow)
+            arrow_lbl.setFont(QFont(FONT_FAMILY, 12, QFont.Weight.Bold))
+            arrow_lbl.setStyleSheet(
+                f"color: {BOX_BORDER.name()}; background: transparent;")
+            h.addWidget(arrow_lbl)
+            if on_rename is not None:
+                # Click-to-edit title: the line edit consumes the click (so it
+                # focuses for editing), while clicks elsewhere on the band still
+                # toggle the flow open/closed.
+                title_w = _InlineTitle(title)
+                title_w.setFont(QFont(FONT_FAMILY, 12, QFont.Weight.Bold))
+                title_w.setPlaceholderText("Flow name")
+                title_w.committed.connect(on_rename)
+                h.addWidget(title_w, stretch=1)
+            else:
+                lbl = QLabel(title)
+                lbl.setFont(QFont(FONT_FAMILY, 12, QFont.Weight.Bold))
+                lbl.setStyleSheet(
+                    f"color: {BOX_BORDER.name()}; background: transparent;")
+                h.addWidget(lbl, stretch=1)
             cnt = QLabel(f"{count}")
             cnt.setFont(QFont(FONT_FAMILY, 10))
             cnt.setStyleSheet(f"color: {SIDE_PANEL_SECTION_COLOR.name()};"
@@ -304,10 +320,11 @@ class FlowsPanel(QWidget):
             actions.insert(0, ("󰈦", "Export flow to PDF",
                                lambda: self._view.export_flow(flow)))
         return self._collapsible_header(
-            flow.label or flow.id, len(flow.steps), expanded,
+            flow.label, len(flow.steps), expanded,
             lambda: self._toggle_flow(flow.id),
             actions=tuple(actions),
-            prominent=True)
+            prominent=True,
+            on_rename=lambda t, f=flow: self._set_flow_label(f, t))
 
     def _slide_card(self, selected: bool, on_select) -> _ClickableFrame:
         """A framed slide-style card (matches the PDF look): paper background,
@@ -566,6 +583,12 @@ class FlowsPanel(QWidget):
     def _set_description(self, bm, text):
         if text.strip() != bm.description:
             bm.description = text.strip()
+            self._view._commit_flow_edit()
+
+    def _set_flow_label(self, flow, text):
+        text = text.strip()
+        if text != flow.label:
+            flow.label = text
             self._view._commit_flow_edit()
 
     def _set_flow_description(self, flow, text):

@@ -66,6 +66,9 @@ small slide-style card showing a live thumbnail of what it frames.
 - **Add a stop**: expand a flow and either pick a bookmark from the *add*
   dropdown, or select a step and press <kbd>g</kbd><kbd>b</kbd> while
   navigating — the new bookmark is inserted right after the selected step.
+- **Rename a flow**: click the flow's title in its header band and type — it
+  commits on <kbd>Enter</kbd> / focus-out. Clicking elsewhere on the band still
+  expands/collapses it.
 - **Flow description** (Markdown): expand a flow and edit the *Description*
   field below its header. It renders below the headline on the exported title
   slide, so it can carry emphasis, lists, and clickable links.

@@ -205,6 +205,8 @@ class FlowsPanel(QWidget):
             return
 
         self._layout.addWidget(self._text_button("＋  New flow", self._new_flow))
+        self._layout.addWidget(self._text_button(
+            "＋  Auto-flow from selection", self._new_auto_flow))
 
         valid_flow_ids = {f.id for f in board.flows}
         self._expanded_flows &= valid_flow_ids
@@ -321,6 +323,9 @@ class FlowsPanel(QWidget):
             # Export appears only for the open (selected) flow.
             actions.insert(0, ("󰈦", "Export flow to PDF",
                                lambda: self._view.export_flow(flow)))
+            if flow.auto_start:
+                actions.insert(0, ("↻", "Re-generate steps from start node",
+                                   lambda: self._view.regenerate_auto_flow(flow)))
         return self._collapsible_header(
             flow.label, len(flow.steps), expanded,
             lambda: self._toggle_flow(flow.id),
@@ -542,6 +547,15 @@ class FlowsPanel(QWidget):
         if not ok or not label.strip():
             return
         flow = self._view.create_flow(label.strip())
+        if flow is not None:
+            self._expanded_flows.add(flow.id)
+        self.refresh()
+        self._view.setFocus()
+
+    def _new_auto_flow(self):
+        # Walks forward arrows from the single selected node; named after it
+        # (rename inline afterwards). No-op with a hint if selection isn't one.
+        flow = self._view.new_auto_flow_from_selection()
         if flow is not None:
             self._expanded_flows.add(flow.id)
         self.refresh()

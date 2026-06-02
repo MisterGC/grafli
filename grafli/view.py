@@ -1307,6 +1307,43 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 result.append(item)
         return result
 
+    def _descendant_ids(self, box_id: str) -> list[str]:
+        """Ids of all boxes/notes/images nested under ``box_id`` (recursive)."""
+        out: list[str] = []
+        if not self._board:
+            return out
+        for b in self._board.boxes:
+            if b.parent == box_id:
+                out.append(b.id)
+                out.extend(self._descendant_ids(b.id))
+        for n in self._board.notes:
+            if n.parent == box_id:
+                out.append(n.id)
+        for img in self._board.images:
+            if img.parent == box_id:
+                out.append(img.id)
+        return out
+
+    def _expand_focus_to_subtrees(self, ids: list[str]) -> list[str]:
+        """Add every parent's descendants to a focus list (order-preserving).
+
+        Isolating a parent box on its own would hide its children and show an
+        empty container; including the subtree keeps the contents visible.
+        Shared by manual scoped capture and the auto-flow generator.
+        """
+        seen: set[str] = set()
+        out: list[str] = []
+        for fid in ids:
+            if fid not in seen:
+                seen.add(fid)
+                out.append(fid)
+            if self._board and self._board.box_by_id(fid) and self._has_children(fid):
+                for d in self._descendant_ids(fid):
+                    if d not in seen:
+                        seen.add(d)
+                        out.append(d)
+        return out
+
     def _box_depth(self, box_id: str) -> int:
         depth = 0
         current = box_id
@@ -3007,6 +3044,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             elif event.key() == Qt.Key.Key_F and no_mod:
                 self._record_shortcut("gf → flow rec")
                 self.toggle_flow_recording()
+            elif event.key() == Qt.Key.Key_F and shift_only:
+                self._record_shortcut("gF → auto-flow")
+                self.new_auto_flow_from_selection()
             elif event.key() == Qt.Key.Key_Z and no_mod:
                 self._record_shortcut("gz → focus zoom")
                 self._toggle_focus_zoom()
@@ -4731,6 +4771,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             # An explicit selection narrows the step's scope: render only these
             # items in thumbnails/PDF. No selection falls back to the viewport.
             isolate = bool(focus)
+            if focus:
+                # A selected parent brings its whole subtree, so isolating it
+                # shows the contents instead of an empty container.
+                focus = self._expand_focus_to_subtrees(focus)
             if not focus:
                 for bid, it in self._box_items.items():
                     if it.sceneBoundingRect().intersects(vp_scene):
@@ -4856,6 +4900,152 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._board.add_flow(flow)
         self._commit_flow_edit()
         return flow
+
+    # ── Auto-generated flows (walk forward arrows from a start node) ──
+
+    def _is_graph_edge(self, arrow: Arrow) -> bool:
+        """Whether ``arrow`` is a real graph edge (vs. an annotation link).
+
+        Today an arrow is a graph edge iff both endpoints are boxes (a note
+        endpoint makes it an annotation). This is the single seam a future
+        "notes/images as first-class nodes" change flips to ``not
+        arrow.is_annotation_link``.
+        """
+        if not self._board:
+            return False
+        return bool(self._board.box_by_id(arrow.from_id)
+                    and self._board.box_by_id(arrow.to_id))
+
+    def _strict_forward_target(self, arrow: Arrow, node_id: str) -> str | None:
+        """The node ``arrow`` leads to from ``node_id`` via a strict-forward
+        edge, else None. Strict = exactly one arrowhead, pointing away."""
+        if arrow.head_to == arrow.head_from:      # both/neither head → not strict
+            return None
+        if arrow.from_id == node_id and arrow.head_to:
+            return arrow.to_id
+        if arrow.to_id == node_id and arrow.head_from:
+            return arrow.from_id
+        return None
+
+    def _forward_targets(self, node_id: str) -> list[str]:
+        """Distinct nodes reachable from ``node_id`` by a strict-forward edge."""
+        out: list[str] = []
+        if not self._board:
+            return out
+        for arrow in self._board.arrows:
+            if not self._is_graph_edge(arrow):
+                continue
+            t = self._strict_forward_target(arrow, node_id)
+            if t is not None and t not in out:
+                out.append(t)
+        return out
+
+    def _auto_flow_path(self, start_id: str) -> tuple[list[str], str]:
+        """Walk strict-forward from ``start_id``: returns (node ids, stop reason).
+
+        Continues while a node has exactly one forward target; stop reason is
+        ``end`` (no forward), ``branch`` (several), or ``cycle`` (revisit).
+        """
+        path = [start_id]
+        visited = {start_id}
+        reason = "end"
+        current = start_id
+        while True:
+            targets = self._forward_targets(current)
+            if not targets:
+                reason = "end"
+                break
+            if len(targets) > 1:
+                reason = "branch"
+                break
+            nxt = targets[0]
+            if nxt in visited:
+                reason = "cycle"
+                break
+            path.append(nxt)
+            visited.add(nxt)
+            current = nxt
+        return path, reason
+
+    def _make_auto_bookmark(self, node_id: str) -> Bookmark:
+        """An isolated bookmark framing one node (a parent expands to its
+        subtree). A box keeps its label (titled slide); a note stays
+        label-less so it renders as a pure text slide."""
+        box = self._board.box_by_id(node_id)
+        label = box.label if box else ""
+        focus = self._expand_focus_to_subtrees([node_id])
+        bm = Bookmark(id=self._board.next_bookmark_id(), label=label,
+                      focus=focus, isolate=True)
+        self._board.add_bookmark(bm)
+        return bm
+
+    def _populate_auto_flow(self, flow: Flow) -> None:
+        path, reason = self._auto_flow_path(flow.auto_start)
+        flow.steps = [FlowStep(ref=self._make_auto_bookmark(nid).id)
+                      for nid in path]
+        n = len(path)
+        if reason == "branch":
+            box = self._board.box_by_id(path[-1])
+            where = (box.label.replace("\n", " ") if box and box.label
+                     else path[-1])
+            self._record_shortcut(
+                f"auto-flow: {n} step(s), stopped at branch '{where}'")
+        elif reason == "cycle":
+            self._record_shortcut(f"auto-flow: {n} step(s), stopped (cycle)")
+        else:
+            self._record_shortcut(f"auto-flow: {n} step(s)")
+
+    def _discard_auto_bookmarks(self, flow: Flow) -> None:
+        """Remove the bookmarks this flow's steps own (not used by any other
+        flow), so re-generating doesn't leave orphans behind."""
+        others: set[str] = set()
+        for f in self._board.flows:
+            if f is flow:
+                continue
+            others.update(s.ref for s in f.steps)
+        for step in list(flow.steps):
+            if step.ref not in others:
+                bm = self._board.bookmark_by_id(step.ref)
+                if bm is not None:
+                    self._board.remove_bookmark(bm)
+        flow.steps = []
+
+    def create_auto_flow(self, start_id: str, label: str):
+        """Create a flow by walking forward arrows from ``start_id``."""
+        if not self._board or self._board.box_by_id(start_id) is None:
+            self._record_shortcut("auto-flow needs a node")
+            return None
+        self._push_undo()
+        flow = Flow(id=self._board.next_flow_id(), label=label,
+                    auto_start=start_id)
+        self._board.add_flow(flow)
+        self._populate_auto_flow(flow)
+        self._commit_flow_edit()
+        return flow
+
+    def regenerate_auto_flow(self, flow):
+        """Re-walk from the flow's stored start node: rewrite the steps, keep
+        the title page (label/description)."""
+        if not self._board or flow is None or not flow.auto_start:
+            return
+        if self._board.box_by_id(flow.auto_start) is None:
+            self._record_shortcut("auto-flow: start node is gone")
+            return
+        self._push_undo()
+        self._discard_auto_bookmarks(flow)
+        self._populate_auto_flow(flow)
+        self._commit_flow_edit()
+
+    def new_auto_flow_from_selection(self):
+        """gz/panel: auto-flow from the single selected box."""
+        boxes = [b for b in self._scene.selectedItems()
+                 if isinstance(b, BoxItem)]
+        if len(boxes) != 1:
+            self._record_shortcut("auto-flow: select exactly one node first")
+            return None
+        start = boxes[0].box
+        label = (start.label.replace("\n", " ").strip() or "Auto flow")
+        return self.create_auto_flow(start.id, label)
 
     def delete_flow(self, flow):
         if not self._board or flow is None:
@@ -5721,7 +5911,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("1 note + gb, no caption", "Text slide (clickable links)"),
                 ("gB", "Bookmark exact viewport"),
                 ("gf", "Start / stop flow recording"),
-                ("Flows tab (\\)", "Edit flows: reorder, add/remove, dwell"),
+                ("gF", "Auto-flow: walk forward arrows from selected node"),
+                ("Flows tab (\\)", "Edit flows: reorder, add/remove, dwell, re-generate (↻)"),
                 ("Select step + gb", "Insert new bookmark after it"),
                 ("Space / →", "Next stop (during playback)"),
                 ("←", "Previous stop"),

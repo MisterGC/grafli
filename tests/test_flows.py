@@ -76,17 +76,25 @@ def test_next_id_helpers():
 
 
 def test_parse_flow_rest_variants():
-    steps, desc = _parse_flow_rest('a b:3 c:4s "hello world"')
+    steps, desc, auto = _parse_flow_rest('a b:3 c:4s "hello world"')
     assert [(s.ref, s.dwell) for s in steps] == [("a", None), ("b", 3.0), ("c", 4.0)]
     assert desc == "hello world"
+    assert auto == ""
 
-    steps, desc = _parse_flow_rest("only refs here")
+    steps, desc, auto = _parse_flow_rest("only refs here")
     assert [s.ref for s in steps] == ["only", "refs", "here"]
     assert desc == ""
+    assert auto == ""
 
-    steps, desc = _parse_flow_rest('"just a description"')
+    steps, desc, auto = _parse_flow_rest('"just a description"')
     assert steps == []
     assert desc == "just a description"
+    assert auto == ""
+
+    steps, desc, auto = _parse_flow_rest('a b ~auto=box3 "desc"')
+    assert [s.ref for s in steps] == ["a", "b"]
+    assert auto == "box3"
+    assert desc == "desc"
 
 
 def test_remove_bookmark_and_flow_update_lines():

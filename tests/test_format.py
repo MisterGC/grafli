@@ -150,6 +150,32 @@ def test_title_bg_roundtrips():
     assert serialize(board) == src
 
 
+def test_flow_auto_start_roundtrips():
+    src = (
+        '#!grafli v2\n'
+        '@ box box1 "A" 0,0 100x50\n'
+        '@ bookmark bm1 "A" @box1 ~iso\n'
+        '@ flow flow1 "Auto" bm1 ~auto=box1 "desc"\n'
+    )
+    board = parse(src)
+    assert board.flows[0].auto_start == "box1"
+    assert serialize(board) == src
+
+
+def test_flow_without_auto_start_is_byte_stable():
+    src = (
+        '#!grafli v2\n'
+        '@ box box1 "A" 0,0 100x50\n'
+        '@ bookmark bm1 "A" @box1\n'
+        '@ flow flow1 "Manual" bm1 "d"\n'
+    )
+    board = parse(src)
+    assert board.flows[0].auto_start == ""
+    out = serialize(board)
+    assert "~auto" not in out
+    assert out == src
+
+
 def test_title_bg_absent_is_empty_and_byte_stable():
     src = '#!grafli v1\n@ box a "A" 0,0 100x50\n'
     board = parse(src)

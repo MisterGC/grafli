@@ -153,6 +153,7 @@ Save labeled viewpoints and string them into guided tours — see
 | <kbd>g</kbd><kbd>b</kbd> | Bookmark what's shown (selection, else everything visible) |
 | <kbd>g</kbd><kbd>B</kbd> | Bookmark the exact viewport (pixel-faithful framing) |
 | <kbd>g</kbd><kbd>f</kbd> | Start / stop flow recording (each capture is appended) |
+| <kbd>g</kbd><kbd>F</kbd> | Auto-flow: generate a flow by walking forward arrows from the selected node |
 | <kbd>F5</kbd> | Present the current flow fullscreen (chrome hidden, paused) |
 
 During playback (in-app or presenting):

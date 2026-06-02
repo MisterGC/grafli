@@ -86,6 +86,33 @@ small slide-style card showing a live thumbnail of what it frames.
   in its header next to ▶ and 🗑 — it exports that flow directly, skipping the
   flow picker.
 
+## Auto-generated flows
+
+If your diagram already encodes a path through arrows, you don't have to capture
+each stop by hand. Select a start node and grafli can **walk the graph for you**,
+one slide per node:
+
+- **Generate**: select the start node, then press <kbd>g</kbd><kbd>F</kbd> (or use
+  **＋ Auto-flow from selection** in the Flows tab). grafli follows the forward
+  arrows, making one isolated step per node — a box becomes a titled focused
+  diagram, a note becomes a [text slide](#text-slides-clickable-links), and a
+  parent node expands to show its whole subtree.
+- **Strict-forward only**: it follows an arrow only when its head points away
+  from the current node and there's exactly **one** such arrow. It stops at the
+  end of a chain, and when a node **forks** (several forward arrows) it stops
+  there and tells you where — it never guesses a branch. Plain (`--`) and
+  bidirectional (`<->`) connectors are not followed.
+- **Re-generate**: the flow remembers its start node, so after you edit the
+  diagram press the **↻** icon on the flow's header to rewrite the steps from
+  scratch. Your **title page is kept** — the flow's name and description (and the
+  board-global footer) survive; only the steps are regenerated.
+
+!!! note "Notes and arrows today"
+    An arrow touching a note is currently an *annotation* link, not a graph
+    edge, so auto-flow walks **box-to-box** paths. Making notes/images
+    first-class graph nodes (so note-to-note connections are followed too) is a
+    planned follow-up.
+
 ## Playback
 
 Launch a flow with the ▶ button on its header (or present it, below). During

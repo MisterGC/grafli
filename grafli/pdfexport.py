@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import random
 import zlib
+from contextlib import contextmanager
 from pathlib import Path
 
 from PySide6.QtCore import QMarginsF, QPointF, QRectF, QSizeF, Qt
@@ -35,7 +36,12 @@ from PySide6.QtGui import (
     QTextListFormat,
 )
 
-from grafli.constants import FONT_FAMILY, NOTE_PEN_COLOR, SCENE_BG
+from grafli.constants import (
+    FONT_FAMILY,
+    NOTE_PEN_COLOR,
+    SCENE_BG,
+    resolve_textsize_px,
+)
 from grafli.flows import (
     bookmark_target_rect,
     isolate_focus,
@@ -77,6 +83,11 @@ _FOOTER_BAND = (10.0, 13.0, 14.0)
 # too empty, so the fit grows the font toward ``max``. A single-line footer
 # passes ``fill_floor=0`` so it sits at its ideal size and never inflates.
 _FILL_FLOOR = 0.45
+
+# In-place note overlay: a note rendered at scene scale below this point size is
+# too small to read on a slide. We render it anyway (faithful placement wins)
+# but flag the slide as overloaded so the author tightens or splits it.
+_READABLE_MIN_PT = 11.0
 
 
 def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
@@ -329,8 +340,59 @@ def _draw_thumbnail_art(painter, page: QRectF, view, board, flow) -> None:
     painter.drawImage(page, art)
 
 
+@contextmanager
+def _hidden(items):
+    """Temporarily hide the given graphics items, restoring on exit. Used to
+    keep notes out of the rasterized diagram so they can be redrawn as text."""
+    hidden = []
+    for it in items:
+        if it is not None and it.isVisible():
+            it.setVisible(False)
+            hidden.append(it)
+    try:
+        yield
+    finally:
+        for it in hidden:
+            it.setVisible(True)
+
+
+def _overlay_notes(view, bm, source: QRectF):
+    """The note items rendered inside ``source`` that should be drawn as real
+    text instead of rasterized. For a scoped (isolate) bookmark only its focus
+    notes count; otherwise every visible note intersecting the framed region."""
+    items = view._note_items
+    if bm is not None and bm.isolate and bm.focus:
+        ids = [nid for nid in bm.focus if nid in items]
+    else:
+        ids = [nid for nid, it in items.items()
+               if it.isVisible() and it.sceneBoundingRect().intersects(source)]
+    return [items[nid] for nid in ids]
+
+
+def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
+                       px_per_pt: float) -> bool:
+    """Draw one note as native text at its mapped page position, sized to the
+    scene scale already baked into ``mapped`` so it matches the diagram. Returns
+    True when the note renders below the readable floor (an overload signal)."""
+    note = item.note
+    is_md = is_md_note(note.text)
+    body = md_body(note.text) if is_md else note.text
+    # Scale the note's on-canvas font by the same factor the diagram region was
+    # scaled (mapped width / scene width), so the text keeps its relative size.
+    scene_w = item.sceneBoundingRect().width() or 1.0
+    scale = mapped.width() / scene_w
+    fixed_px = max(1, round(resolve_textsize_px(note.textsize, "") * scale))
+    _draw_markdown(painter, mapped, body, markdown=is_md, band=_BODY_BAND,
+                   px_per_pt=px_per_pt, color=_TITLE_COLOR, vcenter=False,
+                   fixed_px=fixed_px, clip=clip)
+    return fixed_px < _READABLE_MIN_PT * px_per_pt
+
+
 def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
-                        total: int, footer: str = "") -> None:
+                        total: int, footer: str = "") -> bool:
+    """Draw one content slide. Returns True when it is overloaded — text that
+    overflows even at the band minimum, or an in-place note below the readable
+    floor — so the caller can warn the author."""
     painter.fillRect(page, _SLIDE_BG)
     pw, ph = page.width(), page.height()
     margin = ph * 0.06
@@ -383,8 +445,7 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     # selectable, clickable text instead of a rasterized diagram.
     note = text_slide_note(view, bm) if bm else None
     if note is not None:
-        _draw_text_hero(painter, hero, note, _px_per_pt(page))
-        return
+        return _draw_text_hero(painter, hero, note, _px_per_pt(page))
 
     source = bookmark_target_rect(view, bm) if bm else QRectF()
     if source.isNull():
@@ -392,7 +453,7 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
         painter.setPen(QPen(_MUTED_COLOR))
         painter.drawText(hero, int(Qt.AlignmentFlag.AlignCenter),
                          "no anchor to render")
-        return
+        return False
 
     scale = min(hero.width() / source.width(), hero.height() / source.height())
     tw, th = source.width() * scale, source.height() * scale
@@ -413,15 +474,31 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     ip = QPainter(img)
     ip.setRenderHint(QPainter.RenderHint.Antialiasing)
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-    if bm.isolate and bm.focus:
-        with isolate_focus(view, bm.focus):
+    # Keep notes out of the raster: they are redrawn below as native text at
+    # their mapped scene position, so links stay clickable and text selectable.
+    overlay = _overlay_notes(view, bm, source)
+    with _hidden(overlay):
+        if bm.isolate and bm.focus:
+            with isolate_focus(view, bm.focus):
+                view._scene.render(ip, QRectF(0, 0, iw, ih), source)
+        else:
             view._scene.render(ip, QRectF(0, 0, iw, ih), source)
-    else:
-        view._scene.render(ip, QRectF(0, 0, iw, ih), source)
     ip.end()
     # Slide and diagram share the paper background, so the image drops in with
     # no visible seam — no frame needed.
     painter.drawImage(fitted, img)
+
+    # Overlay each note as real text at its mapped position (same source->fitted
+    # transform as the image), sized to the scene scale so it reads in place.
+    overloaded = False
+    for item in overlay:
+        nr = item.sceneBoundingRect()
+        mapped = QRectF(fitted.left() + (nr.left() - source.left()) * scale,
+                        fitted.top() + (nr.top() - source.top()) * scale,
+                        nr.width() * scale, nr.height() * scale)
+        if _draw_note_overlay(painter, mapped, hero, item, _px_per_pt(page)):
+            overloaded = True
+    return overloaded
 
 
 _UNORDERED = (
@@ -457,7 +534,8 @@ def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float) -> bool:
 
 def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
                    band, px_per_pt: float, color, vcenter: bool,
-                   fill_floor: float = _FILL_FLOOR) -> bool:
+                   fill_floor: float = _FILL_FLOOR, fixed_px: int | None = None,
+                   clip: QRectF | None = None) -> bool:
     """Render ``body`` as native, selectable, clickable PDF text in ``rect``.
 
     When ``markdown`` the body is parsed as GitHub-flavoured Markdown, else it
@@ -469,7 +547,9 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     survive as real PDF link annotations; body text uses ``color`` and links the
     canvas blue. When ``vcenter`` the text is vertically centred in ``rect``,
     otherwise top-aligned. Returns ``True`` when the text overflows even at the
-    band minimum (an overloaded slide).
+    band minimum (an overloaded slide). ``fixed_px`` forces an exact size and
+    skips the fit (for scene-scale in-place overlays); ``clip`` overrides the
+    paint clip so such an overlay can extend past its own mapped rect.
 
     Unordered-list bullets are drawn by us as vector discs and Qt's own list
     markers suppressed: Qt's auto markers don't render reliably through the PDF
@@ -543,13 +623,24 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
         if b.textList() is not None:
             b.textList().remove(b)
 
-    # Pick the base font by the clamp(min, ideal, max) + fill-band model (the
+    # ``fixed_px`` skips the fit and lays the text at an exact size — used for
+    # in-place note overlays, which size to the on-canvas scene scale so the
+    # note reads as it does on the diagram, not reflowed to fill a band. Else
+    # pick the base font by the clamp(min, ideal, max) + fill-band model (the
     # list hanging-indent and markdown headings scale with it, re-applied each
-    # trial inside ``_fit_font``). ``overflow`` is True when even ``min`` can't
+    # trial inside ``_fit_font``); ``overflow`` is True when even ``min`` can't
     # fit, so the caller can flag the slide as overloaded.
-    size, overflow = _fit_font(doc, font, cursor, markers, rect,
-                               min_px=min_px, ideal_px=ideal_px, max_px=max_px,
-                               fill_floor=fill_floor)
+    if fixed_px is not None:
+        size = max(1, fixed_px)
+        font.setPixelSize(size)
+        doc.setDefaultFont(font)
+        _apply_list_gutters(doc, cursor, markers, size)
+        doc.setTextWidth(rect.width())
+        overflow = False
+    else:
+        size, overflow = _fit_font(doc, font, cursor, markers, rect,
+                                   min_px=min_px, ideal_px=ideal_px,
+                                   max_px=max_px, fill_floor=fill_floor)
 
     # Colour links the same blue as the canvas. Set it on the anchor char
     # formats explicitly — the PDF backend ignores the paint-context Link
@@ -587,12 +678,19 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     dh = min(doc.size().height(), rect.height())
     oy = rect.top() + (max(0.0, (rect.height() - dh) / 2) if vcenter else 0.0)
     painter.save()
-    painter.setClipRect(rect)
+    painter.setClipRect(clip if clip is not None else rect)
     painter.translate(rect.left(), oy)
     ctx = QAbstractTextDocumentLayout.PaintContext()
     ctx.palette.setColor(QPalette.ColorRole.Text, color)
     ctx.palette.setColor(QPalette.ColorRole.Link, NOTE_PEN_COLOR)
-    ctx.clip = QRectF(0, 0, rect.width(), rect.height())
+    # ``clip`` (when given, e.g. the whole hero) lets an in-place note draw past
+    # its own mapped rect without being cut, in document coordinates relative to
+    # the translated origin; else keep the original rect-tight clip.
+    if clip is not None:
+        ctx.clip = QRectF(clip.left() - rect.left(), clip.top() - oy,
+                          clip.width(), clip.height())
+    else:
+        ctx.clip = QRectF(0, 0, rect.width(), rect.height())
     lay.draw(painter, ctx)
 
     r = max(2.0, gutter * 0.16)

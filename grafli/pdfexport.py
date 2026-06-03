@@ -369,6 +369,45 @@ def _overlay_notes(view, bm, source: QRectF):
     return [items[nid] for nid in ids]
 
 
+def _parent_of(board, item_id: str) -> str:
+    """Parent id of any box/note/image, or '' when top-level / unknown."""
+    for resolve in (board.box_by_id, board.note_by_id, board.image_by_id):
+        item = resolve(item_id)
+        if item is not None:
+            return item.parent
+    return ""
+
+
+def _container_box(board, bm):
+    """The focus box that is an ancestor of every other focus item — the slide's
+    container. Returns its Box, or None when the step is not a single subtree.
+
+    A container slide promotes this box's label to the title bar and suppresses
+    its own chrome (border/fill/label) from the diagram: the box *is* the slide
+    frame, so drawing it again inside the hero would just double the label."""
+    if bm is None or len(bm.focus) < 2:
+        return None
+
+    def is_ancestor(anc: str, item_id: str) -> bool:
+        cur, seen = _parent_of(board, item_id), set()
+        while cur and cur not in seen:
+            if cur == anc:
+                return True
+            seen.add(cur)
+            cur = _parent_of(board, cur)
+        return False
+
+    others = set(bm.focus)
+    for cid in bm.focus:
+        box = board.box_by_id(cid)
+        if box is None:
+            continue
+        rest = others - {cid}
+        if rest and all(is_ancestor(cid, o) for o in rest):
+            return box
+    return None
+
+
 def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
                        px_per_pt: float) -> bool:
     """Draw one note as native text at its mapped page position, sized to the
@@ -397,7 +436,11 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     pw, ph = page.width(), page.height()
     margin = ph * 0.06
 
-    label = bm.label if bm else "(missing bookmark)"
+    # Title ladder: a manual bookmark label wins; else, when the step frames a
+    # single subtree, the container box's label titles the slide; else no title.
+    container = _container_box(view.board, bm) if bm else None
+    label = (bm.label if bm else "(missing bookmark)") \
+        or (container.label if container else "")
     description = bm.description if bm else ""
     # A label-less, description-less stop is a "graph-only" slide: the framed
     # diagram fills the page with no title bar or caption — what the graph
@@ -476,8 +519,15 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     # Keep notes out of the raster: they are redrawn below as native text at
     # their mapped scene position, so links stay clickable and text selectable.
+    # Suppress the container box's own chrome too — its label is in the title bar.
     overlay = _overlay_notes(view, bm, source)
-    with _hidden(overlay):
+    suppress = list(overlay)
+    if container is not None:
+        cbox = view._box_items.get(container.id)
+        if cbox is not None:
+            suppress.append(cbox)
+            suppress.append(cbox._label)
+    with _hidden(suppress):
         if bm.isolate and bm.focus:
             with isolate_focus(view, bm.focus):
                 view._scene.render(ip, QRectF(0, 0, iw, ih), source)

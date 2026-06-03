@@ -59,6 +59,10 @@ _DESC_COLOR = QColor("#4A4A4A")
 _MUTED_COLOR = QColor("#8A8A8A")
 _ACCENT = QColor("#D4804E")
 _FRAME = QColor("#D5D0C8")
+# Floating description caption — a dark rounded card matching the on-canvas
+# playback caption, drawn over the content so it reserves no layout space.
+_CAPTION_BG = QColor("#2F3437")
+_CAPTION_TEXT = QColor("#ECECEC")
 
 # PowerPoint 16:9 canvas, in points (72 dpi) — 13.333" x 7.5".
 _PAGE_PT = QSizeF(960, 540)
@@ -78,6 +82,7 @@ _DESC_BAND = (14.0, 18.0, 22.0)
 _BODY_BAND = (18.0, 24.0, 30.0)
 _CODE_BAND = (13.0, 16.0, 20.0)
 _FOOTER_BAND = (10.0, 13.0, 14.0)
+_CAPTION_BAND = (12.0, 15.0, 18.0)
 
 # Vertical fill target (fraction of the text rect): below this the slide looks
 # too empty, so the fit grows the font toward ``max``. A single-line footer
@@ -470,16 +475,10 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
         painter.drawLine(int(margin), int(rule_y), int(pw - margin), int(rule_y))
         hero_top = rule_y + margin * 0.5
 
-    if has_desc:
-        band_h = ph * 0.22
-        band = QRectF(margin, ph - margin - band_h - _footer_reserve(page, footer),
-                      pw - margin * 2, band_h)
-        _draw_fit_text(painter, band, description, _DESC_COLOR,
-                       max_px=int(ph * 0.038), min_px=int(ph * 0.024),
-                       flags=int(Qt.TextFlag.TextWordWrap
-                                 | Qt.AlignmentFlag.AlignLeft
-                                 | Qt.AlignmentFlag.AlignVCenter))
-        hero_bottom = band.top() - margin * 0.5
+    # The description is not a reserved band — it floats over the content as a
+    # caption card (drawn last), exactly like the on-canvas playback caption, so
+    # the diagram keeps full height and the slide matches what you see stepping
+    # through the flow. ``has_desc`` only gates whether we draw that card.
 
     # ── hero: the bookmark's framed diagram region (or a text slide) ──
     hero = QRectF(margin, hero_top, pw - margin * 2, hero_bottom - hero_top)
@@ -548,6 +547,9 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
                         nr.width() * scale, nr.height() * scale)
         if _draw_note_overlay(painter, mapped, hero, item, _px_per_pt(page)):
             overloaded = True
+
+    if has_desc:
+        _draw_caption(painter, page, description, footer)
     return overloaded
 
 
@@ -763,20 +765,46 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     return overflow
 
 
-def _draw_fit_text(painter, rect: QRectF, text: str, color, *, max_px: int,
-                   min_px: int, flags: int) -> None:
-    """Draw word-wrapped text, shrinking the font until it fits (down to a
-    floor), so a long description never spills out of the band."""
-    size = max_px
-    font = _font(size)
-    while size > min_px:
-        font.setPixelSize(size)
-        painter.setFont(font)
-        br = painter.boundingRect(rect, flags, text)
-        if br.height() <= rect.height():
-            break
-        size -= 1
-    font.setPixelSize(size)
-    painter.setFont(font)
-    painter.setPen(QPen(color))
-    painter.drawText(rect, flags, text)
+def _markdown_height(body: str, markdown: bool, width: float, px: int) -> float:
+    """Laid-out height of ``body`` at font ``px`` wrapped to ``width`` — used to
+    size the caption card to its text before drawing the card behind it."""
+    doc = QTextDocument()
+    doc.setDocumentMargin(0)
+    f = QFont(FONT_FAMILY)
+    f.setPixelSize(max(1, px))
+    doc.setDefaultFont(f)
+    if markdown:
+        doc.setMarkdown(body, QTextDocument.MarkdownFeature.MarkdownDialectGitHub)
+    else:
+        doc.setPlainText(body)
+    doc.setTextWidth(width)
+    return doc.size().height()
+
+
+def _draw_caption(painter, page: QRectF, text: str, footer: str) -> None:
+    """Draw the step description as a floating dark caption card at the bottom,
+    over the content (above the footer). Markdown, with clickable links; matches
+    the on-canvas playback caption and reserves no layout space."""
+    pw, ph = page.width(), page.height()
+    margin = ph * 0.06
+    ppp = _px_per_pt(page)
+    pad = ph * 0.020
+    card_w = min(pw * 0.62, pw - margin * 2)
+    text_w = card_w - pad * 2
+    ideal_px = max(1, round(_CAPTION_BAND[1] * ppp))
+    text_h = min(_markdown_height(text, True, text_w, ideal_px), ph * 0.26)
+    card_h = text_h + pad * 2
+    card_x = (pw - card_w) / 2
+    card_y = ph - margin - _footer_reserve(page, footer) - card_h
+    card = QRectF(card_x, card_y, card_w, card_h)
+
+    bg = QColor(_CAPTION_BG)
+    bg.setAlphaF(0.94)
+    painter.setPen(QPen(QColor(255, 255, 255, 36), max(1.0, ph * 0.0012)))
+    painter.setBrush(QBrush(bg))
+    radius = ph * 0.014
+    painter.drawRoundedRect(card, radius, radius)
+
+    text_rect = QRectF(card_x + pad, card_y + pad, text_w, text_h)
+    _draw_markdown(painter, text_rect, text, markdown=True, band=_CAPTION_BAND,
+                   px_per_pt=ppp, color=_CAPTION_TEXT, vcenter=True)

@@ -1493,11 +1493,40 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if box_id in self._box_items:
             self._box_items[box_id].refresh_auto_layout()
 
+    def _keep_explicit_parent(self, item_id: str, parent_id: str) -> bool:
+        """Whether an authored ``>parent`` should be preserved on load.
+
+        Keep it when it names an existing box and does not form a cycle. This
+        respects intent for children that overflow their box (a note wider than
+        its container is still authored into it) instead of geometric reparenting
+        yanking them up to a grandparent that happens to enclose their bounds.
+        """
+        if not parent_id or parent_id not in self._box_items:
+            return False
+        cur, seen = parent_id, set()
+        while cur and cur not in seen:
+            if cur == item_id:
+                return False                # cycle: don't keep
+            seen.add(cur)
+            cur = self._box_items[cur].box.parent if cur in self._box_items else ""
+        return True
+
     def _auto_parent_all(self):
-        """Assign parent to every box/note fully contained in another box."""
+        """Assign a parent to every box/note geometrically contained in a box.
+
+        An explicit authored ``>parent`` wins — only items with no (or a
+        dangling) parent are nested by geometry, so overflowing children keep
+        the container they were authored into.
+        """
         boxes = list(self._box_items.values())
+        # Drop self-references up front so the descendant walk can't recurse.
+        for item in boxes:
+            if item.box.parent == item.box.id:
+                item.box.parent = ""
         for item in boxes:
             b = item.box
+            if self._keep_explicit_parent(b.id, b.parent):
+                continue
             item_rect = QRectF(b.x, b.y, b.w, b.h)
             desc_ids = {
                 d.box.id
@@ -1516,6 +1545,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             b.parent = best
         for nitem in self._note_items.values():
             n = nitem.note
+            if self._keep_explicit_parent(n.id, n.parent):
+                continue
             sr = nitem.sceneBoundingRect()
             item_rect = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
             best, best_area = "", float("inf")

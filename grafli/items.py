@@ -913,6 +913,32 @@ class BoxItem(QGraphicsRectItem):
             sel_color.setAlphaF(0.85)
             painter.setPen(QPen(sel_color, 4, Qt.PenStyle.SolidLine))
             painter.drawRoundedRect(sel_rect, radius, radius)
+            self._paint_resize_markers(painter)
+
+    def _paint_resize_markers(self, painter: QPainter):
+        """Selection-only badges signalling the active resize behaviors."""
+        glyphs = []
+        if self.box.lock_ratio:
+            glyphs.append("R")    # aspect ratio locked
+        if self.box.scale_children:
+            glyphs.append("F")    # scale children to fit
+        if not glyphs:
+            return
+        r = self.rect()
+        size = 16.0
+        gap = 4.0
+        x = r.right() - 6 - size
+        y = r.top() + 6
+        font = QFont(FONT_FAMILY, 9, QFont.Weight.Bold)
+        painter.setFont(font)
+        for g in glyphs:
+            badge = QRectF(x, y, size, size)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor("#2F3437")))
+            painter.drawRoundedRect(badge, 4, 4)
+            painter.setPen(QPen(QColor("#ECECEC")))
+            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, g)
+            x -= size + gap
 
 
 class NoteItem(QGraphicsSimpleTextItem):

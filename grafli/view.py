@@ -1411,6 +1411,30 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._record_shortcut(
             f"snapped {len(targets)} box(es) to slide ratio {ratio:.2f}")
 
+    def _toggle_box_flag(self, attr: str):
+        """Toggle a boolean resize flag (lock_ratio / scale_children).
+
+        Flips the flag on every selected box (using the first box's current
+        value so a mixed selection lands consistently), then refreshes the
+        selection markers. Enabling lock_ratio captures the box's current ratio
+        simply by leaving its shape untouched.
+        """
+        boxes = [i for i in self._scene.selectedItems()
+                 if isinstance(i, BoxItem)]
+        if not boxes:
+            self._record_shortcut(f"{attr}: select a box first")
+            return
+        new_value = not getattr(boxes[0].box, attr)
+        self._push_undo()
+        for item in boxes:
+            setattr(item.box, attr, new_value)
+            item.update()
+        self.mark_dirty()
+        label = "aspect lock" if attr == "lock_ratio" else "scale children"
+        self._record_shortcut(
+            f"{label} {'on' if new_value else 'off'} "
+            f"({len(boxes)} box(es))")
+
     def _box_depth(self, box_id: str) -> int:
         depth = 0
         current = box_id
@@ -3574,6 +3598,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     return
                 if event.key() == Qt.Key.Key_R and no_mod:
                     self._snap_selection_to_slide_ratio()
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_A and no_mod:
+                    self._toggle_box_flag("lock_ratio")
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_F and no_mod:
+                    self._toggle_box_flag("scale_children")
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_S and no_mod:
@@ -6165,6 +6197,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("s", "Enter style mode"),
                 ("d", "Enter dimension mode"),
                 ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),
+                ("d then a", "Toggle aspect-ratio lock (resize keeps the ratio)"),
+                ("d then f", "Toggle scale-children (shrink fits the subtree)"),
                 ("Shift+G", "Snap to grid"),
                 ("=", "Auto-layout selection (or all)"),
             ]),

@@ -268,6 +268,8 @@ class SidePanel(QWidget):
             ("redo",        "󰑎", "Redo",        "^R"),
             ("layout",      "󱁐", "Layout",      "="),
             ("slide_ratio", "󰨤", "Slide ratio", "d r"),
+            ("lock_ratio",  "󰦞", "Lock ratio",  "d a"),
+            ("scale_fit",   "󰊁", "Scale fit",   "d f"),
             ("search",      "󰍉", "Search",      "/"),
         ])
 

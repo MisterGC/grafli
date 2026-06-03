@@ -193,6 +193,78 @@ class ResizeHandle(QGraphicsRectItem):
         self.setVisible(False)
 
 
+class ResizeForeshadow(QGraphicsItem):
+    """Translucent preview drawn while resizing/scaling a box.
+
+    Shows where the box's *frame* will land (dashed outline) and where its
+    *content* will sit after scaling (a filled occupied-area rect). When the
+    box has aspect-lock on, a small corner glyph signals the ratio is held.
+    The real size/font mutation happens on release; this only foreshadows it.
+    """
+
+    _OUTLINE = QColor("#2F5D5C")
+    _FILL = QColor("#2F5D5C")
+    _GLYPH_BG = QColor("#2F3437")
+    _GLYPH_FG = QColor("#ECECEC")
+
+    def __init__(self):
+        super().__init__()
+        self._frame = QRectF()
+        self._content = QRectF()
+        self._locked = False
+        self.setZValue(10001)
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+
+    def set_preview(self, frame: QRectF, content: QRectF | None, locked: bool):
+        self.prepareGeometryChange()
+        self._frame = QRectF(frame)
+        self._content = QRectF(content) if content is not None else QRectF()
+        self._locked = bool(locked)
+        self.update()
+
+    def boundingRect(self):
+        r = QRectF(self._frame)
+        if not self._content.isEmpty():
+            r = r.united(self._content)
+        return r.adjusted(-12, -12, 12, 12)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # Content-occupied area (filled, faint).
+        if not self._content.isEmpty():
+            fill = QColor(self._FILL)
+            fill.setAlphaF(0.18)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(fill))
+            painter.drawRect(self._content)
+        # Target frame outline (dashed).
+        pen = QPen(self._OUTLINE, 2, Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(self._frame)
+        # Lock indicator: a small badge in the top-left of the frame.
+        if self._locked:
+            self._paint_lock_badge(painter)
+
+    def _paint_lock_badge(self, painter: QPainter):
+        size = 18.0
+        r = QRectF(self._frame.left() + 4, self._frame.top() + 4, size, size)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(self._GLYPH_BG))
+        painter.drawRoundedRect(r, 4, 4)
+        # Simple padlock: shackle arc + body.
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(self._GLYPH_FG, 1.6))
+        cx = r.center().x()
+        arc = QRectF(cx - 3.5, r.top() + 4, 7, 7)
+        painter.drawArc(arc, 0, 180 * 16)
+        body = QRectF(cx - 4.5, r.top() + 7.5, 9, 7)
+        painter.setBrush(QBrush(self._GLYPH_FG))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(body, 1.5, 1.5)
+
+
 class BoxLabelItem(QGraphicsTextItem):
     """Scene-level label for a BoxItem, renders above arrows."""
 

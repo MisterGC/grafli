@@ -105,7 +105,7 @@ from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
 from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, parse, serialize
 from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
-from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, NoteItem, ResizeHandle
+from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, NoteItem, ResizeForeshadow, ResizeHandle
 from grafli.md_note import is_md_note
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
@@ -253,6 +253,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Reparenting drag highlight: a dashed rectangle previewing the target
         # parent's auto-grown bounds (or None when the drop would detach).
         self._grow_preview: QGraphicsRectItem | None = None
+
+        # Resize/scale foreshadow overlay (target frame + content area).
+        self._resize_foreshadow = None
 
         # Jump-to mode state
         self._jump_active = False
@@ -1710,6 +1713,23 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             except RuntimeError:
                 pass  # C++ object already deleted (scene rebuild)
         self._grow_preview = None
+
+    def _show_resize_foreshadow(self, frame: QRectF, content=None,
+                                locked: bool = False):
+        """Preview a resize/scale: target frame + content-occupied area."""
+        if self._resize_foreshadow is None or self._resize_foreshadow.scene() is None:
+            self._resize_foreshadow = ResizeForeshadow()
+            self._scene.addItem(self._resize_foreshadow)
+        self._resize_foreshadow.set_preview(frame, content, locked)
+
+    def _clear_resize_foreshadow(self):
+        if self._resize_foreshadow is not None:
+            try:
+                if self._resize_foreshadow.scene() is not None:
+                    self._scene.removeItem(self._resize_foreshadow)
+            except RuntimeError:
+                pass  # C++ object already deleted (scene rebuild)
+        self._resize_foreshadow = None
 
     # ── Box mode (vim-like style / dimension) ──
 

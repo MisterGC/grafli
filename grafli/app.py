@@ -18,10 +18,10 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
-    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
+    QSplitter,
     QWidget,
 )
 
@@ -50,18 +50,25 @@ class MainWindow(QMainWindow):
         self._side_panel = SidePanel(self)
         self._panel_toggle = PanelToggleButton(self._view.viewport())
 
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(self._side_panel)
-        layout.addWidget(self._view, stretch=1)
-        self.setCentralWidget(container)
+        # A splitter lets the user drag the panel/canvas boundary. The panel
+        # keeps a content-driven minimum width so nothing clips, and a single
+        # shared width is remembered across tabs and restarts.
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.setHandleWidth(4)
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.addWidget(self._side_panel)
+        self._splitter.addWidget(self._view)
+        self._splitter.setStretchFactor(0, 0)
+        self._splitter.setStretchFactor(1, 1)
+        self._splitter.splitterMoved.connect(self._on_splitter_moved)
+        self.setCentralWidget(self._splitter)
 
-        # Restore panel visibility from settings (hidden by default)
+        # Restore panel visibility + width from settings (hidden by default)
         settings = QSettings("Grafli", "Grafli")
         panel_visible = settings.value("sidepanel/visible", False, type=bool)
         self._side_panel.setVisible(panel_visible)
+        self._panel_width = settings.value(
+            "sidepanel/width", self._side_panel.preferred_width(), type=int)
         self._setup_panel()
 
         self._file_path: Path | None = None
@@ -104,6 +111,19 @@ class MainWindow(QMainWindow):
     def showEvent(self, event):
         super().showEvent(event)
         self._panel_toggle.reposition()
+        self._apply_panel_width()
+
+    def _apply_panel_width(self):
+        """Size the splitter so the panel takes its remembered shared width."""
+        w = max(self._panel_width, self._side_panel.minimumWidth())
+        total = self._splitter.width() or (w + 800)
+        self._splitter.setSizes([w, max(1, total - w)])
+
+    def _on_splitter_moved(self, pos: int, index: int):
+        if self._side_panel.isVisible():
+            self._panel_width = self._splitter.sizes()[0]
+            QSettings("Grafli", "Grafli").setValue(
+                "sidepanel/width", self._panel_width)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -135,6 +155,8 @@ class MainWindow(QMainWindow):
     def _toggle_panel(self):
         visible = not self._side_panel.isVisible()
         self._side_panel.setVisible(visible)
+        if visible:
+            self._apply_panel_width()
         QSettings("Grafli", "Grafli").setValue("sidepanel/visible", visible)
         # Keep keyboard focus on the canvas — the panel is mouse-only.
         self._view.setFocus()

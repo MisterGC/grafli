@@ -130,7 +130,10 @@ class SidePanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setFixedWidth(SIDE_PANEL_WIDTH)
+        # Width is driven by the enclosing splitter; only a content-floor and a
+        # sane ceiling are enforced so the panel can't clip or swallow the canvas.
+        self.setMinimumWidth(self._TOOLS_MIN)
+        self.setMaximumWidth(self._MAX_WIDTH)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         # Never steal keyboard focus from the canvas — panel is mouse-only.
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -187,6 +190,14 @@ class SidePanel(QWidget):
 
     _TOOLS_WIDTH = SIDE_PANEL_WIDTH
     _FLOWS_WIDTH = 300
+    # Minimum widths below which each tab's content would start to clip.
+    _TOOLS_MIN = SIDE_PANEL_WIDTH
+    _FLOWS_MIN = 240
+    _MAX_WIDTH = 720
+
+    def preferred_width(self) -> int:
+        """Default shared panel width on first run (wide enough for Flows)."""
+        return self._FLOWS_WIDTH
 
     def _build_tabbar(self) -> QWidget:
         bar = QWidget()
@@ -214,7 +225,8 @@ class SidePanel(QWidget):
 
     def switch_tab(self, index: int):
         self._stack.setCurrentIndex(index)
-        self.setFixedWidth(self._FLOWS_WIDTH if index == 1 else self._TOOLS_WIDTH)
+        # Keep the shared width; only adjust the floor to the current content.
+        self.setMinimumWidth(self._FLOWS_MIN if index == 1 else self._TOOLS_MIN)
         for i, tab in enumerate(self._tab_buttons):
             active = i == index
             color = BOX_BORDER.name() if active else SIDE_PANEL_SECTION_COLOR.name()

@@ -3381,6 +3381,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                         if not isinstance(item, BoxItem):
                             continue
                         x, y, w, h = item.box.x, item.box.y, item.box.w, item.box.h
+                        ratio = w / h if h else 1.0
                         if shift:
                             # Grow
                             if event.key() == Qt.Key.Key_H:
@@ -3413,6 +3414,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                                     x += step; w -= step
                                 else:
                                     continue
+                        if item.box.lock_ratio:
+                            # Couple the off-axis so the aspect ratio holds.
+                            if event.key() in (Qt.Key.Key_H, Qt.Key.Key_L):
+                                h = max(MIN_BOX_SIZE, w / ratio)
+                            else:
+                                w = max(MIN_BOX_SIZE, h * ratio)
                         item.box.x = x
                         item.box.y = y
                         item.box.w = w

@@ -541,8 +541,8 @@ class BoxItem(QGraphicsRectItem):
                 return
         super().mousePressEvent(event)
 
-    def _apply_resize_delta(self, dx: float, dy: float, corner: int):
-        """Apply a resize delta for the given handle direction."""
+    def _free_resize_rect(self, dx, dy, corner):
+        """New (x, y, w, h) for a free (per-axis) resize."""
         x, y, w, h = self.box.x, self.box.y, self.box.w, self.box.h
 
         if corner == _CORNER_TL:
@@ -571,6 +571,61 @@ class BoxItem(QGraphicsRectItem):
             if corner in (_CORNER_TL, _CORNER_TR, _EDGE_T):
                 y -= MIN_BOX_SIZE - h
             h = MIN_BOX_SIZE
+        return x, y, w, h
+
+    def _locked_resize_rect(self, dx, dy, corner):
+        """New (x, y, w, h) for an aspect-locked resize.
+
+        The box's current ratio is preserved: a horizontal handle drives the
+        width (height follows), a vertical edge drives the height (width
+        follows). The handle's opposite side stays anchored; for a single-axis
+        edge the off-axis grows symmetrically about the box's center.
+        """
+        x, y, w, h = self.box.x, self.box.y, self.box.w, self.box.h
+        ratio = w / h if h else 1.0
+
+        left = corner in (_CORNER_TL, _CORNER_BL, _EDGE_L)
+        right = corner in (_CORNER_TR, _CORNER_BR, _EDGE_R)
+        top = corner in (_CORNER_TL, _CORNER_TR, _EDGE_T)
+        vertical_edge = corner in (_EDGE_T, _EDGE_B)
+
+        if vertical_edge:
+            dh = -dy if top else dy
+            new_h = max(MIN_BOX_SIZE, h + dh)
+            new_w = new_h * ratio
+        else:
+            dw = -dx if left else dx
+            new_w = max(MIN_BOX_SIZE, w + dw)
+            new_h = new_w / ratio
+
+        # Keep both dimensions at or above the floor while preserving ratio.
+        if new_w < MIN_BOX_SIZE:
+            new_w = MIN_BOX_SIZE
+            new_h = new_w / ratio
+        if new_h < MIN_BOX_SIZE:
+            new_h = MIN_BOX_SIZE
+            new_w = new_h * ratio
+
+        # Anchor the side opposite the dragged handle.
+        if vertical_edge:
+            x = x + (w - new_w) / 2          # off-axis: grow about center
+            if top:
+                y = (y + h) - new_h
+        else:
+            if left:
+                x = (x + w) - new_w
+            if corner in (_EDGE_L, _EDGE_R):
+                y = y + (h - new_h) / 2      # off-axis: grow about center
+            elif top:
+                y = (y + h) - new_h
+        return x, y, new_w, new_h
+
+    def _apply_resize_delta(self, dx: float, dy: float, corner: int):
+        """Apply a resize delta for the given handle direction."""
+        if getattr(self.box, "lock_ratio", False):
+            x, y, w, h = self._locked_resize_rect(dx, dy, corner)
+        else:
+            x, y, w, h = self._free_resize_rect(dx, dy, corner)
 
         self.box.x = x
         self.box.y = y

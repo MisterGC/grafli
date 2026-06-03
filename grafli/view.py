@@ -105,7 +105,7 @@ from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
 from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, parse, serialize
 from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
-from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, NoteItem, ResizeForeshadow, ResizeHandle
+from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
 from grafli.md_note import is_md_note
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
@@ -1654,6 +1654,123 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         sr = item.sceneBoundingRect()
         r = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
         return r if child_rect is None else child_rect.united(r)
+
+    # ── Scale children to fit (!fit) ──
+
+    def _direct_children_bbox(self, parent_id: str) -> QRectF | None:
+        """Combined bounds of a parent's direct children (scene coords)."""
+        if not self._board:
+            return None
+        rect: QRectF | None = None
+        for b in self._board.boxes:
+            if b.parent == parent_id:
+                r = QRectF(b.x, b.y, b.w, b.h)
+                rect = r if rect is None else rect.united(r)
+        for nitem in self._note_items.values():
+            if nitem.note.parent == parent_id:
+                rect = self._unite_scene_rect(rect, nitem)
+        for iitem in self._image_items.values():
+            if iitem.image.parent == parent_id:
+                r = QRectF(iitem.image.x, iitem.image.y,
+                           iitem.image.w, iitem.image.h)
+                rect = r if rect is None else rect.united(r)
+        return rect
+
+    def _parent_inner_rect(self, box_item: BoxItem,
+                           frame: QRectF | None = None) -> QRectF:
+        """Area inside a parent available to children (pad + headline reserve)."""
+        parent = box_item.box
+        if frame is None:
+            frame = QRectF(parent.x, parent.y, parent.w, parent.h)
+        pad = LAYOUT_PADDING
+        top_anchored = (
+            parent.anchor in ("topleft", "topcenter")
+            or (not parent.anchor and self._has_children(parent.id))
+        )
+        top_reserve = (box_item._label.boundingRect().height() + 16
+                       if top_anchored else pad)
+        return QRectF(frame.left() + pad, frame.top() + top_reserve,
+                      max(1.0, frame.width() - 2 * pad),
+                      max(1.0, frame.height() - top_reserve - pad))
+
+    def _squeeze_factor(self, box_item: BoxItem, frame: QRectF | None = None):
+        """(factor, child_bbox, inner_rect) — factor ≤ 1 shrinks to fit."""
+        bbox = self._direct_children_bbox(box_item.box.id)
+        if bbox is None or bbox.width() <= 0 or bbox.height() <= 0:
+            return 1.0, None, None
+        inner = self._parent_inner_rect(box_item, frame)
+        factor = min(inner.width() / bbox.width(),
+                     inner.height() / bbox.height(), 1.0)
+        return factor, bbox, inner
+
+    def _projected_content_area(self, box_item: BoxItem,
+                                frame: QRectF) -> QRectF | None:
+        """Where the children bbox lands after squeezing into ``frame``."""
+        factor, bbox, inner = self._squeeze_factor(box_item, frame)
+        if bbox is None:
+            return None
+        return QRectF(inner.left(), inner.top(),
+                      bbox.width() * factor, bbox.height() * factor)
+
+    def _squeeze_children_to_fit(self, box_item: BoxItem) -> None:
+        """Shrink the subtree so children clear the parent's inner bounds.
+
+        Shrink-only: a parent that grew just gains slack. Triggered on release
+        of a resize/scale of a box carrying the ``scale_children`` (!fit) flag.
+        """
+        if not getattr(box_item.box, "scale_children", False):
+            return
+        factor, bbox, inner = self._squeeze_factor(box_item)
+        if bbox is None or factor >= 0.999:
+            return
+        self._scale_subtree(box_item.box.id, factor, inner.topLeft())
+
+    def _scale_subtree(self, parent_id: str, factor: float,
+                       pivot: QPointF) -> None:
+        """Uniformly scale every descendant about ``pivot`` (size + font)."""
+        desc = self._descendants(parent_id)
+        if not desc:
+            return
+        self._propagating_move = True
+        self._suppress_child_updates = True
+        try:
+            for item in desc:
+                self._scale_item(item, factor, pivot)
+        finally:
+            self._suppress_child_updates = False
+            self._propagating_move = False
+        self.arrow_update_needed.emit()
+        self.mark_dirty()
+
+    def _scale_item(self, item, factor: float, pivot: QPointF) -> None:
+        px, py = pivot.x(), pivot.y()
+        if isinstance(item, BoxItem):
+            b = item.box
+            nx = px + (b.x - px) * factor
+            ny = py + (b.y - py) * factor
+            nw = max(MIN_BOX_SIZE, b.w * factor)
+            nh = max(MIN_BOX_SIZE, b.h * factor)
+            cur = item._box_font().pointSizeF()
+            b.textsize = str(int(max(MIN_SCALE_FONT_PT, round(cur * factor))))
+            item._label.setFont(item._box_font())
+            item.set_geometry(nx, ny, nw, nh)
+        elif isinstance(item, NoteItem):
+            n = item.note
+            nx = px + (n.x - px) * factor
+            ny = py + (n.y - py) * factor
+            cur = item._note_font().pointSizeF()
+            item.set_textsize(str(int(max(MIN_SCALE_FONT_PT, round(cur * factor)))))
+            item.setPos(nx, ny)
+        elif isinstance(item, ImageItem):
+            im = item.image
+            im.x = px + (im.x - px) * factor
+            im.y = py + (im.y - py) * factor
+            im.w = max(item._MIN_SIZE, im.w * factor)
+            im.h = max(item._MIN_SIZE, im.h * factor)
+            item.setPos(im.x, im.y)
+            item.prepareGeometryChange()
+            item._update_handles()
+            item.update()
 
     def _update_reparent_highlight(self, cursor_scene: QPointF | None = None):
         """Preview the auto-grow of the box under the cursor during a drag.
@@ -3449,6 +3566,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                         item._label.setTextWidth(w - 16)
                         item._position_label()
                         item._update_handles()
+                        self._squeeze_children_to_fit(item)
                     self._update_mode_badge_pos()
                     self.arrow_update_needed.emit()
                     self.mark_dirty()

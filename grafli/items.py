@@ -792,8 +792,11 @@ class BoxItem(QGraphicsRectItem):
             frame = self._scaled_frame(anchor, self._scale_corner, w, h)
             view = _get_view(self)
             if view and hasattr(view, '_show_resize_foreshadow'):
+                content = None
+                if self.box.scale_children and hasattr(view, '_projected_content_area'):
+                    content = view._projected_content_area(self, frame)
                 view._show_resize_foreshadow(
-                    frame, content=None, locked=self.box.lock_ratio)
+                    frame, content=content, locked=self.box.lock_ratio)
             event.accept()
             return
         if self._resizing:
@@ -813,6 +816,14 @@ class BoxItem(QGraphicsRectItem):
             view = _get_view(self)
             if view and hasattr(view, 'arrow_update_needed'):
                 view.arrow_update_needed.emit()
+            # Foreshadow where children will land if this !fit parent squeezes.
+            if (self.box.scale_children and view
+                    and hasattr(view, '_projected_content_area')):
+                frame = QRectF(self.box.x, self.box.y, self.box.w, self.box.h)
+                content = view._projected_content_area(self, frame)
+                if content is not None:
+                    view._show_resize_foreshadow(frame, content=content,
+                                                 locked=self.box.lock_ratio)
 
             event.accept()
             return
@@ -840,6 +851,14 @@ class BoxItem(QGraphicsRectItem):
                 QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True
             )
             view = _get_view(self)
+            if view and hasattr(view, '_squeeze_children_to_fit'):
+                scene = self.scene()
+                members = ([i for i in scene.selectedItems()
+                            if isinstance(i, BoxItem)] if scene else [self])
+                for item in members:
+                    view._squeeze_children_to_fit(item)
+            if view and hasattr(view, '_clear_resize_foreshadow'):
+                view._clear_resize_foreshadow()
             if view and hasattr(view, '_commit_pre_action_snapshot'):
                 view._commit_pre_action_snapshot()
                 view.mark_dirty()
@@ -850,9 +869,12 @@ class BoxItem(QGraphicsRectItem):
     def _commit_scale(self):
         """Apply the recorded scale factor to every box in the gesture."""
         factor = self._scale_factor
+        view = _get_view(self)
         for item, start_rect, start_px in self._scale_starts:
             item._apply_uniform_scale(factor, start_rect, start_px,
                                       self._scale_corner)
+            if view and hasattr(view, '_squeeze_children_to_fit'):
+                view._squeeze_children_to_fit(item)
         self._scale_starts = []
 
     def hoverMoveEvent(self, event):

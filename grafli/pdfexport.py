@@ -435,6 +435,22 @@ def _container_box(board, bm):
     return None
 
 
+def _slide_source(view, bm, container) -> QRectF:
+    """The scene rect a content slide should frame.
+
+    A container slide maps the container's *own* bounds (it is the slide frame —
+    no padding, so its contents fill the page; the author shapes it to the slide
+    ratio via ``d`` ``r``). Padding a small container would letterbox it into a
+    centered island. Every other step uses the padded bookmark framing that
+    gives a region of a larger diagram some breathing room.
+    """
+    if container is not None:
+        citem = view._box_items.get(container.id)
+        if citem is not None:
+            return citem.sceneBoundingRect()
+    return bookmark_target_rect(view, bm) if bm else QRectF()
+
+
 def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
                        px_per_pt: float) -> bool:
     """Draw one note as native text at its mapped page position, sized to the
@@ -448,7 +464,18 @@ def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
     scene_w = item.sceneBoundingRect().width() or 1.0
     scale = mapped.width() / scene_w
     fixed_px = max(1, round(resolve_textsize_px(note.textsize, "") * scale))
-    _draw_markdown(painter, mapped, body, markdown=is_md, band=_BODY_BAND,
+    # Wrap to the note's own text column, not its bounding rect: a note's bbox is
+    # wider than the text (padding/badges), so filling the bbox would let lines
+    # run past where they wrap on canvas — e.g. into an adjacent image. Inset by
+    # the note's padding and cap the width to its wrap column.
+    pad = getattr(item, "_PAD", 0) * scale
+    try:
+        wrap_w = item._wrap_width_px(item._note_font()) * scale
+    except Exception:
+        wrap_w = mapped.width() - pad * 2
+    text_rect = QRectF(mapped.left() + pad, mapped.top() + pad,
+                       min(wrap_w, mapped.width() - pad), mapped.height() - pad * 2)
+    _draw_markdown(painter, text_rect, body, markdown=is_md, band=_BODY_BAND,
                    px_per_pt=px_per_pt, color=_TITLE_COLOR, vcenter=False,
                    fixed_px=fixed_px, clip=clip)
     return fixed_px < _READABLE_MIN_PT * px_per_pt
@@ -511,7 +538,7 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     if note is not None:
         return _draw_text_hero(painter, hero, note, _px_per_pt(page))
 
-    source = bookmark_target_rect(view, bm) if bm else QRectF()
+    source = _slide_source(view, bm, container)
     if source.isNull():
         painter.setFont(_font(int(ph * 0.03)))
         painter.setPen(QPen(_MUTED_COLOR))

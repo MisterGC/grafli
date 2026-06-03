@@ -98,6 +98,31 @@ def test_overload_reported_when_inplace_note_too_small(tmp_path):
     assert overloaded and overloaded[0][0] == 0
 
 
+def test_container_slide_frames_unpadded_container_bounds():
+    # A container slide maps the container's own bounds (no bookmark padding) so
+    # its contents fill the page — otherwise a small container becomes a tiny
+    # centered island.
+    from grafli.pdfexport import _container_box, _slide_source
+    from grafli.flows import bookmark_target_rect
+    src = """\
+#!grafli v2
+@ box frame "Frame" 0,0 395x200
+@ note n1 20,20 "md:\\nhello" ~width=20 >frame
+@ box c1 "C" 200,40 120x60 >frame
+@ bookmark bm "" @frame,n1,c1 ~iso
+@ flow f "F" bm
+"""
+    board = parse(src)
+    view = _view(board)
+    bm = board.bookmark_by_id("bm")
+    container = _container_box(board, bm)
+    assert container is not None and container.id == "frame"
+    source = _slide_source(view, bm, container)
+    cbox = view._box_items["frame"].sceneBoundingRect()
+    assert source == cbox                                 # exact container bounds
+    assert source != bookmark_target_rect(view, bm)       # i.e. unpadded
+
+
 def test_normal_flow_not_overloaded(tmp_path):
     from grafli.pdfexport import export_flow_to_pdf
     board = parse(SAMPLE)

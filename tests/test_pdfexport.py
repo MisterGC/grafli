@@ -45,7 +45,7 @@ def test_export_produces_title_plus_one_slide_per_stop(tmp_path):
     board = parse(SAMPLE)
     view = _view(board)
     out = tmp_path / "tour.pdf"
-    slides = export_flow_to_pdf(view, board.flow_by_id("tour"), out)
+    slides, _ = export_flow_to_pdf(view, board.flow_by_id("tour"), out)
     assert slides == 3                       # title + 2 stops
     data = out.read_bytes()
     assert data.startswith(b"%PDF")
@@ -59,7 +59,7 @@ def test_export_handles_viewport_only_bookmark(tmp_path):
     board = parse(src)
     view = _view(board)
     out = tmp_path / "tour2.pdf"
-    slides = export_flow_to_pdf(view, board.flow_by_id("tour"), out)
+    slides, _ = export_flow_to_pdf(view, board.flow_by_id("tour"), out)
     assert slides == 4
     assert out.read_bytes().startswith(b"%PDF")
 
@@ -74,10 +74,37 @@ def test_export_graph_only_stop(tmp_path):
     view = _view(board)
     bg_before = view._scene.backgroundBrush().color().name()
     out = tmp_path / "graphonly.pdf"
-    slides = export_flow_to_pdf(view, board.flow_by_id("tour"), out)
+    slides, _ = export_flow_to_pdf(view, board.flow_by_id("tour"), out)
     assert slides == 4
     assert out.read_bytes().startswith(b"%PDF")
     assert view._scene.backgroundBrush().color().name() == bg_before
+
+
+def test_overload_reported_when_inplace_note_too_small(tmp_path):
+    # A wide-framed slide maps its in-place note below the readable floor, so the
+    # step is reported as overloaded; a tightly-framed one is not.
+    from grafli.pdfexport import export_flow_to_pdf
+    wide = """\
+#!grafli v2
+@ box big "Big" 0,0 4000x2400
+@ note tiny 100,100 "md:\\nsome small note text here" ~width=20
+@ bookmark bmO "" @big,tiny ~iso
+@ flow f "F" bmO
+"""
+    board = parse(wide)
+    view = _view(board)
+    _, overloaded = export_flow_to_pdf(view, board.flow_by_id("f"),
+                                       tmp_path / "wide.pdf")
+    assert overloaded and overloaded[0][0] == 0
+
+
+def test_normal_flow_not_overloaded(tmp_path):
+    from grafli.pdfexport import export_flow_to_pdf
+    board = parse(SAMPLE)
+    view = _view(board)
+    _, overloaded = export_flow_to_pdf(view, board.flow_by_id("tour"),
+                                       tmp_path / "t.pdf")
+    assert overloaded == []
 
 
 def test_export_restores_selection(tmp_path):

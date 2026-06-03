@@ -248,8 +248,11 @@ class MainWindow(QMainWindow):
         if not path:
             return
         from grafli.pdfexport import export_flow_to_pdf
-        slides = export_flow_to_pdf(self._view, flow, path)
-        self._view._record_shortcut(f"PDF exported ({slides} slides)")
+        slides, overloaded = export_flow_to_pdf(self._view, flow, path)
+        msg = f"PDF exported ({slides} slides)"
+        if overloaded:
+            msg += f" · {len(overloaded)} overloaded — trim or split"
+        self._view._record_shortcut(msg)
 
     def _setup_shortcuts(self):
         self._view.mode_changed.connect(self._on_mode_changed)
@@ -1255,8 +1258,12 @@ def _cmd_export(argv: list[str]) -> int:
     from grafli.pdfexport import export_flow_to_pdf
     view = GrafliView()
     view.load_board(board)
-    slides = export_flow_to_pdf(view, flow, args.output)
+    slides, overloaded = export_flow_to_pdf(view, flow, args.output)
     print(f"Wrote {args.output} ({slides} slides)", file=sys.stderr)
+    if overloaded:
+        where = ", ".join(f"#{i + 1} {lbl}".strip() for i, lbl in overloaded)
+        print(f"Warning: {len(overloaded)} slide(s) overloaded — trim or "
+              f"split: {where}", file=sys.stderr)
     del view
     del app
     return 0

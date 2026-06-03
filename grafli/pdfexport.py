@@ -95,8 +95,13 @@ _FILL_FLOOR = 0.45
 _READABLE_MIN_PT = 11.0
 
 
-def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
-    """Render ``flow`` to a PDF at ``out_path``. Returns the slide count.
+def export_flow_to_pdf(view, flow, out_path: str | Path) -> tuple[int, list]:
+    """Render ``flow`` to a PDF at ``out_path``.
+
+    Returns ``(slide_count, overloaded)`` where ``overloaded`` is a list of
+    ``(step_index, label)`` for content slides whose text overflows even at the
+    band minimum (or whose in-place notes fall below the readable floor) — the
+    caller surfaces it so the author can trim or split those steps.
 
     ``view`` is a GrafliView whose scene holds the rendered graph (used both
     to resolve bookmark anchors and as the render source).
@@ -126,6 +131,7 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
 
     footer = board.footer or ""
 
+    overloaded = []
     painter = QPainter(writer)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
@@ -135,15 +141,16 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
         for i, step in enumerate(flow.steps):
             writer.newPage()
             bm = board.bookmark_by_id(step.ref)
-            _draw_content_slide(painter, page, view, flow, bm, i,
-                                len(flow.steps), footer)
+            if _draw_content_slide(painter, page, view, flow, bm, i,
+                                   len(flow.steps), footer):
+                overloaded.append((i, bm.label if bm else ""))
             _draw_footer(painter, page, footer)
     finally:
         painter.end()
         view._scene.setBackgroundBrush(old_bg)
         for item in sel:
             item.setSelected(True)
-    return len(flow.steps) + 1
+    return len(flow.steps) + 1, overloaded
 
 
 # ── slides ──────────────────────────────────────────────────────

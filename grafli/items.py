@@ -155,6 +155,10 @@ _EDGE_R = 5
 _EDGE_B = 6
 _EDGE_L = 7
 
+_CORNERS = (_CORNER_TL, _CORNER_TR, _CORNER_BL, _CORNER_BR)
+
+MIN_SCALE_FONT_PT = 6   # font floor when scaling a node down
+
 _HANDLE_CURSORS = {
     _CORNER_TL: Qt.CursorShape.SizeFDiagCursor,
     _CORNER_TR: Qt.CursorShape.SizeBDiagCursor,
@@ -317,6 +321,7 @@ class BoxItem(QGraphicsRectItem):
             ResizeHandle(_EDGE_L, self),
         ]
         self._resizing = False
+        self._scaling = False
         self._is_parent = False
 
         self._label = BoxLabelItem(self)
@@ -600,18 +605,86 @@ class BoxItem(QGraphicsRectItem):
         if event.button() == Qt.MouseButton.LeftButton:
             corner = self._handle_at(event.pos())
             if corner is not None and self.isSelected():
-                self._resizing = True
-                self._resize_corner = corner
-                self._resize_origin = event.pos()
                 self.setFlag(
                     QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
                 )
                 view = _get_view(self)
                 if view and hasattr(view, '_save_pre_action_snapshot'):
                     view._save_pre_action_snapshot()
+                if corner in _CORNERS:
+                    self._begin_scale(corner, event.scenePos())
+                else:
+                    self._resizing = True
+                    self._resize_corner = corner
+                    self._resize_origin = event.pos()
                 event.accept()
                 return
         super().mousePressEvent(event)
+
+    # ── Corner-drag uniform scale (size + font together) ──
+
+    def _begin_scale(self, corner: int, scene_pos: QPointF):
+        """Start a uniform-scale gesture from a corner handle."""
+        self._scaling = True
+        self._scale_corner = corner
+        self._scale_factor = 1.0
+        # Record the start state of every selected box so a multi-selection
+        # scales together; each box keeps its own anchor and font baseline.
+        self._scale_starts = []
+        scene = self.scene()
+        members = [i for i in scene.selectedItems()
+                   if isinstance(i, BoxItem)] if scene else [self]
+        if self not in members:
+            members.append(self)
+        for item in members:
+            rect = QRectF(item.box.x, item.box.y, item.box.w, item.box.h)
+            self._scale_starts.append((item, rect, item._box_font().pointSizeF()))
+
+    @staticmethod
+    def _corner_anchor(rect: QRectF, corner: int) -> QPointF:
+        """The fixed point (opposite the grabbed corner) during a scale."""
+        if corner == _CORNER_TL:
+            return rect.bottomRight()
+        if corner == _CORNER_TR:
+            return rect.bottomLeft()
+        if corner == _CORNER_BL:
+            return rect.topRight()
+        return rect.topLeft()                       # _CORNER_BR
+
+    @staticmethod
+    def _scaled_frame(anchor: QPointF, corner: int, w: float, h: float) -> QRectF:
+        """Frame of size w×h keeping ``anchor`` fixed for the given corner."""
+        if corner == _CORNER_TL:
+            return QRectF(anchor.x() - w, anchor.y() - h, w, h)
+        if corner == _CORNER_TR:
+            return QRectF(anchor.x(), anchor.y() - h, w, h)
+        if corner == _CORNER_BL:
+            return QRectF(anchor.x() - w, anchor.y(), w, h)
+        return QRectF(anchor.x(), anchor.y(), w, h)  # _CORNER_BR
+
+    def _scale_factor_for(self, scene_pos: QPointF) -> float:
+        """Uniform factor so the dragged corner follows the cursor."""
+        rect = next(r for item, r, _px in self._scale_starts if item is self)
+        anchor = self._corner_anchor(rect, self._scale_corner)
+        w0, h0 = rect.width(), rect.height()
+        cand_w = abs(scene_pos.x() - anchor.x())
+        cand_h = abs(scene_pos.y() - anchor.y())
+        factor = max(cand_w / w0 if w0 else 1.0, cand_h / h0 if h0 else 1.0)
+        # Floor so neither dimension drops below the minimum box size.
+        factor = max(factor, MIN_BOX_SIZE / w0 if w0 else 0.0,
+                     MIN_BOX_SIZE / h0 if h0 else 0.0)
+        return factor
+
+    def _apply_uniform_scale(self, factor, start_rect, start_px, corner):
+        """Mutate size + font by ``factor`` keeping the opposite corner fixed."""
+        w = max(MIN_BOX_SIZE, start_rect.width() * factor)
+        h = max(MIN_BOX_SIZE, start_rect.height() * factor)
+        anchor = self._corner_anchor(start_rect, corner)
+        frame = self._scaled_frame(anchor, corner, w, h)
+        new_px = max(MIN_SCALE_FONT_PT, round(start_px * factor))
+        self.box.textsize = str(int(new_px))
+        self._label.setFont(self._box_font())
+        self.set_geometry(frame.x(), frame.y(), frame.width(), frame.height())
 
     def _free_resize_rect(self, dx, dy, corner):
         """New (x, y, w, h) for a free (per-axis) resize."""
@@ -710,6 +783,19 @@ class BoxItem(QGraphicsRectItem):
         self._update_handles()
 
     def mouseMoveEvent(self, event):
+        if self._scaling:
+            self._scale_factor = self._scale_factor_for(event.scenePos())
+            rect = next(r for item, r, _px in self._scale_starts if item is self)
+            anchor = self._corner_anchor(rect, self._scale_corner)
+            w = rect.width() * self._scale_factor
+            h = rect.height() * self._scale_factor
+            frame = self._scaled_frame(anchor, self._scale_corner, w, h)
+            view = _get_view(self)
+            if view and hasattr(view, '_show_resize_foreshadow'):
+                view._show_resize_foreshadow(
+                    frame, content=None, locked=self.box.lock_ratio)
+            event.accept()
+            return
         if self._resizing:
             dx = event.pos().x() - self._resize_origin.x()
             dy = event.pos().y() - self._resize_origin.y()
@@ -733,6 +819,20 @@ class BoxItem(QGraphicsRectItem):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self._scaling:
+            self._scaling = False
+            self._commit_scale()
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            view = _get_view(self)
+            if view and hasattr(view, '_clear_resize_foreshadow'):
+                view._clear_resize_foreshadow()
+            if view and hasattr(view, '_commit_pre_action_snapshot'):
+                view._commit_pre_action_snapshot()
+                view.mark_dirty()
+            if view and hasattr(view, 'arrow_update_needed'):
+                view.arrow_update_needed.emit()
+            event.accept()
+            return
         if self._resizing:
             self._resizing = False
             self._min_h = self.box.h
@@ -746,6 +846,14 @@ class BoxItem(QGraphicsRectItem):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def _commit_scale(self):
+        """Apply the recorded scale factor to every box in the gesture."""
+        factor = self._scale_factor
+        for item, start_rect, start_px in self._scale_starts:
+            item._apply_uniform_scale(factor, start_rect, start_px,
+                                      self._scale_corner)
+        self._scale_starts = []
 
     def hoverMoveEvent(self, event):
         if self.isSelected():

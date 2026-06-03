@@ -3,7 +3,7 @@
 Format spec:
   #!grafli v1                                      (file header, first line)
   # comment or title
-  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat] [!ratio] [!fit] [&url] [>parent]
+  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat] [&url] [>parent]
   @ arrow <from_id> -> <to_id> "<label>"           (forward)
   @ arrow <from_id> <- <to_id> "<label>"           (backward)
   @ arrow <from_id> <-> <to_id> "<label>"          (bidirectional)
@@ -55,9 +55,6 @@ class Box:
     url: str = ""
     parent: str = ""
     annotation: str = ""
-    # Two orthogonal, composable resize behaviors (serialized as !ratio / !fit):
-    lock_ratio: bool = False     # resizing preserves the box's aspect ratio
-    scale_children: bool = False  # shrinking rewrites children's sizes/fonts to fit
 
 
 @dataclass
@@ -462,6 +459,8 @@ def parse(text: str) -> Board:
 
         m = _RE_BOX.match(stripped)
         if m:
+            # The flags run tolerates legacy !ratio / !fit (now no-ops) so older
+            # files still load; only !flat is honoured and re-serialized.
             flags = set(re.findall(r'!(\w+)', m.group(10) or ""))
             box = Box(
                 id=m.group(1),
@@ -477,8 +476,6 @@ def parse(text: str) -> Board:
                 url=m.group(11) or "",
                 parent=m.group(12) or "",
                 annotation=(m.group(13) or "").replace("\\n", "\n"),
-                lock_ratio="ratio" in flags,
-                scale_children="fit" in flags,
             )
             board.boxes.append(box)
             board._lines.append(("box", box))
@@ -689,10 +686,6 @@ def _serialize_box(box: Box) -> str:
         s += f" ~{box.textsize}"
     if box.style:
         s += f" !{box.style}"
-    if box.lock_ratio:
-        s += " !ratio"
-    if box.scale_children:
-        s += " !fit"
     if box.url:
         s += f" &{box.url}"
     if box.parent:

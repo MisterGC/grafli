@@ -621,24 +621,51 @@ class BoxItem(QGraphicsRectItem):
                 return
         super().mousePressEvent(event)
 
-    # ── Corner-drag uniform scale (size + font together) ──
+    # ── Corner-drag scale (whole selection; Shift keeps aspect ratio) ──
 
     def _begin_scale(self, corner: int, scene_pos: QPointF):
-        """Start a uniform-scale gesture from a corner handle."""
+        """Start scaling the whole selection about its bounding box.
+
+        Inkscape-style: a corner drag scales every selected item (boxes, notes,
+        images) around the opposite corner of the selection's bounds, so the
+        group keeps its relative layout. Font scales with the geometry.
+        """
         self._scaling = True
         self._scale_corner = corner
-        self._scale_factor = 1.0
-        # Record the start state of every selected box so a multi-selection
-        # scales together; each box keeps its own anchor and font baseline.
-        self._scale_starts = []
+        self._scale_fx = self._scale_fy = 1.0
         scene = self.scene()
-        members = [i for i in scene.selectedItems()
-                   if isinstance(i, BoxItem)] if scene else [self]
-        if self not in members:
-            members.append(self)
-        for item in members:
-            rect = QRectF(item.box.x, item.box.y, item.box.w, item.box.h)
-            self._scale_starts.append((item, rect, item._box_font().pointSizeF()))
+        sel = ([i for i in scene.selectedItems()
+                if isinstance(i, (BoxItem, NoteItem, ImageItem))]
+               if scene else [])
+        if self not in sel:
+            sel.append(self)
+        self._scale_members = []
+        bbox = None
+        for item in sel:
+            r = self._member_rect(item)
+            self._scale_members.append((item, r, self._member_font_px(item)))
+            bbox = r if bbox is None else bbox.united(r)
+        self._scale_bbox = bbox or self._member_rect(self)
+        self._scale_pivot = self._corner_anchor(self._scale_bbox, corner)
+
+    @staticmethod
+    def _member_rect(item) -> QRectF:
+        if isinstance(item, BoxItem):
+            b = item.box
+            return QRectF(b.x, b.y, b.w, b.h)
+        if isinstance(item, ImageItem):
+            im = item.image
+            return QRectF(im.x, im.y, im.w, im.h)
+        sr = item.sceneBoundingRect()
+        return QRectF(sr.x(), sr.y(), sr.width(), sr.height())
+
+    @staticmethod
+    def _member_font_px(item):
+        if isinstance(item, BoxItem):
+            return item._box_font().pointSizeF()
+        if isinstance(item, NoteItem):
+            return item._note_font().pointSizeF()
+        return None
 
     @staticmethod
     def _corner_anchor(rect: QRectF, corner: int) -> QPointF:
@@ -662,29 +689,21 @@ class BoxItem(QGraphicsRectItem):
             return QRectF(anchor.x() - w, anchor.y(), w, h)
         return QRectF(anchor.x(), anchor.y(), w, h)  # _CORNER_BR
 
-    def _scale_factor_for(self, scene_pos: QPointF) -> float:
-        """Uniform factor so the dragged corner follows the cursor."""
-        rect = next(r for item, r, _px in self._scale_starts if item is self)
-        anchor = self._corner_anchor(rect, self._scale_corner)
-        w0, h0 = rect.width(), rect.height()
-        cand_w = abs(scene_pos.x() - anchor.x())
-        cand_h = abs(scene_pos.y() - anchor.y())
-        factor = max(cand_w / w0 if w0 else 1.0, cand_h / h0 if h0 else 1.0)
-        # Floor so neither dimension drops below the minimum box size.
-        factor = max(factor, MIN_BOX_SIZE / w0 if w0 else 0.0,
-                     MIN_BOX_SIZE / h0 if h0 else 0.0)
-        return factor
+    def _scale_factors_for(self, scene_pos: QPointF, keep_ratio: bool):
+        """(fx, fy) so the dragged corner of the selection follows the cursor."""
+        pivot = self._scale_pivot
+        w0, h0 = self._scale_bbox.width(), self._scale_bbox.height()
+        fx = abs(scene_pos.x() - pivot.x()) / w0 if w0 else 1.0
+        fy = abs(scene_pos.y() - pivot.y()) / h0 if h0 else 1.0
+        fx, fy = max(fx, 0.05), max(fy, 0.05)
+        if keep_ratio:
+            fx = fy = max(fx, fy)
+        return fx, fy
 
-    def _apply_uniform_scale(self, factor, start_rect, start_px, corner):
-        """Mutate size + font by ``factor`` keeping the opposite corner fixed."""
-        w = max(MIN_BOX_SIZE, start_rect.width() * factor)
-        h = max(MIN_BOX_SIZE, start_rect.height() * factor)
-        anchor = self._corner_anchor(start_rect, corner)
-        frame = self._scaled_frame(anchor, corner, w, h)
-        new_px = max(MIN_SCALE_FONT_PT, round(start_px * factor))
-        self.box.textsize = str(int(new_px))
-        self._label.setFont(self._box_font())
-        self.set_geometry(frame.x(), frame.y(), frame.width(), frame.height())
+    def _projected_bbox(self) -> QRectF:
+        w = self._scale_bbox.width() * self._scale_fx
+        h = self._scale_bbox.height() * self._scale_fy
+        return self._scaled_frame(self._scale_pivot, self._scale_corner, w, h)
 
     def _free_resize_rect(self, dx, dy, corner):
         """New (x, y, w, h) for a free (per-axis) resize."""
@@ -765,9 +784,14 @@ class BoxItem(QGraphicsRectItem):
                 y = (y + h) - new_h
         return x, y, new_w, new_h
 
-    def _apply_resize_delta(self, dx: float, dy: float, corner: int):
-        """Apply a resize delta for the given handle direction."""
-        if getattr(self.box, "lock_ratio", False):
+    def _apply_resize_delta(self, dx: float, dy: float, corner: int,
+                            keep_ratio: bool = False):
+        """Apply a resize delta for the given handle direction.
+
+        ``keep_ratio`` (Shift held) preserves the box's aspect ratio: the
+        off-axis follows so the shape can't be distorted from any handle.
+        """
+        if keep_ratio:
             x, y, w, h = self._locked_resize_rect(dx, dy, corner)
         else:
             x, y, w, h = self._free_resize_rect(dx, dy, corner)
@@ -784,19 +808,13 @@ class BoxItem(QGraphicsRectItem):
 
     def mouseMoveEvent(self, event):
         if self._scaling:
-            self._scale_factor = self._scale_factor_for(event.scenePos())
-            rect = next(r for item, r, _px in self._scale_starts if item is self)
-            anchor = self._corner_anchor(rect, self._scale_corner)
-            w = rect.width() * self._scale_factor
-            h = rect.height() * self._scale_factor
-            frame = self._scaled_frame(anchor, self._scale_corner, w, h)
+            keep = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            self._scale_fx, self._scale_fy = self._scale_factors_for(
+                event.scenePos(), keep)
             view = _get_view(self)
             if view and hasattr(view, '_show_resize_foreshadow'):
-                content = None
-                if self.box.scale_children and hasattr(view, '_projected_content_area'):
-                    content = view._projected_content_area(self, frame)
                 view._show_resize_foreshadow(
-                    frame, content=content, locked=self.box.lock_ratio)
+                    self._projected_bbox(), content=None, locked=keep)
             event.accept()
             return
         if self._resizing:
@@ -804,26 +822,19 @@ class BoxItem(QGraphicsRectItem):
             dy = event.pos().y() - self._resize_origin.y()
             self._resize_origin = event.pos()
             corner = self._resize_corner
+            keep = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
 
-            self._apply_resize_delta(dx, dy, corner)
+            self._apply_resize_delta(dx, dy, corner, keep)
 
             scene = self.scene()
             if scene:
                 for item in scene.selectedItems():
                     if isinstance(item, BoxItem) and item is not self:
-                        item._apply_resize_delta(dx, dy, corner)
+                        item._apply_resize_delta(dx, dy, corner, keep)
 
             view = _get_view(self)
             if view and hasattr(view, 'arrow_update_needed'):
                 view.arrow_update_needed.emit()
-            # Foreshadow where children will land if this !fit parent squeezes.
-            if (self.box.scale_children and view
-                    and hasattr(view, '_projected_content_area')):
-                frame = QRectF(self.box.x, self.box.y, self.box.w, self.box.h)
-                content = view._projected_content_area(self, frame)
-                if content is not None:
-                    view._show_resize_foreshadow(frame, content=content,
-                                                 locked=self.box.lock_ratio)
 
             event.accept()
             return
@@ -851,14 +862,6 @@ class BoxItem(QGraphicsRectItem):
                 QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True
             )
             view = _get_view(self)
-            if view and hasattr(view, '_squeeze_children_to_fit'):
-                scene = self.scene()
-                members = ([i for i in scene.selectedItems()
-                            if isinstance(i, BoxItem)] if scene else [self])
-                for item in members:
-                    view._squeeze_children_to_fit(item)
-            if view and hasattr(view, '_clear_resize_foreshadow'):
-                view._clear_resize_foreshadow()
             if view and hasattr(view, '_commit_pre_action_snapshot'):
                 view._commit_pre_action_snapshot()
                 view.mark_dirty()
@@ -867,15 +870,16 @@ class BoxItem(QGraphicsRectItem):
         super().mouseReleaseEvent(event)
 
     def _commit_scale(self):
-        """Apply the recorded scale factor to every box in the gesture."""
-        factor = self._scale_factor
+        """Scale every selected item about the selection pivot, on release."""
+        fx, fy = self._scale_fx, self._scale_fy
+        # Corner scaling carries the font: the exact factor when ratio-locked,
+        # else the geometric mean of the two axis factors.
+        font_factor = fx if abs(fx - fy) < 1e-9 else (fx * fy) ** 0.5
         view = _get_view(self)
-        for item, start_rect, start_px in self._scale_starts:
-            item._apply_uniform_scale(factor, start_rect, start_px,
-                                      self._scale_corner)
-            if view and hasattr(view, '_squeeze_children_to_fit'):
-                view._squeeze_children_to_fit(item)
-        self._scale_starts = []
+        if view and hasattr(view, '_scale_members'):
+            view._scale_members(self._scale_members, fx, fy, font_factor,
+                                self._scale_pivot)
+        self._scale_members = []
 
     def hoverMoveEvent(self, event):
         if self.isSelected():
@@ -913,32 +917,6 @@ class BoxItem(QGraphicsRectItem):
             sel_color.setAlphaF(0.85)
             painter.setPen(QPen(sel_color, 4, Qt.PenStyle.SolidLine))
             painter.drawRoundedRect(sel_rect, radius, radius)
-            self._paint_resize_markers(painter)
-
-    def _paint_resize_markers(self, painter: QPainter):
-        """Selection-only badges signalling the active resize behaviors."""
-        glyphs = []
-        if self.box.lock_ratio:
-            glyphs.append("R")    # aspect ratio locked
-        if self.box.scale_children:
-            glyphs.append("F")    # scale children to fit
-        if not glyphs:
-            return
-        r = self.rect()
-        size = 16.0
-        gap = 4.0
-        x = r.right() - 6 - size
-        y = r.top() + 6
-        font = QFont(FONT_FAMILY, 9, QFont.Weight.Bold)
-        painter.setFont(font)
-        for g in glyphs:
-            badge = QRectF(x, y, size, size)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(QColor("#2F3437")))
-            painter.drawRoundedRect(badge, 4, 4)
-            painter.setPen(QPen(QColor("#ECECEC")))
-            painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, g)
-            x -= size + gap
 
 
 class NoteItem(QGraphicsSimpleTextItem):

@@ -176,8 +176,6 @@ class MainWindow(QMainWindow):
             "redo":         self._view._redo,
             "layout":       self._view._layout_selected,
             "slide_ratio":  self._view._snap_selection_to_slide_ratio,
-            "lock_ratio":   lambda: self._view._toggle_box_flag("lock_ratio"),
-            "scale_fit":    lambda: self._view._toggle_box_flag("scale_children"),
             "search":       self._view._start_search,
             "grid":         self._view.toggle_grid,
             "minimap":      self._view._toggle_minimap,

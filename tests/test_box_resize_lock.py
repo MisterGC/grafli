@@ -1,4 +1,4 @@
-"""Aspect-ratio lock (!ratio): resizing a locked box preserves its ratio."""
+"""Edge/corner resize with Shift = keep aspect ratio (no persistent flag)."""
 
 from __future__ import annotations
 
@@ -21,18 +21,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 def _view(src: str) -> GrafliView:
     QApplication.instance() or QApplication([])
     view = GrafliView()
+    view._grid_mode = "off"          # pin off so geometry isn't snapped
     view.load_board(parse(src))
     view.resize(1000, 700)
     view._mode = Mode.SELECT
     return view
 
 
-_LOCKED = """\
-#!grafli v2
-@ box a "A" 0,0 200x100 !ratio
-"""
-
-_FREE = """\
+_SRC = """\
 #!grafli v2
 @ box a "A" 0,0 200x100
 """
@@ -42,58 +38,50 @@ def _box(view) -> BoxItem:
     return view._box_items["a"]
 
 
-def test_locked_corner_drag_preserves_ratio():
-    view = _view(_LOCKED)
+def test_shift_right_edge_keeps_ratio():
+    view = _view(_SRC)
     box = _box(view)
-    box._apply_resize_delta(40, 0, _CORNER_BR)   # drag right only
+    box._apply_resize_delta(40, 0, _EDGE_R, keep_ratio=True)
     assert abs(box.box.w / box.box.h - 2.0) < 1e-6   # height followed width
+
+
+def test_shift_corner_keeps_ratio():
+    view = _view(_SRC)
+    box = _box(view)
+    box._apply_resize_delta(40, 0, _CORNER_BR, keep_ratio=True)
+    assert abs(box.box.w / box.box.h - 2.0) < 1e-6
     assert box.box.w == 240
 
 
-def test_locked_right_edge_grows_height_about_center():
-    view = _view(_LOCKED)
-    box = _box(view)
-    cy = box.box.y + box.box.h / 2
-    box._apply_resize_delta(40, 0, _EDGE_R)
-    assert abs(box.box.w / box.box.h - 2.0) < 1e-6
-    # off-axis grew symmetrically: center stays put
-    assert abs((box.box.y + box.box.h / 2) - cy) < 1e-6
-
-
-def test_locked_bottom_edge_grows_width_about_center():
-    view = _view(_LOCKED)
+def test_shift_bottom_edge_grows_width_about_center():
+    view = _view(_SRC)
     box = _box(view)
     cx = box.box.x + box.box.w / 2
-    box._apply_resize_delta(0, 50, _EDGE_B)       # taller → wider to keep ratio
+    box._apply_resize_delta(0, 50, _EDGE_B, keep_ratio=True)
     assert abs(box.box.w / box.box.h - 2.0) < 1e-6
     assert abs((box.box.x + box.box.w / 2) - cx) < 1e-6
 
 
-def test_free_box_corner_drag_changes_one_axis():
-    view = _view(_FREE)
+def test_no_shift_edge_changes_one_axis():
+    view = _view(_SRC)
     box = _box(view)
-    box._apply_resize_delta(40, 0, _CORNER_BR)
+    box._apply_resize_delta(40, 0, _EDGE_R, keep_ratio=False)
     assert box.box.w == 240
-    assert box.box.h == 100                         # unchanged — no ratio lock
+    assert box.box.h == 100                            # unchanged — free resize
 
 
-def test_locked_resize_respects_min_floor():
-    view = _view(_LOCKED)
+def test_no_shift_corner_is_free():
+    view = _view(_SRC)
     box = _box(view)
-    box._apply_resize_delta(-1000, 0, _CORNER_BR)   # shrink hard
+    box._apply_resize_delta(40, 60, _CORNER_BR, keep_ratio=False)
+    assert box.box.w == 240
+    assert box.box.h == 160                            # both axes independent
+
+
+def test_shift_resize_respects_min_floor():
+    view = _view(_SRC)
+    box = _box(view)
+    box._apply_resize_delta(-1000, 0, _CORNER_BR, keep_ratio=True)
     from grafli.constants import MIN_BOX_SIZE
     assert box.box.w >= MIN_BOX_SIZE
     assert box.box.h >= MIN_BOX_SIZE
-
-
-def test_dim_mode_grow_keeps_ratio_when_locked():
-    from PySide6.QtGui import QKeyEvent
-    from PySide6.QtCore import QEvent, Qt
-    view = _view(_LOCKED)
-    box = _box(view)
-    box.setSelected(True)
-    view._box_mode = "dimension"
-    evt = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_L,
-                    Qt.KeyboardModifier.ShiftModifier, "L")
-    view.keyPressEvent(evt)                          # grow width
-    assert abs(box.box.w / box.box.h - 2.0) < 1e-6   # height followed

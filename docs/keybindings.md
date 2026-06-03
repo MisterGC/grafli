@@ -95,8 +95,6 @@ away; Markdown (`md:`) notes are syntax-highlighted.
 | <kbd>h</kbd> / <kbd>l</kbd> | Cycle color |
 | <kbd>j</kbd> / <kbd>k</kbd> | Cycle text size |
 | <kbd>d</kbd> then <kbd>r</kbd> | Snap selected box(es) to the **slide aspect ratio** — a reusable export frame (re-apply after edits; works on a multi-selection) |
-| <kbd>d</kbd> then <kbd>a</kbd> | Toggle **aspect-ratio lock** (`!ratio`) — resizing keeps the box's current ratio from any handle |
-| <kbd>d</kbd> then <kbd>f</kbd> | Toggle **scale-children** (`!fit`) — shrinking the box scales its whole subtree down to fit (grow only adds slack) |
 | <kbd>Shift</kbd>+<kbd>G</kbd> | Snap to grid |
 | <kbd>=</kbd> | Auto-layout selection (or all) |
 
@@ -176,8 +174,8 @@ During playback (in-app or presenting):
 |--------|--------|
 | Click `@path:line` in a code-mode note | Open the file at that line in the configured editor |
 | <kbd>Shift</kbd>+click | Toggle selection |
-| Drag a box **edge** | Resize that axis (a `!ratio` box scales the other axis to keep its ratio) |
-| Drag a box **corner** | Uniform **scale** — size *and* font together; a preview frame shows where it lands and the change is applied on release |
+| Drag a box **edge** | Resize that axis; hold <kbd>Shift</kbd> to keep the aspect ratio |
+| Drag a box **corner** | **Scale** the selection — size *and* font, around the selection's bounding box; a preview frame shows where it lands and it commits on release. Hold <kbd>Shift</kbd> to keep the aspect ratio |
 | <kbd>Alt</kbd>+drag | Connect nodes (boxes, notes, images) |
 | <kbd>Alt</kbd>+click | Paste at position |
 

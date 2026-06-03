@@ -1411,30 +1411,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._record_shortcut(
             f"snapped {len(targets)} box(es) to slide ratio {ratio:.2f}")
 
-    def _toggle_box_flag(self, attr: str):
-        """Toggle a boolean resize flag (lock_ratio / scale_children).
-
-        Flips the flag on every selected box (using the first box's current
-        value so a mixed selection lands consistently), then refreshes the
-        selection markers. Enabling lock_ratio captures the box's current ratio
-        simply by leaving its shape untouched.
-        """
-        boxes = [i for i in self._scene.selectedItems()
-                 if isinstance(i, BoxItem)]
-        if not boxes:
-            self._record_shortcut(f"{attr}: select a box first")
-            return
-        new_value = not getattr(boxes[0].box, attr)
-        self._push_undo()
-        for item in boxes:
-            setattr(item.box, attr, new_value)
-            item.update()
-        self.mark_dirty()
-        label = "aspect lock" if attr == "lock_ratio" else "scale children"
-        self._record_shortcut(
-            f"{label} {'on' if new_value else 'off'} "
-            f"({len(boxes)} box(es))")
-
     def _box_depth(self, box_id: str) -> int:
         depth = 0
         current = box_id
@@ -1710,119 +1686,55 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         r = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
         return r if child_rect is None else child_rect.united(r)
 
-    # ── Scale children to fit (!fit) ──
+    # ── Scale a selection (corner-drag, about a shared pivot) ──
 
-    def _direct_children_bbox(self, parent_id: str) -> QRectF | None:
-        """Combined bounds of a parent's direct children (scene coords)."""
-        if not self._board:
-            return None
-        rect: QRectF | None = None
-        for b in self._board.boxes:
-            if b.parent == parent_id:
-                r = QRectF(b.x, b.y, b.w, b.h)
-                rect = r if rect is None else rect.united(r)
-        for nitem in self._note_items.values():
-            if nitem.note.parent == parent_id:
-                rect = self._unite_scene_rect(rect, nitem)
-        for iitem in self._image_items.values():
-            if iitem.image.parent == parent_id:
-                r = QRectF(iitem.image.x, iitem.image.y,
-                           iitem.image.w, iitem.image.h)
-                rect = r if rect is None else rect.united(r)
-        return rect
+    def _scale_members(self, members, fx: float, fy: float,
+                       font_factor: float, pivot: QPointF) -> None:
+        """Scale each (item, start_rect, start_px) about ``pivot``.
 
-    def _parent_inner_rect(self, box_item: BoxItem,
-                           frame: QRectF | None = None) -> QRectF:
-        """Area inside a parent available to children (pad + headline reserve)."""
-        parent = box_item.box
-        if frame is None:
-            frame = QRectF(parent.x, parent.y, parent.w, parent.h)
-        pad = LAYOUT_PADDING
-        top_anchored = (
-            parent.anchor in ("topleft", "topcenter")
-            or (not parent.anchor and self._has_children(parent.id))
-        )
-        top_reserve = (box_item._label.boundingRect().height() + 16
-                       if top_anchored else pad)
-        return QRectF(frame.left() + pad, frame.top() + top_reserve,
-                      max(1.0, frame.width() - 2 * pad),
-                      max(1.0, frame.height() - top_reserve - pad))
-
-    def _squeeze_factor(self, box_item: BoxItem, frame: QRectF | None = None):
-        """(factor, child_bbox, inner_rect) — factor ≤ 1 shrinks to fit."""
-        bbox = self._direct_children_bbox(box_item.box.id)
-        if bbox is None or bbox.width() <= 0 or bbox.height() <= 0:
-            return 1.0, None, None
-        inner = self._parent_inner_rect(box_item, frame)
-        factor = min(inner.width() / bbox.width(),
-                     inner.height() / bbox.height(), 1.0)
-        return factor, bbox, inner
-
-    def _projected_content_area(self, box_item: BoxItem,
-                                frame: QRectF) -> QRectF | None:
-        """Where the children bbox lands after squeezing into ``frame``."""
-        factor, bbox, inner = self._squeeze_factor(box_item, frame)
-        if bbox is None:
-            return None
-        return QRectF(inner.left(), inner.top(),
-                      bbox.width() * factor, bbox.height() * factor)
-
-    def _squeeze_children_to_fit(self, box_item: BoxItem) -> None:
-        """Shrink the subtree so children clear the parent's inner bounds.
-
-        Shrink-only: a parent that grew just gains slack. Triggered on release
-        of a resize/scale of a box carrying the ``scale_children`` (!fit) flag.
+        Positions and sizes use the per-axis factors; fonts use ``font_factor``
+        (uniform). Child-move propagation is suppressed so a parent and its
+        children in the same selection don't get moved twice.
         """
-        if not getattr(box_item.box, "scale_children", False):
-            return
-        factor, bbox, inner = self._squeeze_factor(box_item)
-        if bbox is None or factor >= 0.999:
-            return
-        self._scale_subtree(box_item.box.id, factor, inner.topLeft())
-
-    def _scale_subtree(self, parent_id: str, factor: float,
-                       pivot: QPointF) -> None:
-        """Uniformly scale every descendant about ``pivot`` (size + font)."""
-        desc = self._descendants(parent_id)
-        if not desc:
+        if not members:
             return
         self._propagating_move = True
         self._suppress_child_updates = True
         try:
-            for item in desc:
-                self._scale_item(item, factor, pivot)
+            for item, start_rect, start_px in members:
+                self._scale_member(item, start_rect, start_px,
+                                   fx, fy, font_factor, pivot)
         finally:
             self._suppress_child_updates = False
             self._propagating_move = False
         self.arrow_update_needed.emit()
         self.mark_dirty()
 
-    def _scale_item(self, item, factor: float, pivot: QPointF) -> None:
+    def _scale_member(self, item, start_rect: QRectF, start_px,
+                      fx: float, fy: float, font_factor: float,
+                      pivot: QPointF) -> None:
         px, py = pivot.x(), pivot.y()
+        nx = px + (start_rect.x() - px) * fx
+        ny = py + (start_rect.y() - py) * fy
         if isinstance(item, BoxItem):
-            b = item.box
-            nx = px + (b.x - px) * factor
-            ny = py + (b.y - py) * factor
-            nw = max(MIN_BOX_SIZE, b.w * factor)
-            nh = max(MIN_BOX_SIZE, b.h * factor)
-            cur = item._box_font().pointSizeF()
-            b.textsize = str(int(max(MIN_SCALE_FONT_PT, round(cur * factor))))
-            item._label.setFont(item._box_font())
+            nw = max(MIN_BOX_SIZE, start_rect.width() * fx)
+            nh = max(MIN_BOX_SIZE, start_rect.height() * fy)
+            if start_px is not None:
+                item.box.textsize = str(
+                    int(max(MIN_SCALE_FONT_PT, round(start_px * font_factor))))
+                item._label.setFont(item._box_font())
             item.set_geometry(nx, ny, nw, nh)
         elif isinstance(item, NoteItem):
-            n = item.note
-            nx = px + (n.x - px) * factor
-            ny = py + (n.y - py) * factor
-            cur = item._note_font().pointSizeF()
-            item.set_textsize(str(int(max(MIN_SCALE_FONT_PT, round(cur * factor)))))
+            if start_px is not None:
+                item.set_textsize(str(
+                    int(max(MIN_SCALE_FONT_PT, round(start_px * font_factor)))))
             item.setPos(nx, ny)
         elif isinstance(item, ImageItem):
             im = item.image
-            im.x = px + (im.x - px) * factor
-            im.y = py + (im.y - py) * factor
-            im.w = max(item._MIN_SIZE, im.w * factor)
-            im.h = max(item._MIN_SIZE, im.h * factor)
-            item.setPos(im.x, im.y)
+            im.x, im.y = nx, ny
+            im.w = max(item._MIN_SIZE, start_rect.width() * fx)
+            im.h = max(item._MIN_SIZE, start_rect.height() * fy)
+            item.setPos(nx, ny)
             item.prepareGeometryChange()
             item._update_handles()
             item.update()
@@ -3573,7 +3485,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                         if not isinstance(item, BoxItem):
                             continue
                         x, y, w, h = item.box.x, item.box.y, item.box.w, item.box.h
-                        ratio = w / h if h else 1.0
                         if shift:
                             # Grow
                             if event.key() == Qt.Key.Key_H:
@@ -3606,12 +3517,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                                     x += step; w -= step
                                 else:
                                     continue
-                        if item.box.lock_ratio:
-                            # Couple the off-axis so the aspect ratio holds.
-                            if event.key() in (Qt.Key.Key_H, Qt.Key.Key_L):
-                                h = max(MIN_BOX_SIZE, w / ratio)
-                            else:
-                                w = max(MIN_BOX_SIZE, h * ratio)
                         item.box.x = x
                         item.box.y = y
                         item.box.w = w
@@ -3621,7 +3526,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                         item._label.setTextWidth(w - 16)
                         item._position_label()
                         item._update_handles()
-                        self._squeeze_children_to_fit(item)
                     self._update_mode_badge_pos()
                     self.arrow_update_needed.emit()
                     self.mark_dirty()
@@ -3629,14 +3533,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     return
                 if event.key() == Qt.Key.Key_R and no_mod:
                     self._snap_selection_to_slide_ratio()
-                    event.accept()
-                    return
-                if event.key() == Qt.Key.Key_A and no_mod:
-                    self._toggle_box_flag("lock_ratio")
-                    event.accept()
-                    return
-                if event.key() == Qt.Key.Key_F and no_mod:
-                    self._toggle_box_flag("scale_children")
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_S and no_mod:
@@ -6228,8 +6124,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("s", "Enter style mode"),
                 ("d", "Enter dimension mode"),
                 ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),
-                ("d then a", "Toggle aspect-ratio lock (resize keeps the ratio)"),
-                ("d then f", "Toggle scale-children (shrink fits the subtree)"),
+                ("Drag corner", "Scale the selection (size + font); Shift keeps ratio"),
                 ("Shift+G", "Snap to grid"),
                 ("=", "Auto-layout selection (or all)"),
             ]),

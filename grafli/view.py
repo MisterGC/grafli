@@ -1208,13 +1208,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._create_preview.setPos(scene_pos)
 
     def _update_note_selection_highlight(self):
-        """Dim unrelated items when a single connected note is selected.
+        """Dim unrelated items when a single connected annotation is selected.
 
-        A note is treated as an annotation of the elements it connects to via
-        arrows. When exactly one NoteItem is selected and it has at least one
-        arrow connection, all other items are dimmed so the annotation target
-        becomes visually obvious. Skipped when another opacity-owning mode is
-        active (focus filter, complexity heatmap, manual arrow dim).
+        A note or image is treated as an annotation of the elements it connects
+        to via arrows. When exactly one such item is selected and it has at
+        least one arrow connection, all other items are dimmed so the annotation
+        target becomes visually obvious. Skipped when another opacity-owning
+        mode is active (focus filter, complexity heatmap, manual arrow dim).
         """
         if self._focus_active or self._complexity_active or self._arrows_dimmed:
             if self._note_highlight_active:
@@ -1222,31 +1222,33 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         selected = self._scene.selectedItems()
-        if not (len(selected) == 1 and isinstance(selected[0], NoteItem) and self._board):
+        if not (len(selected) == 1
+                and isinstance(selected[0], (NoteItem, ImageItem))
+                and self._board):
             if self._note_highlight_active:
                 self._clear_note_selection_highlight()
             return
 
-        note_id = selected[0].note.id
-        # Node-ness wins: a note that participates in ANY graph edge is a real
-        # node, so it never gets the annotation spotlight — even if it also has
-        # annotation links.
+        anchor_id = self._item_id(selected[0])
+        # Node-ness wins: an annotation that participates in ANY graph edge is a
+        # real node, so it never gets the annotation spotlight — even if it also
+        # has annotation links.
         touching = [a for a in self._board.arrows
-                    if a.from_id == note_id or a.to_id == note_id]
+                    if a.from_id == anchor_id or a.to_id == anchor_id]
         if any(self._is_graph_edge(a) for a in touching):
             if self._note_highlight_active:
                 self._clear_note_selection_highlight()
             return
 
-        # Otherwise it's a pure annotation note: its annotation-link targets
-        # become the spotlight.
+        # Otherwise it's a pure annotation: its annotation-link targets become
+        # the spotlight.
         connected: set[str] = set()
         for arrow in touching:
             if not self._is_annotation_link(arrow):
                 continue
-            if arrow.from_id == note_id:
+            if arrow.from_id == anchor_id:
                 connected.add(arrow.to_id)
-            elif arrow.to_id == note_id:
+            elif arrow.to_id == anchor_id:
                 connected.add(arrow.from_id)
 
         if not connected:
@@ -1254,7 +1256,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self._clear_note_selection_highlight()
             return
 
-        keep = connected | {note_id}
+        keep = connected | {anchor_id}
         dim = 0.25
 
         for box_id, item in self._box_items.items():
@@ -1270,9 +1272,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if not isinstance(arrow, Arrow):
                 gfx.setOpacity(dim)
                 continue
-            touches_note = ((arrow.from_id == note_id or arrow.to_id == note_id)
-                            and self._is_annotation_link(arrow))
-            gfx.setOpacity(1.0 if touches_note else dim)
+            touches_anchor = ((arrow.from_id == anchor_id
+                               or arrow.to_id == anchor_id)
+                              and self._is_annotation_link(arrow))
+            gfx.setOpacity(1.0 if touches_anchor else dim)
 
         self._note_highlight_active = True
 
@@ -2855,7 +2858,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     item = item._box_item
                 elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem, ImageItem)):
                     item = item.parentItem()
-                if (isinstance(item, (BoxItem, NoteItem))
+                if (isinstance(item, (BoxItem, NoteItem, ImageItem))
                         and item is not self._connect_source
                         and self._board):
                     src_id = self._item_id(self._connect_source)
@@ -3256,7 +3259,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Alt — enter graph nav mode (single node selected)
         if event.key() == Qt.Key.Key_Alt:
             sel = self._scene.selectedItems()
-            if len(sel) == 1 and isinstance(sel[0], (BoxItem, NoteItem)):
+            if len(sel) == 1 and isinstance(sel[0], (BoxItem, NoteItem, ImageItem)):
                 self._enter_graph_nav(sel[0])
                 event.accept()
                 return
@@ -3668,12 +3671,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         resolved = item
         if isinstance(resolved, BoxLabelItem):
             resolved = resolved._box_item
-        elif isinstance(resolved, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(resolved.parentItem(), (BoxItem, NoteItem)):
+        elif isinstance(resolved, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(resolved.parentItem(), (BoxItem, NoteItem, ImageItem)):
             resolved = resolved.parentItem()
 
         # Shift+click toggles selection on individual items
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            if isinstance(resolved, (BoxItem, NoteItem)):
+            if isinstance(resolved, (BoxItem, NoteItem, ImageItem)):
                 resolved.setSelected(not resolved.isSelected())
                 event.accept()
                 return
@@ -3681,8 +3684,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        # Alt+click on a BoxItem/NoteItem starts connector drag
-        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and isinstance(resolved, (BoxItem, NoteItem)):
+        # Alt+click on a node (box/note/image) starts connector drag
+        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and isinstance(resolved, (BoxItem, NoteItem, ImageItem)):
             self._connect_source = resolved
             center = self._item_center(resolved)
             pen = QPen(ARROW_COLOR, ARROW_WIDTH, Qt.PenStyle.DashLine)
@@ -3693,7 +3696,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         # Alt+click on empty space: paste clipboard at position
-        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and not isinstance(resolved, (BoxItem, NoteItem)):
+        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and not isinstance(resolved, (BoxItem, NoteItem, ImageItem)):
             if self._clipboard_boxes or self._clipboard_notes:
                 self._paste_at(scene_pos)
                 event.accept()
@@ -3837,7 +3840,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem, ImageItem)):
             item = item.parentItem()
 
-        if not isinstance(item, (BoxItem, NoteItem)):
+        if not isinstance(item, (BoxItem, NoteItem, ImageItem)):
             # Restore preview line if we had one and missed a target
             if saved_line and self._connect_source:
                 self._connect_line = saved_line
@@ -3902,7 +3905,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem, ImageItem)):
             item = item.parentItem()
 
-        if (isinstance(item, (BoxItem, NoteItem))
+        if (isinstance(item, (BoxItem, NoteItem, ImageItem))
                 and item is not self._connect_source
                 and self._board):
             src_id = self._item_id(self._connect_source)
@@ -4022,7 +4025,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _render_jump_label(self, label_text, target, center, font, scene_size, base_size):
         """Render a single jump label on the canvas."""
-        if isinstance(target, (BoxItem, NoteItem)):
+        if isinstance(target, (BoxItem, NoteItem, ImageItem)):
             bg_color = target.brush().color()
             if bg_color.alphaF() < 0.1:
                 bg_color = QColor("#C1086D")
@@ -4283,7 +4286,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     if not viewport_rect.contains(mid):
                         off_labels.append(lbl)
                         off_targets.append((target, mid))
-            elif isinstance(target, (BoxItem, NoteItem)):
+            elif isinstance(target, (BoxItem, NoteItem, ImageItem)):
                 if not viewport_rect.intersects(target.sceneBoundingRect()):
                     center = target.sceneBoundingRect().center()
                     off_labels.append(lbl)
@@ -4994,9 +4997,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         """Whether ``arrow`` is an annotation link (vs. a real graph edge).
 
         ``arrow.kind`` overrides when set; otherwise the kind derives from the
-        endpoints — a note (and, later, image) endpoint makes it an annotation,
-        box↔box is a graph edge. This resolver is the single source of truth for
-        rendering, the note-selection spotlight, auto-flow, and graph-nav.
+        endpoints — a note or image endpoint makes it an annotation, box↔box is
+        a graph edge. This resolver is the single source of truth for rendering,
+        the note/image-selection spotlight, auto-flow, and graph-nav.
         """
         if arrow.kind == "annotation":
             return True
@@ -5004,20 +5007,28 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return False
         if not self._board:
             return False
-        return bool(self._board.note_by_id(arrow.from_id)
-                    or self._board.note_by_id(arrow.to_id))
+        return self._involves_note_or_image(arrow.from_id, arrow.to_id)
+
+    def _involves_note_or_image(self, from_id: str, to_id: str) -> bool:
+        """Whether either endpoint is a note or image — the non-box elements
+        whose connectors default to (and remember) an annotation/graph kind."""
+        if not self._board:
+            return False
+        return bool(self._board.note_by_id(from_id)
+                    or self._board.note_by_id(to_id)
+                    or self._board.image_by_id(from_id)
+                    or self._board.image_by_id(to_id))
 
     def _is_graph_edge(self, arrow: Arrow) -> bool:
         """Whether ``arrow`` is a real graph edge (the auto-flow/graph-nav seam)."""
         return self._board is not None and not self._is_annotation_link(arrow)
 
     def _make_connector(self, from_id: str, to_id: str) -> Arrow:
-        """A new connector, applying the sticky connector kind when a note is
-        involved (so a run of connected notes inherits your last choice)."""
+        """A new connector, applying the sticky connector kind when a note or
+        image is involved (so a run of connected notes/images inherits your last
+        choice)."""
         arrow = Arrow(from_id=from_id, to_id=to_id)
-        involves_note = bool(self._board and (self._board.note_by_id(from_id)
-                                              or self._board.note_by_id(to_id)))
-        if involves_note and self._last_connector_kind:
+        if self._involves_note_or_image(from_id, to_id) and self._last_connector_kind:
             arrow.kind = self._last_connector_kind
         return arrow
 
@@ -5116,9 +5127,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         flow.steps = []
 
     def _node_exists(self, node_id: str) -> bool:
-        """True if ``node_id`` is a real graph node (box or note)."""
+        """True if ``node_id`` is a real graph node (box, note or image)."""
         return bool(self._board and (self._board.box_by_id(node_id)
-                                     or self._board.note_by_id(node_id)))
+                                     or self._board.note_by_id(node_id)
+                                     or self._board.image_by_id(node_id)))
 
     def create_auto_flow(self, start_id: str, label: str):
         """Create a flow by walking forward arrows from ``start_id``."""
@@ -5147,17 +5159,19 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._commit_flow_edit()
 
     def new_auto_flow_from_selection(self):
-        """gF/panel: auto-flow from the single selected node (box or note)."""
+        """gF/panel: auto-flow from the single selected node (box, note or image)."""
         nodes = [i for i in self._scene.selectedItems()
-                 if isinstance(i, (BoxItem, NoteItem))]
+                 if isinstance(i, (BoxItem, NoteItem, ImageItem))]
         if len(nodes) != 1:
             self._record_shortcut("auto-flow: select exactly one node first")
             return None
         item = nodes[0]
         if isinstance(item, BoxItem):
             text = item.box.label
-        else:
+        elif isinstance(item, NoteItem):
             text = item.note.text
+        else:  # ImageItem has no text — name the flow after the image file
+            text = Path(item.image.image_path).stem
         label = (text.replace("\n", " ").strip() or "Auto flow")[:60]
         return self.create_auto_flow(self._item_id(item), label)
 
@@ -5541,7 +5555,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if target_id is None:
                 continue
             target_item = (self._box_items.get(target_id)
-                           or self._note_items.get(target_id))
+                           or self._note_items.get(target_id)
+                           or self._image_items.get(target_id))
             if target_item is None:
                 continue
             # Only connectors whose midpoint is visible in the viewport

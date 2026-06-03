@@ -153,6 +153,21 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> tuple[int, list]:
     return len(flow.steps) + 1, overloaded
 
 
+def slide_content_ratio(board) -> float:
+    """Width:height ratio of a content slide's usable area (full-bleed, with the
+    board-global footer accounted for) — the target a slide-frame container
+    should match so its contents fill the exported page without letterboxing.
+
+    The title bar is intentionally not subtracted: one full-bleed preset keeps a
+    single reference shape, and a titled slide just letterboxes by the title
+    sliver. The footer is board-global, so it shifts the whole board uniformly.
+    """
+    pw, ph = _PAGE_PT.width(), _PAGE_PT.height()
+    margin = ph * 0.06
+    footer = ph * _FOOTER_RESERVE_RATIO if (board and board.footer) else 0.0
+    return (pw - margin * 2) / (ph - margin - footer)
+
+
 # ── slides ──────────────────────────────────────────────────────
 
 def _font(px: int, *, bold: bool = False) -> QFont:

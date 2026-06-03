@@ -1364,6 +1364,47 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                         out.append(d)
         return out
 
+    def _snap_selection_to_slide_ratio(self):
+        """Reshape the selected box(es) to the PDF slide content ratio.
+
+        A slide-frame container should match the exported slide's aspect ratio
+        so an auto-flow export fills the page without letterboxing. This holds
+        each box's width and top-left and sets its height = width / ratio — a
+        purely geometric snap: content that no longer fits spills past the box
+        (the visible overload cue) rather than the box growing to absorb it.
+        Idempotent, so it doubles as the "fix it back" after a drag distorted a
+        frame; applies to every selected box for batch reshaping.
+        """
+        from grafli.pdfexport import slide_content_ratio
+
+        boxes = [i for i in self._scene.selectedItems()
+                 if isinstance(i, BoxItem)]
+        if not boxes:
+            self._record_shortcut("slide-ratio: select a container box first")
+            return
+        ratio = slide_content_ratio(self._board)
+        targets = []
+        for item in boxes:
+            new_h = max(MIN_BOX_SIZE, round(item.box.w / ratio))
+            if abs(new_h - item.box.h) >= 1:
+                targets.append((item, new_h))
+        if not targets:
+            self._record_shortcut(f"already at slide ratio {ratio:.2f}")
+            return
+        self._push_undo()
+        for item, new_h in targets:
+            w = item.box.w
+            item.box.h = new_h
+            item.setRect(0, 0, w, new_h)
+            item._label.setTextWidth(w - 16)
+            item._position_label()
+            item._update_handles()
+        self._update_mode_badge_pos()
+        self.arrow_update_needed.emit()
+        self.mark_dirty()
+        self._record_shortcut(
+            f"snapped {len(targets)} box(es) to slide ratio {ratio:.2f}")
+
     def _box_depth(self, box_id: str) -> int:
         depth = 0
         current = box_id
@@ -3381,6 +3422,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     self._update_mode_badge_pos()
                     self.arrow_update_needed.emit()
                     self.mark_dirty()
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_R and no_mod:
+                    self._snap_selection_to_slide_ratio()
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_S and no_mod:

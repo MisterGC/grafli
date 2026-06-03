@@ -264,10 +264,11 @@ class SidePanel(QWidget):
 
     def _build_actions_section(self):
         self._add_section("actions", "Actions", [
-            ("undo",   "󰕌", "Undo",    "u"),
-            ("redo",   "󰑎", "Redo",    "^R"),
-            ("layout", "󱁐", "Layout",  "="),
-            ("search", "󰍉", "Search",  "/"),
+            ("undo",        "󰕌", "Undo",        "u"),
+            ("redo",        "󰑎", "Redo",        "^R"),
+            ("layout",      "󱁐", "Layout",      "="),
+            ("slide_ratio", "󰨤", "Slide ratio", "d r"),
+            ("search",      "󰍉", "Search",      "/"),
         ])
 
     def _build_view_section(self):

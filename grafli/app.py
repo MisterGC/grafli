@@ -153,6 +153,7 @@ class MainWindow(QMainWindow):
             "undo":         self._view._undo,
             "redo":         self._view._redo,
             "layout":       self._view._layout_selected,
+            "slide_ratio":  self._view._snap_selection_to_slide_ratio,
             "search":       self._view._start_search,
             "grid":         self._view.toggle_grid,
             "minimap":      self._view._toggle_minimap,

@@ -62,6 +62,22 @@ _RESOLUTION = 300
 # slide so content never overlaps it; empty footer reserves nothing.
 _FOOTER_RESERVE_RATIO = 0.10
 
+# Slide text size bands, in points on the fixed 960x540pt page. The fit picks
+# the ideal presentation size, shrinks toward ``min`` only when the text would
+# overflow its rect, and grows toward ``max`` (never past) only when the text is
+# too sparse to fill the slide comfortably — so short notes read calmly at a
+# capped size instead of blowing up, and dense notes never shrink to illegible.
+_TITLE_BAND = (28.0, 34.0, 40.0)
+_DESC_BAND = (14.0, 18.0, 22.0)
+_BODY_BAND = (18.0, 24.0, 30.0)
+_CODE_BAND = (13.0, 16.0, 20.0)
+_FOOTER_BAND = (10.0, 13.0, 14.0)
+
+# Vertical fill target (fraction of the text rect): below this the slide looks
+# too empty, so the fit grows the font toward ``max``. A single-line footer
+# passes ``fill_floor=0`` so it sits at its ideal size and never inflates.
+_FILL_FLOOR = 0.45
+
 
 def export_flow_to_pdf(view, flow, out_path: str | Path) -> int:
     """Render ``flow`` to a PDF at ``out_path``. Returns the slide count.
@@ -123,6 +139,62 @@ def _font(px: int, *, bold: bool = False) -> QFont:
     return f
 
 
+def _px_per_pt(page: QRectF) -> float:
+    """Device-pixels per point on the rendered page (the writer rasterizes the
+    fixed 960x540pt page at 300 DPI, so point-based bands convert through this)."""
+    return page.height() / _PAGE_PT.height()
+
+
+def _apply_list_gutters(doc, cursor, markers, size_px: float) -> float:
+    """Give each detached list item a font-proportional hanging indent so the
+    marker we paint by hand sits in a clear gutter. Returns the gutter width."""
+    gutter = size_px * 1.4
+    for pos, _marker in markers:
+        b = doc.findBlock(pos)
+        bf = b.blockFormat()
+        bf.setLeftMargin(gutter)
+        bf.setTextIndent(0)
+        cursor.setPosition(b.position())
+        cursor.setBlockFormat(bf)
+    return gutter
+
+
+def _fit_font(doc, font, cursor, markers, rect: QRectF, *, min_px: int,
+              ideal_px: int, max_px: int, fill_floor: float) -> tuple[int, bool]:
+    """Choose the base font size by the clamp(min, ideal, max) + fill-band rule.
+
+    Start at ``ideal``; if the laid-out text overflows ``rect`` height, shrink
+    one px at a time toward ``min``; if instead it fills less than ``fill_floor``
+    of the height, grow toward ``max`` but never past the point where it would
+    overflow. Returns ``(size_px, overflow)`` where ``overflow`` is True when the
+    text still doesn't fit at ``min`` — the caller treats that as an overloaded
+    slide.
+    """
+    def height_at(px: int) -> float:
+        font.setPixelSize(px)
+        doc.setDefaultFont(font)
+        _apply_list_gutters(doc, cursor, markers, px)
+        doc.setTextWidth(rect.width())
+        return doc.size().height()
+
+    size = max(1, ideal_px)
+    h = height_at(size)
+    if h > rect.height():
+        while size > min_px:
+            size -= 1
+            if height_at(size) <= rect.height():
+                break
+    elif fill_floor > 0 and h < fill_floor * rect.height():
+        while size < max_px:
+            if height_at(size + 1) > rect.height():
+                break
+            size += 1
+            if height_at(size) >= fill_floor * rect.height():
+                break
+    final_h = height_at(size)
+    return size, final_h > rect.height() + 1.0
+
+
 def _footer_reserve(page: QRectF, footer: str) -> float:
     """Vertical slice reserved at the bottom for the branding footer (0 if none)."""
     return page.height() * _FOOTER_RESERVE_RATIO if footer else 0.0
@@ -136,13 +208,13 @@ def _draw_footer(painter, page: QRectF, footer: str) -> None:
     pw, ph = page.width(), page.height()
     margin = ph * 0.06
     band_h = ph * 0.05
-    band = QRectF(margin, ph - margin * 0.35 - band_h, pw - margin * 2, band_h)
-    ry = band.top() - ph * 0.012
+    band_rect = QRectF(margin, ph - margin * 0.35 - band_h, pw - margin * 2, band_h)
+    ry = band_rect.top() - ph * 0.012
     painter.setPen(QPen(_FRAME, max(1, ph * 0.0015)))
     painter.drawLine(int(margin), int(ry), int(pw - margin), int(ry))
-    _draw_markdown(painter, band, footer, markdown=True, max_px=int(ph * 0.026),
-                   min_px=int(ph * 0.018), color=_MUTED_COLOR, vcenter=True,
-                   font_step=1)
+    _draw_markdown(painter, band_rect, footer, markdown=True, band=_FOOTER_BAND,
+                   px_per_pt=_px_per_pt(page), color=_MUTED_COLOR, vcenter=True,
+                   fill_floor=0.0)
 
 
 def _draw_title_slide(painter, page: QRectF, view, board, flow) -> None:
@@ -172,7 +244,7 @@ def _draw_title_slide(painter, page: QRectF, view, board, flow) -> None:
         # This replaces the old auto-agenda of stop titles.
         drect = QRectF(x, ry + ph * 0.03, w, ph * 0.60)
         _draw_markdown(painter, drect, flow.description, markdown=True,
-                       max_px=int(ph * 0.035), min_px=int(ph * 0.024),
+                       band=_DESC_BAND, px_per_pt=_px_per_pt(page),
                        color=_DESC_COLOR, vcenter=False)
 
 
@@ -311,7 +383,7 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     # selectable, clickable text instead of a rasterized diagram.
     note = text_slide_note(view, bm) if bm else None
     if note is not None:
-        _draw_text_hero(painter, hero, note)
+        _draw_text_hero(painter, hero, note, _px_per_pt(page))
         return
 
     source = bookmark_target_rect(view, bm) if bm else QRectF()
@@ -367,48 +439,52 @@ _ORDERED = (
 )
 
 
-def _draw_text_hero(painter, hero: QRectF, note) -> None:
+def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float) -> bool:
     """Render a note as native, selectable, clickable PDF text in ``hero``.
 
-    Fills the hero: the base font grows (capped) so a short note uses the slide
-    rather than floating tiny in the middle, and the text is vertically
-    centred. The cap is deliberately modest — a presentation body font, not
-    poster-sized — so short notes read as expected rather than blowing up.
+    Fills the hero via the shared body band: a short note grows (capped at the
+    band max) so it uses the slide rather than floating tiny in the middle, a
+    dense note shrinks no further than the band min, and the text is vertically
+    centred. Returns ``True`` when the note overflows even at the band minimum.
     Thin wrapper over :func:`_draw_markdown`.
     """
-    max_px = max(16, int(hero.height() * 0.058))
-    min_px = max(9, int(hero.height() * 0.024))
     # Notes opt into markdown via a ``md:`` prefix; otherwise render verbatim.
     is_md = is_md_note(note.text)
     body = md_body(note.text) if is_md else note.text
-    _draw_markdown(painter, hero, body, markdown=is_md, max_px=max_px,
-                   min_px=min_px, color=_TITLE_COLOR, vcenter=True)
+    return _draw_markdown(painter, hero, body, markdown=is_md, band=_BODY_BAND,
+                          px_per_pt=px_per_pt, color=_TITLE_COLOR, vcenter=True)
 
 
 def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
-                   max_px: int, min_px: int, color, vcenter: bool,
-                   font_step: int = 2) -> float:
+                   band, px_per_pt: float, color, vcenter: bool,
+                   fill_floor: float = _FILL_FLOOR) -> bool:
     """Render ``body`` as native, selectable, clickable PDF text in ``rect``.
 
     When ``markdown`` the body is parsed as GitHub-flavoured Markdown, else it
-    is laid out verbatim. Text reflows to ``rect`` width — line length adapts
-    to the slide, not the source's on-canvas wrap — and the base font shrinks
-    from ``max_px`` until the laid-out text fits ``rect`` height (down to
-    ``min_px``). Links survive as real PDF link annotations; body text uses
-    ``color`` and links the canvas blue. When ``vcenter`` the text is
-    vertically centred in ``rect``, otherwise top-aligned. Returns the
-    laid-out text height.
+    is laid out verbatim. Text reflows to ``rect`` width — line length adapts to
+    the slide, not the source's on-canvas wrap — and the base font is chosen by
+    the clamp(min, ideal, max) + fill-band rule from ``band`` (a point triple,
+    converted to device pixels via ``px_per_pt``): the ideal presentation size,
+    shrunk toward min on overflow, grown toward max only when too sparse. Links
+    survive as real PDF link annotations; body text uses ``color`` and links the
+    canvas blue. When ``vcenter`` the text is vertically centred in ``rect``,
+    otherwise top-aligned. Returns ``True`` when the text overflows even at the
+    band minimum (an overloaded slide).
 
     Unordered-list bullets are drawn by us as vector discs and Qt's own list
     markers suppressed: Qt's auto markers don't render reliably through the PDF
     backend with some fonts (they vanish), but vector discs always do.
     """
     is_md = markdown
+    min_px = max(1, round(band[0] * px_per_pt))
+    ideal_px = max(1, round(band[1] * px_per_pt))
+    max_px = max(1, round(band[2] * px_per_pt))
+    ideal_px = min(max(ideal_px, min_px), max_px)
 
     doc = QTextDocument()
     doc.setDocumentMargin(0)
     font = QFont(FONT_FAMILY)
-    font.setPixelSize(max(1, max_px))
+    font.setPixelSize(max_px)
     doc.setDefaultFont(font)
     if is_md:
         doc.setMarkdown(body, QTextDocument.MarkdownFeature.MarkdownDialectGitHub)
@@ -467,25 +543,13 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
         if b.textList() is not None:
             b.textList().remove(b)
 
-    # Fit-to-fit: pick the largest base font (capped) whose laid-out text still
-    # fits ``rect`` height. The bullet hanging indent scales with the font, so
-    # it's re-applied each trial. Markdown headings scale too.
-    size = max(1, max_px)
-    while True:
-        font.setPixelSize(size)
-        doc.setDefaultFont(font)
-        gutter = size * 1.4
-        for pos, _marker in markers:
-            b = doc.findBlock(pos)
-            bf = b.blockFormat()
-            bf.setLeftMargin(gutter)
-            bf.setTextIndent(0)
-            cursor.setPosition(b.position())
-            cursor.setBlockFormat(bf)
-        doc.setTextWidth(rect.width())
-        if size <= min_px or doc.size().height() <= rect.height():
-            break
-        size -= font_step
+    # Pick the base font by the clamp(min, ideal, max) + fill-band model (the
+    # list hanging-indent and markdown headings scale with it, re-applied each
+    # trial inside ``_fit_font``). ``overflow`` is True when even ``min`` can't
+    # fit, so the caller can flag the slide as overloaded.
+    size, overflow = _fit_font(doc, font, cursor, markers, rect,
+                               min_px=min_px, ideal_px=ideal_px, max_px=max_px,
+                               fill_floor=fill_floor)
 
     # Colour links the same blue as the canvas. Set it on the anchor char
     # formats explicitly — the PDF backend ignores the paint-context Link
@@ -548,7 +612,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
             painter.drawText(box, int(Qt.AlignmentFlag.AlignRight
                                       | Qt.AlignmentFlag.AlignVCenter), marker)
     painter.restore()
-    return doc.size().height()
+    return overflow
 
 
 def _draw_fit_text(painter, rect: QRectF, text: str, color, *, max_px: int,

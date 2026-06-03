@@ -93,6 +93,41 @@ def test_shift_click_adds_to_selection_without_reparenting():
     assert board.box_by_id("box2").parent == ""
 
 
+_SMALL_AND_BIG = """\
+#!grafli v2
+@ box small "A" 0,0 100x60
+@ box big "B" 300,0 400x300
+"""
+
+
+def _hover(view, scene_pt, *, shift=False):
+    pos = _vp(view, scene_pt)
+    mods = (Qt.KeyboardModifier.ShiftModifier if shift
+            else Qt.KeyboardModifier.NoModifier)
+    view.mouseMoveEvent(_evt(view, QEvent.Type.MouseMove, pos,
+                             Qt.MouseButton.NoButton,
+                             Qt.MouseButton.NoButton, mods))
+
+
+def test_hover_over_box_does_not_flash_reparent_outline():
+    # With one item selected, moving the cursor (no button) over another box
+    # must not draw the reparent grow-outline — only an actual drag may.
+    view = _view(_SMALL_AND_BIG)
+    _click(view, "small")
+    assert view._grow_preview is None
+    _hover(view, view._box_items["big"].sceneBoundingRect().center(), shift=True)
+    assert view._grow_preview is None
+
+
+def test_drag_into_box_still_previews_reparent():
+    view = _view(_SMALL_AND_BIG)
+    _click(view, "small")
+    _drag(view, "small", "big")          # release nests it
+    # After the drag the preview is cleared, and nesting actually happened.
+    assert view._grow_preview is None
+    assert view.board.box_by_id("small").parent == "big"
+
+
 def test_plain_click_does_not_reparent():
     view = _view(_SIBLINGS)
     board = view.board

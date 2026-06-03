@@ -2920,7 +2920,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self.mark_dirty()
             else:
                 super().mouseMoveEvent(event)
-            self._update_reparent_highlight(scene_pos)
+            # Preview reparenting only while actually dragging a selection — not
+            # on plain hover, which would otherwise flash the grow outline when
+            # the cursor merely passes over a box (e.g. while shift-selecting).
+            if (event.buttons() & Qt.MouseButton.LeftButton) and self._drag_moved:
+                self._update_reparent_highlight(scene_pos)
+            else:
+                self._clear_reparent_highlight()
         elif self._mode == Mode.RECT:
             self._update_create_preview_pos(scene_pos)
             self._move_rect(event)

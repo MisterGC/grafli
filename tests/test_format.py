@@ -625,6 +625,44 @@ def test_box_all_fields_with_style_roundtrip():
     assert serialize(board) == HEADER + "\n" + text
 
 
+def test_parse_box_resize_flags():
+    text = '@ box slide "Slide" 0,0 960x540 !ratio !fit\n'
+    board = parse(text)
+    box = board.boxes[0]
+    assert box.lock_ratio is True
+    assert box.scale_children is True
+    assert box.style == ""
+
+
+def test_box_resize_flags_default_false():
+    board = parse('@ box n "N" 0,0 100x50\n')
+    box = board.boxes[0]
+    assert box.lock_ratio is False
+    assert box.scale_children is False
+
+
+def test_serialize_box_resize_flags():
+    box = Box(id="a", label="A", x=0, y=0, w=100, h=50,
+              lock_ratio=True, scale_children=True)
+    board = Board()
+    board.add_box(box)
+    assert '@ box a "A" 0,0 100x50 !ratio !fit' in serialize(board)
+
+
+def test_box_resize_flags_roundtrip():
+    text = '@ box slide "Slide" 0,0 960x540 !flat !ratio !fit\n'
+    board = parse(text)
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_box_resize_flags_any_order_parse():
+    # Flags may appear in any order; only the named ones are set.
+    board = parse('@ box a "A" 0,0 100x50 !fit !ratio\n')
+    box = board.boxes[0]
+    assert box.lock_ratio is True
+    assert box.scale_children is True
+
+
 def test_parse_note_with_style_mono():
     text = '@ note n1 100,200 "Label" !mono\n'
     board = parse(text)

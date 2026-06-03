@@ -51,6 +51,13 @@ its version. It is required.
   You can also drag the right edge of a selected note to set this
   interactively — the value persists on save.
 - `!style` — `flat`, `dashed`, plus arrow-specific styles.
+- `!ratio` — *(boxes only)* lock the aspect ratio: dragging any handle keeps
+  the box's current width-to-height ratio (an edge drag scales the other axis
+  to match).
+- `!fit` — *(boxes only)* scale children to fit: shrinking the box rewrites
+  its whole subtree's sizes and fonts down so nothing is squeezed past the
+  edges. Growing only adds slack — it never scales children up. Combine with
+  `!ratio` on a slide-ratio box to make a reusable "master slide" you can copy.
 - `>parent` — nest this element inside the box with the given ID.
 
 ## Block text

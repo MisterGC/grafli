@@ -179,6 +179,16 @@ meeting it.
   in too much and the box grows; press <kbd>d</kbd> <kbd>r</kbd> again to snap
   it back, and the overflow that spills past the frame is your cue to trim the
   text or split it across two notes/slides.
+- **Master slide (keep the ratio, scale the content).** Two general box
+  behaviors turn a container into a reusable slide frame. Press <kbd>d</kbd>
+  then <kbd>a</kbd> to **lock the aspect ratio** (`!ratio`) so resizing from any
+  handle keeps the slide proportions, and <kbd>d</kbd> then <kbd>f</kbd> to
+  **scale children to fit** (`!fit`) so shrinking the frame scales its whole
+  subtree — boxes, notes, and their fonts — down together instead of clipping.
+  Drag a **corner** to scale the frame and its text uniformly; a preview shows
+  where the content lands and the change commits on release. Set both on one
+  container and you have a master slide to **copy/paste** for every stop. When a
+  box is selected, small **R**/**F** badges mark which behaviors are active.
 - **Description floats.** A step's description renders as a floating caption card
   over the slide (Markdown, clickable links) — exactly like the on-canvas
   playback caption — so it never steals space from the diagram.

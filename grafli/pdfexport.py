@@ -438,13 +438,28 @@ def _container_box(board, bm):
 def _slide_source(view, bm, container) -> QRectF:
     """The scene rect a content slide should frame.
 
-    A container slide maps the container's *own* bounds (it is the slide frame —
-    no padding, so its contents fill the page; the author shapes it to the slide
-    ratio via ``d`` ``r``). Padding a small container would letterbox it into a
-    centered island. Every other step uses the padded bookmark framing that
-    gives a region of a larger diagram some breathing room.
+    A container slide frames the union of the container's *contents* (its focus
+    descendants), not the container box: the box is the selector and title, so
+    its border, padding and vacated label band must not waste slide space — the
+    content fills the page like it sits inside the container on the canvas. A
+    small uniform pad keeps it off the edges. Every other step uses the padded
+    bookmark framing that gives a region of a larger diagram some breathing room.
     """
     if container is not None:
+        rects = []
+        for fid in bm.focus:
+            if fid == container.id:
+                continue
+            item = (view._box_items.get(fid) or view._note_items.get(fid)
+                    or view._image_items.get(fid))
+            if item is not None:
+                rects.append(item.sceneBoundingRect())
+        if rects:
+            union = rects[0]
+            for r in rects[1:]:
+                union = union.united(r)
+            pad = max(union.width(), union.height()) * 0.04
+            return union.adjusted(-pad, -pad, pad, pad)
         citem = view._box_items.get(container.id)
         if citem is not None:
             return citem.sceneBoundingRect()

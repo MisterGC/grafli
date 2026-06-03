@@ -81,14 +81,15 @@ def test_export_graph_only_stop(tmp_path):
 
 
 def test_overload_reported_when_inplace_note_too_small(tmp_path):
-    # A wide-framed slide maps its in-place note below the readable floor, so the
-    # step is reported as overloaded; a tightly-framed one is not.
+    # A slide whose framed area is dominated by a large sibling maps its small
+    # in-place note below the readable floor, so the step is reported overloaded.
     from grafli.pdfexport import export_flow_to_pdf
     wide = """\
 #!grafli v2
-@ box big "Big" 0,0 4000x2400
-@ note tiny 100,100 "md:\\nsome small note text here" ~width=20
-@ bookmark bmO "" @big,tiny ~iso
+@ box frame "Frame" 0,0 4200x2400
+@ box huge "Huge" 50,50 4000x2200 >frame
+@ note cap 80,80 "md:\\nsmall caption text here" ~width=20 >huge
+@ bookmark bmO "" @frame,huge,cap ~iso
 @ flow f "F" bmO
 """
     board = parse(wide)
@@ -98,12 +99,11 @@ def test_overload_reported_when_inplace_note_too_small(tmp_path):
     assert overloaded and overloaded[0][0] == 0
 
 
-def test_container_slide_frames_unpadded_container_bounds():
-    # A container slide maps the container's own bounds (no bookmark padding) so
-    # its contents fill the page — otherwise a small container becomes a tiny
-    # centered island.
+def test_container_slide_frames_contents_not_the_box():
+    # A container slide frames the union of the container's *contents*, not the
+    # container box — its label/border/padding are chrome, so the content fills
+    # the page instead of becoming a small centered island.
     from grafli.pdfexport import _container_box, _slide_source
-    from grafli.flows import bookmark_target_rect
     src = """\
 #!grafli v2
 @ box frame "Frame" 0,0 395x200
@@ -118,9 +118,11 @@ def test_container_slide_frames_unpadded_container_bounds():
     container = _container_box(board, bm)
     assert container is not None and container.id == "frame"
     source = _slide_source(view, bm, container)
-    cbox = view._box_items["frame"].sceneBoundingRect()
-    assert source == cbox                                 # exact container bounds
-    assert source != bookmark_target_rect(view, bm)       # i.e. unpadded
+    n1r = view._note_items["n1"].sceneBoundingRect()
+    c1r = view._box_items["c1"].sceneBoundingRect()
+    framer = view._box_items["frame"].sceneBoundingRect()
+    assert source.contains(n1r) and source.contains(c1r)  # frames the contents
+    assert source.width() < framer.width()                # tighter than the box
 
 
 def test_normal_flow_not_overloaded(tmp_path):

@@ -94,6 +94,7 @@ away; Markdown (`md:`) notes are syntax-highlighted.
 |-----|--------|
 | <kbd>h</kbd> / <kbd>l</kbd> | Cycle color |
 | <kbd>j</kbd> / <kbd>k</kbd> | Cycle text size |
+| <kbd>d</kbd> then <kbd>r</kbd> | Snap selected box(es) to the **slide aspect ratio** — a reusable export frame (re-apply after edits; works on a multi-selection) |
 | <kbd>Shift</kbd>+<kbd>G</kbd> | Snap to grid |
 | <kbd>=</kbd> | Auto-layout selection (or all) |
 

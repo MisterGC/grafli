@@ -138,12 +138,10 @@ booth screen. <kbd>Esc</kbd> exits and restores the editor.
 ## Export to PDF
 
 Export a flow as a slide-style PDF — a title slide (with the flow's Markdown
-description) followed by one slide per stop (label, the framed diagram, and the
-description). Labels and descriptions are real selectable text; scoped steps
-render only their selected items; a single-note step with no description
-becomes a text slide with clickable links (see *Scoping a step* and *Text
-slides* above); and the board-global Markdown footer, if set, brands every
-slide.
+description) followed by one slide per stop. Text is sized for *reading*, not
+for maximal fill: a comfortable presentation body that grows to fill a sparse
+slide but never balloons, and shrinks on a dense one only down to a legible
+floor.
 
 - **In the app**: the export (PDF) icon on an expanded flow's header (exports
   that flow), or the **Flow PDF** button in the side panel's Export section
@@ -155,6 +153,39 @@ grafli export diagram.grafli tour.pdf --flow tour
 ```
 
 `--flow` is optional when the file has a single flow.
+
+### Composing slides
+
+A slide is not a flat screenshot — the diagram is rasterized, but every **note
+is redrawn as real, selectable text in place**, so links stay clickable and the
+text is searchable. You can combine a diagram and prose on one slide and keep
+both faithful: the note sits exactly where you drew it, with its arrows still
+meeting it.
+
+- **Container = slide.** To make a multi-element slide with a title, bundle the
+  elements in a **container** (a parent box) and scope the step to it. The
+  container's label becomes the slide title and its own border/fill are dropped
+  — the container *is* the slide frame, so its contents fill the slide cleanly.
+  No container and no manual label? The slide is untitled and the content speaks
+  for itself (a note that leads with a `#` heading already reads as a title).
+- **Slide-frame ratio.** Shape a container to the export aspect ratio so its
+  contents fill the page without letterboxing: select it and press
+  <kbd>d</kbd> then <kbd>r</kbd> (or the **Slide ratio** action in the side
+  panel). It holds the width and sets the height to the slide ratio (accounting
+  for the footer), works on a multi-selection, and is **re-applicable** — drag
+  in too much and the box grows; press <kbd>d</kbd> <kbd>r</kbd> again to snap
+  it back, and the overflow that spills past the frame is your cue to trim the
+  text or split it across two notes/slides.
+- **Description floats.** A step's description renders as a floating caption card
+  over the slide (Markdown, clickable links) — exactly like the on-canvas
+  playback caption — so it never steals space from the diagram.
+- **Single-note steps** still become a full **text slide** (see *Text slides*
+  above), and the board-global Markdown **footer**, if set, brands every content
+  slide.
+- **Overload warning.** If a slide's text overflows even at the legible floor,
+  or an in-place note ends up too small to read, the export reports it (status
+  line in the app, a warning line on the CLI) naming the slides to fix — an
+  overloaded slide is hard for an audience anyway.
 
 ## Authoring flows with AI
 

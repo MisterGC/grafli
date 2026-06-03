@@ -6004,6 +6004,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("j / k", "Cycle text size"),
                 ("s", "Enter style mode"),
                 ("d", "Enter dimension mode"),
+                ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),
                 ("Shift+G", "Snap to grid"),
                 ("=", "Auto-layout selection (or all)"),
             ]),

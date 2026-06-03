@@ -85,7 +85,7 @@ away; Markdown (`md:`) notes are syntax-highlighted.
 |-----|--------|
 | <kbd>o</kbd> / <kbd>O</kbd> | Create box below / above selection |
 | <kbd>Ctrl</kbd>+arrow | Create connected box in that direction |
-| <kbd>Alt</kbd>+drag | Connect boxes (from Select) |
+| <kbd>Alt</kbd>+drag | Connect nodes — boxes, notes, images (from Select) |
 | <kbd>Alt</kbd>+click | Paste at position |
 
 ## Style
@@ -135,7 +135,7 @@ section.
 | <kbd>h</kbd> / <kbd>l</kbd> | Toggle arrowheads |
 | <kbd>j</kbd> / <kbd>k</kbd> | Arrow label size |
 | <kbd>Shift</kbd>+<kbd>J</kbd> / <kbd>Shift</kbd>+<kbd>K</kbd> | Cycle arrow style |
-| <kbd>s</kbd> then <kbd>a</kbd> | Toggle connector kind: **graph edge** ⇄ **annotation** (a graph edge to a note makes it a node) |
+| <kbd>s</kbd> then <kbd>a</kbd> | Toggle connector kind: **graph edge** ⇄ **annotation** (a graph edge to a note or image makes it a node) |
 
 ## Buffers
 
@@ -174,7 +174,7 @@ During playback (in-app or presenting):
 |--------|--------|
 | Click `@path:line` in a code-mode note | Open the file at that line in the configured editor |
 | <kbd>Shift</kbd>+click | Toggle selection |
-| <kbd>Alt</kbd>+drag | Connect boxes |
+| <kbd>Alt</kbd>+drag | Connect nodes (boxes, notes, images) |
 | <kbd>Alt</kbd>+click | Paste at position |
 
 ## Search

@@ -107,13 +107,16 @@ one slide per node:
   scratch. Your **title page is kept** — the flow's name and description (and the
   board-global footer) survive; only the steps are regenerated.
 
-!!! note "Notes as graph nodes"
-    An arrow touching a note defaults to an *annotation* link (muted, "just
-    extra text"), which auto-flow skips. Promote a connector to a **graph edge**
-    — select it and press <kbd>s</kbd> then <kbd>a</kbd> — to make that note a
-    first-class node that auto-flow and graph-nav follow. Once you promote one,
-    new note connectors default to graph too, so a chain of connected notes
-    becomes a flow. (Images aren't connectable yet — that's the next step.)
+!!! note "Notes and images as graph nodes"
+    An arrow touching a **note or image** defaults to an *annotation* link
+    (muted, "just extra text"), which auto-flow skips. Promote a connector to a
+    **graph edge** — select it and press <kbd>s</kbd> then <kbd>a</kbd> — to make
+    that note or image a first-class node that auto-flow and graph-nav follow.
+    Once you promote one, new note/image connectors default to graph too, so a
+    chain of connected notes and images becomes a flow. Images are connectable
+    like any node (Alt-drag, or <kbd>c</kbd> connect mode); an image node with no
+    title renders as a full-bleed image slide, and auto-flow names a flow started
+    from an image after its filename.
 
 ## Playback
 

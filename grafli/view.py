@@ -280,8 +280,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._last_box_color: str = ""
         self._last_box_textsize: str = ""
         self._last_note_textsize: str = ""
-        # Sticky connector kind: once you promote a note connector to a graph
-        # edge, subsequent note connectors default to graph too.
+        # Sticky connector kind: once you promote a note/image connector to a
+        # graph edge, subsequent note/image connectors default to graph too.
         self._last_connector_kind: str = ""
 
         # g-prefix two-key sequences
@@ -6007,7 +6007,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ("Create", [
                 ("o / O", "Create box below / above"),
                 ("Ctrl+Arrow", "Create adjacent box"),
-                ("Alt+Drag", "Connect boxes (from SELECT)"),
+                ("Alt+Drag", "Connect nodes — boxes, notes, images (from SELECT)"),
                 ("Alt+Click", "Paste at position"),
             ]),
             ("Notes", [

@@ -84,12 +84,17 @@ class CommandsMixin:
         relative to when an internal grafli copy was made.
         """
         from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QImage
         clipboard = QApplication.clipboard()
         if not clipboard:
             return None
         img = clipboard.image()
         if img.isNull():
             return None
+        # Normalize to a canonical buffer before touching raw bits — a clipboard
+        # image can have a stride that makes constBits() read out of bounds.
+        if img.format() != QImage.Format.Format_ARGB32:
+            img = img.convertToFormat(QImage.Format.Format_ARGB32)
         try:
             return (img.width(), img.height(),
                     hashlib.md5(bytes(img.constBits())).hexdigest())
@@ -162,10 +167,20 @@ class CommandsMixin:
         file_path = window._file_path
         images_dir = ensure_res_dir(file_path)
 
+        # A QImage straight from the macOS clipboard (TIFF/CGImage-backed) can
+        # carry a format/stride the PNG writer reads out of bounds on, crashing
+        # in QImageWriter::write. Convert to a canonical, freshly-allocated
+        # ARGB32 buffer first so the encoder always sees a sane image.
+        if qimage.format() != QImage.Format.Format_ARGB32:
+            qimage = qimage.convertToFormat(QImage.Format.Format_ARGB32)
+        if qimage.isNull():
+            return
+
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         img_name = f"img-{timestamp}.png"
         img_path = images_dir / img_name
-        qimage.save(str(img_path), "PNG")
+        if not qimage.save(str(img_path), "PNG"):
+            return
 
         # Compute display size: 320px wide, aspect ratio preserved
         default_w = 320.0

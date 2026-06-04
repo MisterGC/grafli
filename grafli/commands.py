@@ -20,6 +20,40 @@ from grafli.items import BoxItem, ImageItem, NoteItem
 from grafli.layout import compute_layout
 
 
+# ── TEMPORARY paste-crash diagnostics (remove once the segfault is fixed) ──
+# Writes each step of an image paste to ~/grafli-paste-debug.log, flushed and
+# fsync'd so the last line survives a hard segfault and pinpoints the crash.
+def _paste_dbg(msg: str) -> None:
+    import os
+    import sys
+    from pathlib import Path
+    line = f"[grafli-paste] {msg}\n"
+    try:
+        sys.stderr.write(line)
+        sys.stderr.flush()
+    except Exception:
+        pass
+    try:
+        with open(Path.home() / "grafli-paste-debug.log", "a") as f:
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())
+    except Exception:
+        pass
+
+
+def _img_props(im, tag: str) -> None:
+    try:
+        fmt = getattr(im.format(), "value", im.format())
+        _paste_dbg(
+            f"{tag}: null={im.isNull()} fmt={fmt} "
+            f"{im.width()}x{im.height()} depth={im.depth()} "
+            f"bpl={im.bytesPerLine()} bytes={im.sizeInBytes()} "
+            f"dpr={im.devicePixelRatio()} colors={im.colorCount()}")
+    except Exception as e:
+        _paste_dbg(f"{tag}: props-error {e!r}")
+
+
 class CommandsMixin:
     """Mixin providing undo/redo, clipboard, and styling cycles.
 
@@ -138,6 +172,7 @@ class CommandsMixin:
         has_internal = bool(
             self._clipboard_boxes or self._clipboard_notes or self._clipboard_images
         )
+        _paste_dbg(f"_paste: has_image={has_image} has_internal={has_internal}")
 
         # Prefer whichever is more recent. A system-clipboard image wins when
         # there's no internal copy, or when the image changed since the last
@@ -146,9 +181,11 @@ class CommandsMixin:
         # freshly copied image.
         if has_image and (not has_internal
                           or self._clipboard_image_fp() != self._copy_clip_img_fp):
+            _paste_dbg("_paste: routing to clipboard-image paste")
             self._paste_clipboard_image(cursor_scene, clipboard.image())
             return
         if has_internal:
+            _paste_dbg("_paste: routing to internal paste")
             self._paste_at(cursor_scene)
 
     def _paste_clipboard_image(self, center: QPointF, qimage):
@@ -157,29 +194,44 @@ class CommandsMixin:
         from pathlib import Path
         from PySide6.QtGui import QImage
 
+        _paste_dbg("_paste_clipboard_image: enter")
         if not self._board:
+            _paste_dbg("no board, abort")
             return
         window = self.window()
         if not hasattr(window, '_file_path') or not window._file_path:
+            _paste_dbg("no file_path, abort")
             return
 
         from grafli.resources import ensure_res_dir
         file_path = window._file_path
         images_dir = ensure_res_dir(file_path)
+        _paste_dbg(f"images_dir={images_dir}")
 
-        # A QImage straight from the macOS clipboard (TIFF/CGImage-backed) can
-        # carry a format/stride the PNG writer reads out of bounds on, crashing
-        # in QImageWriter::write. Convert to a canonical, freshly-allocated
-        # ARGB32 buffer first so the encoder always sees a sane image.
-        if qimage.format() != QImage.Format.Format_ARGB32:
-            qimage = qimage.convertToFormat(QImage.Format.Format_ARGB32)
+        _img_props(qimage, "incoming")
         if qimage.isNull():
+            _paste_dbg("incoming null, abort")
+            return
+        # A QImage straight from the macOS clipboard (TIFF/CGImage-backed) can
+        # share a transient buffer (or carry a stride) the PNG writer walks off,
+        # crashing in QImageWriter::write. Normalize the format AND force a deep
+        # copy so the encoder sees a fresh, owned, self-consistent ARGB32 buffer.
+        qimage = qimage.convertToFormat(QImage.Format.Format_ARGB32)
+        _paste_dbg("convertToFormat ok")
+        qimage = qimage.copy()
+        _paste_dbg("deep copy ok")
+        _img_props(qimage, "to-save")
+        if qimage.isNull():
+            _paste_dbg("null after normalize, abort")
             return
 
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         img_name = f"img-{timestamp}.png"
         img_path = images_dir / img_name
-        if not qimage.save(str(img_path), "PNG"):
+        _paste_dbg(f"about to save -> {img_path}")
+        ok = qimage.save(str(img_path), "PNG")
+        _paste_dbg(f"save returned {ok}")
+        if not ok:
             return
 
         # Compute display size: 320px wide, aspect ratio preserved
@@ -196,11 +248,14 @@ class CommandsMixin:
             w=default_w, h=default_h,
         )
         self._board.add_image(image)
+        _paste_dbg(f"added image id={image.id}, rebuilding scene")
         self._rebuild_scene()
+        _paste_dbg("rebuild done")
 
         if image.id in self._image_items:
             self._image_items[image.id].setSelected(True)
         self.mark_dirty()
+        _paste_dbg("_paste_clipboard_image: complete")
 
     def _paste_at(self, center: QPointF):
         if not (self._clipboard_boxes or self._clipboard_notes or self._clipboard_images) or not self._board:

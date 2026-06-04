@@ -4135,7 +4135,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _render_jump_label(self, label_text, target, center, font, scene_size, base_size):
         """Render a single jump label on the canvas."""
-        if isinstance(target, (BoxItem, NoteItem, ImageItem)):
+        # Only boxes carry a fill brush; notes, images and arrows fall back to
+        # the default badge colour (calling .brush() on them would crash).
+        if isinstance(target, BoxItem):
             bg_color = target.brush().color()
             if bg_color.alphaF() < 0.1:
                 bg_color = QColor("#C1086D")

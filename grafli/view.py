@@ -181,6 +181,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
+        # No context menu — the right button is used for panning.
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
 
         # Grid mode: "off" (no dots, free move), "visual" (dots, free move),
         # "snap" (dots + snapping). Remembered across restarts via QSettings.
@@ -2823,8 +2825,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._update_status_zoom()
 
     def mousePressEvent(self, event):
-        # Middle-click pan always works
-        if event.button() == Qt.MouseButton.MiddleButton:
+        # Middle- or right-click pans from anywhere.
+        if event.button() in (Qt.MouseButton.MiddleButton,
+                              Qt.MouseButton.RightButton):
             self._panning = True
             self._pan_start = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -2944,7 +2947,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        if event.button() == Qt.MouseButton.MiddleButton:
+        if event.button() in (Qt.MouseButton.MiddleButton,
+                              Qt.MouseButton.RightButton):
             self._panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
             event.accept()
@@ -6091,7 +6095,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ]),
             ("Navigate", [
                 ("Arrow keys", "Pan viewport"),
-                ("Middle-drag", "Pan anywhere"),
+                ("Middle/Right-drag", "Pan anywhere"),
                 ("+ / -", "Zoom in / out"),
                 ("z", "Zoom in: 25 → 50 → 100 → 150 % (cycle)"),
                 ("⇧Z", "Zoom to fit (whole graph)"),

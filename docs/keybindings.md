@@ -37,7 +37,7 @@ lands on the placeholder ready to type-replace.
 | Key | Action |
 |-----|--------|
 | Arrow keys | Pan viewport |
-| Middle-drag | Pan from anywhere |
+| Middle-drag / Right-drag | Pan from anywhere |
 | <kbd>+</kbd> / <kbd>-</kbd> | Zoom in / out |
 | <kbd>z</kbd> | Zoom-in step cycle: 25 → 50 → 100 → 150 % (wraps) |
 | <kbd>Shift</kbd>+<kbd>Z</kbd> | Zoom to fit (whole graph) |

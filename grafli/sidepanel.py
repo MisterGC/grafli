@@ -192,7 +192,7 @@ class SidePanel(QWidget):
     _FLOWS_WIDTH = 300
     # Minimum widths below which each tab's content would start to clip.
     _TOOLS_MIN = SIDE_PANEL_WIDTH
-    _FLOWS_MIN = 240
+    _FLOWS_MIN = 118
     _MAX_WIDTH = 720
 
     def preferred_width(self) -> int:
@@ -297,6 +297,7 @@ class SidePanel(QWidget):
             ("yank_png",        "󰆏", "PNG",       "Y"),
             ("export_svg",      "󰈔", "SVG",       "^E"),
             ("export_flow_pdf", "󰈦", "Flow PDF",  ""),
+            ("export_flow_pptx", "󰈦", "Flow PPTX", ""),
         ])
 
     def refresh_flows(self):

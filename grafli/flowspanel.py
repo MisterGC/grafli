@@ -8,7 +8,7 @@ step also makes a freshly captured bookmark (gb/gB) insert right after it.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QComboBox,
@@ -35,7 +35,15 @@ from grafli.constants import (
 from grafli.flows import render_bookmark_pixmap, text_slide_note
 from grafli.format import FlowStep
 
-_THUMB_W, _THUMB_H = 250, 120
+# Thumbnail render resolution — rendered larger than the display max so the
+# _ThumbLabel down-scales it crisply.
+_THUMB_W, _THUMB_H = 720, 405
+# A slide preview always fills the available column width, clamped to these
+# bounds: it shrinks with a narrow panel (down to MIN — a thin stripe) and grows
+# with a wide one (up to MAX, so it doesn't balloon). MIN is deliberately small
+# so the whole Flows tab can collapse to a narrow vertical stripe.
+_THUMB_DISPLAY_MIN = 56
+_THUMB_DISPLAY_MAX = 360
 _BORDER = "#D5D0C8"
 _SELECT_BG = SIDE_PANEL_BTN_ACTIVE.name()
 _ACCENT = "#D4804E"
@@ -59,6 +67,12 @@ class _InlineTitle(QLineEdit):
         super().__init__(text, parent)
         self.setFrame(False)
         self.setFont(QFont(FONT_FAMILY, 11, QFont.Weight.Bold))
+        # A QLineEdit otherwise reserves width for several characters and pins the
+        # panel wide. Ignored width contributes nothing to the minimum: it just
+        # fills whatever the row gives it, so the header tracks the column and the
+        # panel can collapse to a narrow stripe.
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.setStyleSheet(
             f"QLineEdit {{ color: {BOX_BORDER.name()}; background: transparent;"
             f" border: none; padding: 0; }}"
@@ -87,6 +101,9 @@ class _InlineDesc(QPlainTextEdit):
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setMinimumWidth(0)  # don't pin the panel width; wraps to whatever
+        # Ignored width: never contribute to the panel minimum, just fill the col.
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.setPlaceholderText("Add description…")
         self.setStyleSheet(
             f"QPlainTextEdit {{ color: #4A4A4A; background: transparent;"
@@ -124,6 +141,44 @@ def _icon_button(glyph: str, tooltip: str, on_click) -> QPushButton:
     btn.setFlat(True)
     btn.clicked.connect(on_click)
     return btn
+
+
+class _ThumbLabel(QLabel):
+    """A slide preview that scales with the column between sensible bounds.
+
+    It tracks panel resizes, growing/shrinking the thumbnail with the column
+    width but clamped to ``[_THUMB_DISPLAY_MIN, _THUMB_DISPLAY_MAX]`` — so it
+    neither balloons to fill a wide panel nor stays uselessly tiny. The MIN is
+    reported as the widget minimum so the panel can shrink down to it (a default
+    QLabel would instead pin the panel to the pixmap's full native width). The
+    source pixmap is rendered larger than MAX so down-scaling stays crisp."""
+
+    def __init__(self, source):
+        super().__init__()
+        self._source = source
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setStyleSheet("background: transparent;")
+        self.setMinimumWidth(_THUMB_DISPLAY_MIN)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        if source is not None and not source.isNull():
+            self._rescale(self.width())
+
+    def _rescale(self, w: int) -> None:
+        if self._source is None or self._source.isNull() or w <= 0:
+            return
+        w = max(_THUMB_DISPLAY_MIN,
+                min(int(w), self._source.width(), _THUMB_DISPLAY_MAX))
+        pix = self._source.scaledToWidth(
+            max(1, w), Qt.TransformationMode.SmoothTransformation)
+        super().setPixmap(pix)
+        self.setFixedHeight(pix.height())
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(_THUMB_DISPLAY_MIN, round(_THUMB_DISPLAY_MIN * 9 / 16))
+
+    def resizeEvent(self, event):
+        self._rescale(event.size().width())
+        super().resizeEvent(event)
 
 
 class FlowsPanel(QWidget):
@@ -182,10 +237,22 @@ class FlowsPanel(QWidget):
         if self._cache_board is not board:
             self._thumb_cache.clear()
             self._cache_board = board
-        key = (bm.id, bm.label, tuple(bm.focus), bm.pad, bm.view)
+        # A single-note step exports as a text slide whose text grows to fill the
+        # page, so preview it the same way (text filling a 16:9 frame) instead of
+        # framing the note at its small on-canvas scale, which letterboxed badly.
+        note = text_slide_note(self._view, bm)
+        key = (bm.id, bm.label, tuple(bm.focus), bm.pad, bm.view,
+               note.text if note else None, note.textsize if note else None)
         pix = self._thumb_cache.get(key)
         if pix is None:
-            pix = render_bookmark_pixmap(self._view, bm, _THUMB_W, _THUMB_H)
+            # Render larger than any card width so _ThumbLabel can down-scale it
+            # to fill the card crisply (no horizontal letterboxing).
+            if note is not None:
+                from grafli.pdfexport import render_text_slide_pixmap
+                pix = render_text_slide_pixmap(note, _THUMB_W,
+                                               round(_THUMB_W * 9 / 16))
+            else:
+                pix = render_bookmark_pixmap(self._view, bm, _THUMB_W, _THUMB_H)
             self._thumb_cache[key] = pix
         return pix
 
@@ -204,9 +271,10 @@ class FlowsPanel(QWidget):
         if board is None:
             return
 
-        self._layout.addWidget(self._text_button("＋  New flow", self._new_flow))
+        self._layout.addWidget(
+            self._text_button("＋  New flow", self._new_flow, fill=True))
         self._layout.addWidget(self._text_button(
-            "＋  Auto-flow from selection", self._new_auto_flow))
+            "＋  Auto-flow from selection", self._new_auto_flow, fill=True))
 
         valid_flow_ids = {f.id for f in board.flows}
         self._expanded_flows &= valid_flow_ids
@@ -214,6 +282,7 @@ class FlowsPanel(QWidget):
             expanded = flow.id in self._expanded_flows
             self._layout.addWidget(self._flow_header(flow, expanded))
             if expanded:
+                self._layout.addWidget(self._flow_tools(flow))
                 self._layout.addWidget(self._captioned(
                     "Description (markdown — shown on the title slide)",
                     self._flow_desc_edit(flow)))
@@ -242,11 +311,19 @@ class FlowsPanel(QWidget):
         self._layout.addStretch(1)
 
     # ── pieces ──────────────────────────────────────────────────
-    def _text_button(self, text: str, on_click) -> QWidget:
+    def _text_button(self, text: str, on_click, fill: bool = False) -> QWidget:
         btn = QPushButton(text)
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setFont(QFont(FONT_FAMILY, 11))
+        # Don't let the label's text width pin the panel's minimum width. ``fill``
+        # buttons span their row, so an Ignored width lets them shrink with the
+        # column (text clips gracefully); non-fill buttons keep their preferred
+        # size but with a zero minimum so they never force the panel wider.
+        btn.setMinimumWidth(0)
+        if fill:
+            btn.setSizePolicy(QSizePolicy.Policy.Ignored,
+                              QSizePolicy.Policy.Fixed)
         btn.setStyleSheet(
             f"QPushButton {{ color: {BOX_BORDER.name()}; background: transparent;"
             f" border: 1px solid {_BORDER}; border-radius: 4px; padding: 5px;"
@@ -303,8 +380,11 @@ class FlowsPanel(QWidget):
                               f" background: transparent;")
             h.addWidget(cnt)
         else:
-            h.setContentsMargins(10, 8, 8, 4)
+            h.setContentsMargins(8, 8, 6, 4)
             lbl = QLabel(f"{arrow}  {title.upper()}  ({count})")
+            # Wrap rather than pin the panel wide: a non-wrapping section title
+            # ("BOOKMARKS (9)") otherwise sets a ~146px floor for the whole tab.
+            lbl.setWordWrap(True)
             lbl.setFont(QFont(FONT_FAMILY, 10, QFont.Weight.Bold))
             lbl.setStyleSheet(f"color: {SIDE_PANEL_SECTION_COLOR.name()};"
                               f" background: transparent;")
@@ -315,23 +395,36 @@ class FlowsPanel(QWidget):
         return row
 
     def _flow_header(self, flow, expanded) -> QWidget:
+        # Keep the header row lean — play + delete only — so it never overflows
+        # the (non-horizontally-scrolling) panel. Export and re-generate live in
+        # a dedicated row below the header when the flow is open (see _flow_tools).
         actions = [
             ("▶", "Play flow", lambda: self._view.play_flow(flow.id)),
             ("🗑", "Delete flow", lambda: self._view.delete_flow(flow)),
         ]
-        if expanded:
-            # Export appears only for the open (selected) flow.
-            actions.insert(0, ("󰈦", "Export flow to PDF",
-                               lambda: self._view.export_flow(flow)))
-            if flow.auto_start:
-                actions.insert(0, ("↻", "Re-generate steps from start node",
-                                   lambda: self._view.regenerate_auto_flow(flow)))
         return self._collapsible_header(
             flow.label, len(flow.steps), expanded,
             lambda: self._toggle_flow(flow.id),
             actions=tuple(actions),
             prominent=True,
             on_rename=lambda t, f=flow: self._set_flow_label(f, t))
+
+    def _flow_tools(self, flow) -> QWidget:
+        """A compact tools row for the open flow: export buttons (PDF / PPTX) and,
+        for auto-flows, re-generate. Its own row so the controls are always
+        visible regardless of panel width (the header row stays lean)."""
+        row = QWidget()
+        h = QHBoxLayout(row)
+        h.setContentsMargins(8, 0, 8, 2)
+        h.setSpacing(6)
+        if flow.auto_start:
+            h.addWidget(self._text_button(
+                "↻", lambda: self._view.regenerate_auto_flow(flow)))
+        h.addWidget(self._text_button(
+            "󰈦 PDF", lambda: self._view.export_flow(flow), fill=True))
+        h.addWidget(self._text_button(
+            "󰈦 PPTX", lambda: self._view.export_flow(flow, "pptx"), fill=True))
+        return row
 
     def _slide_card(self, selected: bool, on_select) -> _ClickableFrame:
         """A framed slide-style card (matches the PDF look): paper background,
@@ -346,16 +439,12 @@ class FlowsPanel(QWidget):
         return card
 
     def _thumb_label(self, bm) -> QLabel:
-        lbl = QLabel()
-        lbl.setStyleSheet("background: transparent;")
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pix = self._thumb_pixmap(bm)
-        if pix is not None:
-            lbl.setPixmap(pix)
-            lbl.setFixedHeight(pix.height())
-        else:
-            lbl.setText("(no anchor)")
-            lbl.setStyleSheet("color: #8A8A8A; background: transparent;")
+        if pix is not None and not pix.isNull():
+            return _ThumbLabel(pix)
+        lbl = QLabel("(no anchor)")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet("color: #8A8A8A; background: transparent;")
         return lbl
 
     def _title_edit(self, bm) -> _InlineTitle:
@@ -402,6 +491,8 @@ class FlowsPanel(QWidget):
         current = board.title_bg if board else ""
         combo = QComboBox()
         combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        combo.setMinimumWidth(0)
+        combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         for label, value in self._TITLE_BG_OPTIONS:
             combo.addItem(label, value)
         idx = combo.findData(current)
@@ -441,13 +532,6 @@ class FlowsPanel(QWidget):
             warn = QLabel(f"⚠ {step.ref}")
             warn.setStyleSheet("color: #C53030; background: transparent;")
             head.addWidget(warn, stretch=1)
-        if selected:
-            head.addWidget(_icon_button("↑", "Move up",
-                                        lambda: self._move_step(flow, index, -1)))
-            head.addWidget(_icon_button("↓", "Move down",
-                                        lambda: self._move_step(flow, index, 1)))
-            head.addWidget(_icon_button("✕", "Remove from flow",
-                                        lambda: self._remove_step(flow, index)))
         col.addLayout(head)
 
         if bm is not None:
@@ -455,23 +539,30 @@ class FlowsPanel(QWidget):
             col.addWidget(self._desc_edit(bm))
 
         if selected:
+            # Reorder/remove on their own row (not inline with the title) so the
+            # fixed-width buttons never overflow a narrow panel and clip.
+            tools = QHBoxLayout()
+            tools.setSpacing(4)
+            tools.addWidget(_icon_button("↑", "Move up",
+                                         lambda: self._move_step(flow, index, -1)))
+            tools.addWidget(_icon_button("↓", "Move down",
+                                         lambda: self._move_step(flow, index, 1)))
+            tools.addWidget(_icon_button("✕", "Remove from flow",
+                                         lambda: self._remove_step(flow, index)))
+            tools.addStretch(1)
+            col.addLayout(tools)
+
+            # Compact dwell field — label folded into the placeholder/tooltip so
+            # the row stays narrow.
+            dwell = QLineEdit("" if step.dwell is None else _fmt(step.dwell))
+            dwell.setPlaceholderText("dwell s")
+            dwell.setToolTip("Seconds to rest on this stop during auto-play")
+            dwell.setFixedWidth(64)
+            dwell.editingFinished.connect(
+                lambda: self._set_dwell(step, dwell.text()))
             foot = QHBoxLayout()
             foot.setSpacing(4)
-            dl = QLabel("Dwell")
-            dl.setFont(QFont(FONT_FAMILY, 10))
-            dl.setStyleSheet(f"color: {SIDE_PANEL_SECTION_COLOR.name()};"
-                             f" background: transparent;")
-            foot.addWidget(dl)
-            dwell = QLineEdit("" if step.dwell is None else _fmt(step.dwell))
-            dwell.setPlaceholderText("default")
-            dwell.setToolTip("Seconds to rest on this stop during auto-play")
-            dwell.setFixedWidth(56)
-            dwell.editingFinished.connect(lambda: self._set_dwell(step, dwell.text()))
             foot.addWidget(dwell)
-            su = QLabel("s")
-            su.setStyleSheet(f"color: {SIDE_PANEL_SECTION_COLOR.name()};"
-                             f" background: transparent;")
-            foot.addWidget(su)
             foot.addStretch(1)
             col.addLayout(foot)
         return card
@@ -501,6 +592,8 @@ class FlowsPanel(QWidget):
         h.setSpacing(4)
         combo = QComboBox()
         combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        combo.setMinimumWidth(0)
+        combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         for bm in self._board().bookmarks:
             combo.addItem(bm.label or bm.id, bm.id)
         h.addWidget(combo, stretch=1)

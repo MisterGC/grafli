@@ -53,6 +53,11 @@ its version. It is required.
 - `!style` — `flat`, `dashed`, plus arrow-specific styles.
 - `>parent` — nest this element inside the box with the given ID.
 
+Graph connectors are drawn with a thickness proportional to the size of the
+nodes they link — big containers get heavier arrows, small inner children stay
+light — so a zoomed-out view reads as a clear hierarchy. This is automatic;
+the weight is capped by the smaller of the two endpoints.
+
 ## Block text
 
 When a note's text contains quote characters or spans multiple lines, use

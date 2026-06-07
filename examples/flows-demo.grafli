@@ -4,7 +4,7 @@
 # flow, or press F5 to present one fullscreen. Capture your own viewpoints
 # with gb (logical) or gB (exact viewport); gf records a new flow.
 
-@ box client "Client" 0,0 160x80 %primary
+@ box client "Client" -20,0 160x80 %primary
 @ box api "API Gateway" 280,0 180x80 %secondary
 @ box auth "Auth Service" 280,160 180x80 %soft
 @ box svc "Order Service" 560,0 180x80 %tertiary
@@ -25,5 +25,38 @@
 @ bookmark bm_auth "Authentication" @api,auth "Before routing, the gateway verifies the token against the Auth Service."
 @ bookmark bm_data "Data layer" @svc,db,cache "The Order Service reads and writes Postgres, caching hot reads in Redis."
 
-@ flow tour "Architecture tour" bm_overview bm_entry:6 bm_auth:6 bm_data:8 "Start wide, then walk a request from the front door through auth into the data layer."
+@ flow tour "Architecture tour" bm_overview bm_entry:6 bm_auth:6 bm1 bm_data:8 "Start wide, then walk a request from the front door through auth into the data layer."
 @ flow security "Security path" bm_entry:5 bm_auth:6 bm_data:5 "Follow a request through authentication into the data it can reach."
+@ bookmark bm1 "" @cache
+@ note n2 -80,360 """
+md:
+## Pair grafli with your AI
+
+grafli isn't just a diagram editor — it's the canvas your coding agent
+uses to communicate complex systems back to you. The bundled **grafli
+skill** teaches the agent how to produce idiomatic `.grafli` files —
+proper layouts, semantic edge labels, code-mode notes for
+review-oriented diagrams, plus a "plan before you write" loop that
+keeps the output focused and readable.
+
+Extract the skill from your installed copy and point your agent at it:
+
+
+| AI tool | Where the skill goes | Docs |
+|---------|---------------------|------|
+| Claude Code | `~/.claude/skills/grafli/SKILL.md` | <https://code.claude.com/docs/en/skills> |
+| OpenCode | `~/.config/opencode/skills/grafli/SKILL.md` | <https://opencode.ai/docs/skills> |
+| Codex CLI | append to `~/.codex/AGENTS.md` | <https://agents.md/> |
+""" ~width=95
+@ note n3 799,439 "Some other note ...\n\nBut with longer text so we can evaluate things and more." ~width=32
+@ box box1 "A Node" 1012,237 160x80
+@ box box2 "A Node" 1325,235 160x80
+@ box box3 "A Node" 1631,232 160x80
+@ box box4 "A Node" 1645,516 160x80
+@ arrow box1 -> box2
+@ arrow box2 -> box3
+@ arrow box3 -> box4
+@ bookmark bm2 "A Node" @box1 ~iso
+@ bookmark bm3 "A Node" @box2 ~iso
+@ bookmark bm4 "A Node" @box3 ~iso
+@ bookmark bm5 "A Node" @box4 ~iso

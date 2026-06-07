@@ -179,15 +179,16 @@ meeting it.
   in too much and the box grows; press <kbd>d</kbd> <kbd>r</kbd> again to snap
   it back, and the overflow that spills past the frame is your cue to trim the
   text or split it across two notes/slides.
-- **Scale a slide and its content together.** To resize a container *and*
+- **Scale a slide and its content together.** A selected node shows white square
+  handles at its corners and edge midpoints; a handle lights up and grows as you
+  hover it, so it is clear a drag will resize. To resize a container *and*
   everything in it — child boxes, notes, and their fonts — select the container
   together with its contents and drag a **corner** handle: the whole selection
-  scales around its bounding box, so the relative layout is preserved. A preview
-  frame shows where it lands and the change commits on release. Hold
-  <kbd>Shift</kbd> while dragging to **keep the aspect ratio** (an edge drag then
-  scales both axes; a corner drag stays square to the original proportions).
-  Dragging an **edge** without Shift resizes just that axis — handy for reshaping
-  a container without touching its text.
+  scales around its bounding box, keeping the aspect ratio so the relative layout
+  is preserved. A preview frame shows where it lands and the change commits on
+  release. Hold <kbd>Shift</kbd> while dragging a corner for a **free
+  (non-uniform) scale**. Dragging an **edge** handle stretches just that single
+  axis — handy for reshaping a container without touching its text.
 - **Description floats.** A step's description renders as a floating caption card
   over the slide (Markdown, clickable links) — exactly like the on-canvas
   playback caption — so it never steals space from the diagram.

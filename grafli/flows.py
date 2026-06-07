@@ -8,12 +8,22 @@ stepping, auto-play timing, and smooth/instant transition state.
 
 from __future__ import annotations
 
+import random
+import zlib
 from contextlib import contextmanager
 
-from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QImage, QKeyEvent, QPainter, QPixmap
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QImage,
+    QKeyEvent,
+    QLinearGradient,
+    QPainter,
+    QPixmap,
+)
 
-from grafli.constants import SCENE_BG
+from grafli.constants import CONTENT_BORDER_COLOR, SCENE_BG
 from grafli.format import DEFAULT_BOOKMARK_PAD, Bookmark, Flow
 
 DEFAULT_DWELL = 4.0   # seconds to rest on a stop during auto-play
@@ -108,6 +118,78 @@ def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
         view._scene.render(p, QRectF(0, 0, iw, ih), rect)
     p.end()
     return QPixmap.fromImage(img)
+
+
+def render_thumbnail_art(view, board, flow, w: int, h: int) -> QImage | None:
+    """Compose the flow's step thumbnails into a faint, deterministic collage —
+    the title-cover background shared by the PDF and PPTX exporters.
+
+    Tiles are scattered on a jittered grid at seeded pseudo-random positions,
+    rotations and low opacities (the seed comes from the flow, so the same flow
+    always yields the same artwork), then a left-weighted paper-coloured wash
+    fades the collage back to the page colour on the left so a headline placed
+    there stays crisp. Returns a ``w x h`` ARGB image, or None when the flow has
+    no renderable steps.
+    """
+    thumbs = []
+    for step in flow.steps:
+        bm = board.bookmark_by_id(step.ref)
+        if bm is None:
+            continue
+        pix = render_bookmark_pixmap(view, bm, 480, 270)
+        if pix is not None and not pix.isNull():
+            thumbs.append(pix)
+    if not thumbs:
+        return None
+
+    seed = zlib.crc32(("|".join(s.ref for s in flow.steps) + flow.id).encode())
+    rng = random.Random(seed)
+
+    art = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
+    art.fill(Qt.GlobalColor.transparent)
+    ap = QPainter(art)
+    ap.setRenderHint(QPainter.RenderHint.Antialiasing)
+    ap.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+    # Even coverage via a jittered grid: one rotated tile per cell, nudged
+    # within the cell — scattered look without the random clumps/holes a pure
+    # random scatter leaves. Tiles are mostly paper (box fill == slide paper) so
+    # only their thin linework shows, hence the relatively high opacity band.
+    cols, rows = 6, 4
+    cw, chh = w / cols, h / rows
+    tile_w = cw * 1.35   # overlap neighbours so the field reads as continuous
+    k = 0
+    for r in range(rows):
+        for c in range(cols):
+            pix = thumbs[k % len(thumbs)]
+            k += 1
+            scale = tile_w / pix.width()
+            tw, th = tile_w, pix.height() * scale
+            cx = (c + 0.5) * cw + rng.uniform(-0.45, 0.45) * cw
+            cy = (r + 0.5) * chh + rng.uniform(-0.45, 0.45) * chh
+            angle = rng.uniform(-15, 15)
+            op = rng.uniform(0.16, 0.30)
+            ap.save()
+            ap.translate(cx, cy)
+            ap.rotate(angle)
+            ap.setOpacity(op)
+            target = QRectF(-tw / 2, -th / 2, tw, th)
+            ap.drawPixmap(target, pix, QRectF(pix.rect()))
+            ap.setPen(CONTENT_BORDER_COLOR)
+            ap.setBrush(Qt.BrushStyle.NoBrush)
+            ap.drawRect(target)
+            ap.restore()
+
+    grad = QLinearGradient(QPointF(0, 0), QPointF(w, 0))
+    near = QColor(SCENE_BG); near.setAlpha(232)
+    mid = QColor(SCENE_BG); mid.setAlpha(140)
+    far = QColor(SCENE_BG); far.setAlpha(0)
+    grad.setColorAt(0.0, near)
+    grad.setColorAt(0.40, mid)
+    grad.setColorAt(0.72, far)
+    ap.fillRect(QRectF(0, 0, w, h), QBrush(grad))
+    ap.end()
+    return art
 
 
 def text_slide_note(view, bookmark: Bookmark):

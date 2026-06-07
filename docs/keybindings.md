@@ -63,7 +63,7 @@ lands on the placeholder ready to type-replace.
 | <kbd>u</kbd> / <kbd>⌘</kbd>+<kbd>Z</kbd> | Undo |
 | <kbd>Ctrl</kbd>+<kbd>R</kbd> / <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Redo |
 | <kbd>x</kbd> / <kbd>Delete</kbd> | Delete selection |
-| <kbd>⌘</kbd>+<kbd>G</kbd> | Insert glyph / replace label |
+| <kbd>Ctrl</kbd>+<kbd>G</kbd> | Insert glyph (while editing a label) |
 
 ### Editing a note (vim)
 
@@ -84,6 +84,7 @@ away; Markdown (`md:`) notes are syntax-highlighted.
 | Key | Action |
 |-----|--------|
 | <kbd>o</kbd> / <kbd>O</kbd> | Create box below / above selection |
+| <kbd>Ctrl</kbd>+<kbd>G</kbd> | Encapsulate selection in a new parent box |
 | <kbd>Ctrl</kbd>+arrow | Create connected box in that direction |
 | <kbd>Alt</kbd>+drag | Connect nodes — boxes, notes, images (from Select) |
 | <kbd>Alt</kbd>+click | Paste at position |
@@ -173,9 +174,9 @@ During playback (in-app or presenting):
 | Action | Effect |
 |--------|--------|
 | Click `@path:line` in a code-mode note | Open the file at that line in the configured editor |
-| <kbd>Shift</kbd>+click | Toggle selection |
-| Drag a box **edge** | Resize that axis; hold <kbd>Shift</kbd> to keep the aspect ratio |
-| Drag a box **corner** | **Scale** the selection — size *and* font, around the selection's bounding box; a preview frame shows where it lands and it commits on release. Hold <kbd>Shift</kbd> to keep the aspect ratio |
+| <kbd>Shift</kbd>+click | Toggle selection (on empty space or a node's body) |
+| Drag a **corner handle** | **Scale** the selection — size *and* font, around its bounding box; keeps the aspect ratio. A preview frame shows where it lands and it commits on release. Hold <kbd>Shift</kbd> for a free (non-uniform) scale |
+| Drag an **edge handle** | Stretch that single axis (modifier-agnostic) |
 | <kbd>Alt</kbd>+drag | Connect nodes (boxes, notes, images) |
 | <kbd>Alt</kbd>+click | Paste at position |
 

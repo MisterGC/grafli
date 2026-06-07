@@ -10,8 +10,6 @@ separate from the view so it can run both in-app and headless from the CLI.
 
 from __future__ import annotations
 
-import random
-import zlib
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -22,7 +20,6 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QImage,
-    QLinearGradient,
     QPageLayout,
     QPageSize,
     QPainter,
@@ -42,13 +39,16 @@ from grafli.constants import (
     SCENE_BG,
     resolve_textsize_px,
 )
-from grafli.flows import (
-    bookmark_target_rect,
-    isolate_focus,
-    render_bookmark_pixmap,
-    text_slide_note,
-)
+from grafli.flows import isolate_focus, render_thumbnail_art
 from grafli.md_note import is_md_note, md_body
+# Slide-typing/decision layer is shared with the PPTX exporter. ``_container_box``
+# and ``_slide_source`` are re-exported here for the existing pdfexport tests.
+from grafli.slideplan import (  # noqa: F401
+    SlidePlan,
+    _container_box,
+    _slide_source,
+    build_slide_plan,
+)
 
 # Slide palette — the slide IS the canvas: paper background everywhere so the
 # diagram region blends in seamlessly (boxes stay border-defined, as on-canvas,
@@ -135,15 +135,14 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> tuple[int, list]:
     painter = QPainter(writer)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    plans = build_slide_plan(view, flow)
     try:
         # Title slide is the clean cover — no footer band there.
         _draw_title_slide(painter, page, view, board, flow)
-        for i, step in enumerate(flow.steps):
+        for plan in plans[1:]:
             writer.newPage()
-            bm = board.bookmark_by_id(step.ref)
-            if _draw_content_slide(painter, page, view, flow, bm, i,
-                                   len(flow.steps), footer):
-                overloaded.append((i, bm.label if bm else ""))
+            if _draw_content_slide(painter, page, view, plan, footer):
+                overloaded.append((plan.index, plan.title))
             _draw_footer(painter, page, footer)
     finally:
         painter.end()
@@ -287,84 +286,17 @@ def _draw_title_slide(painter, page: QRectF, view, board, flow) -> None:
 
 
 def _draw_thumbnail_art(painter, page: QRectF, view, board, flow) -> None:
-    """Scatter the flow's step thumbnails as a faint, deterministic collage
-    behind the title.
+    """Draw the flow's seeded thumbnail collage behind the title.
 
-    Tiles are placed at seeded pseudo-random positions, rotations and (low)
-    opacities — the seed comes from the flow, so re-exporting the same flow
-    always yields the same artwork. A paper-coloured radial wash then fades the
-    collage back to the page colour around the title block (left of centre) so
-    the headline and description stay crisp on top.
-    """
-    thumbs = []
-    for step in flow.steps:
-        bm = board.bookmark_by_id(step.ref)
-        if bm is None:
-            continue
-        pix = render_bookmark_pixmap(view, bm, 480, 270)
-        if pix is not None and not pix.isNull():
-            thumbs.append(pix)
-    if not thumbs:
-        return
-
-    seed = zlib.crc32(("|".join(s.ref for s in flow.steps) + flow.id).encode())
-    rng = random.Random(seed)
-
-    # Compose the collage on an offscreen image, then drop it onto the page as
-    # a single raster. The PDF paint engine ignores per-stop alpha in gradients
-    # (the vignette would fill opaque and wipe the tiles) and is unreliable with
-    # semi-transparent rotated pixmaps; rendering to a QImage avoids both.
+    The collage (jittered-grid tiles + left-weighted paper wash) is composed by
+    the shared :func:`grafli.flows.render_thumbnail_art` so the PDF and PPTX
+    covers match; it is built on an offscreen image and dropped onto the page as
+    a single raster (the PDF paint engine is unreliable with per-stop gradient
+    alpha and semi-transparent rotated pixmaps, which the QImage avoids)."""
     aw, ah = 1600, int(1600 * page.height() / page.width())
-    art = QImage(aw, ah, QImage.Format.Format_ARGB32_Premultiplied)
-    art.fill(Qt.GlobalColor.transparent)
-    ap = QPainter(art)
-    ap.setRenderHint(QPainter.RenderHint.Antialiasing)
-    ap.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-
-    # Even coverage via a jittered grid: one rotated tile per cell, nudged
-    # within the cell. This keeps the scattered look but avoids the random
-    # clumps/holes that made a sparse "gap" appear mid-page. Tiles are mostly
-    # paper (box fill == slide paper) so only their thin linework shows —
-    # opacity runs higher than a photo collage would need.
-    cols, rows = 6, 4
-    cw, chh = aw / cols, ah / rows
-    tile_w = cw * 1.35   # overlap neighbours so the field reads as continuous
-    k = 0
-    for r in range(rows):
-        for c in range(cols):
-            pix = thumbs[k % len(thumbs)]
-            k += 1
-            scale = tile_w / pix.width()
-            tw, th = tile_w, pix.height() * scale
-            cx = (c + 0.5) * cw + rng.uniform(-0.45, 0.45) * cw
-            cy = (r + 0.5) * chh + rng.uniform(-0.45, 0.45) * chh
-            angle = rng.uniform(-15, 15)
-            op = rng.uniform(0.16, 0.30)
-            ap.save()
-            ap.translate(cx, cy)
-            ap.rotate(angle)
-            ap.setOpacity(op)
-            target = QRectF(-tw / 2, -th / 2, tw, th)
-            ap.drawPixmap(target, pix, QRectF(pix.rect()))
-            ap.setPen(QPen(_FRAME, 1))
-            ap.setBrush(Qt.BrushStyle.NoBrush)
-            ap.drawRect(target)
-            ap.restore()
-
-    # Left-weighted wash: the left column (title + description) fades to paper
-    # so the text stays crisp, while the right keeps the collage — an
-    # intentional text-panel look rather than a hole in the middle.
-    grad = QLinearGradient(QPointF(0, 0), QPointF(aw, 0))
-    near = QColor(_SLIDE_BG); near.setAlpha(232)
-    mid = QColor(_SLIDE_BG); mid.setAlpha(140)
-    far = QColor(_SLIDE_BG); far.setAlpha(0)
-    grad.setColorAt(0.0, near)
-    grad.setColorAt(0.40, mid)
-    grad.setColorAt(0.72, far)
-    ap.fillRect(QRectF(0, 0, aw, ah), QBrush(grad))
-    ap.end()
-
-    painter.drawImage(page, art)
+    art = render_thumbnail_art(view, board, flow, aw, ah)
+    if art is not None:
+        painter.drawImage(page, art)
 
 
 @contextmanager
@@ -381,89 +313,6 @@ def _hidden(items):
     finally:
         for it in hidden:
             it.setVisible(True)
-
-
-def _overlay_notes(view, bm, source: QRectF):
-    """The note items rendered inside ``source`` that should be drawn as real
-    text instead of rasterized. For a scoped (isolate) bookmark only its focus
-    notes count; otherwise every visible note intersecting the framed region."""
-    items = view._note_items
-    if bm is not None and bm.isolate and bm.focus:
-        ids = [nid for nid in bm.focus if nid in items]
-    else:
-        ids = [nid for nid, it in items.items()
-               if it.isVisible() and it.sceneBoundingRect().intersects(source)]
-    return [items[nid] for nid in ids]
-
-
-def _parent_of(board, item_id: str) -> str:
-    """Parent id of any box/note/image, or '' when top-level / unknown."""
-    for resolve in (board.box_by_id, board.note_by_id, board.image_by_id):
-        item = resolve(item_id)
-        if item is not None:
-            return item.parent
-    return ""
-
-
-def _container_box(board, bm):
-    """The focus box that is an ancestor of every other focus item — the slide's
-    container. Returns its Box, or None when the step is not a single subtree.
-
-    A container slide promotes this box's label to the title bar and suppresses
-    its own chrome (border/fill/label) from the diagram: the box *is* the slide
-    frame, so drawing it again inside the hero would just double the label."""
-    if bm is None or len(bm.focus) < 2:
-        return None
-
-    def is_ancestor(anc: str, item_id: str) -> bool:
-        cur, seen = _parent_of(board, item_id), set()
-        while cur and cur not in seen:
-            if cur == anc:
-                return True
-            seen.add(cur)
-            cur = _parent_of(board, cur)
-        return False
-
-    others = set(bm.focus)
-    for cid in bm.focus:
-        box = board.box_by_id(cid)
-        if box is None:
-            continue
-        rest = others - {cid}
-        if rest and all(is_ancestor(cid, o) for o in rest):
-            return box
-    return None
-
-
-def _slide_source(view, bm, container) -> QRectF:
-    """The scene rect a content slide should frame.
-
-    A container slide frames the union of the container's *contents* (its focus
-    descendants), not the container box: the box is the selector and title, so
-    its border, padding and vacated label band must not waste slide space — the
-    content fills the page like it sits inside the container on the canvas. A
-    small uniform pad keeps it off the edges. Every other step uses the padded
-    bookmark framing that gives a region of a larger diagram some breathing room.
-    """
-    if container is not None:
-        rects = []
-        for fid in bm.focus:
-            if fid == container.id:
-                continue
-            item = (view._box_items.get(fid) or view._note_items.get(fid)
-                    or view._image_items.get(fid))
-            if item is not None:
-                rects.append(item.sceneBoundingRect())
-        if rects:
-            union = rects[0]
-            for r in rects[1:]:
-                union = union.united(r)
-            pad = max(union.width(), union.height()) * 0.04
-            return union.adjusted(-pad, -pad, pad, pad)
-        citem = view._box_items.get(container.id)
-        if citem is not None:
-            return citem.sceneBoundingRect()
-    return bookmark_target_rect(view, bm) if bm else QRectF()
 
 
 def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
@@ -496,26 +345,20 @@ def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
     return fixed_px < _READABLE_MIN_PT * px_per_pt
 
 
-def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
-                        total: int, footer: str = "") -> bool:
-    """Draw one content slide. Returns True when it is overloaded — text that
-    overflows even at the band minimum, or an in-place note below the readable
-    floor — so the caller can warn the author."""
+def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
+                        footer: str = "") -> bool:
+    """Draw one content slide from its plan. Returns True when it is overloaded —
+    text that overflows even at the band minimum, or an in-place note below the
+    readable floor — so the caller can warn the author."""
     painter.fillRect(page, _SLIDE_BG)
     pw, ph = page.width(), page.height()
     margin = ph * 0.06
 
-    # Title ladder: a manual bookmark label wins; else, when the step frames a
-    # single subtree, the container box's label titles the slide; else no title.
-    container = _container_box(view.board, bm) if bm else None
-    label = (bm.label if bm else "(missing bookmark)") \
-        or (container.label if container else "")
-    description = bm.description if bm else ""
     # A label-less, description-less stop is a "graph-only" slide: the framed
     # diagram fills the page with no title bar or caption — what the graph
     # shows and nothing more. Chrome appears only for the parts that have text.
-    has_title = bool(label)
-    has_desc = bool(description)
+    has_title = bool(plan.title)
+    has_desc = bool(plan.caption)
 
     hero_top = margin * 0.5
     hero_bottom = ph - margin * 0.5 - _footer_reserve(page, footer)
@@ -527,13 +370,13 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
         painter.drawText(
             QRectF(margin, margin * 0.5, pw - margin * 2, bar_h),
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-            label)
+            plan.title)
         painter.setFont(_font(int(ph * 0.034)))
         painter.setPen(QPen(_MUTED_COLOR))
         painter.drawText(
             QRectF(margin, margin * 0.5, pw - margin * 2, bar_h),
             int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-            f"{index + 1} / {total}")
+            f"{plan.index + 1} / {plan.total}")
         rule_y = margin * 0.5 + bar_h
         painter.setPen(QPen(_FRAME, max(1, ph * 0.002)))
         painter.drawLine(int(margin), int(rule_y), int(pw - margin), int(rule_y))
@@ -549,12 +392,11 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
 
     # A single-note step with no description renders its note as native,
     # selectable, clickable text instead of a rasterized diagram.
-    note = text_slide_note(view, bm) if bm else None
-    if note is not None:
-        return _draw_text_hero(painter, hero, note, _px_per_pt(page))
+    if plan.kind == "text":
+        return _draw_text_hero(painter, hero, plan.text_note, _px_per_pt(page))
 
-    source = _slide_source(view, bm, container)
-    if source.isNull():
+    source = plan.source
+    if source is None:
         painter.setFont(_font(int(ph * 0.03)))
         painter.setPen(QPen(_MUTED_COLOR))
         painter.drawText(hero, int(Qt.AlignmentFlag.AlignCenter),
@@ -583,16 +425,9 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     # Keep notes out of the raster: they are redrawn below as native text at
     # their mapped scene position, so links stay clickable and text selectable.
     # Suppress the container box's own chrome too — its label is in the title bar.
-    overlay = _overlay_notes(view, bm, source)
-    suppress = list(overlay)
-    if container is not None:
-        cbox = view._box_items.get(container.id)
-        if cbox is not None:
-            suppress.append(cbox)
-            suppress.append(cbox._label)
-    with _hidden(suppress):
-        if bm.isolate and bm.focus:
-            with isolate_focus(view, bm.focus):
+    with _hidden(list(plan.overlays) + list(plan.chrome_suppress)):
+        if plan.isolate:
+            with isolate_focus(view, plan.isolate):
                 view._scene.render(ip, QRectF(0, 0, iw, ih), source)
         else:
             view._scene.render(ip, QRectF(0, 0, iw, ih), source)
@@ -604,7 +439,7 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
     # Overlay each note as real text at its mapped position (same source->fitted
     # transform as the image), sized to the scene scale so it reads in place.
     overloaded = False
-    for item in overlay:
+    for item in plan.overlays:
         nr = item.sceneBoundingRect()
         mapped = QRectF(fitted.left() + (nr.left() - source.left()) * scale,
                         fitted.top() + (nr.top() - source.top()) * scale,
@@ -613,7 +448,7 @@ def _draw_content_slide(painter, page: QRectF, view, flow, bm, index: int,
             overloaded = True
 
     if has_desc:
-        _draw_caption(painter, page, description, footer)
+        _draw_caption(painter, page, plan.caption, footer)
     return overloaded
 
 
@@ -646,6 +481,26 @@ def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float) -> bool:
     body = md_body(note.text) if is_md else note.text
     return _draw_markdown(painter, hero, body, markdown=is_md, band=_BODY_BAND,
                           px_per_pt=px_per_pt, color=_TITLE_COLOR, vcenter=True)
+
+
+def render_text_slide_pixmap(note, w: int, h: int):
+    """A 16:9 preview of a text slide: the note's text grown to fill the frame,
+    exactly as :func:`_draw_text_hero` renders it on export. Used by the Flows
+    editor so a text step's thumbnail shows how the text fills the slide rather
+    than the note floating tiny at its on-canvas scale."""
+    from PySide6.QtGui import QPixmap
+    w, h = max(1, int(w)), max(1, int(h))
+    img = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(_SLIDE_BG)
+    p = QPainter(img)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    page = QRectF(0, 0, w, h)
+    margin = h * 0.08
+    hero = QRectF(margin, margin, w - margin * 2, h - margin * 2)
+    _draw_text_hero(p, hero, note, _px_per_pt(page))
+    p.end()
+    return QPixmap.fromImage(img)
 
 
 def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,

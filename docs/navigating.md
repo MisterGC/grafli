@@ -51,6 +51,13 @@ When boxes are nested, walk the tree directly instead of hunting visually:
 The status bar shows a breadcrumb of where you are, so you always know your
 depth.
 
+To *build* that hierarchy, select one or more elements and press
+<kbd>Ctrl</kbd>+<kbd>G</kbd> — grafli wraps them in a new parent box sized to
+contain them, then opens its label editor so you can name the group. Inner
+nesting is preserved, and if everything you selected already shared a parent,
+the new box slots in beside them under it. Drag an element onto a box to nest it
+the other way around.
+
 ## Follow the wiring
 
 To trace how things connect rather than where they sit:

@@ -89,10 +89,18 @@ ARROWHEAD_SIZE = 10
 ANNOTATION_ARROW_COLOR = QColor("#8A8580")
 ANNOTATION_ARROW_WIDTH = 1
 
+# Connector thickness scales with the size of the nodes it links, so a
+# high-level diagram reads as a hierarchy: big containers get heavier arrows,
+# small inner children stay light. Width is referenced to a default-sized box
+# (min dimension == CONNECTOR_REF_SIZE → ARROW_WIDTH) and grows sub-linearly.
+CONNECTOR_REF_SIZE = 80
+CONNECTOR_WIDTH_MIN = 1.5
+CONNECTOR_WIDTH_MAX = 9.0
+
 DEFAULT_BOX_W = 160
 DEFAULT_BOX_H = 80
 MIN_BOX_SIZE = 20
-HANDLE_SIZE = 8
+HANDLE_SIZE = 11
 
 # ── Minimap ──────────────────────────────────────────────────────
 

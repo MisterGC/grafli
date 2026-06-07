@@ -140,9 +140,13 @@ class CommandsMixin:
         self._clipboard_notes.clear()
         self._clipboard_arrows.clear()
         self._clipboard_images.clear()
-        # Remember the clipboard image present *now*, so a later paste can tell
-        # this internal copy is more recent than that image.
+        # Remember the system clipboard present *now* (image + text), so a later
+        # paste can tell this internal copy is more recent than what was there —
+        # and that anything copied afterwards (an external link, an image) wins.
+        from PySide6.QtWidgets import QApplication
         self._copy_clip_img_fp = self._clipboard_image_fp()
+        clipboard = QApplication.clipboard()
+        self._copy_clip_text = clipboard.text() if clipboard else ""
 
         selected_box_ids = set()
         selected_note_ids = set()
@@ -163,30 +167,66 @@ class CommandsMixin:
                     self._clipboard_arrows.append(copy.deepcopy(arrow))
 
     def _paste(self):
+        from PySide6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clip_text = clipboard.text() if clipboard else ""
+
+        # An inline editor is focused: paste the system clipboard *text* into it
+        # (this is the only sensible target), never a canvas element. The global
+        # Cmd+V action routes here, so without this an internal element copy
+        # would shadow a link the user just copied to paste into a note.
+        if self._note_widget is not None:
+            self._note_widget.insertPlainText(clip_text)
+            return
+        if self._editor is not None:
+            cursor = self._editor.textCursor()
+            cursor.insertText(clip_text)
+            self._editor.setTextCursor(cursor)
+            return
+
         cursor_viewport = self.mapFromGlobal(self.cursor().pos())
         cursor_scene = self.mapToScene(cursor_viewport)
 
-        from PySide6.QtWidgets import QApplication
-        clipboard = QApplication.clipboard()
         has_image = clipboard is not None and not clipboard.image().isNull()
         has_internal = bool(
             self._clipboard_boxes or self._clipboard_notes or self._clipboard_images
         )
         _paste_dbg(f"_paste: has_image={has_image} has_internal={has_internal}")
 
-        # Prefer whichever is more recent. A system-clipboard image wins when
-        # there's no internal copy, or when the image changed since the last
-        # internal copy (i.e. it was copied afterwards). Otherwise the internal
-        # copy wins. This stops an internal copy from permanently shadowing a
-        # freshly copied image.
+        # Latest copy wins. A system-clipboard image wins when there's no
+        # internal copy, or when it changed since the internal copy (i.e. was
+        # copied afterwards). Otherwise the internal copy wins.
         if has_image and (not has_internal
                           or self._clipboard_image_fp() != self._copy_clip_img_fp):
             _paste_dbg("_paste: routing to clipboard-image paste")
             self._paste_clipboard_image(cursor_scene, clipboard.image())
             return
+
+        # External text copied *after* the internal copy also wins: drop it as a
+        # new note at the cursor rather than re-pasting the stale element.
+        if clip_text and (not has_internal or clip_text != self._copy_clip_text):
+            _paste_dbg("_paste: routing to clipboard-text paste")
+            self._paste_text_note(cursor_scene, clip_text)
+            return
+
         if has_internal:
             _paste_dbg("_paste: routing to internal paste")
             self._paste_at(cursor_scene)
+
+    def _paste_text_note(self, center: QPointF, text: str):
+        """Drop external clipboard text as a new note centred at the cursor."""
+        if not self._board:
+            return
+        self._push_undo()
+        note = Note(id=self._board.next_note_id(),
+                    x=center.x(), y=center.y(), text=text)
+        self._board.add_note(note)
+        self._rebuild_scene()
+        item = self._note_items.get(note.id)
+        if item:
+            self._scene.clearSelection()
+            item.setSelected(True)
+        self.mark_dirty()
 
     def _paste_clipboard_image(self, center: QPointF, qimage):
         """Save a QImage from the system clipboard and add it as an image element."""

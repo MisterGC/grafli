@@ -121,9 +121,10 @@ def _aligned_edge_points(
     return None
 
 
-def _arrowhead_polygon(tip: QPointF, angle: float) -> QPolygonF:
+def _arrowhead_polygon(tip: QPointF, angle: float,
+                       size: float = ARROWHEAD_SIZE) -> QPolygonF:
     """Create arrowhead triangle at tip pointing in direction angle (radians)."""
-    s = ARROWHEAD_SIZE
+    s = size
     p1 = QPointF(
         tip.x() - s * math.cos(angle - math.pi / 6),
         tip.y() - s * math.sin(angle - math.pi / 6),

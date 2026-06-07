@@ -156,6 +156,8 @@ _EDGE_B = 6
 _EDGE_L = 7
 
 _CORNERS = (_CORNER_TL, _CORNER_TR, _CORNER_BL, _CORNER_BR)
+_EDGES = (_EDGE_T, _EDGE_R, _EDGE_B, _EDGE_L)
+_ALL_HANDLES = _CORNERS + _EDGES
 
 MIN_SCALE_FONT_PT = 6   # font floor when scaling a node down
 
@@ -179,22 +181,145 @@ def _get_view(item):
     return None
 
 
+def _view_scale(item) -> float:
+    """Current canvas zoom (scene units per pixel inverse), or 1.0."""
+    view = _get_view(item)
+    if view is not None:
+        m = view.transform().m11()
+        if m:
+            return abs(m)
+    return 1.0
+
+
+_HANDLE_GRAB_PX = HANDLE_SIZE / 2 + 5   # forgiving grab radius around a handle
+
+
+def _handle_points(rect: QRectF, handle_ids):
+    """Map of handle id → its anchor point on ``rect`` (corner or edge mid)."""
+    cx = (rect.left() + rect.right()) / 2
+    cy = (rect.top() + rect.bottom()) / 2
+    pts = {
+        _CORNER_TL: rect.topLeft(),
+        _CORNER_TR: rect.topRight(),
+        _CORNER_BL: rect.bottomLeft(),
+        _CORNER_BR: rect.bottomRight(),
+        _EDGE_T: QPointF(cx, rect.top()),
+        _EDGE_B: QPointF(cx, rect.bottom()),
+        _EDGE_L: QPointF(rect.left(), cy),
+        _EDGE_R: QPointF(rect.right(), cy),
+    }
+    return {h: pts[h] for h in handle_ids}
+
+
+def _handle_hit(rect: QRectF, handle_ids, pos: QPointF, scale: float):
+    """Nearest handle whose square ``pos`` falls within, else None.
+
+    The grab radius is constant in *screen* pixels (handles are drawn at a
+    fixed size regardless of zoom), so it is divided by the canvas scale.
+    """
+    radius = _HANDLE_GRAB_PX / max(scale, 1e-6)
+    best, best_d = None, radius
+    for hid, pt in _handle_points(rect, handle_ids).items():
+        d = ((pos.x() - pt.x()) ** 2 + (pos.y() - pt.y()) ** 2) ** 0.5
+        if d <= best_d:
+            best, best_d = hid, d
+    return best
+
+
 # ── Graphics items ───────────────────────────────────────────────
 
 
 class ResizeHandle(QGraphicsRectItem):
-    """Small handle for resizing a BoxItem (corner or edge)."""
+    """Grab square at a node's corner or edge midpoint.
+
+    The handle owns its own hover feedback (it lights up and grows so it is
+    obvious a drag will resize) and its own drag, delegating the actual
+    geometry change to the parent node's ``_begin/_update/_finish_handle_drag``.
+    """
+
+    _HOVER_GROW = 4
+    _IDLE_FILL = QColor("#FFFFFF")
+    _IDLE_PEN = QColor("#2F5D5C")
+    _HOVER_FILL = QColor("#2F5D5C")
+    _HOVER_PEN = QColor("#FFFFFF")
 
     def __init__(self, handle_id: int, parent: QGraphicsRectItem):
         hs = HANDLE_SIZE
         super().__init__(-hs / 2, -hs / 2, hs, hs, parent)
         self.corner = handle_id
-        self.setPen(QPen(QColor("#2F5D5C"), 1))
-        self.setBrush(QBrush(QColor("#FFFFFF")))
+        self._hovered = False
+        self._dragging = False
+        self.setPen(QPen(self._IDLE_PEN, 1))
+        self.setBrush(QBrush(self._IDLE_FILL))
         self.setCursor(_HANDLE_CURSORS[handle_id])
-        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+        self.setAcceptHoverEvents(True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        # Draw at a constant screen size regardless of canvas zoom, and keep
+        # the squares above the node and its selection outline.
+        self.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True
+        )
+        self.setZValue(10)
         self.setVisible(False)
+
+    def _set_hover(self, on: bool):
+        if on == self._hovered:
+            return
+        self._hovered = on
+        hs = HANDLE_SIZE + (self._HOVER_GROW if on else 0)
+        self.prepareGeometryChange()
+        self.setRect(-hs / 2, -hs / 2, hs, hs)
+        if on:
+            self.setBrush(QBrush(self._HOVER_FILL))
+            self.setPen(QPen(self._HOVER_PEN, 1.5))
+        else:
+            self.setBrush(QBrush(self._IDLE_FILL))
+            self.setPen(QPen(self._IDLE_PEN, 1))
+
+    def hoverEnterEvent(self, event):
+        self._set_hover(True)
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        if not self._dragging:
+            self._set_hover(False)
+        super().hoverLeaveEvent(event)
+
+    def _parent_node(self):
+        parent = self.parentItem()
+        if parent is not None and hasattr(parent, "_begin_handle_drag"):
+            return parent
+        return None
+
+    def mousePressEvent(self, event):
+        parent = self._parent_node()
+        if (event.button() == Qt.MouseButton.LeftButton
+                and parent is not None and parent.isSelected()):
+            parent._begin_handle_drag(self.corner, event.scenePos())
+            self._dragging = True
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        parent = self._parent_node()
+        if self._dragging and parent is not None:
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            parent._update_handle_drag(event.scenePos(), shift)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        parent = self._parent_node()
+        if self._dragging and parent is not None:
+            self._dragging = False
+            parent._finish_handle_drag()
+            self._set_hover(False)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 class ResizeForeshadow(QGraphicsItem):
@@ -527,41 +652,11 @@ class BoxItem(QGraphicsRectItem):
         self._handles[_EDGE_L].setPos(r.left(), cy)
 
     def _show_handles(self, visible: bool):
-        pass  # resize is via border proximity, no visible handles needed
+        for handle in self._handles:
+            handle.setVisible(visible)
 
     def _handle_at(self, pos: QPointF) -> int | None:
-        r = self.rect()
-        margin = 10
-
-        near_l = abs(pos.x() - r.left()) < margin
-        near_r = abs(pos.x() - r.right()) < margin
-        near_t = abs(pos.y() - r.top()) < margin
-        near_b = abs(pos.y() - r.bottom()) < margin
-
-        in_x = r.left() - margin < pos.x() < r.right() + margin
-        in_y = r.top() - margin < pos.y() < r.bottom() + margin
-
-        # Corners (both edges near)
-        if near_l and near_t:
-            return _CORNER_TL
-        if near_r and near_t:
-            return _CORNER_TR
-        if near_l and near_b:
-            return _CORNER_BL
-        if near_r and near_b:
-            return _CORNER_BR
-
-        # Edges (one edge near, within extent of the other axis)
-        if near_t and in_x:
-            return _EDGE_T
-        if near_b and in_x:
-            return _EDGE_B
-        if near_l and in_y:
-            return _EDGE_L
-        if near_r and in_y:
-            return _EDGE_R
-
-        return None
+        return _handle_hit(self.rect(), _ALL_HANDLES, pos, _view_scale(self))
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
@@ -602,24 +697,77 @@ class BoxItem(QGraphicsRectItem):
         return r
 
     def mousePressEvent(self, event):
+        # Presses on the box body within a handle's grab ring still start a
+        # resize; presses on a handle square are driven by the handle itself.
         if event.button() == Qt.MouseButton.LeftButton:
             corner = self._handle_at(event.pos())
             if corner is not None and self.isSelected():
-                self.setFlag(
-                    QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
-                )
-                view = _get_view(self)
-                if view and hasattr(view, '_save_pre_action_snapshot'):
-                    view._save_pre_action_snapshot()
-                if corner in _CORNERS:
-                    self._begin_scale(corner, event.scenePos())
-                else:
-                    self._resizing = True
-                    self._resize_corner = corner
-                    self._resize_origin = event.pos()
+                self._begin_handle_drag(corner, event.scenePos())
                 event.accept()
                 return
         super().mousePressEvent(event)
+
+    # ── Handle drag: corners scale the selection, edges stretch one axis ──
+
+    def _begin_handle_drag(self, corner: int, scene_pos: QPointF):
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        view = _get_view(self)
+        if view and hasattr(view, '_save_pre_action_snapshot'):
+            view._save_pre_action_snapshot()
+        if corner in _CORNERS:
+            self._begin_scale(corner, scene_pos)
+        else:
+            self._resizing = True
+            self._resize_corner = corner
+            self._resize_origin = self.mapFromScene(scene_pos)
+
+    def _update_handle_drag(self, scene_pos: QPointF, shift: bool):
+        if self._scaling:
+            # Corners keep the aspect ratio by default; Shift frees it.
+            keep = not shift
+            self._scale_fx, self._scale_fy = self._scale_factors_for(
+                scene_pos, keep)
+            view = _get_view(self)
+            if view and hasattr(view, '_show_resize_foreshadow'):
+                view._show_resize_foreshadow(
+                    self._projected_bbox(), content=None, locked=keep)
+        elif self._resizing:
+            local = self.mapFromScene(scene_pos)
+            dx = local.x() - self._resize_origin.x()
+            dy = local.y() - self._resize_origin.y()
+            self._resize_origin = local
+            corner = self._resize_corner
+            # Edge handles always stretch a single axis (Shift has no effect).
+            self._apply_resize_delta(dx, dy, corner, False)
+            scene = self.scene()
+            if scene:
+                for item in scene.selectedItems():
+                    if isinstance(item, BoxItem) and item is not self:
+                        item._apply_resize_delta(dx, dy, corner, False)
+            view = _get_view(self)
+            if view and hasattr(view, 'arrow_update_needed'):
+                view.arrow_update_needed.emit()
+
+    def _finish_handle_drag(self):
+        view = _get_view(self)
+        if self._scaling:
+            self._scaling = False
+            self._commit_scale()
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            if view and hasattr(view, '_clear_resize_foreshadow'):
+                view._clear_resize_foreshadow()
+            if view and hasattr(view, '_commit_pre_action_snapshot'):
+                view._commit_pre_action_snapshot()
+                view.mark_dirty()
+            if view and hasattr(view, 'arrow_update_needed'):
+                view.arrow_update_needed.emit()
+        elif self._resizing:
+            self._resizing = False
+            self._min_h = self.box.h
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            if view and hasattr(view, '_commit_pre_action_snapshot'):
+                view._commit_pre_action_snapshot()
+                view.mark_dirty()
 
     # ── Corner-drag scale (whole selection; Shift keeps aspect ratio) ──
 
@@ -737,64 +885,15 @@ class BoxItem(QGraphicsRectItem):
             h = MIN_BOX_SIZE
         return x, y, w, h
 
-    def _locked_resize_rect(self, dx, dy, corner):
-        """New (x, y, w, h) for an aspect-locked resize.
-
-        The box's current ratio is preserved: a horizontal handle drives the
-        width (height follows), a vertical edge drives the height (width
-        follows). The handle's opposite side stays anchored; for a single-axis
-        edge the off-axis grows symmetrically about the box's center.
-        """
-        x, y, w, h = self.box.x, self.box.y, self.box.w, self.box.h
-        ratio = w / h if h else 1.0
-
-        left = corner in (_CORNER_TL, _CORNER_BL, _EDGE_L)
-        right = corner in (_CORNER_TR, _CORNER_BR, _EDGE_R)
-        top = corner in (_CORNER_TL, _CORNER_TR, _EDGE_T)
-        vertical_edge = corner in (_EDGE_T, _EDGE_B)
-
-        if vertical_edge:
-            dh = -dy if top else dy
-            new_h = max(MIN_BOX_SIZE, h + dh)
-            new_w = new_h * ratio
-        else:
-            dw = -dx if left else dx
-            new_w = max(MIN_BOX_SIZE, w + dw)
-            new_h = new_w / ratio
-
-        # Keep both dimensions at or above the floor while preserving ratio.
-        if new_w < MIN_BOX_SIZE:
-            new_w = MIN_BOX_SIZE
-            new_h = new_w / ratio
-        if new_h < MIN_BOX_SIZE:
-            new_h = MIN_BOX_SIZE
-            new_w = new_h * ratio
-
-        # Anchor the side opposite the dragged handle.
-        if vertical_edge:
-            x = x + (w - new_w) / 2          # off-axis: grow about center
-            if top:
-                y = (y + h) - new_h
-        else:
-            if left:
-                x = (x + w) - new_w
-            if corner in (_EDGE_L, _EDGE_R):
-                y = y + (h - new_h) / 2      # off-axis: grow about center
-            elif top:
-                y = (y + h) - new_h
-        return x, y, new_w, new_h
-
     def _apply_resize_delta(self, dx: float, dy: float, corner: int,
                             keep_ratio: bool = False):
-        """Apply a resize delta for the given handle direction.
+        """Apply a single-axis (edge) resize delta for the given handle.
 
-        ``keep_ratio`` (Shift held) preserves the box's aspect ratio: the
-        off-axis follows so the shape can't be distorted from any handle.
+        Corner scaling goes through the selection-scale path; this drives the
+        edge handles, which always stretch one axis. ``keep_ratio`` is accepted
+        for call-site symmetry but ignored — edges never preserve the ratio.
         """
-        if keep_ratio:
-            x, y, w, h = self._locked_resize_rect(dx, dy, corner)
-        else:
-            x, y, w, h = self._free_resize_rect(dx, dy, corner)
+        x, y, w, h = self._free_resize_rect(dx, dy, corner)
 
         self.box.x = x
         self.box.y = y
@@ -807,64 +906,16 @@ class BoxItem(QGraphicsRectItem):
         self._update_handles()
 
     def mouseMoveEvent(self, event):
-        if self._scaling:
-            keep = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-            self._scale_fx, self._scale_fy = self._scale_factors_for(
-                event.scenePos(), keep)
-            view = _get_view(self)
-            if view and hasattr(view, '_show_resize_foreshadow'):
-                view._show_resize_foreshadow(
-                    self._projected_bbox(), content=None, locked=keep)
-            event.accept()
-            return
-        if self._resizing:
-            dx = event.pos().x() - self._resize_origin.x()
-            dy = event.pos().y() - self._resize_origin.y()
-            self._resize_origin = event.pos()
-            corner = self._resize_corner
-            keep = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-
-            self._apply_resize_delta(dx, dy, corner, keep)
-
-            scene = self.scene()
-            if scene:
-                for item in scene.selectedItems():
-                    if isinstance(item, BoxItem) and item is not self:
-                        item._apply_resize_delta(dx, dy, corner, keep)
-
-            view = _get_view(self)
-            if view and hasattr(view, 'arrow_update_needed'):
-                view.arrow_update_needed.emit()
-
+        if self._scaling or self._resizing:
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            self._update_handle_drag(event.scenePos(), shift)
             event.accept()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._scaling:
-            self._scaling = False
-            self._commit_scale()
-            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-            view = _get_view(self)
-            if view and hasattr(view, '_clear_resize_foreshadow'):
-                view._clear_resize_foreshadow()
-            if view and hasattr(view, '_commit_pre_action_snapshot'):
-                view._commit_pre_action_snapshot()
-                view.mark_dirty()
-            if view and hasattr(view, 'arrow_update_needed'):
-                view.arrow_update_needed.emit()
-            event.accept()
-            return
-        if self._resizing:
-            self._resizing = False
-            self._min_h = self.box.h
-            self.setFlag(
-                QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True
-            )
-            view = _get_view(self)
-            if view and hasattr(view, '_commit_pre_action_snapshot'):
-                view._commit_pre_action_snapshot()
-                view.mark_dirty()
+        if self._scaling or self._resizing:
+            self._finish_handle_drag()
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -966,6 +1017,15 @@ class NoteItem(QGraphicsSimpleTextItem):
         path = QPainterPath()
         path.addRect(self.boundingRect())
         return path
+
+    def contains(self, point: QPointF) -> bool:
+        # QGraphicsSimpleTextItem's C++ hit-test (used by scene.itemAt, clicks,
+        # rubber-band, and the Alt-drag connector) is keyed on the base class's
+        # *unwrapped* single-line text geometry. Once an explicit width wraps the
+        # note that geometry diverges from what we actually paint, leaving the
+        # clickable area stuck on the first line. Test against our real shape so
+        # the whole visible note responds.
+        return self.shape().contains(point)
 
     def _on_right_edge(self, pos) -> bool:
         br = self.boundingRect()
@@ -1978,10 +2038,7 @@ class ImageItem(QGraphicsPixmapItem):
         self.setAcceptHoverEvents(True)
 
         self._handles: list[ResizeHandle] = [
-            ResizeHandle(_CORNER_TL, self),
-            ResizeHandle(_CORNER_TR, self),
-            ResizeHandle(_CORNER_BL, self),
-            ResizeHandle(_CORNER_BR, self),
+            ResizeHandle(h, self) for h in _ALL_HANDLES
         ]
         self._update_handles()
         self._update_url_indicator()
@@ -2006,72 +2063,74 @@ class ImageItem(QGraphicsPixmapItem):
         self._full_pixmap = pm
 
     def _update_handles(self):
-        w, h = self.image.w, self.image.h
-        positions = {
-            _CORNER_TL: (0, 0),
-            _CORNER_TR: (w, 0),
-            _CORNER_BL: (0, h),
-            _CORNER_BR: (w, h),
-        }
+        r = QRectF(0, 0, self.image.w, self.image.h)
+        points = _handle_points(r, _ALL_HANDLES)
         visible = self.isSelected()
         for handle in self._handles:
-            pos = positions.get(handle.corner)
-            if pos:
-                handle.setPos(*pos)
+            pt = points.get(handle.corner)
+            if pt is not None:
+                handle.setPos(pt)
             handle.setVisible(visible)
 
     def _handle_at(self, pos: QPointF) -> int | None:
-        """Return corner handle id if pos is near a corner, else None."""
         r = QRectF(0, 0, self.image.w, self.image.h)
-        margin = 12
-        near_l = abs(pos.x() - r.left()) < margin
-        near_r = abs(pos.x() - r.right()) < margin
-        near_t = abs(pos.y() - r.top()) < margin
-        near_b = abs(pos.y() - r.bottom()) < margin
-        if near_l and near_t:
-            return _CORNER_TL
-        if near_r and near_t:
-            return _CORNER_TR
-        if near_l and near_b:
-            return _CORNER_BL
-        if near_r and near_b:
-            return _CORNER_BR
-        return None
+        return _handle_hit(r, _ALL_HANDLES, pos, _view_scale(self))
 
-    def _apply_resize_delta(self, dx: float, dy: float, corner: int):
-        x, y, w, h = self.image.x, self.image.y, self.image.w, self.image.h
-        ar = self._aspect_ratio
+    def _apply_resize_delta(self, dx: float, dy: float, corner: int,
+                            keep_ratio: bool = True):
+        """Resize the image from a handle.
 
-        # Use the larger delta to drive proportional resize
-        if corner == _CORNER_TL:
-            dw = -dx
-            new_w = max(self._MIN_SIZE, w + dw)
-            new_h = new_w / ar
-            x -= new_w - w
-            y -= new_h - h
-        elif corner == _CORNER_TR:
-            new_w = max(self._MIN_SIZE, w + dx)
-            new_h = new_w / ar
-            y -= new_h - h
-        elif corner == _CORNER_BL:
-            dw = -dx
-            new_w = max(self._MIN_SIZE, w + dw)
-            new_h = new_w / ar
-            x -= new_w - w
-        elif corner == _CORNER_BR:
-            new_w = max(self._MIN_SIZE, w + dx)
-            new_h = new_w / ar
+        Corners keep the image's aspect ratio by default (``keep_ratio``);
+        Shift frees them for a non-uniform resize. Edge handles always stretch
+        a single axis. The side opposite the dragged handle stays anchored.
+        """
+        if corner in _CORNERS and keep_ratio:
+            x, y, w, h = self._prop_corner_rect(dx, dy, corner)
         else:
-            return
+            x, y, w, h = self._free_resize_rect(dx, dy, corner)
 
         self.image.x = x
         self.image.y = y
-        self.image.w = new_w
-        self.image.h = new_h
+        self.image.w = w
+        self.image.h = h
         self.setPos(x, y)
         self.prepareGeometryChange()
         self._update_handles()
         self.update()
+
+    def _prop_corner_rect(self, dx, dy, corner):
+        """Aspect-locked corner resize; width drives, height follows."""
+        x, y, w, h = self.image.x, self.image.y, self.image.w, self.image.h
+        ar = self._aspect_ratio or (w / h if h else 1.0)
+        dw = -dx if corner in (_CORNER_TL, _CORNER_BL) else dx
+        new_w = max(self._MIN_SIZE, w + dw)
+        new_h = new_w / ar
+        if corner in (_CORNER_TL, _CORNER_BL):
+            x -= new_w - w
+        if corner in (_CORNER_TL, _CORNER_TR):
+            y -= new_h - h
+        return x, y, new_w, new_h
+
+    def _free_resize_rect(self, dx, dy, corner):
+        """Per-axis resize (free corner or single-axis edge)."""
+        x, y, w, h = self.image.x, self.image.y, self.image.w, self.image.h
+        left = corner in (_CORNER_TL, _CORNER_BL, _EDGE_L)
+        right = corner in (_CORNER_TR, _CORNER_BR, _EDGE_R)
+        top = corner in (_CORNER_TL, _CORNER_TR, _EDGE_T)
+        bottom = corner in (_CORNER_BL, _CORNER_BR, _EDGE_B)
+
+        new_w, new_h = w, h
+        if left:
+            new_w = max(self._MIN_SIZE, w - dx)
+            x -= new_w - w
+        elif right:
+            new_w = max(self._MIN_SIZE, w + dx)
+        if top:
+            new_h = max(self._MIN_SIZE, h - dy)
+            y -= new_h - h
+        elif bottom:
+            new_h = max(self._MIN_SIZE, h + dy)
+        return x, y, new_w, new_h
 
     def boundingRect(self):
         r = QRectF(0, 0, self.image.w, self.image.h)
@@ -2119,40 +2178,56 @@ class ImageItem(QGraphicsPixmapItem):
             self.unsetCursor()
         super().hoverMoveEvent(event)
 
+    def _begin_handle_drag(self, corner: int, scene_pos: QPointF):
+        self._resizing = True
+        self._resize_corner = corner
+        self._resize_origin = self.mapFromScene(scene_pos)
+        view = _get_view(self)
+        if view and hasattr(view, '_save_pre_action_snapshot'):
+            view._save_pre_action_snapshot()
+
+    def _update_handle_drag(self, scene_pos: QPointF, shift: bool):
+        if not self._resizing:
+            return
+        local = self.mapFromScene(scene_pos)
+        dx = local.x() - self._resize_origin.x()
+        dy = local.y() - self._resize_origin.y()
+        self._resize_origin = local
+        # Corners keep aspect by default; Shift frees them. Edges: single axis.
+        self._apply_resize_delta(dx, dy, self._resize_corner, not shift)
+        view = _get_view(self)
+        if view and hasattr(view, 'arrow_update_needed'):
+            view.arrow_update_needed.emit()
+        if view and hasattr(view, 'mark_dirty'):
+            view.mark_dirty()
+
+    def _finish_handle_drag(self):
+        if not self._resizing:
+            return
+        self._resizing = False
+        view = _get_view(self)
+        if view and hasattr(view, '_commit_pre_action_snapshot'):
+            view._commit_pre_action_snapshot()
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.isSelected():
             corner = self._handle_at(event.pos())
             if corner is not None:
-                self._resizing = True
-                self._resize_corner = corner
-                self._resize_origin = event.pos()
-                view = _get_view(self)
-                if view and hasattr(view, '_save_pre_action_snapshot'):
-                    view._save_pre_action_snapshot()
+                self._begin_handle_drag(corner, event.scenePos())
                 event.accept()
                 return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if self._resizing:
-            dx = event.pos().x() - self._resize_origin.x()
-            dy = event.pos().y() - self._resize_origin.y()
-            self._resize_origin = event.pos()
-            self._apply_resize_delta(dx, dy, self._resize_corner)
-            view = _get_view(self)
-            if view and hasattr(view, 'arrow_update_needed'):
-                view.arrow_update_needed.emit()
-            if view and hasattr(view, 'mark_dirty'):
-                view.mark_dirty()
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            self._update_handle_drag(event.scenePos(), shift)
         else:
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
         if self._resizing:
-            self._resizing = False
-            view = _get_view(self)
-            if view and hasattr(view, '_commit_pre_action_snapshot'):
-                view._commit_pre_action_snapshot()
+            self._finish_handle_drag()
             event.accept()
             return
         super().mouseReleaseEvent(event)

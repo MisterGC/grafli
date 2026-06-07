@@ -188,6 +188,9 @@ class MainWindow(QMainWindow):
         if action_id == "export_flow_pdf":
             self._export_flow_pdf()
             return
+        if action_id == "export_flow_pptx":
+            self._export_flow_pptx()
+            return
         handler = actions.get(action_id)
         if handler:
             handler()
@@ -210,7 +213,7 @@ class MainWindow(QMainWindow):
         elif board and board.flows:
             flow_id = board.flows[0].id
         if not flow_id:
-            self._view._record_shortcut("no flow to present")
+            self._view.toast("No flow to present", "warn")
             return
 
         self._present_panel_visible = self._side_panel.isVisible()
@@ -240,26 +243,33 @@ class MainWindow(QMainWindow):
         if self._presenting:
             self._exit_present()
 
-    def _export_flow_pdf(self, flow=None):
-        """Export ``flow`` to a PDF; when not given, pick one (auto if single)."""
-        from PySide6.QtWidgets import QFileDialog, QInputDialog
+    def _pick_flow(self, flow=None):
+        """Return ``flow`` or let the user pick one (auto when there's a single
+        flow). Returns None when there are no flows or the picker is cancelled."""
+        from PySide6.QtWidgets import QInputDialog
         board = self._view.board
         flows = board.flows if board else []
         if not flows:
-            self._view._record_shortcut("no flows to export")
-            return
-        if flow is None:
-            if len(flows) == 1:
-                flow = flows[0]
-            else:
-                labels = [f"{f.label}  ({f.id})" for f in flows]
-                choice, ok = QInputDialog.getItem(
-                    self, "Export flow", "Flow:", labels, 0, False,
-                )
-                if not ok:
-                    return
-                flow = flows[labels.index(choice)]
+            self._view.toast("No flows to export", "warn")
+            return None
+        if flow is not None:
+            return flow
+        if len(flows) == 1:
+            return flows[0]
+        labels = [f"{f.label}  ({f.id})" for f in flows]
+        choice, ok = QInputDialog.getItem(
+            self, "Export flow", "Flow:", labels, 0, False,
+        )
+        if not ok:
+            return None
+        return flows[labels.index(choice)]
 
+    def _export_flow_pdf(self, flow=None):
+        """Export ``flow`` to a PDF; when not given, pick one (auto if single)."""
+        from PySide6.QtWidgets import QFileDialog
+        flow = self._pick_flow(flow)
+        if flow is None:
+            return
         default_name = ""
         if self._file_path:
             default_name = str(self._file_path.with_name(
@@ -271,11 +281,51 @@ class MainWindow(QMainWindow):
         if not path:
             return
         from grafli.pdfexport import export_flow_to_pdf
-        slides, overloaded = export_flow_to_pdf(self._view, flow, path)
-        msg = f"PDF exported ({slides} slides)"
+        try:
+            slides, overloaded = export_flow_to_pdf(self._view, flow, path)
+        except Exception as exc:  # surface any render/IO failure
+            self._view.toast(f"PDF export failed: {exc}", "error")
+            return
+        msg = f"PDF exported · {slides} slides"
         if overloaded:
             msg += f" · {len(overloaded)} overloaded — trim or split"
-        self._view._record_shortcut(msg)
+        self._view.toast(msg, "warn" if overloaded else "info")
+
+    def _export_flow_pptx(self, flow=None):
+        """Export ``flow`` to an editable PowerPoint; pick the flow (auto if
+        single) and the theme preset (grafli vs blank)."""
+        from PySide6.QtWidgets import QFileDialog, QInputDialog
+        flow = self._pick_flow(flow)
+        if flow is None:
+            return
+        themes = ["grafli  (branded)", "blank  (neutral, for templates)"]
+        choice, ok = QInputDialog.getItem(
+            self, "Export flow to PPTX", "Theme:", themes, 0, False,
+        )
+        if not ok:
+            return
+        theme = "grafli" if choice == themes[0] else "blank"
+        default_name = ""
+        if self._file_path:
+            default_name = str(self._file_path.with_name(
+                f"{self._file_path.stem}-{flow.id}.pptx"))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export flow to PPTX", default_name,
+            "PowerPoint files (*.pptx);;All Files (*)",
+        )
+        if not path:
+            return
+        from grafli.pptxexport import export_flow_to_pptx
+        try:
+            slides, overloaded = export_flow_to_pptx(self._view, flow, path,
+                                                     theme=theme)
+        except Exception as exc:  # surface any render/IO failure
+            self._view.toast(f"PPTX export failed: {exc}", "error")
+            return
+        msg = f"PPTX exported · {slides} slides"
+        if overloaded:
+            msg += f" · {len(overloaded)} overloaded — trim or split"
+        self._view.toast(msg, "warn" if overloaded else "info")
 
     def _setup_shortcuts(self):
         self._view.mode_changed.connect(self._on_mode_changed)
@@ -690,12 +740,18 @@ class MainWindow(QMainWindow):
         if self.board and self._file_path:
             self._write_file()
 
-    def _write_file(self):
+    def _write_file(self) -> bool:
         if not self.board or not self._file_path:
-            return
+            return False
         text = serialize(self.board)
+        try:
+            self._file_path.write_text(text, encoding="utf-8")
+        except OSError as exc:
+            # Autosave and manual save both land here — a sticky error toast so
+            # a failing write (read-only dir, full disk) can't pass unnoticed.
+            self._view.toast(f"Save failed: {exc}", "error")
+            return False
         self._last_written = text
-        self._file_path.write_text(text, encoding="utf-8")
         self._view._dirty = False
         # Update mtime in active buffer
         buf = self._buffers.active
@@ -704,6 +760,7 @@ class MainWindow(QMainWindow):
             buf.last_written = text
         if self._file_path:
             self.setWindowTitle(self._title_for_path(self._file_path))
+        return True
 
     def _save_file(self):
         if not self.board:
@@ -721,7 +778,8 @@ class MainWindow(QMainWindow):
                 buf.file_path = self._file_path
             self._start_watching()
 
-        self._write_file()
+        if self._write_file():
+            self._view.toast(f"Saved {self._file_path.name}")
 
     def _start_watching(self):
         self._stop_watching()
@@ -1237,22 +1295,28 @@ def _cmd_render(argv: list[str]) -> int:
 def _cmd_export(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="grafli export",
-        description="Export a flow as a slide-style PDF presentation.",
+        description="Export a flow as a slide-style presentation (PDF or PPTX).",
     )
     parser.add_argument("input", type=Path, help="Input .grafli file")
-    parser.add_argument("output", type=Path, help="Output .pdf")
+    parser.add_argument("output", type=Path, help="Output .pdf or .pptx")
     parser.add_argument(
         "--flow", default=None,
         help="Flow id to export (default: the only flow; required if several)",
+    )
+    parser.add_argument(
+        "--theme", default="grafli", choices=("grafli", "blank"),
+        help="PPTX theme: 'grafli' (default, branded) or 'blank' (neutral, "
+             "best base for applying a corporate template). Ignored for PDF.",
     )
     args = parser.parse_args(argv)
 
     if not args.input.exists():
         print(f"Input not found: {args.input}", file=sys.stderr)
         return 2
-    if args.output.suffix.lower() != ".pdf":
-        print(f"Unsupported output format: {args.output.suffix} (expected .pdf)",
-              file=sys.stderr)
+    suffix = args.output.suffix.lower()
+    if suffix not in (".pdf", ".pptx"):
+        print(f"Unsupported output format: {args.output.suffix} "
+              f"(expected .pdf or .pptx)", file=sys.stderr)
         return 2
 
     text = args.input.resolve().read_text(encoding="utf-8")
@@ -1278,10 +1342,15 @@ def _cmd_export(argv: list[str]) -> int:
     app = QApplication.instance() or QApplication([])
     _register_bundled_fonts()
     from grafli.view import GrafliView
-    from grafli.pdfexport import export_flow_to_pdf
     view = GrafliView()
     view.load_board(board)
-    slides, overloaded = export_flow_to_pdf(view, flow, args.output)
+    if suffix == ".pptx":
+        from grafli.pptxexport import export_flow_to_pptx
+        slides, overloaded = export_flow_to_pptx(view, flow, args.output,
+                                                 theme=args.theme)
+    else:
+        from grafli.pdfexport import export_flow_to_pdf
+        slides, overloaded = export_flow_to_pdf(view, flow, args.output)
     print(f"Wrote {args.output} ({slides} slides)", file=sys.stderr)
     if overloaded:
         where = ", ".join(f"#{i + 1} {lbl}".strip() for i, lbl in overloaded)

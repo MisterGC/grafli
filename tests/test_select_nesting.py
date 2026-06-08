@@ -146,3 +146,23 @@ def test_drag_onto_box_still_reparents():
     board = view.board
     _drag(view, "box1", "box2")
     assert board.box_by_id("box1").parent == "box2"
+
+
+def test_multiselect_move_does_not_reparent_into_a_sibling():
+    # Regression: moving a multi-selection must just relocate the items
+    # together — never nest the group into whichever selected member happens
+    # to sit under the cursor on release (which previously made the last-
+    # selected box "absorb" all the others).
+    view = _view(_SIBLINGS)
+    board = view.board
+    a, b = view._box_items["box1"], view._box_items["box2"]
+    a.setSelected(True)
+    b.setSelected(True)
+    view._drag_moved = True   # a real move just happened
+    pos = _vp(view, b.sceneBoundingRect().center())   # cursor over sibling box2
+    view.mouseReleaseEvent(_evt(view, QEvent.Type.MouseButtonRelease, pos,
+                                Qt.MouseButton.LeftButton,
+                                Qt.MouseButton.NoButton,
+                                Qt.KeyboardModifier.NoModifier))
+    assert board.box_by_id("box1").parent == ""
+    assert board.box_by_id("box2").parent == ""

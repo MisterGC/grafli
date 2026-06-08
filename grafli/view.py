@@ -3180,9 +3180,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 # changes the selection and must not nest items under the cursor.
                 if self._drag_moved:
                     cursor_scene = self.mapToScene(event.position().toPoint())
-                    for item in self._scene.selectedItems():
-                        if isinstance(item, (BoxItem, NoteItem, ImageItem)):
-                            self._check_nesting(item, cursor_scene)
+                    selected = [
+                        i for i in self._scene.selectedItems()
+                        if isinstance(i, (BoxItem, NoteItem, ImageItem))
+                    ]
+                    # Reparent only when a single item is dragged — mirrors the
+                    # drag preview (_update_reparent_highlight, single-selection
+                    # only). Moving a multi-selection just relocates the items
+                    # together; nesting the whole group into whichever member
+                    # happens to sit under the cursor is never intended.
+                    if len(selected) == 1:
+                        self._check_nesting(selected[0], cursor_scene)
                 self._commit_pre_action_snapshot()
                 self._drag_moved = False
         elif self._mode == Mode.RECT:

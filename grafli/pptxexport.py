@@ -38,7 +38,7 @@ from PySide6.QtGui import QFont, QImage, QPainter, QTextDocument
 
 from grafli.constants import FONT_FAMILY, resolve_textsize_px
 from grafli.flows import isolate_focus, render_thumbnail_art
-from grafli.md_note import is_md_note, md_body
+from grafli.md_note import note_is_md, note_md_body
 from grafli.slideplan import SlidePlan, build_slide_plan, playback_text_fit
 
 # PowerPoint 16:9 canvas in points — same fixed geometry as the PDF exporter, so
@@ -493,8 +493,8 @@ def _build_text_hero(slide, hero: QRectF, plan: SlidePlan) -> bool:
     its font scaled by the same factor (capped at ``_BODY_MAX_PT``). A note too
     dense for that falls back to the band's shrink-to-fit over the full hero."""
     note = plan.text_note
-    is_md = is_md_note(note.text)
-    body = md_body(note.text) if is_md else note.text
+    is_md = note_is_md(note)
+    body = note_md_body(note) if is_md else note.text
     fit = playback_text_fit(resolve_textsize_px(note.textsize, ""),
                             plan.text_rect, hero, _BODY_BAND[0], _BODY_MAX_PT)
     if fit is not None:
@@ -524,8 +524,8 @@ def _build_note_overlay(slide, item, source: QRectF, fitted: QRectF,
     nr_area = (nr.width() * nr.height()) or 1.0
     if inter.isEmpty() or (inter.width() * inter.height()) < 0.55 * nr_area:
         return False
-    is_md = is_md_note(note.text)
-    body = md_body(note.text) if is_md else note.text
+    is_md = note_is_md(note)
+    body = note_md_body(note) if is_md else note.text
     mapped = QRectF(fitted.left() + (nr.left() - source.left()) * scale,
                     fitted.top() + (nr.top() - source.top()) * scale,
                     nr.width() * scale, nr.height() * scale)

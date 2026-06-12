@@ -1140,19 +1140,27 @@ def test_parse_note_with_newlines():
     assert board.notes[0].text == "line one\nline two"
 
 
-def test_serialize_note_with_newlines():
+def test_serialize_note_with_newlines_uses_block_form():
+    # Multiline text defaults to the triple-quoted block so prose diffs
+    # line-by-line instead of collapsing into one \\n-escaped line.
     note = Note(id="n1", x=100, y=200, text="line one\nline two")
     board = Board()
     board.add_note(note)
     text = serialize(board)
-    assert r'@ note n1 100,200 "line one\nline two"' in text
+    assert '@ note n1 100,200 """\nline one\nline two\n"""' in text
 
 
 def test_note_newline_roundtrip():
+    # Legacy \\n-escaped form parses; it re-serializes as a block (the new
+    # default) and round-trips stably from there.
     text = r'@ note n1 100,200 "first\nsecond\nthird"' + "\n"
     board = parse(text)
     assert board.notes[0].text == "first\nsecond\nthird"
-    assert serialize(board) == HEADER + "\n" + text
+    out = serialize(board)
+    assert '@ note n1 100,200 """\nfirst\nsecond\nthird\n"""' in out
+    again = parse(out)
+    assert again.notes[0].text == "first\nsecond\nthird"
+    assert serialize(again) == out
 
 
 # ── Note parent tests ──────────────────────────────────────

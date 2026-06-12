@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Typed vault attachments; markdown notes become doc-bodied** ([#95]).
+  The single `&url` attachment grows explicit kinds: `&link:<url>`
+  (opens externally — the only kind that may point outside the board),
+  `&doc:<name>` (a markdown document in the board's `<stem>-res/`
+  vault) and `&graph:<name>` (a sub-board in the vault). A doc attached
+  to a *note* renders as its body — that is what a markdown note now
+  is: `@ note arch 600,0 &doc` plus a pristine `arch.md`, so prose
+  diffs line-by-line in git and agents can read/rewrite a note without
+  touching the board. Inline `md:` notes keep parsing forever and
+  auto-convert on first save (announced via toast); legacy `&url`
+  values classify on load and normalize on save. Multiline inline
+  notes now default to the `"""` block form. Doc lifecycle: deleting
+  an element keeps its doc (with a hint), Shift+Delete removes the doc
+  too (refusing while shared; undo restores body and file), and the
+  new `grafli vault <file>` CLI lists referenced / missing /
+  unreferenced docs with `--clean` / `--delete <name>` for explicit
+  removal. External edits to vault docs live-reload via one
+  consolidated watcher; `grafli diagnose` reports missing and
+  unreferenced docs.
+
 ### Fixed
 - **Crisp flow / step previews on hi-dpi displays.** The Flows panel
   thumbnails were painted at logical resolution and upscaled by the
@@ -146,6 +167,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#34]: https://github.com/MisterGC/grafli/issues/34
 [#65]: https://github.com/MisterGC/grafli/issues/65
 [#66]: https://github.com/MisterGC/grafli/issues/66
+[#95]: https://github.com/MisterGC/grafli/issues/95
 
 ## [0.2.0] - 2026-05-05
 

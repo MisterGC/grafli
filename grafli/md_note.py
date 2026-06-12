@@ -1,12 +1,18 @@
 """Markdown rendering for text notes.
 
-Notes whose first non-empty line starts with ``md:`` (or ``markdown:``)
-render as a small block of formatted Markdown in display mode. The
-prefix is stripped from display; everything after it is the body.
+A note is markdown in one of two ways:
 
-This is for prose annotations with light structure — a sibling to the
-``code:`` note. It is *not* meant to grow into a document: the
-recommended subset is the GFM-flavoured one documented in
+- **Doc-bodied** (``attach_kind == "doc"``): the body lives in a vault
+  ``.md`` file and is markdown by definition — no sentinel in the file.
+  This is the canonical form; inline ``md:`` notes convert to it on save.
+- **Inline legacy**: the first non-empty line starts with ``md:`` (or
+  ``markdown:``); the prefix is stripped from display.
+
+Use ``note_is_md`` / ``note_md_body`` when a Note object is at hand —
+they cover both forms; the text-based ``is_md_note`` / ``md_body`` remain
+for raw strings (editors, migration).
+
+The recommended subset is the GFM-flavoured one documented in
 ``docs/text-annotations.md`` (headings, lists, task lists, blockquotes,
 horizontal rules, fenced code, plus inline bold / italic / code / links
 / strikethrough). Anything heavier (tables, images, raw HTML) is parsed
@@ -41,6 +47,18 @@ def is_md_note(text: str) -> bool:
             continue
         return _matched_prefix(stripped) is not None
     return False
+
+
+def note_is_md(note) -> bool:
+    """Return True if the Note renders as markdown (doc-bodied or ``md:``)."""
+    return getattr(note, "attach_kind", "") == "doc" or is_md_note(note.text)
+
+
+def note_md_body(note) -> str:
+    """The Note's markdown body — doc bodies are already prefix-free."""
+    if getattr(note, "attach_kind", "") == "doc":
+        return note.text
+    return md_body(note.text)
 
 
 def md_body(text: str) -> str:

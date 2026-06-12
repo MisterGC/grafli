@@ -86,13 +86,19 @@ any `@ box` / `@ arrow` / `@ note` lines:
 
 ```
 # Comments and titles
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!style] [&url] [>parent] [# annotation]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!style] [&attach] [>parent] [# annotation]
 @ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [!style] [~size] [# annotation]
-@ note <id> <x>,<y> "<text>" [~size] [&url] [>parent] [# annotation]
+@ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
+@ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [# annotation]
 @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
 @ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
 ```
+
+`&attach` is a typed attachment: `&link:<url>` (the only kind that may
+point outside the board), `&doc:<name>` (a markdown document at
+`<stem>-res/<name>.md`), or `&graph:<name>` (a sub-board at
+`<stem>-res/<name>.grafli`). See "Attachments" below.
 
 The last two are **flows** — see "Explanatory flows" below. A file that
 uses them carries a `#!grafli v2` header (emitted automatically).
@@ -157,7 +163,7 @@ catches them before the user opens the file.
 ## Box syntax
 
 ```
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat] [&url] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat] [&attach] [>parent]
 ```
 
 | Modifier | Values | Effect |
@@ -166,7 +172,7 @@ catches them before the user opens the file.
 | `^anchor` | `^topleft`, `^topcenter` | label alignment (default: center) |
 | `~size` | `~small`, `~large`, `~xlarge`, `~xxlarge`, `~xxxlarge` | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |
-| `&url` | any URL | link (opens in browser with Return key) |
+| `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>` | typed attachment (see "Attachments") |
 | `>parent` | `>parent_id` | nest inside parent box |
 
 Container behavior: when a box has children, its anchor auto-switches
@@ -211,8 +217,18 @@ Arrows auto-route from box edge to box edge. Opposite arrows
 ## Note syntax
 
 ```
-@ note <id> <x>,<y> "<text>" [~size] [&url] [>parent]
+@ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent]
+@ note <id> <x>,<y> [~size] &doc [>parent]
 ```
+
+The second form is a **doc-bodied note**: the line carries only geometry
+and presentation, and the body is the markdown file `<stem>-res/<id>.md`
+(or `&doc:<name>` for an explicit name — several notes naming the same
+doc share one body). This is the canonical form for markdown notes: the
+file is pristine markdown with no `md:` sentinel, edits to it diff
+line-by-line in git, and you can read/rewrite the prose without touching
+the board. Create one by writing the `.md` into the vault and adding the
+`&doc` line.
 
 Notes render as badge-style labels with a light background. Color is
 determined automatically by semantic prefix:
@@ -230,7 +246,7 @@ regardless of how it was typed.
 |----------|--------|--------|
 | `~size` | `~small`, `~large`, `~xlarge`, `~xxlarge`, `~xxxlarge` | text size |
 | `~width=N` | integer, `N` chars per line | soft-wrap width (default 80) |
-| `&url` | any URL | link |
+| `&attach` | `&link:<url>`, `&doc[:<name>]`, `&graph:<name>` | typed attachment; `&doc` makes the note doc-bodied |
 | `>parent` | `>parent_id` | nest inside parent box |
 
 **Auto-wrap.** Plain-text and code-mode notes wrap at `~width` chars
@@ -356,12 +372,17 @@ Rules of thumb:
 
 ### Markdown-mode notes (`md:`)
 
-A note whose first non-empty line is `md:` (or `markdown:`) renders its
-body as a small subset of Markdown. Use it for **prose annotations with
-light structure** — rationale, checklists, review notes — where
-code-mode would be the wrong shape and a plain note too flat. It's a
-sibling of code-mode: a formatted block on the same beige plate, with
-near-black body text.
+A markdown note renders its body as a small subset of Markdown. Use it
+for **prose annotations with light structure** — rationale, checklists,
+review notes — where code-mode would be the wrong shape and a plain note
+too flat. It's a sibling of code-mode: a formatted block on the same
+beige plate, with near-black body text.
+
+**Canonical form: doc-bodied** — `@ note <id> <x>,<y> &doc` with the
+body in `<stem>-res/<id>.md` (pristine markdown, no sentinel). Prefer it
+when authoring: write the `.md` file, then the one-line note. The legacy
+inline form — first non-empty line `md:` (or `markdown:`) — still parses
+everywhere and is auto-converted to doc-bodied on the app's first save.
 
 Supported (GitHub-flavoured) subset:
 
@@ -738,15 +759,32 @@ Place notes deliberately:
 * Keep notes short — if you need a paragraph, it belongs in
   documentation, not on the diagram.
 
-### Links (`&url`)
+### Attachments (`&`)
+
+Every element can carry **one** typed attachment:
 
 ```
-@ box api "API" 100,100 200x100 &https://docs.example.com
-@ note n1 100,250 "See spec" &https://spec.example.com
+@ box api "API" 100,100 200x100 &link:https://docs.example.com
+@ box orders "Orders" 100,250 200x100 &doc:orders-spec
+@ box auth "Auth" 100,400 200x100 &graph:auth-flow
+@ note n1 350,100 "See spec" &link:https://spec.example.com
+@ note plan 350,250 &doc
 ```
 
-`&url` is distinct from `# annotation`: a URL is a clickable link
-visible to the viewer; an annotation is invisible authoring metadata.
+- `&link:<url>` — opens externally; the **only** kind that may point
+  outside the board.
+- `&doc:<name>` — a markdown document at `<stem>-res/<name>.md` (bare
+  name, no path/extension). On a **note** it is rendered as the body
+  (that's what a markdown note is — bare `&doc` names it after the note
+  id); on a box/image/arrow it opens in the editor.
+- `&graph:<name>` — a sub-board at `<stem>-res/<name>.grafli`; its own
+  resources nest at `<stem>-res/<name>-res/`.
+
+Content attachments live only in the `<stem>-res/` vault, so a board
+plus its vault is the complete, copyable unit. Legacy untyped `&url`
+values still parse and are classified on load. An attachment is distinct
+from `# annotation`: it's visible/clickable; an annotation is invisible
+authoring metadata.
 
 ## 6. Common patterns
 
@@ -827,12 +865,12 @@ When using multiple arrow styles or color meanings, add a legend.
 ### Sub-graflis
 
 If a single box's internal logic would need 5+ children to depict,
-link a sub-grafli with `&path.grafli` instead of stuffing it into
-the parent diagram. The sub-grafli renders as its own canvas; the
-viewer follows the link.
+link a sub-grafli with `&graph:<name>` instead of stuffing it into
+the parent diagram. The sub-board lives at `<stem>-res/<name>.grafli`,
+renders as its own canvas, and the viewer follows the link.
 
 ```
-@ box orders "Order Processing" 100,100 220x100 &orders-flow.grafli
+@ box orders "Order Processing" 100,100 220x100 &graph:orders-flow
 ```
 
 ## 7. Things to avoid

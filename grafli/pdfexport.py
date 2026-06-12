@@ -40,7 +40,7 @@ from grafli.constants import (
     resolve_textsize_px,
 )
 from grafli.flows import isolate_focus, render_thumbnail_art
-from grafli.md_note import is_md_note, md_body
+from grafli.md_note import note_is_md, note_md_body
 # Slide-typing/decision layer is shared with the PPTX exporter. ``_container_box``
 # and ``_slide_source`` are re-exported here for the existing pdfexport tests.
 from grafli.slideplan import (  # noqa: F401
@@ -327,8 +327,8 @@ def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
     scene scale already baked into ``mapped`` so it matches the diagram. Returns
     True when the note renders below the readable floor (an overload signal)."""
     note = item.note
-    is_md = is_md_note(note.text)
-    body = md_body(note.text) if is_md else note.text
+    is_md = note_is_md(note)
+    body = note_md_body(note) if is_md else note.text
     # Scale the note's on-canvas font by the same factor the diagram region was
     # scaled (mapped width / scene width), so the text keeps its relative size.
     scene_w = item.sceneBoundingRect().width() or 1.0
@@ -488,8 +488,8 @@ def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float,
     Thin wrapper over :func:`_draw_markdown`.
     """
     # Notes opt into markdown via a ``md:`` prefix; otherwise render verbatim.
-    is_md = is_md_note(note.text)
-    body = md_body(note.text) if is_md else note.text
+    is_md = note_is_md(note)
+    body = note_md_body(note) if is_md else note.text
     fit = playback_text_fit(resolve_textsize_px(note.textsize, ""), text_rect,
                             hero, _BODY_BAND[0] * px_per_pt,
                             _BODY_MAX_PT * px_per_pt)

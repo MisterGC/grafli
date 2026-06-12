@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 
 from grafli.buffers import BufferManager, BufferState, ViewState
 from grafli.constants import Mode
-from grafli.filewatcher import JsonSafeWatcher
+from grafli.filewatcher import JsonSafeWatcher, MultiFileWatcher
 from grafli.format import Board, merge_box_positions, parse, serialize
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
 from grafli.sidepanel import PanelToggleButton, SidePanel
@@ -73,6 +73,7 @@ class MainWindow(QMainWindow):
 
         self._file_path: Path | None = None
         self._watcher: JsonSafeWatcher | None = None
+        self._docs_watcher: MultiFileWatcher | None = None
         self._buffers = BufferManager()
 
         self._autosave_timer = QTimer(self)
@@ -513,6 +514,7 @@ class MainWindow(QMainWindow):
         if migrate_all(path, board):
             text = serialize(board)
             path.write_text(text, encoding="utf-8")
+        missing = _load_vault(path, board)
         mtime = self._get_mtime(path)
         vs = ViewState()
         buf = BufferState(
@@ -523,6 +525,11 @@ class MainWindow(QMainWindow):
         self._snapshot_current()
         idx = self._buffers.add(buf)
         self._switch_buffer(idx, zoom_fit=True)
+        if missing:
+            self._view.toast(
+                "Missing vault doc"
+                + ("s" if len(missing) > 1 else "")
+                + ": " + ", ".join(f"{m}.md" for m in missing), "warn")
 
     def _snapshot_current(self):
         """Snapshot the current buffer state before switching away."""
@@ -571,6 +578,11 @@ class MainWindow(QMainWindow):
         # paths (relative to the file's directory) instead of falling back to
         # grey placeholders.
         self._file_path = buf.file_path
+        # Re-read vault doc bodies: they may have changed on disk while this
+        # buffer was inactive (the .grafli mtime check above can't see that).
+        # Safe — _snapshot_current flushed any pending autosave before leaving.
+        if buf.file_path is not None:
+            _load_vault(buf.file_path, buf.board)
         self._view.load_board(buf.board)
         self._view.restore_state(buf.view_state)
         self._last_written = buf.last_written
@@ -791,6 +803,18 @@ class MainWindow(QMainWindow):
     def _write_file(self) -> bool:
         if not self.board or not self._file_path:
             return False
+        from grafli.resources import (classify_attachments, externalize_md_notes,
+                                      res_dir, save_docs)
+        # Save is the migration moment (opening never mutates the working
+        # tree): inline md: notes become doc-bodied, legacy &url attachments
+        # take their kind, and doc bodies land in the vault.
+        externalized = externalize_md_notes(self.board)
+        classify_attachments(self._file_path, self.board)
+        try:
+            save_docs(self._file_path, self.board)
+        except OSError as exc:
+            self._view.toast(f"Save failed: {exc}", "error")
+            return False
         text = serialize(self.board)
         try:
             self._file_path.write_text(text, encoding="utf-8")
@@ -799,6 +823,15 @@ class MainWindow(QMainWindow):
             # a failing write (read-only dir, full disk) can't pass unnoticed.
             self._view.toast(f"Save failed: {exc}", "error")
             return False
+        if externalized:
+            self._view.toast(
+                f"Externalized {externalized} note"
+                + ("s" if externalized != 1 else "")
+                + f" → {res_dir(self._file_path).name}/")
+        # Doc files just changed under our own hand — re-baseline the docs
+        # watcher (and pick up newly externalized docs) so the write doesn't
+        # echo back as an external change.
+        self._watch_docs()
         self._last_written = text
         self._view._dirty = False
         # Update mtime in active buffer
@@ -836,11 +869,41 @@ class MainWindow(QMainWindow):
         self._watcher = JsonSafeWatcher(str(self._file_path))
         self._watcher.file_changed.connect(self._on_file_changed)
         self._watcher.start()
+        self._watch_docs()
+
+    def _watch_docs(self):
+        """(Re)start the consolidated poller over the board's vault docs, so
+        external edits to a doc-bodied note's .md reload live — one timer for
+        all docs, re-baselined after our own writes."""
+        if self._docs_watcher:
+            self._docs_watcher.stop()
+            self._docs_watcher = None
+        if not self._file_path or not self.board:
+            return
+        from grafli.format import doc_name
+        from grafli.resources import doc_path
+        paths = [str(doc_path(self._file_path, doc_name(n)))
+                 for n in self.board.notes if n.attach_kind == "doc"]
+        if not paths:
+            return
+        self._docs_watcher = MultiFileWatcher(paths)
+        self._docs_watcher.files_changed.connect(self._on_docs_changed)
+        self._docs_watcher.start()
+
+    def _on_docs_changed(self, _changed: list):
+        if not self.board or not self._file_path:
+            return
+        from grafli.resources import load_docs
+        load_docs(self._file_path, self.board)
+        self._view.load_board(self.board)
 
     def _stop_watching(self):
         if self._watcher:
             self._watcher.stop()
             self._watcher = None
+        if self._docs_watcher:
+            self._docs_watcher.stop()
+            self._docs_watcher = None
 
     def _on_file_changed(self):
         if not self._file_path or not self._file_path.exists():
@@ -865,7 +928,9 @@ class MainWindow(QMainWindow):
                 prev_disk = None
             merge_box_positions(new_board, prev_disk, self.board)
 
+        _load_vault(self._file_path, new_board)
         self._view.load_board(new_board)
+        self._watch_docs()
         self._view.mark_clean()
         self._last_written = text
         buf = self._buffers.active
@@ -927,6 +992,15 @@ class MainWindow(QMainWindow):
 # ── Entry point ─────────────────────────────────────────────────
 
 _SERVER_NAME = "grafli-instance"
+
+
+def _load_vault(path: Path, board: Board) -> list[str]:
+    """Resolve a freshly parsed board against its vault: classify legacy
+    untyped attachments and read doc-bodied note texts from <stem>-res/.
+    In-memory only — never writes. Returns the names of missing docs."""
+    from grafli.resources import classify_attachments, load_docs
+    classify_attachments(path, board)
+    return load_docs(path, board)
 
 
 def _register_bundled_fonts():
@@ -1388,6 +1462,9 @@ def _cmd_export(argv: list[str]) -> int:
 
     text = args.input.resolve().read_text(encoding="utf-8")
     board = parse(text)
+    missing = _load_vault(args.input.resolve(), board)
+    for name in missing:
+        print(f"Warning: missing vault doc {name}.md", file=sys.stderr)
     if not board.flows:
         print("No flows in this file — nothing to export.", file=sys.stderr)
         return 1
@@ -1509,6 +1586,25 @@ def _cmd_diagnose(argv: list[str]) -> int:
         note_rect=note_rect,
         arrow_label_size=arrow_label_size,
     )
+    # Vault integrity: referenced docs whose file is gone (error — a doc-bodied
+    # note would render blank) and unreferenced docs (info — legitimate state).
+    from grafli.diagnostics import Diagnostic
+    from grafli.resources import classify_attachments, vault_docs
+    classify_attachments(args.input.resolve(), board)
+    inv = vault_docs(args.input.resolve(), board)
+    for name in inv["missing"]:
+        diags.append(Diagnostic(
+            code="missing-doc", severity="error",
+            message=f"vault doc {name}.md is referenced but missing",
+            item_ids=[name], fixable=False,
+        ))
+    for name in inv["unreferenced"]:
+        diags.append(Diagnostic(
+            code="unreferenced-doc", severity="info",
+            message=f"vault doc {name}.md is not referenced by any element "
+                    f"(grafli vault --clean removes it)",
+            item_ids=[name], fixable=False,
+        ))
 
     if args.json:
         print(_json.dumps([d.to_dict() for d in diags], indent=2))
@@ -1525,9 +1621,76 @@ def _cmd_diagnose(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_vault(argv: list[str]) -> int:
+    """Inspect / clean a board's vault (<stem>-res/ markdown docs)."""
+    from grafli.resources import classify_attachments, doc_path, vault_docs
+
+    parser = argparse.ArgumentParser(
+        prog="grafli vault",
+        description=(
+            "List a board's vault docs (referenced / missing / unreferenced). "
+            "Unreferenced docs are a legitimate state; removing them is this "
+            "explicit command, never automatic."
+        ),
+    )
+    parser.add_argument("input", type=Path, help="Input .grafli file")
+    parser.add_argument(
+        "--clean", action="store_true",
+        help="Delete unreferenced vault docs (lists what it removes)",
+    )
+    parser.add_argument(
+        "--delete", metavar="NAME", default=None,
+        help="Delete one doc by name (refuses while still referenced)",
+    )
+    args = parser.parse_args(argv)
+
+    if not args.input.exists():
+        print(f"Input not found: {args.input}", file=sys.stderr)
+        return 2
+
+    path = args.input.resolve()
+    board = parse(path.read_text(encoding="utf-8"))
+    classify_attachments(path, board)
+    inv = vault_docs(path, board)
+
+    if args.delete is not None:
+        name = args.delete.removesuffix(".md")
+        if name in inv["referenced"] or name in inv["missing"]:
+            print(f"Refusing: {name}.md is still referenced.", file=sys.stderr)
+            return 1
+        p = doc_path(path, name)
+        if not p.exists():
+            print(f"No such doc: {name}.md", file=sys.stderr)
+            return 2
+        p.unlink()
+        print(f"Deleted {p}")
+        return 0
+
+    if args.clean:
+        for name in inv["unreferenced"]:
+            p = doc_path(path, name)
+            try:
+                p.unlink()
+                print(f"Deleted {p}")
+            except OSError as exc:
+                print(f"Could not delete {p}: {exc}", file=sys.stderr)
+        if not inv["unreferenced"]:
+            print("Nothing to clean.")
+        return 0
+
+    for key, label in (("referenced", "referenced"), ("missing", "MISSING"),
+                       ("unreferenced", "unreferenced")):
+        for name in inv[key]:
+            print(f"{label:>12}  {name}.md")
+    if not any(inv.values()):
+        print("No vault docs.")
+    return 0
+
+
 def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
-    if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose", "export"):
+    if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
+                                              "export", "vault"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
         if sub == "skill":
@@ -1536,11 +1699,14 @@ def main():
             sys.exit(_cmd_render(rest))
         if sub == "export":
             sys.exit(_cmd_export(rest))
+        if sub == "vault":
+            sys.exit(_cmd_vault(rest))
         sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
-        description="Grafli whiteboard. Subcommands: skill, render, diagnose, export.",
+        description="Grafli whiteboard. Subcommands: skill, render, diagnose, "
+                    "export, vault.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

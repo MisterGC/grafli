@@ -12,9 +12,19 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" !dashed     (arrow styles: dashed/dotted/thick)
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
   @ arrow <from_id> -> <to_id> "label" ~kind=graph (connector kind: graph / annotation; default derives from endpoints)
-  @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&url] [>parent]
-  @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono] [&url] [>parent]
-  @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [&url]
+  @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&attach] [>parent]
+  @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono] [&attach] [>parent]
+  @ note <id> <x>,<y> [...] &doc [>parent]         (doc-bodied: body = <stem>-res/<id>.md)
+  @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [&attach]
+
+Attachments (&) carry an explicit kind: ``&link:<url>`` opens externally and
+is the only kind that may point outside the board; ``&doc:<name>`` is a
+markdown document and ``&graph:<name>`` a sub-board, both living in the
+board's ``<stem>-res/`` vault (bare names, no paths or extensions). A doc
+attached to a *note* is rendered as the note's body — that is what a
+markdown note is; attached to anything else it opens in the zen editor.
+Bare ``&doc`` names the doc after the element id. Legacy untyped ``&url``
+values parse forever and are classified to a kind on load.
   @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
   @ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... [~auto=<node_id>] ["<description>"]
   @ footer "<markdown>"                            (board-global PDF footer)
@@ -53,6 +63,12 @@ class Box:
     textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
     style: str = ""       # "" (node) or "flat"
     url: str = ""
+    # Attachment kind for ``url``: "link" (opens externally — the only kind
+    # that may point outside the board), "doc" (markdown document in the
+    # board's <stem>-res/ vault, value is the bare name without extension),
+    # "graph" (sub-board .grafli in the vault), or "" (legacy untyped &url,
+    # classified on load and normalized on save).
+    attach_kind: str = ""
     parent: str = ""
     annotation: str = ""
 
@@ -69,6 +85,7 @@ class Arrow:
     head_from: bool = False  # arrowhead at from_id end
     head_to: bool = True     # arrowhead at to_id end
     url: str = ""
+    attach_kind: str = ""    # see Box.attach_kind
     # Connector kind: "" derives from endpoints (a note endpoint ⇒ annotation,
     # box↔box ⇒ graph); "graph"/"annotation" override that default.
     kind: str = ""
@@ -88,6 +105,13 @@ class Note:
     textsize: str = ""
     style: str = ""       # "" (handwritten) or "mono"
     url: str = ""
+    # See Box.attach_kind. On a note, kind "doc" means the note is
+    # *doc-bodied*: its body lives at <stem>-res/<name>.md (name = ``url``,
+    # or the note id when ``url`` is empty — the bare ``&doc`` form) and is
+    # markdown by definition. ``text`` then holds the loaded body in memory
+    # and is not serialized inline (except for undo snapshots, see
+    # ``serialize(embed_doc_bodies=True)``).
+    attach_kind: str = ""
     parent: str = ""
     annotation: str = ""
     block_text: bool = False
@@ -109,6 +133,7 @@ class Image:
     h: float
     parent: str = ""
     url: str = ""
+    attach_kind: str = ""    # see Box.attach_kind
     annotation: str = ""     # deprecated — kept for migration parsing
 
 
@@ -311,6 +336,31 @@ class Board:
         self._lines = [(k, v) for k, v in self._lines if v is not flow]
 
 
+ATTACH_KINDS = ("link", "doc", "graph")
+
+
+def split_attach(raw: str) -> tuple[str, str]:
+    """Split a raw ``&`` token into (kind, value).
+
+    ``&link:<url>`` / ``&doc:<name>`` / ``&graph:<name>`` carry their kind
+    explicitly; bare ``&doc`` means "doc at the conventional name" (the
+    element id — resolved by the consumer). Anything else is a legacy
+    untyped url: kind "" with the raw value, classified later against the
+    board's vault by ``grafli.resources.classify_attachments``.
+    """
+    if raw == "doc":
+        return "doc", ""
+    for kind in ATTACH_KINDS:
+        if raw.startswith(kind + ":"):
+            return kind, raw[len(kind) + 1:]
+    return "", raw
+
+
+def doc_name(element) -> str:
+    """The vault doc name for a doc-attached element (bare ``&doc`` → id)."""
+    return element.url or getattr(element, "id", "")
+
+
 # ── Regex patterns ──────────────────────────────────────────────
 
 _RE_BOX = re.compile(
@@ -339,7 +389,8 @@ _RE_ARROW = re.compile(
 )
 
 _RE_NOTE = re.compile(
-    r'^@\s+note\s+(?:([a-zA-Z_]\S*)\s+)?(-?[\d.]+),\s*(-?[\d.]+)\s+"([^"]*)"'
+    r'^@\s+note\s+(?:([a-zA-Z_]\S*)\s+)?(-?[\d.]+),\s*(-?[\d.]+)'
+    r'(?:\s+"([^"]*)")?'    # text slot — absent on doc-bodied notes
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
     r'(?:\s+~width=(\d+))?'
@@ -462,6 +513,7 @@ def parse(text: str) -> Board:
             # The flags run tolerates legacy !ratio / !fit (now no-ops) so older
             # files still load; only !flat is honoured and re-serialized.
             flags = set(re.findall(r'!(\w+)', m.group(10) or ""))
+            kind, url = split_attach(m.group(11) or "") if m.group(11) else ("", "")
             box = Box(
                 id=m.group(1),
                 label=ensure_text_presentation(m.group(2).replace("\\n", "\n")),
@@ -473,7 +525,8 @@ def parse(text: str) -> Board:
                 anchor=m.group(8) or "",
                 textsize=m.group(9) or "",
                 style="flat" if "flat" in flags else "",
-                url=m.group(11) or "",
+                url=url,
+                attach_kind=kind,
                 parent=m.group(12) or "",
                 annotation=(m.group(13) or "").replace("\\n", "\n"),
             )
@@ -484,6 +537,7 @@ def parse(text: str) -> Board:
         m = _RE_ARROW.match(stripped)
         if m:
             op = m.group(2)
+            kind, url = split_attach(m.group(9) or "") if m.group(9) else ("", "")
             arrow = Arrow(
                 from_id=m.group(1),
                 to_id=m.group(3),
@@ -494,7 +548,8 @@ def parse(text: str) -> Board:
                 textsize=m.group(8) or "",
                 head_from=op in ("<->", "<-"),
                 head_to=op in ("<->", "->"),
-                url=m.group(9) or "",
+                url=url,
+                attach_kind=kind,
                 kind=m.group(10) or "",
                 annotation=(m.group(11) or "").replace("\\n", "\n"),
             )
@@ -519,6 +574,8 @@ def parse(text: str) -> Board:
 
             sm = _RE_NOTE_BLOCK_SUFFIX.match(suffix.strip())
             if sm:
+                kind, url = (split_attach(sm.group(5) or "")
+                             if sm.group(5) else ("", ""))
                 note = Note(
                     id=note_id,
                     x=x,
@@ -530,7 +587,8 @@ def parse(text: str) -> Board:
                                                 else DEFAULT_NOTE_WRAP_CHARS,
                     wrap_chars_explicit=bool(sm.group(3)),
                     style=sm.group(4) or "",
-                    url=sm.group(5) or "",
+                    url=url,
+                    attach_kind=kind,
                     parent=sm.group(6) or "",
                     annotation=(sm.group(7) or "").replace("\\n", "\n"),
                     block_text=True,
@@ -552,18 +610,21 @@ def parse(text: str) -> Board:
 
         m = _RE_NOTE.match(stripped)
         if m:
+            kind, url = split_attach(m.group(9) or "") if m.group(9) else ("", "")
             note = Note(
                 id=m.group(1) or "",
                 x=float(m.group(2)),
                 y=float(m.group(3)),
-                text=ensure_text_presentation(m.group(4).replace("\\n", "\n")),
+                text=ensure_text_presentation(
+                    (m.group(4) or "").replace("\\n", "\n")),
                 color=m.group(5) or "",
                 textsize=m.group(6) or "",
                 wrap_chars=int(m.group(7)) if m.group(7)
                                             else DEFAULT_NOTE_WRAP_CHARS,
                 wrap_chars_explicit=bool(m.group(7)),
                 style=m.group(8) or "",
-                url=m.group(9) or "",
+                url=url,
+                attach_kind=kind,
                 parent=m.group(10) or "",
                 annotation=(m.group(11) or "").replace("\\n", "\n"),
             )
@@ -625,6 +686,7 @@ def parse(text: str) -> Board:
 
         m = _RE_IMAGE.match(stripped)
         if m:
+            kind, url = split_attach(m.group(8) or "") if m.group(8) else ("", "")
             image = Image(
                 id=m.group(1),
                 image_path=m.group(2),
@@ -633,7 +695,8 @@ def parse(text: str) -> Board:
                 w=float(m.group(5)),
                 h=float(m.group(6)),
                 parent=m.group(7) or "",
-                url=m.group(8) or "",
+                url=url,
+                attach_kind=kind,
                 annotation=(m.group(9) or "").replace("\\n", "\n"),
             )
             board.images.append(image)
@@ -671,6 +734,25 @@ def _q(value: float) -> int:
     return round(value)
 
 
+def _attach_token(el, bare_doc_id: str | None = None) -> str:
+    """The serialized ``&`` token for an element's attachment, or "".
+
+    Typed kinds spell themselves out (``&link:…`` / ``&doc:…`` / ``&graph:…``);
+    a doc named like the element id collapses to the bare ``&doc`` form when
+    ``bare_doc_id`` is given. A legacy untyped url round-trips verbatim until
+    classification (resources.classify_attachments) assigns it a kind.
+    """
+    kind = el.attach_kind
+    if kind == "doc":
+        name = el.url
+        if bare_doc_id is not None and name in ("", bare_doc_id):
+            return " &doc"
+        return f" &doc:{name}"
+    if kind in ("link", "graph"):
+        return f" &{kind}:{el.url}" if el.url else ""
+    return f" &{el.url}" if el.url else ""
+
+
 def _serialize_box(box: Box) -> str:
     x = _q(box.x)
     y = _q(box.y)
@@ -686,8 +768,7 @@ def _serialize_box(box: Box) -> str:
         s += f" ~{box.textsize}"
     if box.style:
         s += f" !{box.style}"
-    if box.url:
-        s += f" &{box.url}"
+    s += _attach_token(box)
     if box.parent:
         s += f" >{box.parent}"
     return s
@@ -713,38 +794,15 @@ def _serialize_arrow(arrow: Arrow) -> str:
         base += f" !{arrow.style}"
     if arrow.textsize:
         base += f" ~{arrow.textsize}"
-    if arrow.url:
-        base += f" &{arrow.url}"
+    base += _attach_token(arrow)
     if arrow.kind:
         base += f" ~kind={arrow.kind}"
     return base
 
 
-def _serialize_note(note: Note) -> str:
-    x = _q(note.x)
-    y = _q(note.y)
-    use_block = note.block_text or '"' in note.text
-    if use_block:
-        parts = [f'@ note {note.id} {x},{y} """']
-        parts.append(note.text)
-        suffix = '"""'
-        if note.color:
-            suffix += f" {note.color}"
-        if note.textsize:
-            suffix += f" ~{note.textsize}"
-        if note.wrap_chars_explicit:
-            suffix += f" ~width={note.wrap_chars}"
-        if note.style:
-            suffix += f" !{note.style}"
-        if note.url:
-            suffix += f" &{note.url}"
-        if note.parent:
-            suffix += f" >{note.parent}"
-        parts.append(suffix)
-        return "\n".join(parts)
-
-    escaped_text = note.text.replace("\n", "\\n")
-    s = f'@ note {note.id} {x},{y} "{escaped_text}"'
+def _note_attrs(note: Note) -> str:
+    """The shared attribute tail of a note line (everything after the text)."""
+    s = ""
     if note.color:
         s += f" {note.color}"
     if note.textsize:
@@ -753,11 +811,30 @@ def _serialize_note(note: Note) -> str:
         s += f" ~width={note.wrap_chars}"
     if note.style:
         s += f" !{note.style}"
-    if note.url:
-        s += f" &{note.url}"
+    s += _attach_token(note, bare_doc_id=note.id)
     if note.parent:
         s += f" >{note.parent}"
     return s
+
+
+def _serialize_note(note: Note, embed_doc_bodies: bool = False) -> str:
+    x = _q(note.x)
+    y = _q(note.y)
+    # A doc-bodied note's text lives in its vault .md — the line carries only
+    # geometry/presentation. Undo snapshots (embed_doc_bodies) inline the body
+    # so undo/redo can restore it without touching the filesystem.
+    if note.attach_kind == "doc" and not embed_doc_bodies:
+        return f'@ note {note.id} {x},{y}' + _note_attrs(note)
+    # Multiline text defaults to the triple-quoted block form: prose then
+    # diffs line-by-line instead of collapsing into one \n-escaped line.
+    use_block = note.block_text or '"' in note.text or "\n" in note.text
+    if use_block:
+        parts = [f'@ note {note.id} {x},{y} """']
+        parts.append(note.text)
+        parts.append('"""' + _note_attrs(note))
+        return "\n".join(parts)
+    escaped_text = note.text.replace("\n", "\\n")
+    return f'@ note {note.id} {x},{y} "{escaped_text}"' + _note_attrs(note)
 
 
 def _serialize_image(image: Image) -> str:
@@ -768,8 +845,7 @@ def _serialize_image(image: Image) -> str:
     s = f'@ image {image.id} "{image.image_path}" {x},{y} {w}x{h}'
     if image.parent:
         s += f" >{image.parent}"
-    if image.url:
-        s += f" &{image.url}"
+    s += _attach_token(image)
     return s
 
 
@@ -816,13 +892,18 @@ def _serialize_title_bg(title_bg: str) -> str:
     return f'@ title-bg {title_bg}'
 
 
-def serialize(board: Board) -> str:
+def serialize(board: Board, *, embed_doc_bodies: bool = False) -> str:
     """Serialize a Board object back to .grafli format.
 
     Emits the v2 header only when the board carries bookmarks or flows;
     otherwise stays on v1 so existing files round-trip byte-stable.
     If the board was parsed (has _lines), preserves original ordering.
     Otherwise, outputs comments, then boxes, arrows, notes.
+
+    ``embed_doc_bodies`` inlines doc-bodied note texts (normally external
+    vault .md files) into the output — used for in-memory undo snapshots,
+    which must restore bodies without filesystem reads. Never written to
+    disk.
     """
     header = (HEADER_V2 if (board.bookmarks or board.flows or board.footer
                             or board.title_bg) else HEADER)
@@ -845,7 +926,7 @@ def serialize(board: Board) -> str:
             elif kind == "arrow":
                 parts.append(_serialize_arrow(obj))
             elif kind == "note":
-                parts.append(_serialize_note(obj))
+                parts.append(_serialize_note(obj, embed_doc_bodies))
             elif kind == "image":
                 parts.append(_serialize_image(obj))
             elif kind == "bookmark":
@@ -864,7 +945,7 @@ def serialize(board: Board) -> str:
     for arrow in board.arrows:
         parts.append(_serialize_arrow(arrow))
     for note in board.notes:
-        parts.append(_serialize_note(note))
+        parts.append(_serialize_note(note, embed_doc_bodies))
     for image in board.images:
         parts.append(_serialize_image(image))
     for bm in board.bookmarks:

@@ -65,11 +65,15 @@ class CommandsMixin:
 
     # ── Undo / Redo ──
 
+    # Undo snapshots embed doc-bodied note texts (normally external vault .md
+    # files): a snapshot without them would restore those notes blank and the
+    # next autosave would write the blanks back to disk.
+
     def _push_undo(self):
         """Save current board state to undo stack (call before mutation)."""
         if not self._board:
             return
-        self._undo_stack.append(serialize(self._board))
+        self._undo_stack.append(serialize(self._board, embed_doc_bodies=True))
         self._redo_stack.clear()
         if len(self._undo_stack) > _UNDO_LIMIT:
             self._undo_stack.pop(0)
@@ -77,12 +81,13 @@ class CommandsMixin:
     def _save_pre_action_snapshot(self):
         """Save snapshot before a drag/resize gesture."""
         if self._board:
-            self._pre_move_snapshot = serialize(self._board)
+            self._pre_move_snapshot = serialize(self._board,
+                                                embed_doc_bodies=True)
 
     def _commit_pre_action_snapshot(self):
         """Push pre-action snapshot to undo stack if state changed."""
         if self._board and self._pre_move_snapshot:
-            current = serialize(self._board)
+            current = serialize(self._board, embed_doc_bodies=True)
             if current != self._pre_move_snapshot:
                 self._undo_stack.append(self._pre_move_snapshot)
                 self._redo_stack.clear()
@@ -93,7 +98,7 @@ class CommandsMixin:
     def _undo(self):
         if not self._undo_stack or not self._board:
             return
-        self._redo_stack.append(serialize(self._board))
+        self._redo_stack.append(serialize(self._board, embed_doc_bodies=True))
         text = self._undo_stack.pop()
         self._board = parse(text)
         self._rebuild_scene()
@@ -102,7 +107,7 @@ class CommandsMixin:
     def _redo(self):
         if not self._redo_stack or not self._board:
             return
-        self._undo_stack.append(serialize(self._board))
+        self._undo_stack.append(serialize(self._board, embed_doc_bodies=True))
         text = self._redo_stack.pop()
         self._board = parse(text)
         self._rebuild_scene()

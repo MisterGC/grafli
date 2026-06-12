@@ -111,7 +111,7 @@ from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, No
 from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
-from grafli.md_note import is_md_note
+from grafli.md_note import note_is_md
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
 from grafli.zen_md import ZenMarkdownEditor
@@ -2222,61 +2222,105 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         ok = dlg.exec() == QDialog.DialogCode.Accepted
         return line.text().strip(), ok
 
+    @staticmethod
+    def _attach_display(el) -> str:
+        """The editable text form of an element's attachment (dialog prefill)."""
+        if el.attach_kind in ("doc", "graph"):
+            return (f"{el.attach_kind}:{el.url}" if el.url
+                    else el.attach_kind)
+        return el.url
+
+    def _assign_attachment(self, item, el, raw: str):
+        """Apply a typed-or-plain attachment string from the url dialog.
+
+        ``doc:<name>`` / ``graph:<name>`` / bare ``doc`` set vault kinds;
+        anything else is a link. Pointing a note at an existing doc adopts
+        the file's body (the vault is authoritative); pointing it at a new
+        name keeps the current text as the seed — the next save writes it.
+        """
+        from grafli.format import doc_name, split_attach
+        from grafli.resources import doc_path
+        raw = raw.strip()
+        kind, value = split_attach(raw) if raw else ("", "")
+        if kind == "" and value:
+            kind = "link"
+        self._push_undo()
+        el.attach_kind, el.url = kind, value
+        if kind == "doc" and isinstance(item, NoteItem):
+            window = self.window()
+            grafli_path = getattr(window, "_file_path", None)
+            if grafli_path:
+                p = doc_path(Path(grafli_path), doc_name(el))
+                if p.exists():
+                    el.text = p.read_text(encoding="utf-8")
+        item._update_url_indicator()
+        item.update()
+        self.mark_dirty()
+
     def _set_url(self):
-        """Set/edit URL on the first selected box, note, or image."""
+        """Set/edit the attachment on the first selected box, note, or image."""
         for item in self._scene.selectedItems():
-            if isinstance(item, BoxItem):
-                url, ok = self._url_dialog(item.box.url)
-                if ok:
-                    self._push_undo()
-                    item.box.url = url
-                    item._update_url_indicator()
-                    self.mark_dirty()
-                return
-            if isinstance(item, NoteItem):
-                url, ok = self._url_dialog(item.note.url)
-                if ok:
-                    self._push_undo()
-                    item.note.url = url
-                    item._update_url_indicator()
-                    self.mark_dirty()
-                return
-            if isinstance(item, ImageItem):
-                url, ok = self._url_dialog(item.image.url)
-                if ok:
-                    self._push_undo()
-                    item.image.url = url
-                    item._update_url_indicator()
-                    self.mark_dirty()
-                return
+            el = (item.box if isinstance(item, BoxItem)
+                  else item.note if isinstance(item, NoteItem)
+                  else item.image if isinstance(item, ImageItem) else None)
+            if el is None:
+                continue
+            raw, ok = self._url_dialog(self._attach_display(el))
+            if ok:
+                self._assign_attachment(item, el, raw)
+            return
 
     # ── Resource handling ────────────────────────────────────────
+
+    @staticmethod
+    def _has_attachment(el) -> bool:
+        # A doc-bodied note may carry the bare ``&doc`` form (empty url).
+        return bool(el.url) or el.attach_kind == "doc"
+
+    def _open_attachment(self, el):
+        """Open an element's attachment by its kind: a vault doc in the zen
+        editor, a vault sub-board in the app, anything else (links, legacy
+        untyped urls) through the url path."""
+        window = self.window()
+        grafli_path = getattr(window, "_file_path", None)
+        if el.attach_kind == "doc" and grafli_path:
+            from grafli.format import doc_name
+            from grafli.resources import doc_path
+            self._open_md_zen(doc_path(Path(grafli_path), doc_name(el)))
+            return
+        if el.attach_kind == "graph" and grafli_path:
+            from grafli.resources import graph_path
+            if hasattr(window, "_open_file"):
+                window._open_file(graph_path(Path(grafli_path), el.url))
+            return
+        if el.url:
+            self._open_url_string(el.url)
 
     def _open_resource(self):
         """Open resource for the selected element, or show picker if none."""
         if self._selected_arrow:
             arrow = self._selected_arrow
-            if arrow.url:
-                self._open_url_string(arrow.url)
+            if self._has_attachment(arrow):
+                self._open_attachment(arrow)
             else:
                 self._open_resource_picker_for_arrow(arrow)
             return
         for item in self._scene.selectedItems():
             if isinstance(item, BoxItem):
-                if item.box.url:
-                    self._open_url_string(item.box.url)
+                if self._has_attachment(item.box):
+                    self._open_attachment(item.box)
                 else:
                     self._open_resource_picker(item, item.box.id)
                 return
             if isinstance(item, NoteItem):
-                if item.note.url:
-                    self._open_url_string(item.note.url)
+                if self._has_attachment(item.note):
+                    self._open_attachment(item.note)
                 else:
                     self._open_resource_picker(item, item.note.id)
                 return
             if isinstance(item, ImageItem):
-                if item.image.url:
-                    self._open_url_string(item.image.url)
+                if self._has_attachment(item.image):
+                    self._open_attachment(item.image)
                 else:
                     self._open_resource_picker(item, item.image.id)
                 return
@@ -2393,7 +2437,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         picker.show()
 
     def _create_resource(self, item, element_id: str, kind: str):
-        """Create a resource for a node and set its url."""
+        """Create a vault attachment for a node and set its typed reference."""
+        from grafli.md_note import is_md_note, md_body
         from grafli.resources import ensure_res_dir
         window = self.window()
         grafli_path = window._file_path
@@ -2401,11 +2446,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         if kind == "markdown":
             md_path = rd / f"{element_id}.md"
-            if not md_path.exists():
-                label = self._element_label(item)
-                md_path.write_text(f"# {label}\n\n", encoding="utf-8")
-            rel = f"{rd.name}/{md_path.name}"
-            self._set_element_url(item, rel)
+            if isinstance(item, NoteItem):
+                # On a note, "attach markdown" means: become doc-bodied — the
+                # doc IS the body, seeded with the note's current text.
+                note = item.note
+                if not md_path.exists():
+                    body = md_body(note.text) if is_md_note(note.text) \
+                        else note.text
+                    md_path.write_text(body, encoding="utf-8")
+                self._push_undo()
+                note.text = md_path.read_text(encoding="utf-8")
+                note.attach_kind, note.url = "doc", ""
+                item._update_url_indicator()
+                item.update()
+                self.mark_dirty()
+            else:
+                if not md_path.exists():
+                    label = self._element_label(item)
+                    md_path.write_text(f"# {label}\n\n", encoding="utf-8")
+                self._set_element_attachment(item, "doc", element_id)
             self._open_md_zen(md_path)
         elif kind == "grafli":
             sub_path = rd / f"{element_id}.grafli"
@@ -2414,14 +2473,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 sub_path.write_text(
                     f"#!grafli v1\n# {label}\n", encoding="utf-8",
                 )
-            rel = f"{rd.name}/{sub_path.name}"
-            self._set_element_url(item, rel)
+            self._set_element_attachment(item, "graph", element_id)
             window._open_file(sub_path)
         elif kind == "file":
             self._set_url()
 
     def _create_arrow_resource(self, arrow, aid: str, kind: str):
-        """Create a resource for an arrow and set its url."""
+        """Create a vault attachment for an arrow and set its typed reference."""
         from grafli.resources import ensure_res_dir
         window = self.window()
         grafli_path = window._file_path
@@ -2432,9 +2490,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if not md_path.exists():
                 title = arrow.label or f"{arrow.from_id} \u2192 {arrow.to_id}"
                 md_path.write_text(f"# {title}\n\n", encoding="utf-8")
-            rel = f"{rd.name}/{md_path.name}"
             self._push_undo()
-            arrow.url = rel
+            arrow.attach_kind, arrow.url = "doc", aid
             self._redraw_arrows()
             self.mark_dirty()
             self._open_md_zen(md_path)
@@ -2445,9 +2502,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 sub_path.write_text(
                     f"#!grafli v1\n# {title}\n", encoding="utf-8",
                 )
-            rel = f"{rd.name}/{sub_path.name}"
             self._push_undo()
-            arrow.url = rel
+            arrow.attach_kind, arrow.url = "graph", aid
             self._redraw_arrows()
             self.mark_dirty()
             window._open_file(sub_path)
@@ -2464,18 +2520,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return item.image.id
         return ""
 
-    def _set_element_url(self, item, url: str):
-        """Set url on a graphics item, push undo, and refresh indicator."""
+    def _set_element_attachment(self, item, kind: str, value: str):
+        """Set a typed attachment on a graphics item, push undo, refresh."""
+        el = (item.box if isinstance(item, BoxItem)
+              else item.note if isinstance(item, NoteItem)
+              else item.image if isinstance(item, ImageItem) else None)
+        if el is None:
+            return
         self._push_undo()
-        if isinstance(item, BoxItem):
-            item.box.url = url
-            item._update_url_indicator()
-        elif isinstance(item, NoteItem):
-            item.note.url = url
-            item._update_url_indicator()
-        elif isinstance(item, ImageItem):
-            item.image.url = url
-            item._update_url_indicator()
+        el.attach_kind, el.url = kind, value
+        item._update_url_indicator()
         item.update()
         self.mark_dirty()
 
@@ -2687,7 +2741,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         text = target.note.text
         font = target._note_font()
 
-        widget = InlineVimEditor(text, markdown=is_md_note(text), font=font)
+        widget = InlineVimEditor(text, markdown=note_is_md(target.note),
+                                 font=font)
         widget.setStyleSheet(
             "QPlainTextEdit {"
             " background: #FBFAF7; color: #2F3437;"
@@ -2847,15 +2902,29 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     # ── Delete selected ──
 
-    def _delete_selected(self):
+    def _delete_selected(self, with_docs: bool = False):
+        """Delete the selected elements. Vault docs survive by default (an
+        unreferenced doc is a legitimate state); ``with_docs`` — the explicit
+        Shift+Delete command — removes a deleted element's doc too, unless
+        another element still references it. Undo restores the element with
+        its body (snapshots embed it), and the next autosave lazily recreates
+        the file — so doc deletion is undoable without stashing files."""
         if not self._board:
             return
         self._push_undo()
         deleted = False
         former_parents: set[str] = set()
+        doc_names: set[str] = set()
+
+        def _track_doc(el):
+            if el.attach_kind == "doc":
+                from grafli.format import doc_name
+                doc_names.add(doc_name(el))
+
         for item in list(self._scene.selectedItems()):
             if isinstance(item, BoxItem):
                 box_id = item.box.id
+                _track_doc(item.box)
                 # Unparent direct children and track former parent
                 for other in self._board.boxes:
                     if other.parent == box_id:
@@ -2876,6 +2945,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 deleted = True
             elif isinstance(item, NoteItem):
                 note_id = item.note.id
+                _track_doc(item.note)
                 if item.note.parent:
                     former_parents.add(item.note.parent)
                 # Remove connected arrows
@@ -2888,6 +2958,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 deleted = True
             elif isinstance(item, ImageItem):
                 img_id = item.image.id
+                _track_doc(item.image)
                 if item.image.parent:
                     former_parents.add(item.image.parent)
                 for arrow in list(self._board.arrows):
@@ -2908,7 +2979,47 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     if p_item._is_parent != was_parent:
                         p_item._apply_color()
                 self._refresh_auto_layout(pid)
+            self._handle_deleted_docs(doc_names, with_docs)
             self.mark_dirty()
+
+    def _handle_deleted_docs(self, names: set[str], with_docs: bool) -> None:
+        """After deleting doc-attached elements: keep their vault docs by
+        default (with a hint), or — explicitly — delete the files of docs no
+        remaining element references."""
+        window = self.window()
+        grafli_path = getattr(window, "_file_path", None)
+        if not names or not grafli_path or not self._board:
+            return
+        from grafli.format import doc_name
+        from grafli.resources import doc_path
+        still = {doc_name(el)
+                 for el in (*self._board.boxes, *self._board.notes,
+                            *self._board.images, *self._board.arrows)
+                 if el.attach_kind == "doc"}
+        orphaned = sorted(n for n in names if n not in still)
+        if not with_docs:
+            if orphaned:
+                self.toast("Kept in vault: "
+                           + ", ".join(f"{n}.md" for n in orphaned)
+                           + "  (Shift+Del deletes the doc too)")
+            return
+        removed, shared = [], sorted(n for n in names if n in still)
+        for n in orphaned:
+            try:
+                doc_path(Path(grafli_path), n).unlink(missing_ok=True)
+                removed.append(n)
+            except OSError:
+                pass
+        if removed and hasattr(window, "_watch_docs"):
+            window._watch_docs()   # re-baseline so the unlink doesn't echo back
+        msg = ""
+        if removed:
+            msg = "Deleted from vault: " + ", ".join(f"{n}.md" for n in removed)
+        if shared:
+            msg += (" · " if msg else "") + "kept (still referenced): " \
+                + ", ".join(f"{n}.md" for n in shared)
+        if msg:
+            self.toast(msg, "warn" if shared else "info")
 
     # ── Status bar helpers ──
 
@@ -3328,7 +3439,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self.mark_dirty()
                 event.accept()
                 return
-            self._delete_selected()
+            self._delete_selected(
+                with_docs=bool(event.modifiers()
+                               & Qt.KeyboardModifier.ShiftModifier))
             event.accept()
             return
 

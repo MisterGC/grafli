@@ -58,8 +58,15 @@ def note_prefix(text: str) -> tuple[str, str] | None:
         return "Q:", text[m.end():]
     return None
 from grafli.code_note import is_code_note, split_signature, tokenize_line
-from grafli.md_note import is_md_note, md_body
+from grafli.md_note import note_is_md, note_md_body
 from grafli.format import Box, Image, Note
+
+
+def _attach_tooltip(el) -> str:
+    """Human-readable tooltip for an element's attachment."""
+    if el.attach_kind in ("doc", "graph"):
+        return f"{el.attach_kind}:{el.url}" if el.url else el.attach_kind
+    return el.url or ""
 
 # Code-note palette — deliberately minimal so the snippet doesn't fight
 # the surrounding graph. Two accents only, plus muted comments:
@@ -497,8 +504,8 @@ class BoxItem(QGraphicsRectItem):
         self.update()
 
     def _update_url_indicator(self):
-        """Refresh tooltip based on url."""
-        self.setToolTip(self.box.url if self.box.url else "")
+        """Refresh tooltip based on the attachment."""
+        self.setToolTip(_attach_tooltip(self.box))
 
     # ── Auto layout helpers ──
 
@@ -1335,7 +1342,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         return is_code_note(self.note.text)
 
     def _is_md_note(self) -> bool:
-        return is_md_note(self.note.text)
+        return note_is_md(self.note)
 
     def _md_document(self) -> QTextDocument:
         """Build (cached) a laid-out QTextDocument for a Markdown note.
@@ -1356,7 +1363,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         # GitHub-flavoured: task lists, strikethrough, tables. We document
         # a smaller recommended subset; extras degrade rather than break.
         doc.setMarkdown(
-            md_body(self.note.text),
+            note_md_body(self.note),
             QTextDocument.MarkdownFeature.MarkdownDialectGitHub,
         )
         doc.setTextWidth(self._wrap_width_px(font))
@@ -1976,8 +1983,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         pass
 
     def _update_url_indicator(self):
-        """Refresh tooltip based on url."""
-        self.setToolTip(self.note.url if self.note.url else "")
+        """Refresh tooltip based on the attachment."""
+        self.setToolTip(_attach_tooltip(self.note))
         self.update()
 
     def update_text(self, text: str):
@@ -2044,8 +2051,8 @@ class ImageItem(QGraphicsPixmapItem):
         self._update_url_indicator()
 
     def _update_url_indicator(self):
-        """Refresh tooltip based on url."""
-        self.setToolTip(self.image.url if self.image.url else "")
+        """Refresh tooltip based on the attachment."""
+        self.setToolTip(_attach_tooltip(self.image))
 
     def _load_pixmap(self):
         import os

@@ -53,3 +53,50 @@ class JsonSafeWatcher(QObject):
 
     def stop(self):
         self._timer.stop()
+
+
+class MultiFileWatcher(QObject):
+    """Polls a fixed set of files with one timer — never one timer per file.
+
+    Used for a board's vault docs (the externalized markdown note bodies):
+    a few dozen ``stat()`` calls per tick are negligible. Emits
+    ``files_changed`` once per tick with the list of changed paths; a file
+    appearing (created) or disappearing (deleted) counts as a change.
+    ``snapshot()`` re-baselines after our own writes so they don't echo
+    back as external changes.
+    """
+
+    files_changed = Signal(list)
+
+    def __init__(self, paths: list[str], interval_ms: int = 700, parent=None):
+        super().__init__(parent)
+        self._paths = list(paths)
+        self._timer = QTimer(self)
+        self._timer.setInterval(interval_ms)
+        self._timer.timeout.connect(self._check)
+        self._stats: dict[str, tuple[float, int] | None] = {}
+        self.snapshot()
+
+    @staticmethod
+    def _stat(path: str) -> tuple[float, int] | None:
+        try:
+            st = os.stat(path)
+            return (st.st_mtime, st.st_size)
+        except OSError:
+            return None
+
+    def snapshot(self):
+        self._stats = {p: self._stat(p) for p in self._paths}
+
+    def _check(self):
+        changed = [p for p in self._paths if self._stat(p) != self._stats.get(p)]
+        if changed:
+            self.snapshot()
+            self.files_changed.emit(changed)
+
+    def start(self):
+        self.snapshot()
+        self._timer.start()
+
+    def stop(self):
+        self._timer.stop()

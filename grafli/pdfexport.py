@@ -48,6 +48,7 @@ from grafli.slideplan import (  # noqa: F401
     _container_box,
     _slide_source,
     build_slide_plan,
+    playback_text_fit,
 )
 
 # Slide palette — the slide IS the canvas: paper background everywhere so the
@@ -79,10 +80,15 @@ _FOOTER_RESERVE_RATIO = 0.10
 # capped size instead of blowing up, and dense notes never shrink to illegible.
 _TITLE_BAND = (28.0, 34.0, 40.0)
 _DESC_BAND = (14.0, 18.0, 22.0)
-_BODY_BAND = (18.0, 24.0, 30.0)
+_BODY_BAND = (18.0, 24.0, 30.0)   # text-slide hero (fallback for dense notes)
 _CODE_BAND = (13.0, 16.0, 20.0)
 _FOOTER_BAND = (10.0, 13.0, 14.0)
 _CAPTION_BAND = (12.0, 15.0, 18.0)
+
+# A text slide normally sizes at playback parity (the note zoomed to fill the
+# hero, like fitInView frames it in the app) capped here; below the body-band
+# minimum it falls back to the band's shrink-to-fit instead.
+_BODY_MAX_PT = 60.0
 
 # Vertical fill target (fraction of the text rect): below this the slide looks
 # too empty, so the fit grows the font toward ``max``. A single-line footer
@@ -393,7 +399,8 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     # A single-note step with no description renders its note as native,
     # selectable, clickable text instead of a rasterized diagram.
     if plan.kind == "text":
-        return _draw_text_hero(painter, hero, plan.text_note, _px_per_pt(page))
+        return _draw_text_hero(painter, hero, plan.text_note, _px_per_pt(page),
+                               text_rect=plan.text_rect)
 
     source = plan.source
     if source is None:
@@ -422,6 +429,7 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     ip = QPainter(img)
     ip.setRenderHint(QPainter.RenderHint.Antialiasing)
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    ip.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     # Keep notes out of the raster: they are redrawn below as native text at
     # their mapped scene position, so links stay clickable and text selectable.
     # Suppress the container box's own chrome too — its label is in the title bar.
@@ -467,27 +475,40 @@ _ORDERED = (
 )
 
 
-def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float) -> bool:
+def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float,
+                    text_rect: QRectF | None = None) -> bool:
     """Render a note as native, selectable, clickable PDF text in ``hero``.
 
-    Fills the hero via the shared body band: a short note grows (capped at the
-    band max) so it uses the slide rather than floating tiny in the middle, a
-    dense note shrinks no further than the band min, and the text is vertically
-    centred. Returns ``True`` when the note overflows even at the band minimum.
+    Sized at playback parity when ``text_rect`` (the padded scene rect playback
+    frames) is given: the note block is fitted into the hero like ``fitInView``
+    frames it in the app and its font scaled by the same factor, capped at
+    ``_BODY_MAX_PT``. A note too dense for that — or with no rect — falls back
+    to the shared body band's shrink-to-fit over the full hero, which is the
+    only path that can overflow. Returns ``True`` on such an overflow.
     Thin wrapper over :func:`_draw_markdown`.
     """
     # Notes opt into markdown via a ``md:`` prefix; otherwise render verbatim.
     is_md = is_md_note(note.text)
     body = md_body(note.text) if is_md else note.text
+    fit = playback_text_fit(resolve_textsize_px(note.textsize, ""), text_rect,
+                            hero, _BODY_BAND[0] * px_per_pt,
+                            _BODY_MAX_PT * px_per_pt)
+    if fit is not None:
+        size_px, rect = fit
+        return _draw_markdown(painter, rect, body, markdown=is_md,
+                              band=_BODY_BAND, px_per_pt=px_per_pt,
+                              color=_TITLE_COLOR, vcenter=True,
+                              fixed_px=max(1, round(size_px)))
     return _draw_markdown(painter, hero, body, markdown=is_md, band=_BODY_BAND,
                           px_per_pt=px_per_pt, color=_TITLE_COLOR, vcenter=True)
 
 
-def render_text_slide_pixmap(note, w: int, h: int):
-    """A 16:9 preview of a text slide: the note's text grown to fill the frame,
-    exactly as :func:`_draw_text_hero` renders it on export. Used by the Flows
-    editor so a text step's thumbnail shows how the text fills the slide rather
-    than the note floating tiny at its on-canvas scale."""
+def render_text_slide_pixmap(note, w: int, h: int, text_rect=None):
+    """A 16:9 preview of a text slide: the note's text sized to fill the frame,
+    exactly as :func:`_draw_text_hero` renders it on export (pass ``text_rect``,
+    the padded scene rect playback frames, for playback-parity sizing). Used by
+    the Flows editor so a text step's thumbnail shows how the text fills the
+    slide rather than the note floating tiny at its on-canvas scale."""
     from PySide6.QtGui import QPixmap
     w, h = max(1, int(w)), max(1, int(h))
     img = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
@@ -498,7 +519,7 @@ def render_text_slide_pixmap(note, w: int, h: int):
     page = QRectF(0, 0, w, h)
     margin = h * 0.08
     hero = QRectF(margin, margin, w - margin * 2, h - margin * 2)
-    _draw_text_hero(p, hero, note, _px_per_pt(page))
+    _draw_text_hero(p, hero, note, _px_per_pt(page), text_rect=text_rect)
     p.end()
     return QPixmap.fromImage(img)
 

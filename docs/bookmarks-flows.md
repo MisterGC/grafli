@@ -200,6 +200,52 @@ meeting it.
   line in the app, a warning line on the CLI) naming the slides to fix — an
   overloaded slide is hard for an audience anyway.
 
+## Export to PowerPoint
+
+The same flow can also export as an **editable** `.pptx`: the diagram region is a
+flattened picture, but the title, description, caption, footer and every in-place
+note are native PowerPoint textboxes — so the deck is usable on export yet fully
+tweakable (retext, restyle, add or remove slides). The slide-typing rules are
+shared with the PDF exporter, so both formats stay in lock-step (see *Composing
+slides* above).
+
+Pick a **style** on export:
+
+- **grafli** *(default)* — injects grafli's palette and font into the deck theme,
+  with the title accent rule and bar dividers, so it looks like grafli out of the
+  box.
+- **blank** — the neutral Office theme with the decorative chrome dropped: the
+  cleanest base for merging into a corporate template by hand.
+- **Use a template** — drop the flow onto an **existing `.pptx`**, keeping its
+  master, theme, fonts and slide size. grafli's content lands in the template's
+  placeholders: the slide title fills the title placeholder, the diagram fits the
+  body placeholder's region (respecting the template's header/footer/logo), and
+  grafli's own chrome and footer are dropped — the template supplies its own. The
+  corporate look applies with no manual restyling.
+
+A good template is a 16:9 `.pptx` with at least one content layout (a body/content
+placeholder is ideal — it defines where the diagram goes). The export reads the
+template's own page size, so 4:3 templates work too (the diagram just letterboxes).
+Existing slides in the template are ignored (stripped before content is added).
+
+- **In the app**: the **Flow PPTX** export prompts for the style; choosing *Use a
+  template…* opens a file picker, then lets you pick which layout to use for the
+  title and content slides (sensible defaults are pre-selected).
+- **Headless / scripted**:
+
+```bash
+# branded / neutral presets
+grafli export diagram.grafli tour.pptx --flow tour --theme grafli
+
+# onto a corporate template (layouts auto-detected, or name them explicitly)
+grafli export diagram.grafli tour.pptx --flow tour \
+  --template corporate.pptx \
+  --title-layout "Title" --content-layout "Content light"
+```
+
+`--template` overrides `--theme`; `--title-layout` / `--content-layout` are
+optional (the layouts are auto-detected when omitted).
+
 ## Authoring flows with AI
 
 Because bookmarks and flows are plain text with semantic anchors, an AI can

@@ -111,6 +111,7 @@ def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
     p = QPainter(img)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     if bookmark.isolate and bookmark.focus:
         with isolate_focus(view, bookmark.focus):
             view._scene.render(p, QRectF(0, 0, iw, ih), rect)
@@ -136,7 +137,7 @@ def render_thumbnail_art(view, board, flow, w: int, h: int) -> QImage | None:
         bm = board.bookmark_by_id(step.ref)
         if bm is None:
             continue
-        pix = render_bookmark_pixmap(view, bm, 480, 270)
+        pix = render_bookmark_pixmap(view, bm, 720, 405)
         if pix is not None and not pix.isNull():
             thumbs.append(pix)
     if not thumbs:

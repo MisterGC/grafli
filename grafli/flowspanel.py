@@ -9,7 +9,7 @@ step also makes a freshly captured bookmark (gb/gB) insert right after it.
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -32,18 +32,19 @@ from grafli.constants import (
     SIDE_PANEL_BTN_ACTIVE,
     SIDE_PANEL_SECTION_COLOR,
 )
-from grafli.flows import render_bookmark_pixmap, text_slide_note
+from grafli.flows import (bookmark_target_rect, render_bookmark_pixmap,
+                          text_slide_note)
 from grafli.format import FlowStep
 
-# Thumbnail render resolution — rendered larger than the display max so the
-# _ThumbLabel down-scales it crisply.
-_THUMB_W, _THUMB_H = 720, 405
+# Thumbnail render resolution — rendered at 2x the display max so the
+# _ThumbLabel has the device pixels to paint crisply on a hi-dpi screen.
+_THUMB_W, _THUMB_H = 960, 540
 # A slide preview always fills the available column width, clamped to these
 # bounds: it shrinks with a narrow panel (down to MIN — a thin stripe) and grows
 # with a wide one (up to MAX, so it doesn't balloon). MIN is deliberately small
 # so the whole Flows tab can collapse to a narrow vertical stripe.
 _THUMB_DISPLAY_MIN = 56
-_THUMB_DISPLAY_MAX = 360
+_THUMB_DISPLAY_MAX = 420
 _BORDER = "#D5D0C8"
 _SELECT_BG = SIDE_PANEL_BTN_ACTIVE.name()
 _ACCENT = "#D4804E"
@@ -166,12 +167,29 @@ class _ThumbLabel(QLabel):
     def _rescale(self, w: int) -> None:
         if self._source is None or self._source.isNull() or w <= 0:
             return
-        w = max(_THUMB_DISPLAY_MIN,
-                min(int(w), self._source.width(), _THUMB_DISPLAY_MAX))
+        # Scale in *device* pixels and tag the pixmap with the screen's DPR —
+        # a logical-resolution pixmap would be upscaled at paint time on a
+        # hi-dpi display and read blurry.
+        dpr = self.devicePixelRatioF() or 1.0
+        disp_w = max(_THUMB_DISPLAY_MIN, min(int(w), _THUMB_DISPLAY_MAX))
+        src_w = min(max(1, round(disp_w * dpr)), self._source.width())
         pix = self._source.scaledToWidth(
-            max(1, w), Qt.TransformationMode.SmoothTransformation)
+            src_w, Qt.TransformationMode.SmoothTransformation)
+        self._frame(pix)
+        pix.setDevicePixelRatio(dpr)
         super().setPixmap(pix)
-        self.setFixedHeight(pix.height())
+        self.setFixedHeight(round(pix.height() / dpr))
+
+    @staticmethod
+    def _frame(pix) -> None:
+        """A hairline frame so the slide preview reads as a slide against the
+        card's same-coloured paper background (mirrors the PDF slide frame)."""
+        p = QPainter(pix)
+        pen = QPen(QColor(_BORDER))
+        pen.setWidth(0)   # cosmetic: one device pixel
+        p.setPen(pen)
+        p.drawRect(pix.rect().adjusted(0, 0, -1, -1))
+        p.end()
 
     def minimumSizeHint(self) -> QSize:
         return QSize(_THUMB_DISPLAY_MIN, round(_THUMB_DISPLAY_MIN * 9 / 16))
@@ -241,8 +259,10 @@ class FlowsPanel(QWidget):
         # page, so preview it the same way (text filling a 16:9 frame) instead of
         # framing the note at its small on-canvas scale, which letterboxed badly.
         note = text_slide_note(self._view, bm)
+        rect = bookmark_target_rect(self._view, bm) if note is not None else None
         key = (bm.id, bm.label, tuple(bm.focus), bm.pad, bm.view,
-               note.text if note else None, note.textsize if note else None)
+               note.text if note else None, note.textsize if note else None,
+               rect.getRect() if rect is not None else None)
         pix = self._thumb_cache.get(key)
         if pix is None:
             # Render larger than any card width so _ThumbLabel can down-scale it
@@ -250,7 +270,8 @@ class FlowsPanel(QWidget):
             if note is not None:
                 from grafli.pdfexport import render_text_slide_pixmap
                 pix = render_text_slide_pixmap(note, _THUMB_W,
-                                               round(_THUMB_W * 9 / 16))
+                                               round(_THUMB_W * 9 / 16),
+                                               text_rect=rect)
             else:
                 pix = render_bookmark_pixmap(self._view, bm, _THUMB_W, _THUMB_H)
             self._thumb_cache[key] = pix
@@ -515,7 +536,7 @@ class FlowsPanel(QWidget):
         num = QLabel(str(index + 1))
         num.setFont(QFont(FONT_FAMILY, 12, QFont.Weight.Bold))
         num.setStyleSheet(f"color: {_ACCENT}; background: transparent;")
-        num.setFixedWidth(16)
+        num.setMinimumWidth(16)   # aligns 1-digit numbers; 2-digit ones widen
         num.setAlignment(Qt.AlignmentFlag.AlignTop)
         head.addWidget(num)
         if bm is not None:

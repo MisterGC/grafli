@@ -234,6 +234,154 @@ def test_export_restores_selection(tmp_path):
     assert view._box_items["a"].isSelected()
 
 
+def _make_template(path, accent="ABCDEF"):
+    """A minimal .pptx 'template': the default Office deck (4:3, with Title Slide
+    and Title-and-Content layouts) but with a sentinel accent1 colour so we can
+    prove the template theme survives the export, plus one pre-existing slide so
+    we can prove slide-stripping works."""
+    prs = Presentation()
+    part = prs.slide_masters[0].part.part_related_by(RT.THEME)
+    th = etree.fromstring(part.blob)
+    el = th.find(".//" + qn("a:clrScheme")).find(qn("a:accent1"))
+    for c in list(el):
+        el.remove(c)
+    etree.SubElement(el, qn("a:srgbClr"), val=accent)
+    part._blob = etree.tostring(th, xml_declaration=True, encoding="UTF-8",
+                                standalone=True)
+    prs.slides.add_slide(prs.slide_layouts[6])
+    prs.save(str(path))
+    return path
+
+
+def _title_ph_text(slide):
+    for ph in slide.placeholders:
+        if "TITLE" in str(ph.placeholder_format.type):
+            return ph.text_frame.text
+    return None
+
+
+def test_template_strips_existing_slides_and_keeps_step_count(tmp_path):
+    tpl = _make_template(tmp_path / "tpl.pptx")
+    board = parse(SAMPLE)
+    out = tmp_path / "onto.pptx"
+    slides, _ = export_flow_to_pptx(_view(board), board.flow_by_id("tour"), out,
+                                    template=str(tpl))
+    assert slides == 4                                  # title + 3 stops
+    assert len(Presentation(out).slides._sldIdLst) == 4  # template slide gone
+
+
+def test_template_preserves_its_theme_and_size(tmp_path):
+    tpl = _make_template(tmp_path / "tpl.pptx", accent="ABCDEF")
+    board = parse(SAMPLE)
+    out = tmp_path / "onto.pptx"
+    export_flow_to_pptx(_view(board), board.flow_by_id("tour"), out,
+                        template=str(tpl))
+    prs = Presentation(out)
+    assert _scheme_color(prs, "accent1").upper() == "ABCDEF"     # theme survives
+    assert _scheme_color(prs, "accent1").upper() != "D4804E"     # not injected
+    src = Presentation(tpl)
+    assert prs.slide_width == src.slide_width                    # adopts size
+    assert prs.slide_height == src.slide_height
+
+
+def test_template_title_and_content_use_placeholders(tmp_path):
+    tpl = _make_template(tmp_path / "tpl.pptx")
+    board = parse(SAMPLE)
+    out = tmp_path / "onto.pptx"
+    export_flow_to_pptx(_view(board), board.flow_by_id("tour"), out,
+                        template=str(tpl))
+    prs = Presentation(out)
+    assert _title_ph_text(list(prs.slides)[0]) == "Tour"               # cover
+    first = list(prs.slides)[1]                          # first stop (bm1)
+    assert _title_ph_text(first) == "Overview"           # title placeholder
+    assert _has_picture(first)                            # diagram embedded
+
+
+def test_template_drops_grafli_progress_counter(tmp_path):
+    # On a template the deck supplies its own chrome, so grafli's 'i / n' counter
+    # is dropped (the template didn't budget space for it).
+    tpl = _make_template(tmp_path / "tpl.pptx")
+    board = parse(SAMPLE)
+    out = tmp_path / "onto.pptx"
+    export_flow_to_pptx(_view(board), board.flow_by_id("tour"), out,
+                        template=str(tpl))
+    first = list(Presentation(out).slides)[1]
+    assert not any("1 / 3" in t for t in _texts(first))
+
+
+def test_template_explicit_layout_selection(tmp_path):
+    tpl = _make_template(tmp_path / "tpl.pptx")
+    board = parse(SAMPLE)
+    out = tmp_path / "onto.pptx"
+    export_flow_to_pptx(_view(board), board.flow_by_id("tour"), out,
+                        template=str(tpl), title_layout="Title Slide",
+                        content_layout="Title and Content")
+    prs = Presentation(out)
+    assert list(prs.slides)[0].slide_layout.name == "Title Slide"
+    assert list(prs.slides)[1].slide_layout.name == "Title and Content"
+
+
+def _note_run_sizes(slide, fragment):
+    """Run sizes of the (single) shape containing ``fragment`` — scoped so the
+    title bar / progress / footer chrome doesn't pollute the assertion."""
+    for sh in slide.shapes:
+        if sh.has_text_frame and fragment in sh.text_frame.text:
+            return [r.font.size.pt for p in sh.text_frame.paragraphs
+                    for r in p.runs if r.font.size is not None]
+    return []
+
+
+def test_playback_text_fit_parity_clamp_and_fallback():
+    from PySide6.QtCore import QRectF
+    from grafli.slideplan import playback_text_fit
+    hero = QRectF(0, 0, 800, 400)
+    # A 200x100 block fits the hero at 4x zoom: 16px text would read as 64 —
+    # capped at the band max, the block itself filling the hero.
+    size, rect = playback_text_fit(16, QRectF(0, 0, 200, 100), hero, 18, 60)
+    assert size == 60
+    assert (rect.width(), rect.height()) == (800, 400)
+    # Aspect mismatch letterboxes: a wide block centres vertically.
+    size, rect = playback_text_fit(16, QRectF(0, 0, 400, 100), hero, 18, 60)
+    assert size == 32
+    assert (rect.top(), rect.height()) == (100, 200)
+    # A dense note lands below the band floor → None, caller band-fits.
+    assert playback_text_fit(16, QRectF(0, 0, 200, 1000), hero, 18, 60) is None
+    assert playback_text_fit(16, None, hero, 18, 60) is None
+
+
+def test_short_text_slide_sized_at_playback_parity(tmp_path):
+    # In the app, playback zooms a text step's note to fill the viewport; a
+    # short note therefore reads big. The export mirrors that zoom (capped at
+    # _BODY_MAX_PT) instead of typesetting it small mid-slide at the old band.
+    src = SAMPLE.replace(
+        '@ note ntxt 600,0 "md:\\n# Heading\\n\\n**bold** and a '
+        '[link](https://example.com)\\n\\n- one\\n- two"',
+        '@ note ntxt 600,0 "Ship it" ~40')
+    board = parse(src)
+    out = tmp_path / "deck.pptx"
+    export_flow_to_pptx(_view(board), board.flow_by_id("tour"), out)
+    text_slide = list(Presentation(out).slides)[3]
+    # 40px at ~2x playback zoom would read ~80 — clamped at _BODY_MAX_PT, far
+    # above the old band cap of 30.
+    assert _note_run_sizes(text_slide, "Ship it") == [60.0]
+
+
+def test_dense_text_slide_falls_back_to_band(tmp_path):
+    # A note too dense to be readable at its framed scale keeps the band's
+    # shrink-to-fit instead of going sub-readable parity-small.
+    lines = "\\n".join(f"line {i} of a long dense note body" for i in range(40))
+    src = SAMPLE.replace(
+        '@ note ntxt 600,0 "md:\\n# Heading\\n\\n**bold** and a '
+        '[link](https://example.com)\\n\\n- one\\n- two"',
+        f'@ note ntxt 600,0 "{lines}"')
+    board = parse(src)
+    out = tmp_path / "deck.pptx"
+    export_flow_to_pptx(_view(board), board.flow_by_id("tour"), out)
+    text_slide = list(Presentation(out).slides)[3]
+    sizes = _note_run_sizes(text_slide, "long dense note")
+    assert sizes and all(18.0 <= s <= 30.0 for s in sizes)
+
+
 def test_blank_theme_omits_title_accent_rule(tmp_path):
     # The decorative accent rule on the cover is grafli-only chrome; the blank
     # preset drops it (cleaner base for corporate templates), so its title slide

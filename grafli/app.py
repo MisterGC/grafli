@@ -293,18 +293,26 @@ class MainWindow(QMainWindow):
 
     def _export_flow_pptx(self, flow=None):
         """Export ``flow`` to an editable PowerPoint; pick the flow (auto if
-        single) and the theme preset (grafli vs blank)."""
+        single), then a style: a grafli/blank preset, or an existing .pptx
+        template whose master, theme and layouts the export drops onto."""
         from PySide6.QtWidgets import QFileDialog, QInputDialog
         flow = self._pick_flow(flow)
         if flow is None:
             return
-        themes = ["grafli  (branded)", "blank  (neutral, for templates)"]
+        themes = ["grafli  (branded)", "blank  (neutral)",
+                  "Use a template…  (your .pptx master)"]
         choice, ok = QInputDialog.getItem(
-            self, "Export flow to PPTX", "Theme:", themes, 0, False,
+            self, "Export flow to PPTX", "Style:", themes, 0, False,
         )
         if not ok:
             return
-        theme = "grafli" if choice == themes[0] else "blank"
+        theme, template, title_layout, content_layout = "grafli", None, None, None
+        if choice == themes[1]:
+            theme = "blank"
+        elif choice == themes[2]:
+            template, title_layout, content_layout = self._pick_pptx_template()
+            if template is None:
+                return
         default_name = ""
         if self._file_path:
             default_name = str(self._file_path.with_name(
@@ -317,8 +325,9 @@ class MainWindow(QMainWindow):
             return
         from grafli.pptxexport import export_flow_to_pptx
         try:
-            slides, overloaded = export_flow_to_pptx(self._view, flow, path,
-                                                     theme=theme)
+            slides, overloaded = export_flow_to_pptx(
+                self._view, flow, path, theme=theme, template=template,
+                title_layout=title_layout, content_layout=content_layout)
         except Exception as exc:  # surface any render/IO failure
             self._view.toast(f"PPTX export failed: {exc}", "error")
             return
@@ -326,6 +335,45 @@ class MainWindow(QMainWindow):
         if overloaded:
             msg += f" · {len(overloaded)} overloaded — trim or split"
         self._view.toast(msg, "warn" if overloaded else "info")
+
+    def _pick_pptx_template(self):
+        """Choose a .pptx template and the layouts to use for the title and
+        content slides. Returns ``(path, title_layout, content_layout)`` with the
+        layout names heuristically pre-selected, or ``(None, None, None)`` if
+        cancelled."""
+        from PySide6.QtWidgets import QFileDialog, QInputDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose a .pptx template", "",
+            "PowerPoint templates (*.pptx);;All Files (*)",
+        )
+        if not path:
+            return None, None, None
+        try:
+            from pptx import Presentation
+            from grafli.pptxexport import _all_layouts, _resolve_layout
+            prs = Presentation(path)
+            names = [lo.name for lo in _all_layouts(prs)]
+            title_def = _resolve_layout(prs, None, "title").name
+            content_def = _resolve_layout(prs, None, "content").name
+        except Exception as exc:
+            self._view.toast(f"Can't read template: {exc}", "error")
+            return None, None, None
+        if not names:
+            self._view.toast("Template has no slide layouts", "error")
+            return None, None, None
+        title_layout, ok = QInputDialog.getItem(
+            self, "Template layout", "Title-slide layout:", names,
+            names.index(title_def), False,
+        )
+        if not ok:
+            return None, None, None
+        content_layout, ok = QInputDialog.getItem(
+            self, "Template layout", "Content-slide layout:", names,
+            names.index(content_def), False,
+        )
+        if not ok:
+            return None, None, None
+        return path, title_layout, content_layout
 
     def _setup_shortcuts(self):
         self._view.mode_changed.connect(self._on_mode_changed)
@@ -1306,9 +1354,28 @@ def _cmd_export(argv: list[str]) -> int:
     parser.add_argument(
         "--theme", default="grafli", choices=("grafli", "blank"),
         help="PPTX theme: 'grafli' (default, branded) or 'blank' (neutral, "
-             "best base for applying a corporate template). Ignored for PDF.",
+             "best base for applying a corporate template). Ignored for PDF and "
+             "when --template is given.",
+    )
+    parser.add_argument(
+        "--template", type=Path, default=None,
+        help="Export onto an existing .pptx template, keeping its master, theme "
+             "and slide size. PPTX only.",
+    )
+    parser.add_argument(
+        "--title-layout", default=None,
+        help="Name of the template layout for the title slide "
+             "(default: auto-detected). Only with --template.",
+    )
+    parser.add_argument(
+        "--content-layout", default=None,
+        help="Name of the template layout for content slides "
+             "(default: auto-detected). Only with --template.",
     )
     args = parser.parse_args(argv)
+    if args.template is not None and not args.template.exists():
+        print(f"Template not found: {args.template}", file=sys.stderr)
+        return 2
 
     if not args.input.exists():
         print(f"Input not found: {args.input}", file=sys.stderr)
@@ -1346,8 +1413,11 @@ def _cmd_export(argv: list[str]) -> int:
     view.load_board(board)
     if suffix == ".pptx":
         from grafli.pptxexport import export_flow_to_pptx
-        slides, overloaded = export_flow_to_pptx(view, flow, args.output,
-                                                 theme=args.theme)
+        slides, overloaded = export_flow_to_pptx(
+            view, flow, args.output, theme=args.theme,
+            template=args.template,
+            title_layout=args.title_layout,
+            content_layout=args.content_layout)
     else:
         from grafli.pdfexport import export_flow_to_pdf
         slides, overloaded = export_flow_to_pdf(view, flow, args.output)

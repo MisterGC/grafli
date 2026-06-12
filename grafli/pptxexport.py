@@ -39,13 +39,19 @@ from PySide6.QtGui import QFont, QImage, QPainter, QTextDocument
 from grafli.constants import FONT_FAMILY, resolve_textsize_px
 from grafli.flows import isolate_focus, render_thumbnail_art
 from grafli.md_note import is_md_note, md_body
-from grafli.slideplan import SlidePlan, build_slide_plan
+from grafli.slideplan import SlidePlan, build_slide_plan, playback_text_fit
 
 # PowerPoint 16:9 canvas in points — same fixed geometry as the PDF exporter, so
-# the fractional layout math below mirrors pdfexport on a 960x540 pt page.
-_PAGE_W = 960.0
-_PAGE_H = 540.0
+# the fractional layout math below mirrors pdfexport on a 960x540 pt page. When
+# exporting onto a template we adopt *its* page size instead (read off the deck),
+# so these are only the from-scratch defaults; all layout math reads the live
+# page size from the export context (``_Ctx``).
+_DEFAULT_PAGE_W = 960.0
+_DEFAULT_PAGE_H = 540.0
 _FOOTER_RESERVE_RATIO = 0.10
+# python-pptx geometry is in EMU; 1 point = 12700 EMU. Used to read a template
+# layout's placeholder rects (EMU) back into the point space the layout math uses.
+_EMU_PER_PT = 12700.0
 
 # Single-line text sizes in points.
 _TITLE_PT = 27.0          # slide title bar
@@ -57,8 +63,12 @@ _COVER_TITLE_PT = 46.0
 # mirroring the PDF exporter: PowerPoint's autofit only *shrinks* text, never
 # grows it, so we compute the fill size ourselves and set it explicitly. Bands
 # match grafli.pdfexport so the PPTX text fills the slide exactly like the PDF.
-_BODY_BAND = (18.0, 24.0, 30.0)     # text-slide hero
+_BODY_BAND = (18.0, 24.0, 30.0)     # text-slide hero (fallback for dense notes)
 _DESC_BAND = (14.0, 18.0, 22.0)     # cover description
+# A text slide normally sizes at playback parity (the note zoomed to fill the
+# hero, like fitInView frames it in the app) capped here; below the body-band
+# minimum it falls back to the band's shrink-to-fit instead.
+_BODY_MAX_PT = 60.0
 _CAPTION_BAND = (12.0, 15.0, 18.0)
 _FILL_FLOOR = 0.45                  # grow until the text fills this much height
 _HEADING_SCALE = {1: 1.4, 2: 1.2, 3: 1.05}
@@ -91,7 +101,22 @@ class _Theme:
 _THEMES = {
     "grafli": _Theme("grafli", inject_grafli=True, chrome=True),
     "blank": _Theme("blank", inject_grafli=False, chrome=False),
+    # Template mode reuses the neutral preset (no grafli palette/chrome); its
+    # extra behaviour (placeholder-driven placement, no own footer/progress) is
+    # gated on ``_Ctx.template`` rather than the theme itself.
+    "template": _Theme("template", inject_grafli=False, chrome=False),
 }
+
+
+@dataclass
+class _Ctx:
+    """Per-export geometry + mode, threaded through the slide builders so the
+    layout math is page-size agnostic and template-aware."""
+    page_w: float
+    page_h: float
+    theme: _Theme
+    footer: str
+    template: bool = False
 
 # Theme-font reference tokens — resolve to the deck's major/minor latin fonts, so
 # a font-theme change in PowerPoint cascades onto the text.
@@ -100,8 +125,21 @@ _FONT_MINOR = "+mn-lt"
 
 
 def export_flow_to_pptx(view, flow, out_path: str | Path,
-                        theme: str = "grafli") -> tuple[int, list]:
-    """Render ``flow`` to a .pptx at ``out_path`` using the ``theme`` preset.
+                        theme: str = "grafli", template: str | Path | None = None,
+                        title_layout: str | None = None,
+                        content_layout: str | None = None) -> tuple[int, list]:
+    """Render ``flow`` to a .pptx at ``out_path``.
+
+    Two modes:
+    - From scratch (``template`` is None): build a fresh deck at the default
+      16:9 geometry and style it with the ``theme`` preset (``grafli`` /
+      ``blank``).
+    - Onto a template (``template`` is a .pptx path): open that deck as the base
+      — keeping its master, layouts, theme and slide size — strip its slides, and
+      drop grafli content onto fresh slides built from its layouts. ``title_layout``
+      / ``content_layout`` name which layouts to use (the heuristic picks sensible
+      defaults when omitted). The corporate theme cascades for free because every
+      run already references theme fonts/colours.
 
     Returns ``(slide_count, overloaded)`` — same contract as the PDF exporter —
     where ``overloaded`` lists ``(step_index, title)`` for slides whose in-place
@@ -110,16 +148,25 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
     board = view.board
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    th = _THEMES.get(theme, _THEMES["grafli"])
 
-    prs = Presentation()
-    prs.slide_width = Pt(_PAGE_W)
-    prs.slide_height = Pt(_PAGE_H)
-    if th.inject_grafli:
-        _apply_grafli_theme(prs)
-    blank = prs.slide_layouts[6]
+    if template is not None:
+        prs = Presentation(str(template))
+        _strip_slides(prs)
+        th = _THEMES["template"]
+        ctx = _Ctx(prs.slide_width / _EMU_PER_PT, prs.slide_height / _EMU_PER_PT,
+                   th, board.footer or "", template=True)
+        tlayout = _resolve_layout(prs, title_layout, "title")
+        clayout = _resolve_layout(prs, content_layout, "content")
+    else:
+        th = _THEMES.get(theme, _THEMES["grafli"])
+        prs = Presentation()
+        prs.slide_width = Pt(_DEFAULT_PAGE_W)
+        prs.slide_height = Pt(_DEFAULT_PAGE_H)
+        if th.inject_grafli:
+            _apply_grafli_theme(prs)
+        ctx = _Ctx(_DEFAULT_PAGE_W, _DEFAULT_PAGE_H, th, board.footer or "")
+        tlayout = clayout = prs.slide_layouts[6]   # the built-in blank layout
 
-    footer = board.footer or ""
     plans = build_slide_plan(view, flow)
 
     # Clear selection and suppress the paper background so rasterized regions are
@@ -133,10 +180,10 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
 
     overloaded = []
     try:
-        _build_title_slide(prs.slides.add_slide(blank), view, board, flow, th)
+        _build_title_slide(prs.slides.add_slide(tlayout), view, board, flow, ctx)
         for plan in plans[1:]:
-            slide = prs.slides.add_slide(blank)
-            if _build_content_slide(slide, view, plan, footer, th):
+            slide = prs.slides.add_slide(clayout)
+            if _build_content_slide(slide, view, plan, ctx):
                 overloaded.append((plan.index, plan.title))
     finally:
         view._scene.setBackgroundBrush(old_bg)
@@ -145,6 +192,104 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
 
     prs.save(str(out_path))
     return len(plans), overloaded
+
+
+# ── template ──────────────────────────────────────────────────────────────────
+
+def _strip_slides(prs) -> None:
+    """Remove every slide from an opened template, leaving its masters, layouts
+    and theme intact — so we add our own slides onto a clean corporate base."""
+    sld_id_lst = prs.slides._sldIdLst
+    for sld_id in list(sld_id_lst):
+        rId = sld_id.get(qn("r:id"))
+        if rId:
+            prs.part.drop_rel(rId)
+        sld_id_lst.remove(sld_id)
+
+
+def _all_layouts(prs) -> list:
+    return [lo for m in prs.slide_masters for lo in m.slide_layouts]
+
+
+def _is_title_ph(ph) -> bool:
+    return "TITLE" in str(ph.placeholder_format.type)
+
+
+def _ph_area(ph) -> float:
+    return float((ph.width or 0)) * float((ph.height or 0))
+
+
+def _body_area(layout) -> float:
+    """Largest non-title placeholder area on a layout — its candidate body zone."""
+    areas = [_ph_area(ph) for ph in layout.placeholders if not _is_title_ph(ph)]
+    return max(areas, default=0.0)
+
+
+def _resolve_layout(prs, name: str | None, kind: str):
+    """The slide layout to use for ``kind`` ('title' | 'content').
+
+    An exact ``name`` match wins. Otherwise heuristics: a title slide prefers a
+    layout named '*title*' that has a title placeholder; a content slide prefers
+    the layout with the largest body placeholder (the most room for the diagram).
+    Falls back to the first layout."""
+    layouts = _all_layouts(prs)
+    if name:
+        for lo in layouts:
+            if lo.name == name:
+                return lo
+    if kind == "title":
+        named = [lo for lo in layouts
+                 if "title" in (lo.name or "").lower()
+                 and any(_is_title_ph(ph) for ph in lo.placeholders)]
+        if named:
+            return named[0]
+        with_title = [lo for lo in layouts
+                      if any(_is_title_ph(ph) for ph in lo.placeholders)]
+        if with_title:
+            return with_title[0]
+    else:
+        best = max(layouts, key=_body_area, default=None)
+        if best is not None and _body_area(best) > 0:
+            return best
+    return layouts[0] if layouts else prs.slide_layouts[0]
+
+
+def _classify_placeholders(slide):
+    """Split a freshly-added slide's placeholders into (title, body).
+
+    Title = a real TITLE/CENTER_TITLE placeholder, else the top-most remaining
+    one. Body = the largest non-title placeholder (where the diagram goes). Either
+    may be None. When only one placeholder exists it is treated as the body."""
+    phs = list(slide.placeholders)
+    if not phs:
+        return None, None
+    titles = [p for p in phs if _is_title_ph(p)]
+    body = max((p for p in phs if p not in titles), key=_ph_area, default=None)
+    if body is None:
+        body = max(phs, key=_ph_area)
+    if titles:
+        title = titles[0]
+    else:
+        rest = [p for p in phs if p is not body]
+        title = min(rest, key=lambda p: (p.top or 0)) if rest else None
+    return (title if title is not body else None), body
+
+
+def _ph_rect(ph) -> QRectF:
+    """A placeholder's rect in points (the space the layout math works in)."""
+    return QRectF(float(ph.left) / _EMU_PER_PT, float(ph.top) / _EMU_PER_PT,
+                  float(ph.width) / _EMU_PER_PT, float(ph.height) / _EMU_PER_PT)
+
+
+def _set_ph_text(ph, text: str) -> None:
+    """Set a placeholder's text while keeping its inherited (template) styling —
+    so the title adopts the corporate font/size/colour rather than ours."""
+    ph.text_frame.text = text
+
+
+def _remove_ph(ph) -> None:
+    """Drop an unused placeholder so it leaves no 'click to add text' prompt."""
+    ph._element.getparent().remove(ph._element)
 
 
 # ── theme ───────────────────────────────────────────────────────────────────
@@ -178,73 +323,137 @@ def _apply_grafli_theme(prs) -> None:
 
 # ── slides ──────────────────────────────────────────────────────────────────
 
-def _build_title_slide(slide, view, board, flow, th: _Theme) -> None:
-    margin = _PAGE_H * 0.10
+def _build_title_slide(slide, view, board, flow, ctx: _Ctx) -> None:
+    if ctx.template:
+        _build_title_slide_template(slide, flow, ctx)
+        return
+    page_w, page_h, th = ctx.page_w, ctx.page_h, ctx.theme
+    margin = page_h * 0.10
     if th.inject_grafli:
         _fill_background(slide, MSO_THEME_COLOR.BACKGROUND_1)
     if board is not None and board.title_bg == "thumbnail-art":
-        art = render_thumbnail_art(view, board, flow, 1600,
-                                   int(1600 * _PAGE_H / _PAGE_W))
+        art = render_thumbnail_art(view, board, flow, 2400,
+                                   int(2400 * page_h / page_w))
         if art is not None:
             slide.shapes.add_picture(_png_stream(art), 0, 0,
-                                     Pt(_PAGE_W), Pt(_PAGE_H))
+                                     Pt(page_w), Pt(page_h))
 
-    y = _PAGE_H * 0.26
-    w = _PAGE_W - margin * 2
-    box = slide.shapes.add_textbox(Pt(margin), Pt(y), Pt(w), Pt(_PAGE_H * 0.18))
+    y = page_h * 0.26
+    w = page_w - margin * 2
+    box = slide.shapes.add_textbox(Pt(margin), Pt(y), Pt(w), Pt(page_h * 0.18))
     _fill_text(box.text_frame, flow.label, is_md=False, base_pt=_COVER_TITLE_PT,
                font_ref=_FONT_MAJOR, color=MSO_THEME_COLOR.TEXT_1, bold=True)
 
-    ry = y + _PAGE_H * 0.20
+    ry = y + page_h * 0.20
     if th.chrome:
-        _accent_rule(slide, margin, ry, w * 0.5, _PAGE_H * 0.006)
+        _accent_rule(slide, margin, ry, w * 0.5, page_h * 0.006)
 
     if flow.description:
-        drect = (margin, ry + _PAGE_H * 0.03, w, _PAGE_H * 0.55)
+        drect = (margin, ry + page_h * 0.03, w, page_h * 0.55)
         box = slide.shapes.add_textbox(*(Pt(v) for v in drect))
         base = _fit_body_pt(flow.description, True, w - _TF_MARGIN_W * 2,
-                            _PAGE_H * 0.55 - _TF_MARGIN_H * 2, _DESC_BAND)
+                            page_h * 0.55 - _TF_MARGIN_H * 2, _DESC_BAND)
         _fill_text(box.text_frame, flow.description, is_md=True,
                    base_pt=base, font_ref=_FONT_MINOR,
                    color=MSO_THEME_COLOR.TEXT_1, autosize=False)
 
 
-def _build_content_slide(slide, view, plan: SlidePlan, footer: str,
-                         th: _Theme) -> bool:
-    margin = _PAGE_H * 0.06
+def _build_title_slide_template(slide, flow, ctx: _Ctx) -> None:
+    """Cover slide on a template: the flow label fills the template's title
+    placeholder (inheriting its styling); the description, when present, goes in a
+    textbox just below it. Other placeholders (date/footer/number) are left to the
+    template."""
+    phs = list(slide.placeholders)
+    titles = [p for p in phs if _is_title_ph(p)]
+    title_ph = titles[0] if titles else (max(phs, key=_ph_area) if phs else None)
+    if title_ph is not None:
+        _set_ph_text(title_ph, flow.label)
+    if not flow.description:
+        return
+    if title_ph is not None:
+        tr = _ph_rect(title_ph)
+        dx, dw = tr.left(), tr.width()
+        dy = tr.bottom() + tr.height() * 0.2
+    else:
+        margin = ctx.page_w * 0.08
+        dx, dw, dy = margin, ctx.page_w - margin * 2, ctx.page_h * 0.45
+    dh = max(40.0, dw * 0.30)
+    box = slide.shapes.add_textbox(Pt(dx), Pt(dy), Pt(dw), Pt(dh))
+    base = _fit_body_pt(flow.description, True, dw - _TF_MARGIN_W * 2,
+                        dh - _TF_MARGIN_H * 2, _DESC_BAND)
+    _fill_text(box.text_frame, flow.description, is_md=True, base_pt=base,
+               font_ref=_FONT_MINOR, color=MSO_THEME_COLOR.TEXT_1, autosize=False)
+
+
+def _build_content_slide(slide, view, plan: SlidePlan, ctx: _Ctx) -> bool:
+    if ctx.template:
+        return _build_content_slide_template(slide, view, plan, ctx)
+
+    page_w, page_h, th, footer = ctx.page_w, ctx.page_h, ctx.theme, ctx.footer
+    margin = page_h * 0.06
     if th.inject_grafli:
         _fill_background(slide, MSO_THEME_COLOR.BACKGROUND_1)
     if footer:
-        _build_footer(slide, footer, th)
+        _build_footer(slide, footer, ctx)
     has_title = bool(plan.title)
-    has_desc = bool(plan.caption)
 
     hero_top = margin * 0.5
-    hero_bottom = _PAGE_H - margin * 0.5 - _footer_reserve(footer)
+    hero_bottom = page_h - margin * 0.5 - _footer_reserve(ctx)
 
     if has_title:
-        bar_h = _PAGE_H * 0.12
+        bar_h = page_h * 0.12
         tbox = slide.shapes.add_textbox(Pt(margin), Pt(margin * 0.5),
-                                        Pt(_PAGE_W - margin * 2), Pt(bar_h))
+                                        Pt(page_w - margin * 2), Pt(bar_h))
         _fill_text(tbox.text_frame, plan.title, is_md=False, base_pt=_TITLE_PT,
                    font_ref=_FONT_MAJOR, color=MSO_THEME_COLOR.TEXT_1, bold=True,
                    anchor=MSO_ANCHOR.MIDDLE)
         pbox = slide.shapes.add_textbox(Pt(margin), Pt(margin * 0.5),
-                                        Pt(_PAGE_W - margin * 2), Pt(bar_h))
+                                        Pt(page_w - margin * 2), Pt(bar_h))
         _fill_text(pbox.text_frame, f"{plan.index + 1} / {plan.total}",
                    is_md=False, base_pt=_PROGRESS_PT, font_ref=_FONT_MINOR,
                    color=MSO_THEME_COLOR.TEXT_1, anchor=MSO_ANCHOR.MIDDLE,
                    align_right=True)
         rule_y = margin * 0.5 + bar_h
         if th.chrome:
-            _divider(slide, margin, rule_y, _PAGE_W - margin * 2)
+            _divider(slide, margin, rule_y, page_w - margin * 2)
         hero_top = rule_y + margin * 0.5
 
-    hero = QRectF(margin, hero_top, _PAGE_W - margin * 2, hero_bottom - hero_top)
+    hero = QRectF(margin, hero_top, page_w - margin * 2, hero_bottom - hero_top)
+    cap_bottom = page_h - margin - _footer_reserve(ctx)
+    return _render_hero(slide, view, plan, hero, ctx, cap_bottom)
 
+
+def _build_content_slide_template(slide, view, plan: SlidePlan,
+                                  ctx: _Ctx) -> bool:
+    """Content slide on a template: the title fills the template's title/heading
+    placeholder, the diagram fits the body placeholder's region (so it respects
+    the template's margins, header and footer), and grafli's own chrome, footer
+    and progress counter are dropped — the template supplies its own."""
+    title_ph, body_ph = _classify_placeholders(slide)
+    if plan.title and title_ph is not None:
+        _set_ph_text(title_ph, plan.title)
+    elif title_ph is not None:
+        _remove_ph(title_ph)
+
+    if body_ph is not None:
+        hero = _ph_rect(body_ph)
+        _remove_ph(body_ph)            # we draw over it; drop the empty prompt
+    else:
+        margin = ctx.page_h * 0.06
+        top = ctx.page_h * (0.18 if plan.title else 0.08)
+        hero = QRectF(margin, top, ctx.page_w - margin * 2,
+                      ctx.page_h - top - margin)
+    return _render_hero(slide, view, plan, hero, ctx, hero.bottom())
+
+
+def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
+                 cap_bottom: float) -> bool:
+    """Render a content plan into ``hero``: a text note as native centred text, a
+    'no anchor' note, or the rasterized diagram with live note overlays. A caption
+    card, when present, floats above ``cap_bottom``. Shared by both modes."""
     # Text slide: the single note as native, editable, centred text.
     if plan.kind == "text":
-        return _build_text_hero(slide, hero, plan.text_note)
+        return _build_text_hero(slide, hero, plan)
 
     source = plan.source
     if source is None:
@@ -273,18 +482,29 @@ def _build_content_slide(slide, view, plan: SlidePlan, footer: str,
         if _build_note_overlay(slide, item, source, fitted, scale):
             overloaded = True
 
-    if has_desc:
-        _build_caption(slide, plan.caption, footer)
+    if plan.caption:
+        _build_caption(slide, plan.caption, ctx, hero, cap_bottom)
     return overloaded
 
 
-def _build_text_hero(slide, hero: QRectF, note) -> bool:
+def _build_text_hero(slide, hero: QRectF, plan: SlidePlan) -> bool:
+    """The slide's single note as native text, sized at playback parity: the
+    note block fitted into the hero like ``fitInView`` frames it in the app,
+    its font scaled by the same factor (capped at ``_BODY_MAX_PT``). A note too
+    dense for that falls back to the band's shrink-to-fit over the full hero."""
+    note = plan.text_note
     is_md = is_md_note(note.text)
     body = md_body(note.text) if is_md else note.text
-    box = slide.shapes.add_textbox(Pt(hero.left()), Pt(hero.top()),
-                                   Pt(hero.width()), Pt(hero.height()))
-    base = _fit_body_pt(body, is_md, hero.width() - _TF_MARGIN_W * 2,
-                        hero.height() - _TF_MARGIN_H * 2, _BODY_BAND)
+    fit = playback_text_fit(resolve_textsize_px(note.textsize, ""),
+                            plan.text_rect, hero, _BODY_BAND[0], _BODY_MAX_PT)
+    if fit is not None:
+        base, rect = fit
+    else:
+        rect = hero
+        base = _fit_body_pt(body, is_md, hero.width() - _TF_MARGIN_W * 2,
+                            hero.height() - _TF_MARGIN_H * 2, _BODY_BAND)
+    box = slide.shapes.add_textbox(Pt(rect.left()), Pt(rect.top()),
+                                   Pt(rect.width()), Pt(rect.height()))
     _fill_text(box.text_frame, body, is_md=is_md, base_pt=base,
                font_ref=_FONT_MINOR, color=MSO_THEME_COLOR.TEXT_1,
                anchor=MSO_ANCHOR.MIDDLE, autosize=False)
@@ -324,18 +544,18 @@ def _build_note_overlay(slide, item, source: QRectF, fitted: QRectF,
     return base_pt < _READABLE_MIN_PT
 
 
-def _build_caption(slide, text: str, footer: str) -> None:
-    """A floating dark rounded card with light text at the bottom, over the
-    content — matching the on-canvas/PDF playback caption. Card fill and text use
-    theme colours (dark text-1 ground, light background-1 text) so they invert
-    cleanly under any theme."""
+def _build_caption(slide, text: str, ctx: _Ctx, hero: QRectF,
+                   cap_bottom: float) -> None:
+    """A floating dark rounded card with light text near the bottom of the
+    content area — matching the on-canvas/PDF playback caption. Card fill and text
+    use theme colours (dark text-1 ground, light background-1 text) so they invert
+    cleanly under any theme. Centred within ``hero``, its base at ``cap_bottom``."""
     from pptx.enum.shapes import MSO_SHAPE
-    margin = _PAGE_H * 0.06
-    pad = _PAGE_H * 0.020
-    card_w = min(_PAGE_W * 0.62, _PAGE_W - margin * 2)
-    card_h = _PAGE_H * 0.16
-    card_x = (_PAGE_W - card_w) / 2
-    card_y = _PAGE_H - margin - _footer_reserve(footer) - card_h
+    pad = ctx.page_h * 0.020
+    card_w = min(ctx.page_w * 0.62, hero.width())
+    card_h = ctx.page_h * 0.16
+    card_x = hero.left() + (hero.width() - card_w) / 2
+    card_y = cap_bottom - card_h
     card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Pt(card_x),
                                   Pt(card_y), Pt(card_w), Pt(card_h))
     card.fill.solid()
@@ -352,16 +572,17 @@ def _build_caption(slide, text: str, footer: str) -> None:
                clear=True, autosize=False)
 
 
-def _build_footer(slide, footer: str, th: _Theme) -> None:
+def _build_footer(slide, footer: str, ctx: _Ctx) -> None:
     """The board-global branding line, muted and left-aligned at the bottom, with
     a thin rule above it (grafli theme only) — mirrors the PDF footer band."""
-    margin = _PAGE_H * 0.06
-    band_h = _PAGE_H * 0.05
-    band_y = _PAGE_H - margin * 0.35 - band_h
+    page_w, page_h, th = ctx.page_w, ctx.page_h, ctx.theme
+    margin = page_h * 0.06
+    band_h = page_h * 0.05
+    band_y = page_h - margin * 0.35 - band_h
     if th.chrome:
-        _divider(slide, margin, band_y - _PAGE_H * 0.012, _PAGE_W - margin * 2)
+        _divider(slide, margin, band_y - page_h * 0.012, page_w - margin * 2)
     box = slide.shapes.add_textbox(Pt(margin), Pt(band_y),
-                                   Pt(_PAGE_W - margin * 2), Pt(band_h))
+                                   Pt(page_w - margin * 2), Pt(band_h))
     _fill_text(box.text_frame, footer, is_md=True, base_pt=_FOOTER_PT,
                font_ref=_FONT_MINOR, color=MSO_THEME_COLOR.TEXT_1,
                anchor=MSO_ANCHOR.MIDDLE)
@@ -530,8 +751,10 @@ def _render_region(view, plan: SlidePlan, fitted: QRectF) -> QImage:
     source = plan.source
     iw, ih = max(1, round(fitted.width())), max(1, round(fitted.height()))
     cap = 4096
-    # Render at ~2x slide points for crisp 16:9 projection without huge files.
-    scale = 2
+    # Render at 4x slide points (~288 DPI, on par with the PDF's 300) so the
+    # diagram stays crisp full-screen on hi-dpi displays; the cap keeps a
+    # full-bleed hero bounded.
+    scale = 4
     iw, ih = iw * scale, ih * scale
     if max(iw, ih) > cap:
         k = cap / max(iw, ih)
@@ -541,6 +764,7 @@ def _render_region(view, plan: SlidePlan, fitted: QRectF) -> QImage:
     ip = QPainter(img)
     ip.setRenderHint(QPainter.RenderHint.Antialiasing)
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    ip.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     from grafli.pdfexport import _hidden
     with _hidden(list(plan.overlays) + list(plan.chrome_suppress)):
         if plan.isolate:
@@ -561,5 +785,5 @@ def _png_stream(img: QImage) -> io.BytesIO:
     return io.BytesIO(bytes(ba))
 
 
-def _footer_reserve(footer: str) -> float:
-    return _PAGE_H * _FOOTER_RESERVE_RATIO if footer else 0.0
+def _footer_reserve(ctx: _Ctx) -> float:
+    return ctx.page_h * _FOOTER_RESERVE_RATIO if ctx.footer else 0.0

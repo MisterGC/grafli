@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Crisp flow / step previews on hi-dpi displays.** The Flows panel
+  thumbnails were painted at logical resolution and upscaled by the
+  display, reading blurry on Retina screens. They now render and scale
+  in device pixels, get a hairline slide frame so each preview reads as
+  a slide against the paper card, and step numbers no longer clip at
+  two digits.
+- **Sharper exported diagrams.** The PPTX diagram raster goes from 2x
+  to 4x slide points (~288 DPI, on par with the PDF's 300), and all
+  diagram rasters (PPTX, PDF, panel thumbnails, cover collage) now use
+  smooth pixmap resampling like the canvas does — embedded screenshots
+  no longer alias when scaled.
+- **Text slides now size like playback frames them.** A text-slide note
+  used to be typeset at a fixed point band (capped at 30 pt), so short
+  notes floated small mid-slide instead of filling it like the zoomed
+  note does in the app. Both the PDF and PPTX exporters (and the Flows
+  panel thumbnails) now mirror playback's `fitInView` zoom: the note
+  block is fitted into the slide's hero area and its font scaled by the
+  same factor, capped at 60 pt; notes too dense for that keep the old
+  shrink-to-fit band so nothing goes sub-readable. The parity fit lives
+  in the shared slide-plan layer so both formats stay in lock-step.
 - **Minimap notes are distinct and sized to the real note.** Notes now
   render scaled to their rendered dimensions (like boxes) instead of a
   fixed blue square, and draw as a light "card" with an accent-colored
@@ -16,6 +36,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   discussion colour.
 
 ### Added
+- **PowerPoint export onto an existing template.** The flow → `.pptx`
+  export can now drop onto an existing `.pptx`, keeping its master,
+  theme, fonts and slide size: the slide title fills the template's
+  title placeholder, the diagram fits the body placeholder's region
+  (respecting the template's header / footer / logo), and grafli's own
+  chrome, footer and progress counter are dropped — the template
+  supplies its own. The corporate look applies with no manual
+  restyling. Existing slides in the template are stripped first, and the
+  template's own page size is adopted (4:3 templates letterbox the
+  diagram). In the app the **Flow PPTX** export offers it under *Use a
+  template…* (with layout pickers); headless via `--template`,
+  `--title-layout` and `--content-layout`. The exporter geometry is now
+  page-size agnostic, shared by the from-scratch and template paths.
 - **Inline vim-capable note editing** ([#66]). Editing a note (`e` /
   double-click) now opens a small vim editor in place on the canvas —
   the same keybindings as the full-window zen editor, without leaving

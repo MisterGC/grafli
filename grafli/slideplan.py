@@ -46,6 +46,7 @@ class SlidePlan:
     total: int = 0
     # text slide
     text_note: object | None = None
+    text_rect: QRectF | None = None   # padded scene rect playback frames
     # diagram slide
     source: QRectF | None = None
     isolate: list[str] | None = None
@@ -85,7 +86,8 @@ def _content_plan(view, bm, index: int, total: int) -> SlidePlan:
     note = text_slide_note(view, bm) if bm else None
     if note is not None:
         return SlidePlan(kind="text", title=title, caption=caption,
-                         index=index, total=total, text_note=note)
+                         index=index, total=total, text_note=note,
+                         text_rect=bookmark_target_rect(view, bm))
 
     source = _slide_source(view, bm, container)
     overlays = _overlay_notes(view, bm, source) if not source.isNull() else []
@@ -100,6 +102,37 @@ def _content_plan(view, bm, index: int, total: int) -> SlidePlan:
                      index=index, total=total,
                      source=source if not source.isNull() else None,
                      isolate=isolate, overlays=overlays, chrome_suppress=chrome)
+
+
+def playback_text_fit(textsize: float, text_rect: QRectF | None,
+                      hero: QRectF, lo: float, hi: float):
+    """Playback-parity sizing for a text slide, shared by the PDF and PPTX
+    exporters.
+
+    In the app a text step is framed with ``fitInView``: the note block is
+    zoomed to fill the viewport, so its apparent text size is its on-canvas
+    ``textsize`` times that zoom. Mirror it — fit ``text_rect`` (the padded
+    scene rect playback frames) into ``hero`` aspect-preserving and scale
+    ``textsize`` along, exactly like the diagram raster is fitted.
+
+    ``hero``, ``lo`` and ``hi`` are in the exporter's own units (points for
+    PPTX, device pixels for PDF); the returned ``(size, fitted_rect)`` is in
+    the same units. ``size`` is capped at ``hi`` so a two-word note stays
+    tasteful rather than billboard-sized. Returns ``None`` when parity can't
+    be computed (no rect) or would land below ``lo`` — a note too dense to be
+    readable at its framed scale — so the caller falls back to its
+    shrink-to-fit band, which guarantees a fit and flags overflow."""
+    if text_rect is None or text_rect.isEmpty():
+        return None
+    scale = min(hero.width() / text_rect.width(),
+                hero.height() / text_rect.height())
+    size = textsize * scale
+    if size < lo:
+        return None
+    w, h = text_rect.width() * scale, text_rect.height() * scale
+    fitted = QRectF(hero.left() + (hero.width() - w) / 2,
+                    hero.top() + (hero.height() - h) / 2, w, h)
+    return min(size, hi), fitted
 
 
 # ── slide-typing helpers (moved from pdfexport; re-exported there) ──────────

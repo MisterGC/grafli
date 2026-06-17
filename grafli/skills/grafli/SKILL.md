@@ -541,8 +541,9 @@ Path is relative to the `.grafli` file. The companion folder
 ## Color tokens
 
 ```
-%primary    %secondary    %tertiary    %accent
-%subtle     %muted        %highlight   %base
+%base    %primary    %secondary  %tertiary   %subtle
+%accent  %highlight   %muted      %soft
+%clay    %teal        %rose       %forest     %plum
 ```
 
 Plus arbitrary `#RRGGBB` hex. Stick to **3–4 colors per diagram**;

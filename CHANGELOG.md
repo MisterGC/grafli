@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Visual colour picker with live preview.** In style mode, <kbd>c</kbd>
+  opens a colour grid beside the selection: navigate the palette with
+  <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> and the box(es) recolour
+  live as you move, <kbd>Enter</kbd> commits (one undo step), <kbd>Esc</kbd>
+  reverts. Replaces the blind <kbd>h</kbd>/<kbd>l</kbd> colour cycling;
+  <kbd>j</kbd>/<kbd>k</kbd> still size text.
+- **Five more node colours.** The palette gains `%clay`, `%teal`,
+  `%rose`, `%forest` and `%plum` — muted red / teal / pink / deep-green /
+  deep-purple tuned to the existing desaturated tokens — filling the gaps
+  in the colour grid.
+- **Smart alignment guides while dragging.** Free-moving a single box,
+  note or image now snaps its edges and centres to nearby elements,
+  drawing thin guide lines where they line up — Figma/Keynote-style —
+  and works whether or not grid-snap is on (grid is the fallback on any
+  axis alignment didn't already pin). Mode badges pop in with a subtle
+  overshoot and deleted elements pop out where they were, so the canvas
+  feels more tactile without adding any chrome. Multi-element drags keep
+  their relative layout (alignment applies to single-selection drags).
+- **RTS-style minimap.** The minimap reads like a tactical radar: the
+  viewport indicator is now a camera box with corner brackets, the radar
+  is framed by subtle HUD corner brackets and laid over a faint grid —
+  drawn in the minimap's own muted-blue accent so it fits the rest of the
+  palette. All static (no animation).
 - **Typed vault attachments; markdown notes become doc-bodied** ([#95]).
   The single `&url` attachment grows explicit kinds: `&link:<url>`
   (opens externally — the only kind that may point outside the board),

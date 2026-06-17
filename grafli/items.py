@@ -198,6 +198,20 @@ def _view_scale(item) -> float:
     return 1.0
 
 
+def _begin_drag_guides(item):
+    """Tell the view a free-move drag is starting (gathers alignment refs)."""
+    view = _get_view(item)
+    if view is not None and hasattr(view, "begin_drag_guides"):
+        view.begin_drag_guides(item)
+
+
+def _end_drag_guides(item):
+    """Tell the view a free-move drag ended (clears live guides)."""
+    view = _get_view(item)
+    if view is not None and hasattr(view, "end_drag_guides"):
+        view.end_drag_guides()
+
+
 _HANDLE_GRAB_PX = HANDLE_SIZE / 2 + 5   # forgiving grab radius around a handle
 
 
@@ -668,13 +682,8 @@ class BoxItem(QGraphicsRectItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             view = _get_view(self)
-            if view and getattr(view, '_grid_snap', False):
-                spacing = view.GRID_SPACING
-                new_pos = value
-                return QPointF(
-                    round(new_pos.x() / spacing) * spacing,
-                    round(new_pos.y() / spacing) * spacing,
-                )
+            if view is not None and hasattr(view, 'snap_drag_pos'):
+                return view.snap_drag_pos(self, value)
         elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             dx = self.pos().x() - self.box.x
             dy = self.pos().y() - self.box.y
@@ -712,6 +721,7 @@ class BoxItem(QGraphicsRectItem):
                 self._begin_handle_drag(corner, event.scenePos())
                 event.accept()
                 return
+        _begin_drag_guides(self)
         super().mousePressEvent(event)
 
     # ── Handle drag: corners scale the selection, edges stretch one axis ──
@@ -921,6 +931,7 @@ class BoxItem(QGraphicsRectItem):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        _end_drag_guides(self)
         if self._scaling or self._resizing:
             self._finish_handle_drag()
             event.accept()
@@ -1088,6 +1099,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             href = self._md_anchor_at(event.pos())
             if href is not None:
                 self._pending_link = (href, event.pos())
+        _begin_drag_guides(self)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -1117,6 +1129,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        _end_drag_guides(self)
         if getattr(self, "_resizing", False):
             self._resizing = False
             self._resize_target_px = None
@@ -1996,13 +2009,8 @@ class NoteItem(QGraphicsSimpleTextItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             view = _get_view(self)
-            if view and getattr(view, '_grid_snap', False):
-                spacing = view.GRID_SPACING
-                new_pos = value
-                return QPointF(
-                    round(new_pos.x() / spacing) * spacing,
-                    round(new_pos.y() / spacing) * spacing,
-                )
+            if view is not None and hasattr(view, 'snap_drag_pos'):
+                return view.snap_drag_pos(self, value)
         elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.note.x = self.pos().x()
             self.note.y = self.pos().y()
@@ -2223,6 +2231,7 @@ class ImageItem(QGraphicsPixmapItem):
                 self._begin_handle_drag(corner, event.scenePos())
                 event.accept()
                 return
+        _begin_drag_guides(self)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -2233,6 +2242,7 @@ class ImageItem(QGraphicsPixmapItem):
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        _end_drag_guides(self)
         if self._resizing:
             self._finish_handle_drag()
             event.accept()
@@ -2242,13 +2252,8 @@ class ImageItem(QGraphicsPixmapItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             view = _get_view(self)
-            if view and getattr(view, '_grid_snap', False):
-                spacing = view.GRID_SPACING
-                new_pos = value
-                return QPointF(
-                    round(new_pos.x() / spacing) * spacing,
-                    round(new_pos.y() / spacing) * spacing,
-                )
+            if view is not None and hasattr(view, 'snap_drag_pos'):
+                return view.snap_drag_pos(self, value)
         elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.image.x = self.pos().x()
             self.image.y = self.pos().y()

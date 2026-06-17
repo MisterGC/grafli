@@ -305,6 +305,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Vim-like box mode (style / dimension)
         self._box_mode: str = ""          # "", "style", "dimension"
         self._arrow_mode: str = ""        # "", "style"
+        # Colour-grid picker (style mode -> c): live-preview palette overlay.
+        self._color_picker_active: bool = False
+        self._color_picker_index: int = 0
+        self._color_picker_original: dict[str, str] = {}
         self._mode_badge: QGraphicsTextItem | None = None
         self._mode_badge_bg: QGraphicsRectItem | None = None
 
@@ -351,9 +355,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # selected step of this flow (instead of just creating a loose one).
         self._active_flow: Flow | None = None
         self._active_step_index: int = -1
-        self._flash_rect: QRectF | None = None
-        self._flash_opacity: float = 0.0
-        self._flash_timeline: QTimeLine | None = None
+        # Transient confirmation overlays (bookmark goto, snap lock-in pulse,
+        # delete pop) — each a dict {rect, color, mode, p} eased 0->1 then
+        # dropped. Drawn in scene coords so they hug the items.
+        self._flashes: list[dict] = []
+        # Live smart-alignment guides while dragging a single element. Refs are
+        # the peer anchor rects gathered once at drag start; guides are the
+        # lines to draw this frame.
+        self._drag_guides: list[dict] = []
+        self._drag_guide_refs: list[dict] | None = None
+        self._drag_lead_item = None
 
         # Graph navigation (Alt held)
         self._graph_nav_active = False
@@ -446,12 +457,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
-        self._draw_bookmark_flash(painter)   # scene coords — must come first
+        # Scene-coord overlays first (the painter is still in scene space here);
+        # the viewport-space HUD below resets the transform.
+        self._draw_drag_guides(painter)
+        self._draw_flashes(painter)
         self._draw_complexity_legend(painter)
         self._draw_minimap(painter)
         self._draw_search_badge(painter)
         self._draw_flow_overlay(painter)
         self._draw_debug_overlay(painter)
+        self._draw_color_picker(painter)
         self._draw_toast(painter)
 
     # Grid mode cycle order for the # key / "grid" action.
@@ -2015,6 +2030,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 except RuntimeError:
                     pass
         self._animate_fade(0.0, 1.0, _set_op)
+        # Stance-change 'pop' on entry — reads as a deliberate mode switch.
+        self._animate_scale(items, 0.86, 1.0)
 
     def _set_box_mode(self, mode: str):
         self._box_mode = mode
@@ -2076,6 +2093,151 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _clear_box_mode(self):
         self._set_box_mode("")
+
+    # ── Colour-grid picker (style mode -> c) ──
+
+    _COLOR_GRID_COLS = 5
+
+    def _color_picker_boxes(self):
+        return [it for it in self._scene.selectedItems()
+                if isinstance(it, BoxItem)]
+
+    def _open_color_picker(self):
+        boxes = self._color_picker_boxes()
+        if not boxes:
+            self.toast("Select a box to recolour", kind="warn")
+            return
+        self._color_picker_original = {it.box.id: it.box.color for it in boxes}
+        values = [v for _, v in COLOR_PALETTE]
+        cur = boxes[0].box.color
+        self._color_picker_index = values.index(cur) if cur in values else 0
+        self._color_picker_active = True
+        self.viewport().update()
+
+    def _apply_color_picker_live(self):
+        """Preview the highlighted colour on the selection (no undo/dirty)."""
+        value = COLOR_PALETTE[self._color_picker_index][1]
+        for it in self._color_picker_boxes():
+            it.set_color(value)
+
+    def _color_picker_move(self, dcol: int, drow: int):
+        cols = self._COLOR_GRID_COLS
+        n = len(COLOR_PALETTE)
+        rows = (n + cols - 1) // cols
+        col = self._color_picker_index % cols
+        row = self._color_picker_index // cols
+        col = max(0, min(cols - 1, col + dcol))
+        row = max(0, min(rows - 1, row + drow))
+        idx = min(row * cols + col, n - 1)
+        if idx != self._color_picker_index:
+            self._color_picker_index = idx
+            self._apply_color_picker_live()
+        self.viewport().update()
+
+    def _handle_color_picker_key(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self._cancel_color_picker()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._commit_color_picker()
+        elif key == Qt.Key.Key_H:
+            self._color_picker_move(-1, 0)
+        elif key == Qt.Key.Key_L:
+            self._color_picker_move(1, 0)
+        elif key == Qt.Key.Key_K:
+            self._color_picker_move(0, -1)
+        elif key == Qt.Key.Key_J:
+            self._color_picker_move(0, 1)
+
+    def _commit_color_picker(self):
+        boxes = self._color_picker_boxes()
+        value = COLOR_PALETTE[self._color_picker_index][1]
+        # Restore the pre-picker colours so the undo snapshot captures the
+        # original state, then apply the chosen colour as one undoable step.
+        for it in boxes:
+            it.set_color(self._color_picker_original.get(it.box.id, it.box.color))
+        self._push_undo()
+        for it in boxes:
+            it.set_color(value)
+        self._last_box_color = value
+        self.mark_dirty()
+        self._close_color_picker()
+
+    def _cancel_color_picker(self):
+        for it in self._color_picker_boxes():
+            if it.box.id in self._color_picker_original:
+                it.set_color(self._color_picker_original[it.box.id])
+        self._close_color_picker()
+
+    def _close_color_picker(self):
+        self._color_picker_active = False
+        self._color_picker_original = {}
+        self.viewport().update()
+
+    def _draw_color_picker(self, painter: QPainter):
+        """A small palette grid anchored beside the selection, with the live
+        choice ringed in cyan. Static (no animation), viewport coords."""
+        if not self._color_picker_active:
+            return
+        boxes = self._color_picker_boxes()
+        if not boxes:
+            return
+        scene_rect = boxes[0].sceneBoundingRect()
+        for it in boxes[1:]:
+            scene_rect = scene_rect.united(it.sceneBoundingRect())
+        anchor = self.mapFromScene(scene_rect).boundingRect()
+
+        cols = self._COLOR_GRID_COLS
+        rows = (len(COLOR_PALETTE) + cols - 1) // cols
+        sw, gap, pad, label_h = 26, 6, 10, 18
+        grid_w = cols * sw + (cols - 1) * gap
+        grid_h = rows * sw + (rows - 1) * gap
+        panel_w = grid_w + pad * 2
+        panel_h = grid_h + pad * 2 + label_h
+        margin = 14
+        vw, vh = self.viewport().width(), self.viewport().height()
+        px = anchor.right() + margin
+        if px + panel_w > vw - 4:
+            px = anchor.left() - margin - panel_w   # flip to the other side
+        px = max(4, min(px, vw - panel_w - 4))
+        py = anchor.center().y() - panel_h / 2
+        py = max(4, min(py, vh - panel_h - 4))
+
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.96)
+        painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
+
+        gx0, gy0 = px + pad, py + pad
+        cyan = QColor(0, 209, 224)
+        for i, (_name, value) in enumerate(COLOR_PALETTE):
+            sx = gx0 + (i % cols) * (sw + gap)
+            sy = gy0 + (i // cols) * (sw + gap)
+            cell = QRectF(sx, sy, sw, sw)
+            hexv = _resolve_color(value)
+            painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
+            painter.setBrush(QBrush(QColor(hexv) if hexv else QColor("#E8E4DD")))
+            painter.drawRoundedRect(cell, 4, 4)
+            if not hexv:
+                # "Default" / auto swatch: a diagonal slash marks "no colour".
+                painter.setPen(QPen(QColor(150, 60, 60), 1.5))
+                painter.drawLine(QPointF(cell.left() + 4, cell.bottom() - 4),
+                                 QPointF(cell.right() - 4, cell.top() + 4))
+            if i == self._color_picker_index:
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(cyan, 2))
+                painter.drawRoundedRect(cell.adjusted(-2, -2, 2, 2), 5, 5)
+
+        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setFont(QFont(FONT_FAMILY, 9))
+        painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
+                         Qt.AlignmentFlag.AlignCenter,
+                         COLOR_PALETTE[self._color_picker_index][0])
+        painter.restore()
 
     # ── Arrow mode (vim-like style) ──
 
@@ -2915,6 +3077,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         deleted = False
         former_parents: set[str] = set()
         doc_names: set[str] = set()
+        # Capture rects before removal so the 'pop' overlay marks where each
+        # element was.
+        pop_rects = [self._align_rect_for(it)
+                     for it in self._scene.selectedItems()
+                     if isinstance(it, (BoxItem, NoteItem, ImageItem))]
 
         def _track_doc(el):
             if el.attach_kind == "doc":
@@ -2980,6 +3147,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                         p_item._apply_color()
                 self._refresh_auto_layout(pid)
             self._handle_deleted_docs(doc_names, with_docs)
+            for r in pop_rects:
+                self._spawn_flash(r, color=self._FLASH_RED, mode="shrink",
+                                  dur=160)
             self.mark_dirty()
 
     def _handle_deleted_docs(self, names: set[str], with_docs: bool) -> None:
@@ -3398,6 +3568,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
+        # Colour-grid picker owns all input while open
+        if self._color_picker_active:
+            self._handle_color_picker_key(event)
+            event.accept()
+            return
+
         if event.key() == Qt.Key.Key_Escape:
             if self._search_filter_active:
                 self._clear_search_filter()
@@ -3765,14 +3941,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     event.accept()
                     return
 
-            # ── Style mode: hjkl cycles color/size ──
+            # ── Style mode: c opens the colour grid, j/k sizes ──
             elif self._box_mode == "style":
-                if event.key() == Qt.Key.Key_H and no_mod:
-                    self._cycle_color(-1)
-                    event.accept()
-                    return
-                if event.key() == Qt.Key.Key_L and no_mod:
-                    self._cycle_color(1)
+                if event.key() == Qt.Key.Key_C and no_mod:
+                    self._open_color_picker()
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_J and no_mod:
@@ -5644,49 +5816,248 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._flow_overlay = None
         self.viewport().update()
 
-    def flash_anchor(self, rect: QRectF):
-        """Briefly outline a scene rect in blue, fading out — a confirmation
-        of what a bookmark frames. Drawn in scene coordinates so it hugs the
-        actual items.
+    # ── Transient confirmation overlays (flashes) ──
+
+    _FLASH_BLUE = (43, 108, 176)     # bookmark goto confirmation
+    _FLASH_RED = (199, 80, 80)       # delete pop
+
+    def _spawn_flash(self, rect: QRectF, *, color, mode: str = "pulse",
+                     dur: int = 200):
+        """Add a transient overlay easing 0->1 then dropping itself.
+
+        ``mode`` picks the look: ``hold`` (blue bookmark outline that holds
+        then fades), ``pulse`` (a quick expanding ring — snap lock-in), or
+        ``shrink`` (collapses toward its centre — delete pop).
         """
         if rect is None or rect.isNull():
             return
-        self._flash_rect = QRectF(rect)
-        self._flash_opacity = 1.0
-        if self._flash_timeline is not None:
-            self._flash_timeline.stop()
-        tl = QTimeLine(700, self)
-        tl.setUpdateInterval(16)
-        tl.setEasingCurve(QEasingCurve.Type.OutCubic)
-        tl.valueChanged.connect(self._on_flash_step)
-        tl.finished.connect(self._on_flash_finished)
-        self._flash_timeline = tl
-        tl.start()
+        entry = {"rect": QRectF(rect), "color": color, "mode": mode, "p": 0.0}
+        # Cheap runaway guard: keep the overlay list bounded.
+        self._flashes.append(entry)
+        if len(self._flashes) > 24:
+            del self._flashes[:-24]
 
-    def _on_flash_step(self, value: float):
-        # Hold full opacity briefly, then fade across the back half.
-        self._flash_opacity = 1.0 if value < 0.35 else max(0.0, 1.0 - (value - 0.35) / 0.65)
-        self.viewport().update()
+        def _set(v):
+            entry["p"] = v
+            self.viewport().update()
 
-    def _on_flash_finished(self):
-        self._flash_timeline = None
-        self._flash_rect = None
-        self._flash_opacity = 0.0
-        self.viewport().update()
+        def _done():
+            try:
+                self._flashes.remove(entry)
+            except ValueError:
+                pass
+            self.viewport().update()
 
-    def _draw_bookmark_flash(self, painter: QPainter):
+        self._animate_fade(0.0, 1.0, _set, dur=dur, on_finished=_done)
+
+    def flash_anchor(self, rect: QRectF):
+        """Briefly outline a scene rect in blue, fading out — a confirmation
+        of what a bookmark frames.
+        """
+        self._spawn_flash(rect, color=self._FLASH_BLUE, mode="hold", dur=700)
+
+    def _draw_flashes(self, painter: QPainter):
         """Drawn while the painter is still in scene coordinates."""
-        if self._flash_rect is None or self._flash_opacity <= 0.0:
+        if not self._flashes:
             return
         painter.save()
-        alpha = int(220 * self._flash_opacity)
-        pen = QPen(QColor(43, 108, 176, alpha), 0)   # cosmetic blue outline
-        pen.setCosmetic(True)
-        pen.setWidth(2)
-        painter.setPen(pen)
-        fill = QColor(43, 108, 176, int(36 * self._flash_opacity))
-        painter.setBrush(QBrush(fill))
-        painter.drawRoundedRect(self._flash_rect, 8, 8)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for f in self._flashes:
+            p = f["p"]
+            r, g, b = f["color"]
+            mode = f["mode"]
+            rect = f["rect"]
+            if mode == "hold":
+                # Hold full strength briefly, then fade across the back half.
+                op = 1.0 if p < 0.35 else max(0.0, 1.0 - (p - 0.35) / 0.65)
+                grow, radius = 0.0, 8
+            elif mode == "shrink":
+                op = max(0.0, 1.0 - p)
+                grow, radius = -min(rect.width(), rect.height()) * 0.18 * p, 6
+            else:   # pulse
+                op = max(0.0, 1.0 - p)
+                grow, radius = 4.0 * p, 6
+            if op <= 0.0:
+                continue
+            draw_rect = rect.adjusted(-grow, -grow, grow, grow)
+            pen = QPen(QColor(r, g, b, int(220 * op)), 0)
+            pen.setCosmetic(True)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.setBrush(QBrush(QColor(r, g, b, int(36 * op))))
+            painter.drawRoundedRect(draw_rect, radius, radius)
+        painter.restore()
+
+    # ── Smart alignment guides (live during a single-element drag) ──
+
+    _GUIDE_COLOR = (0, 209, 224)   # vivid cyan — reads as "alignment", not chrome
+
+    def _align_rect_for(self, item, top_left: QPointF | None = None) -> QRectF:
+        """The item's content rect in scene coords (excluding selection
+        chrome), optionally placed at a candidate top-left ``top_left``."""
+        if isinstance(item, BoxItem):
+            tl = top_left if top_left is not None else QPointF(
+                item.box.x, item.box.y)
+            return QRectF(tl.x(), tl.y(), item.box.w, item.box.h)
+        if isinstance(item, ImageItem):
+            tl = top_left if top_left is not None else QPointF(
+                item.image.x, item.image.y)
+            return QRectF(tl.x(), tl.y(), item.image.w, item.image.h)
+        # NoteItem (and any fallback): derive size from the live bounds and
+        # the pos->content offset, so a candidate pos maps to a content rect.
+        br = item.sceneBoundingRect()
+        if top_left is None:
+            return br
+        off = br.topLeft() - item.pos()
+        return QRectF(top_left + off, br.size())
+
+    def begin_drag_guides(self, item):
+        """Gather peer anchor rects once, at drag start (kept cheap by culling
+        to a margin around the viewport)."""
+        self._drag_lead_item = item
+        self._drag_guides = []
+        refs: list[dict] = []
+        exclude = {item}
+        if isinstance(item, BoxItem):
+            exclude |= set(self._descendants(item.box.id))
+        # Only align to elements actually on screen — no guides reaching out
+        # to peers the user can't see. (Small margin so an element flush with
+        # an edge still counts.)
+        vis = self.mapToScene(self.viewport().rect()).boundingRect()
+        vis = vis.adjusted(-8, -8, 8, 8)
+        for peer in (*self._box_items.values(), *self._note_items.values(),
+                     *self._image_items.values()):
+            if peer in exclude or not peer.isVisible():
+                continue
+            r = self._align_rect_for(peer)
+            if not vis.intersects(r):
+                continue
+            refs.append({
+                "rect": r,
+                "xs": (r.left(), r.center().x(), r.right()),
+                "ys": (r.top(), r.center().y(), r.bottom()),
+            })
+            if len(refs) >= 200:
+                break
+        self._drag_guide_refs = refs
+
+    def end_drag_guides(self):
+        if self._drag_guide_refs is None and not self._drag_guides:
+            return
+        self._drag_guide_refs = None
+        self._drag_lead_item = None
+        if self._drag_guides:
+            self._drag_guides = []
+            self.viewport().update()
+
+    def snap_drag_pos(self, item, proposed: QPointF) -> QPointF:
+        """Single hook for every dragged item: smart-alignment snap (the lead
+        item of a single-selection drag) with a grid-snap fallback. Returns the
+        position the item should take and records the guide lines to draw."""
+        # Child propagation / batch moves must follow the lead faithfully —
+        # no snapping of the carried-along items.
+        if (getattr(self, "_propagating_move", False)
+                or self._suppress_child_updates or self._batch_move_updates):
+            return proposed
+
+        sel = [i for i in self._scene.selectedItems()
+               if isinstance(i, (BoxItem, NoteItem, ImageItem))]
+        align_on = (self._drag_guide_refs and item is self._drag_lead_item
+                    and len(sel) <= 1)
+
+        nx, ny = proposed.x(), proposed.y()
+        ax_line = ay_line = None
+        guides: list[dict] = []
+        if align_on:
+            rect = self._align_rect_for(item, proposed)
+            thr = 6.0 / max(1e-6, abs(self.transform().m11()))
+            xs = (rect.left(), rect.center().x(), rect.right())
+            ys = (rect.top(), rect.center().y(), rect.bottom())
+            best_dx = best_dy = None
+            ref_x = ref_y = None
+            for ref in self._drag_guide_refs:
+                for a in xs:
+                    for line in ref["xs"]:
+                        d = line - a
+                        if abs(d) <= thr and (best_dx is None
+                                              or abs(d) < abs(best_dx)):
+                            best_dx, ax_line, ref_x = d, line, ref
+                for a in ys:
+                    for line in ref["ys"]:
+                        d = line - a
+                        if abs(d) <= thr and (best_dy is None
+                                              or abs(d) < abs(best_dy)):
+                            best_dy, ay_line, ref_y = d, line, ref
+            if best_dx is not None:
+                nx += best_dx
+            if best_dy is not None:
+                ny += best_dy
+            snapped = self._align_rect_for(item, QPointF(nx, ny))
+            if ax_line is not None:
+                r2 = ref_x["rect"]
+                guides.append({"orient": "v", "pos": ax_line,
+                               "a": min(snapped.top(), r2.top()),
+                               "b": max(snapped.bottom(), r2.bottom())})
+            if ay_line is not None:
+                r2 = ref_y["rect"]
+                guides.append({"orient": "h", "pos": ay_line,
+                               "a": min(snapped.left(), r2.left()),
+                               "b": max(snapped.right(), r2.right())})
+
+        # Grid fallback on any axis alignment didn't already pin.
+        if self._grid_snap:
+            spacing = self.GRID_SPACING
+            if ax_line is None:
+                nx = round(nx / spacing) * spacing
+            if ay_line is None:
+                ny = round(ny / spacing) * spacing
+
+        # The guide lines are the snap feedback; deliberately no timed pulse
+        # here — a per-frame animation racing Qt's own full-viewport drag
+        # repaints flickers the node it's meant to celebrate.
+        if guides != self._drag_guides:
+            self._drag_guides = guides
+            self.viewport().update()
+        return QPointF(nx, ny)
+
+    def _draw_drag_guides(self, painter: QPainter):
+        """Drawn while the painter is still in scene coordinates.
+
+        Neon-style: a soft glow halo under a crisp bright core, capped with
+        small diamond snap-markers at each end. Everything is static (no timed
+        animation) so it never races the drag's full-viewport repaints.
+        """
+        if not self._drag_guides:
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        zoom = max(1e-6, abs(self.transform().m11()))
+        cap = 4.0 / zoom   # marker half-size in scene units -> ~constant px
+        r, g, b = self._GUIDE_COLOR
+        halo = QPen(QColor(r, g, b, 70), 0)
+        halo.setCosmetic(True)
+        halo.setWidth(6)
+        halo.setCapStyle(Qt.PenCapStyle.RoundCap)
+        core = QPen(QColor(r, g, b, 245), 0)
+        core.setCosmetic(True)
+        core.setWidthF(1.6)
+        core.setCapStyle(Qt.PenCapStyle.RoundCap)
+        for guide in self._drag_guides:
+            pos, a, bb = guide["pos"], guide["a"], guide["b"]
+            if guide["orient"] == "v":
+                p1, p2 = QPointF(pos, a), QPointF(pos, bb)
+            else:
+                p1, p2 = QPointF(a, pos), QPointF(bb, pos)
+            painter.setPen(halo)
+            painter.drawLine(p1, p2)
+            painter.setPen(core)
+            painter.drawLine(p1, p2)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(r, g, b, 245)))
+            for p in (p1, p2):
+                painter.drawPolygon(QPolygonF([
+                    QPointF(p.x(), p.y() - cap), QPointF(p.x() + cap, p.y()),
+                    QPointF(p.x(), p.y() + cap), QPointF(p.x() - cap, p.y())]))
         painter.restore()
 
     def _draw_flow_overlay(self, painter: QPainter):
@@ -6187,6 +6558,37 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._fade_anims.discard(anim)
 
         anim.finished.connect(_done)
+        self._fade_anims.add(anim)
+        anim.start()
+        return anim
+
+    def _animate_scale(self, items, start, end, dur: int = 160):
+        """Ease ``setScale`` from ``start`` to ``end`` over ``dur`` ms with an
+        OutBack overshoot — a subtle 'pop' about each item's own centre."""
+        live = []
+        for it in items:
+            try:
+                it.setTransformOriginPoint(it.boundingRect().center())
+                it.setScale(start)
+                live.append(it)
+            except RuntimeError:
+                pass
+        if not live:
+            return
+
+        def _set(v):
+            for it in live:
+                try:
+                    it.setScale(v)
+                except RuntimeError:
+                    pass
+        anim = QVariantAnimation(self)
+        anim.setStartValue(float(start))
+        anim.setEndValue(float(end))
+        anim.setDuration(dur)
+        anim.setEasingCurve(QEasingCurve.Type.OutBack)
+        anim.valueChanged.connect(lambda v: _set(float(v)))
+        anim.finished.connect(lambda: self._fade_anims.discard(anim))
         self._fade_anims.add(anim)
         anim.start()
         return anim

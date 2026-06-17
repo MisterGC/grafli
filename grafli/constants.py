@@ -42,6 +42,13 @@ COLOR_TOKENS = {
     "highlight": "#D4BA6A",
     "muted": "#B8B3AB",
     "soft": "#B0A1CA",
+    # Extended muted hues filling the gaps (red / teal / pink / deep green /
+    # deep purple), tuned to the same desaturated, slightly-warm character.
+    "clay": "#C56C54",
+    "teal": "#3E9B92",
+    "rose": "#C98BA8",
+    "forest": "#3F7A57",
+    "plum": "#8160A8",
 }
 
 COLOR_PALETTE = [
@@ -55,6 +62,11 @@ COLOR_PALETTE = [
     ("Highlight", "%highlight"),
     ("Muted", "%muted"),
     ("Soft", "%soft"),
+    ("Clay", "%clay"),
+    ("Teal", "%teal"),
+    ("Rose", "%rose"),
+    ("Forest", "%forest"),
+    ("Plum", "%plum"),
 ]
 
 
@@ -120,6 +132,8 @@ MINIMAP_TIER_COLORS = [
 ]
 MINIMAP_INFO_COLOR = QColor(106, 159, 181)  # #6A9FB5 accent
 MINIMAP_CONNECTOR_COLOR = QColor(180, 180, 180, 110)  # neutral, low alpha — density only
+MINIMAP_CAMERA_COLOR = QColor(106, 159, 181)   # RTS camera frame — the minimap's own accent (#6A9FB5)
+MINIMAP_GRID_COLOR = QColor(150, 142, 128, 24)   # faint warm-neutral grid
 
 # ── Complexity heatmap ──────────────────────────────────────────
 HEATMAP_STOPS = [

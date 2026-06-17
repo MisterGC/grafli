@@ -12,7 +12,6 @@ from grafli.constants import (
     resolve_textsize_px,
     step_textsize_px,
     _BOX_STYLE_CYCLE,
-    _COLOR_VALUES,
     _UNDO_LIMIT,
 )
 from grafli.format import Arrow, Box, Image, Note, parse, serialize
@@ -393,20 +392,6 @@ class CommandsMixin:
         self.mark_dirty()
 
     # ── Property shortcuts ──
-
-    def _cycle_color(self, direction: int):
-        self._push_undo()
-        new_color = None
-        for item in self._scene.selectedItems():
-            if isinstance(item, BoxItem):
-                cur = item.box.color
-                idx = _COLOR_VALUES.index(cur) if cur in _COLOR_VALUES else 0
-                idx = (idx + direction) % len(_COLOR_VALUES)
-                item.set_color(_COLOR_VALUES[idx])
-                new_color = _COLOR_VALUES[idx]
-        if new_color is not None:
-            self._last_box_color = new_color
-        self.mark_dirty()
 
     def _cycle_textsize(self, direction: int):
         """Step selected nodes' text size by one ladder rung.

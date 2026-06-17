@@ -12,7 +12,9 @@ from grafli.constants import (
     FONT_FAMILY,
     MINIMAP_BG,
     MINIMAP_BORDER_COLOR,
+    MINIMAP_CAMERA_COLOR,
     MINIMAP_CONNECTOR_COLOR,
+    MINIMAP_GRID_COLOR,
     MINIMAP_INFO_COLOR,
     MINIMAP_MARGIN,
     MINIMAP_MAX_H,
@@ -20,7 +22,6 @@ from grafli.constants import (
     MINIMAP_STATS_COLOR,
     MINIMAP_STATS_FONT_SIZE,
     MINIMAP_TIER_COLORS,
-    MINIMAP_VIEWPORT_COLOR,
     NOTE_DISCUSSION_COLOR,
     NOTE_PEN_COLOR,
     NOTE_QUESTION_COLOR,
@@ -218,6 +219,9 @@ class MinimapMixin:
         sx = mw / scene_rect.width()
         sy = mh / scene_rect.height()
 
+        # Faint tactical grid under everything — RTS radar terrain feel.
+        self._draw_minimap_grid(painter)
+
         # Draw connectors first (under boxes/notes) — single neutral colour
         # gives a density read of the graph without competing with the
         # element markers drawn on top.
@@ -300,16 +304,20 @@ class MinimapMixin:
             self._draw_minimap_note(painter, QRectF(nx, ny, nw, nh), color,
                                     dimmed=note.id in dimmed_ids)
 
-        # Viewport indicator
+        # Camera box — RTS-style: faint fill, thin outline, glowing corner
+        # brackets that read as the on-screen "camera".
         vp_scene = self.mapToScene(vp).boundingRect()
         vx = mx + (vp_scene.x() - scene_rect.x()) * sx
         vy = my + (vp_scene.y() - scene_rect.y()) * sy
         vw = vp_scene.width() * sx
         vh = vp_scene.height() * sy
         vp_rect = QRectF(vx, vy, vw, vh).intersected(self._minimap_rect)
-        painter.setBrush(QBrush(MINIMAP_VIEWPORT_COLOR))
-        painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
-        painter.drawRect(vp_rect)
+        self._draw_minimap_camera(painter, vp_rect)
+
+        # HUD corner brackets framing the radar.
+        frame = QColor(MINIMAP_CAMERA_COLOR)
+        frame.setAlpha(120)
+        self._corner_brackets(painter, self._minimap_rect, 9, [(frame, 1.4)])
 
         # ── F1 Help hint in bottom-left of panel ──
         hint_font = QFont(FONT_FAMILY, 9)
@@ -350,6 +358,68 @@ class MinimapMixin:
                              QPointF(rect.left() + inset + line_w, y))
             y += gap
             i += 1
+
+    def _draw_minimap_grid(self, painter):
+        """Faint regular grid across the radar — RTS terrain texture."""
+        r = self._minimap_rect
+        if r.isNull():
+            return
+        painter.save()
+        painter.setClipRect(r)
+        painter.setPen(QPen(MINIMAP_GRID_COLOR, 1))
+        step = 28.0
+        x = r.left() + step
+        while x < r.right():
+            painter.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
+            x += step
+        y = r.top() + step
+        while y < r.bottom():
+            painter.drawLine(QPointF(r.left(), y), QPointF(r.right(), y))
+            y += step
+        painter.restore()
+
+    def _corner_brackets(self, painter, rect, length, pens):
+        """Draw inward L-brackets at each corner of ``rect``.
+
+        ``pens`` is a list of ``(QColor, width)`` drawn back-to-front, so a
+        wide low-alpha pen followed by a thin bright one yields a glow.
+        """
+        size = min(length, rect.width() / 2, rect.height() / 2)
+        if size < 1:
+            return
+        corners = (
+            (rect.left(), rect.top(), 1, 1),
+            (rect.right(), rect.top(), -1, 1),
+            (rect.left(), rect.bottom(), 1, -1),
+            (rect.right(), rect.bottom(), -1, -1),
+        )
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for color, width in pens:
+            pen = QPen(color, width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            for x, y, dx, dy in corners:
+                painter.drawLine(QPointF(x, y), QPointF(x + dx * size, y))
+                painter.drawLine(QPointF(x, y), QPointF(x, y + dy * size))
+
+    def _draw_minimap_camera(self, painter, rect):
+        """RTS camera box: faint fill, thin outline, glowing corner brackets."""
+        if rect.isNull() or rect.width() < 1 or rect.height() < 1:
+            return
+        cam = MINIMAP_CAMERA_COLOR
+        fill = QColor(cam)
+        fill.setAlpha(26)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(fill))
+        painter.drawRect(rect)
+        outline = QColor(cam)
+        outline.setAlpha(110)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(outline, 1))
+        painter.drawRect(rect)
+        glow = QColor(cam)
+        glow.setAlpha(70)
+        self._corner_brackets(painter, rect, 12, [(glow, 4.0), (QColor(cam), 1.6)])
 
     def _minimap_viewport_rect(self) -> QRectF:
         """Compute the viewport indicator rect in minimap (widget) coords."""

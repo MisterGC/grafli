@@ -38,8 +38,9 @@ its version. It is required.
 
 ### Modifiers
 
-- `<color>` — built-in tokens: `%primary`, `%secondary`, `%tertiary`,
-  `%accent`, `%subtle`, `%muted`, or any `#rrggbb` hex value.
+- `<color>` — built-in tokens: `%base`, `%primary`, `%secondary`,
+  `%tertiary`, `%subtle`, `%accent`, `%highlight`, `%muted`, `%soft`,
+  `%clay`, `%teal`, `%rose`, `%forest`, `%plum`, or any `#rrggbb` hex value.
 - `^anchor` — `topleft`, `top`, `topright`, `left`, `center`, `right`,
   `bottomleft`, `bottom`, `bottomright`. Controls how a box's label is
   placed.

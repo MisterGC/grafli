@@ -199,6 +199,15 @@ def _view_scale(item) -> float:
     return 1.0
 
 
+def _apply_emphasis(font: QFont, emphasis: str) -> QFont:
+    """Layer bold/italic onto ``font`` from an element's ``emphasis`` string."""
+    if "bold" in emphasis:
+        font.setBold(True)
+    if "italic" in emphasis:
+        font.setItalic(True)
+    return font
+
+
 def _begin_drag_guides(item):
     """Tell the view a free-move drag is starting (gathers alignment refs)."""
     view = _get_view(item)
@@ -523,6 +532,13 @@ class BoxItem(QGraphicsRectItem):
         self._position_label()
         self.update()
 
+    def set_emphasis(self, emphasis: str):
+        self.box.emphasis = emphasis
+        self._label.setFont(self._box_font())
+        self._auto_grow()
+        self._position_label()
+        self.update()
+
     def _lead_icon_side(self) -> float:
         """Small leading-icon size, scaled to the box's text."""
         is_parent = self._is_parent
@@ -586,7 +602,7 @@ class BoxItem(QGraphicsRectItem):
         # medium. An explicit size (numeric or named) is always honoured — so
         # a parent can be set to the same size as any other node.
         px = resolve_textsize_px(self.box.textsize, "small" if is_parent else "")
-        return QFont(FONT_FAMILY, px)
+        return _apply_emphasis(QFont(FONT_FAMILY, px), self.box.emphasis)
 
     def _position_label(self):
         br = self._label.boundingRect()
@@ -1245,6 +1261,12 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.prepareGeometryChange()
         self.note.icon = name
         self.note.icon_placement = placement
+        self._brect_cache = None
+        self.update()
+
+    def set_emphasis(self, emphasis: str):
+        self.prepareGeometryChange()
+        self.note.emphasis = emphasis
         self._brect_cache = None
         self.update()
 
@@ -2126,7 +2148,9 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.update()
 
     def _note_font(self) -> QFont:
-        return QFont(FONT_FAMILY, resolve_textsize_px(self.note.textsize, ""))
+        return _apply_emphasis(
+            QFont(FONT_FAMILY, resolve_textsize_px(self.note.textsize, "")),
+            self.note.emphasis)
 
     def set_color(self, color: str):
         self.note.color = color

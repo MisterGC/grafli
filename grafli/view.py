@@ -83,6 +83,7 @@ from grafli.constants import (
     BOX_BORDER,
     BOX_FILL,
     BOX_FONT_SIZES,
+    resolve_textsize_px,
     COLOR_PALETTE,
     CONNECTOR_REF_SIZE,
     CONNECTOR_WIDTH_MAX,
@@ -316,6 +317,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._icon_picker_index: int = 0
         self._icon_picker_placement: str = ""
         self._icon_picker_original: dict[str, tuple[str, str]] = {}
+        # Type grid (style mode -> s): size rows x emphasis columns, live.
+        self._type_picker_active: bool = False
+        self._type_picker_size_idx: int = 1   # "" (medium)
+        self._type_picker_emph_idx: int = 0
+        self._type_picker_original: dict[str, tuple[str, str]] = {}
         self._mode_badge: QGraphicsTextItem | None = None
         self._mode_badge_bg: QGraphicsRectItem | None = None
 
@@ -475,6 +481,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._draw_debug_overlay(painter)
         self._draw_color_picker(painter)
         self._draw_icon_picker(painter)
+        self._draw_type_picker(painter)
         self._draw_toast(painter)
 
     # Grid mode cycle order for the # key / "grid" action.
@@ -2425,6 +2432,176 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                          Qt.AlignmentFlag.AlignCenter, cur)
         painter.restore()
 
+    # ── Type grid (style mode -> s): size rows x emphasis columns ──
+
+    _TYPE_SIZES = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge"]
+    _TYPE_SIZE_LABELS = {"small": "S", "": "M", "large": "L",
+                         "xlarge": "XL", "xxlarge": "2XL", "xxxlarge": "3XL"}
+    _TYPE_EMPH = ["", "bold", "italic", "bold italic"]
+    _TYPE_EMPH_LABELS = ["regular", "bold", "italic", "bold italic"]
+
+    def _type_picker_targets(self):
+        return [it for it in self._scene.selectedItems()
+                if isinstance(it, (BoxItem, NoteItem))]
+
+    @staticmethod
+    def _el_textsize(item) -> str:
+        return (item.box.textsize if isinstance(item, BoxItem)
+                else item.note.textsize)
+
+    @staticmethod
+    def _el_emphasis(item) -> str:
+        return (item.box.emphasis if isinstance(item, BoxItem)
+                else item.note.emphasis)
+
+    def _open_type_picker(self):
+        targets = self._type_picker_targets()
+        if not targets:
+            self.toast("Select a box or note", kind="warn")
+            return
+        self._type_picker_original = {
+            self._el_id(it): (self._el_textsize(it), self._el_emphasis(it))
+            for it in targets}
+        size = self._el_textsize(targets[0])
+        self._type_picker_size_idx = (self._TYPE_SIZES.index(size)
+                                      if size in self._TYPE_SIZES else 1)
+        emph = self._el_emphasis(targets[0])
+        self._type_picker_emph_idx = (self._TYPE_EMPH.index(emph)
+                                      if emph in self._TYPE_EMPH else 0)
+        self._type_picker_active = True
+        self.viewport().update()
+
+    def _apply_type_picker_live(self):
+        size = self._TYPE_SIZES[self._type_picker_size_idx]
+        emph = self._TYPE_EMPH[self._type_picker_emph_idx]
+        for it in self._type_picker_targets():
+            it.set_textsize(size)
+            it.set_emphasis(emph)
+
+    def _type_picker_move(self, dcol: int, drow: int):
+        self._type_picker_emph_idx = max(
+            0, min(len(self._TYPE_EMPH) - 1, self._type_picker_emph_idx + dcol))
+        self._type_picker_size_idx = max(
+            0, min(len(self._TYPE_SIZES) - 1, self._type_picker_size_idx + drow))
+        self._apply_type_picker_live()
+        self.viewport().update()
+
+    def _handle_type_picker_key(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self._cancel_type_picker()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._commit_type_picker()
+        elif key == Qt.Key.Key_H:
+            self._type_picker_move(-1, 0)
+        elif key == Qt.Key.Key_L:
+            self._type_picker_move(1, 0)
+        elif key == Qt.Key.Key_K:
+            self._type_picker_move(0, -1)
+        elif key == Qt.Key.Key_J:
+            self._type_picker_move(0, 1)
+
+    def _commit_type_picker(self):
+        targets = self._type_picker_targets()
+        size = self._TYPE_SIZES[self._type_picker_size_idx]
+        emph = self._TYPE_EMPH[self._type_picker_emph_idx]
+        for it in targets:
+            os_, oe = self._type_picker_original.get(self._el_id(it), ("", ""))
+            it.set_textsize(os_)
+            it.set_emphasis(oe)
+        self._push_undo()
+        for it in targets:
+            it.set_textsize(size)
+            it.set_emphasis(emph)
+        self.mark_dirty()
+        self._close_type_picker()
+
+    def _cancel_type_picker(self):
+        for it in self._type_picker_targets():
+            orig = self._type_picker_original.get(self._el_id(it))
+            if orig is not None:
+                it.set_textsize(orig[0])
+                it.set_emphasis(orig[1])
+        self._close_type_picker()
+
+    def _close_type_picker(self):
+        self._type_picker_active = False
+        self._type_picker_original = {}
+        self.viewport().update()
+
+    def _draw_type_picker(self, painter: QPainter):
+        """Size (rows) x emphasis (columns) grid; each cell previews 'Ag' at
+        that size (capped) and weight. Live preview on the element."""
+        if not self._type_picker_active:
+            return
+        targets = self._type_picker_targets()
+        if not targets:
+            return
+        scene_rect = targets[0].sceneBoundingRect()
+        for it in targets[1:]:
+            scene_rect = scene_rect.united(it.sceneBoundingRect())
+        anchor = self.mapFromScene(scene_rect).boundingRect()
+
+        rows, cols = len(self._TYPE_SIZES), len(self._TYPE_EMPH)
+        cell_w, cell_h, rowlab_w, pad, label_h = 52, 38, 30, 10, 18
+        grid_w = rowlab_w + cols * cell_w
+        grid_h = rows * cell_h
+        panel_w = grid_w + pad * 2
+        panel_h = grid_h + pad * 2 + label_h
+        margin = 14
+        vw, vh = self.viewport().width(), self.viewport().height()
+        px = anchor.right() + margin
+        if px + panel_w > vw - 4:
+            px = anchor.left() - margin - panel_w
+        px = max(4, min(px, vw - panel_w - 4))
+        py = anchor.center().y() - panel_h / 2
+        py = max(4, min(py, vh - panel_h - 4))
+
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.96)
+        painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
+
+        gx0, gy0 = px + pad, py + pad
+        cyan = QColor(0, 209, 224)
+        ink = QColor(225, 225, 221)
+        for r, size in enumerate(self._TYPE_SIZES):
+            cy = gy0 + r * cell_h
+            painter.setPen(QPen(QColor(150, 150, 146)))
+            painter.setFont(QFont(FONT_FAMILY, 8))
+            painter.drawText(QRectF(gx0, cy, rowlab_w - 4, cell_h),
+                             Qt.AlignmentFlag.AlignVCenter
+                             | Qt.AlignmentFlag.AlignRight,
+                             self._TYPE_SIZE_LABELS[size])
+            prev_px = min(resolve_textsize_px(size, ""), 24)
+            for c, emph in enumerate(self._TYPE_EMPH):
+                cx = gx0 + rowlab_w + c * cell_w
+                cell = QRectF(cx, cy, cell_w, cell_h)
+                f = QFont(FONT_FAMILY, prev_px)
+                f.setBold("bold" in emph)
+                f.setItalic("italic" in emph)
+                painter.setFont(f)
+                painter.setPen(QPen(ink))
+                painter.drawText(cell, Qt.AlignmentFlag.AlignCenter, "Ag")
+                if (r == self._type_picker_size_idx
+                        and c == self._type_picker_emph_idx):
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.setPen(QPen(cyan, 2))
+                    painter.drawRoundedRect(cell.adjusted(1, 1, -1, -1), 5, 5)
+
+        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setFont(QFont(FONT_FAMILY, 9))
+        sl = self._TYPE_SIZE_LABELS[self._TYPE_SIZES[self._type_picker_size_idx]]
+        el = self._TYPE_EMPH_LABELS[self._type_picker_emph_idx]
+        painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
+                         Qt.AlignmentFlag.AlignCenter, f"{sl} · {el}")
+        painter.restore()
+
     # ── Arrow mode (vim-like style) ──
 
     def _arrow_label_midpoint(self) -> QPointF | None:
@@ -3772,6 +3949,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
+        # Type grid owns all input while open
+        if self._type_picker_active:
+            self._handle_type_picker_key(event)
+            event.accept()
+            return
+
         if event.key() == Qt.Key.Key_Escape:
             if self._search_filter_active:
                 self._clear_search_filter()
@@ -4147,6 +4330,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     return
                 if event.key() == Qt.Key.Key_I and no_mod:
                     self._open_icon_picker()
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_S and no_mod:
+                    self._open_type_picker()
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_J and no_mod:
@@ -7149,10 +7336,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("Default wrap", "80 chars — set ~width=N for per-note override"),
             ]),
             ("Style", [
-                ("h / l", "Cycle color"),
-                ("j / k", "Cycle text size"),
-                ("s", "Enter style mode"),
-                ("d", "Enter dimension mode"),
+                ("s", "Style mode — then:"),
+                ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
+                ("  i", "Icon grid (visual vocab; ⇥ fill/lead)"),
+                ("  s", "Type grid: size × bold/italic"),
+                ("  j / k", "Nudge text size"),
+                ("  d", "Dimension mode (resize)"),
                 ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),
                 ("Drag corner", "Scale the selection (size + font); Shift keeps ratio"),
                 ("Shift+G", "Snap to grid"),

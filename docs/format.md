@@ -52,6 +52,9 @@ its version. It is required.
   You can also drag the right edge of a selected note to set this
   interactively — the value persists on save.
 - `!style` — `flat`, `dashed`, plus arrow-specific styles.
+- `!bold` / `!italic` — *(boxes and notes)* text emphasis layered on the
+  size, e.g. `~large !bold` for a heading. Combine freely (`!bold !italic`).
+  (Style mode → `s` opens a size × style type grid.)
 - `*icon` — *(boxes and notes)* attach a visual-vocabulary glyph. Bare
   `*name` is *fill*: a big glyph with the label/text as a caption (a framed
   node on a box, a borderless marker on a note). `*lead:name` is *lead*: a
@@ -61,6 +64,13 @@ its version. It is required.
   `money`, `clock`, `doc`, `lock`, `flag`, `star`, `link`, `question`.
   (Style mode → `i`; `Tab` toggles fill ↔ lead.)
 - `>parent` — nest this element inside the box with the given ID.
+
+> **When to reach for glyphs and emphasis.** They shine when you're
+> *explaining a concept* — mind maps, idea boards, walkthroughs — where a
+> `*bulb` node or a bold heading aids recognition. On *structural* diagrams
+> (state machines, architecture, data flow) keep it clean: boxes, labels,
+> arrows, and one colour per category read as a system; glyphs and bold are
+> mostly noise there. Default to restraint.
 
 Graph connectors are drawn with a thickness proportional to the size of the
 nodes they link — big containers get heavier arrows, small inner children stay

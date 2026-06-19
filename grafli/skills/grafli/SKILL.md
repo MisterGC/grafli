@@ -172,6 +172,7 @@ catches them before the user opens the file.
 | `^anchor` | `^topleft`, `^topcenter` | label alignment (default: center) |
 | `~size` | `~small`, `~large`, `~xlarge`, `~xxlarge`, `~xxxlarge` | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |
+| `!bold` / `!italic` | `!bold`, `!italic` | text emphasis layered on `~size` (combine for headings/asides) |
 | `*icon` | `*bulb` (fill), `*lead:gear` (lead) | visual-vocabulary glyph — fill: big icon + caption; lead: small icon left of the label |
 | `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>` | typed attachment (see "Attachments") |
 | `>parent` | `>parent_id` | nest inside parent box |
@@ -626,6 +627,33 @@ Key rules:
 * Never use the same text size for a container heading and its
   children — the heading must be visually subordinate to or
   distinct from child labels.
+* Emphasis (`!bold`, `!italic`) layers on top of size. Use `!bold`
+  for the one or two things that must stand out (a title, the key
+  node) and `!italic` for secondary asides — sparingly. If everything
+  is bold, nothing is.
+
+### Visual vocabulary & emphasis — use only when it earns its place
+
+Glyph icons (`*name`) and text emphasis (`!bold` / `!italic`) are powerful
+for *explaining a concept* but are noise on a *technical diagram*. Match the
+tooling to the intent — this is a judgment call, and the default is restraint:
+
+* **Structural / technical diagrams** — state machines, architecture, data
+  flow, ER / class, sequence. Keep them clean: boxes, labels, arrows, and
+  one colour per category. Skip glyphs and emphasis almost entirely. Uniform
+  weight reads as "a system," and a gear icon on a "Scheduler" node adds
+  nothing the label doesn't already say. At most a *sparing* flag — a bold
+  title box, `*lead:warning` on a genuinely risky node.
+* **Concept explanations / visual notes / teaching** — mind maps, idea
+  boards, walkthroughs, retrospectives, "how it works" sketches. Lean in: a
+  `*bulb` idea node, `*lead:database` labelled items, a bold heading over a
+  small italic aside. Here recognition and hierarchy are the whole point, and
+  sketchnote-style glyphs + emphasis make the board graspable at a glance.
+
+Each channel carries one meaning — colour = category, size = importance,
+weight = emphasis, glyph = concept or flag. You rarely need more than one on
+an element. If a glyph or a bold doesn't make the diagram *easier to
+understand*, leave it off.
 
 ## 2. Layout strategy
 
@@ -896,6 +924,10 @@ renders as its own canvas, and the viewer follows the link.
   grouping of multiple elements.
 * **Decoration for its own sake**: every visual choice (color, size,
   style) should encode information.
+* **Glyphs / bold on technical diagrams**: don't sprinkle `*icons` or
+  emphasis on a state machine or architecture diagram — they're for
+  explaining concepts, not labelling a system (see "Visual vocabulary
+  & emphasis — use only when it earns its place").
 * **Cramped containers**: children must never visually overlap the
   parent's headline — follow the container margin model.
 * **Uniform text sizes**: if every element uses the same font size,

@@ -76,6 +76,8 @@ class Box:
     # caption), "lead" = a small icon left of the label.
     icon: str = ""
     icon_placement: str = ""
+    # Text emphasis layered on the size: "", "bold", "italic", or "bold italic".
+    emphasis: str = ""
 
 
 @dataclass
@@ -131,6 +133,7 @@ class Note:
     # of the text (lead).
     icon: str = ""
     icon_placement: str = ""
+    emphasis: str = ""   # see Box.emphasis
 
 
 @dataclass
@@ -396,6 +399,27 @@ def icon_token(element) -> str:
     return f"{place}:{element.icon}" if place else element.icon
 
 
+def emphasis_from_flags(flags) -> str:
+    """Canonical emphasis string (``bold`` before ``italic``) from a flag set."""
+    parts = []
+    if "bold" in flags:
+        parts.append("bold")
+    if "italic" in flags:
+        parts.append("italic")
+    return " ".join(parts)
+
+
+def emphasis_tokens(emphasis: str) -> str:
+    """Serialize an ``emphasis`` value back to ``!bold``/``!italic`` flags."""
+    parts = emphasis.split()
+    s = ""
+    if "bold" in parts:
+        s += " !bold"
+    if "italic" in parts:
+        s += " !italic"
+    return s
+
+
 # ── Regex patterns ──────────────────────────────────────────────
 
 _RE_BOX = re.compile(
@@ -404,7 +428,7 @@ _RE_BOX = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
-    r'((?:\s+!(?:flat|ratio|fit))*)'
+    r'((?:\s+!(?:flat|ratio|fit|bold|italic))*)'
     r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -430,7 +454,7 @@ _RE_NOTE = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'(?:\s+!(mono))?'
+    r'((?:\s+!(?:mono|bold|italic))*)'
     r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -448,7 +472,7 @@ _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'(?:\s+!(mono))?'
+    r'((?:\s+!(?:mono|bold|italic))*)'
     r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -563,6 +587,7 @@ def parse(text: str) -> Board:
                 anchor=m.group(8) or "",
                 textsize=m.group(9) or "",
                 style="flat" if "flat" in flags else "",
+                emphasis=emphasis_from_flags(flags),
                 icon=split_icon(m.group(11) or "")[1],
                 icon_placement=split_icon(m.group(11) or "")[0],
                 url=url,
@@ -616,6 +641,7 @@ def parse(text: str) -> Board:
             if sm:
                 kind, url = (split_attach(sm.group(6) or "")
                              if sm.group(6) else ("", ""))
+                blk_flags = set(re.findall(r'!(\w+)', sm.group(4) or ""))
                 note = Note(
                     id=note_id,
                     x=x,
@@ -626,7 +652,8 @@ def parse(text: str) -> Board:
                     wrap_chars=int(sm.group(3)) if sm.group(3)
                                                 else DEFAULT_NOTE_WRAP_CHARS,
                     wrap_chars_explicit=bool(sm.group(3)),
-                    style=sm.group(4) or "",
+                    style="mono" if "mono" in blk_flags else "",
+                    emphasis=emphasis_from_flags(blk_flags),
                     icon=split_icon(sm.group(5) or "")[1],
                     icon_placement=split_icon(sm.group(5) or "")[0],
                     url=url,
@@ -653,6 +680,7 @@ def parse(text: str) -> Board:
         m = _RE_NOTE.match(stripped)
         if m:
             kind, url = split_attach(m.group(10) or "") if m.group(10) else ("", "")
+            note_flags = set(re.findall(r'!(\w+)', m.group(8) or ""))
             note = Note(
                 id=m.group(1) or "",
                 x=float(m.group(2)),
@@ -664,7 +692,8 @@ def parse(text: str) -> Board:
                 wrap_chars=int(m.group(7)) if m.group(7)
                                             else DEFAULT_NOTE_WRAP_CHARS,
                 wrap_chars_explicit=bool(m.group(7)),
-                style=m.group(8) or "",
+                style="mono" if "mono" in note_flags else "",
+                emphasis=emphasis_from_flags(note_flags),
                 icon=split_icon(m.group(9) or "")[1],
                 icon_placement=split_icon(m.group(9) or "")[0],
                 url=url,
@@ -812,6 +841,7 @@ def _serialize_box(box: Box) -> str:
         s += f" ~{box.textsize}"
     if box.style:
         s += f" !{box.style}"
+    s += emphasis_tokens(box.emphasis)
     if box.icon:
         s += f" *{icon_token(box)}"
     s += _attach_token(box)
@@ -857,6 +887,7 @@ def _note_attrs(note: Note) -> str:
         s += f" ~width={note.wrap_chars}"
     if note.style:
         s += f" !{note.style}"
+    s += emphasis_tokens(note.emphasis)
     if note.icon:
         s += f" *{icon_token(note)}"
     s += _attach_token(note, bare_doc_id=note.id)

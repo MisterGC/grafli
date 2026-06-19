@@ -23,6 +23,7 @@ from grafli.constants import (
     DEFAULT_BOX_W,
     DISCUSSION_COLORS,
     FONT_FAMILY,
+    NOTE_FONT_FAMILY,
     HANDLE_SIZE,
     MIN_BOX_SIZE,
     NOTE_PEN_COLOR,
@@ -488,7 +489,7 @@ class BoxItem(QGraphicsRectItem):
         self._label.setFont(self._box_font())
         self._label.setDefaultTextColor(QColor("#2F3437"))
         self._label.setPlainText(box.label)
-        self._label.setTextWidth(box.w - 16)
+        self._label.setTextWidth(self._label_width_for(box.w))
         self._apply_color()
         self._position_label()
         self._auto_grow()
@@ -529,6 +530,7 @@ class BoxItem(QGraphicsRectItem):
     def set_icon(self, name: str, placement: str = ""):
         self.box.icon = name
         self.box.icon_placement = placement
+        self._auto_grow()
         self._position_label()
         self.update()
 
@@ -545,6 +547,17 @@ class BoxItem(QGraphicsRectItem):
         px = resolve_textsize_px(self.box.textsize,
                                  "small" if is_parent else "")
         return max(14.0, min(px * 1.7, self.box.h - 8))
+
+    def _has_lead_icon(self) -> bool:
+        return (bool(self.box.icon) and self.box.icon_placement == "lead"
+                and iconset.has_icon(self.box.icon))
+
+    def _label_width_for(self, w: float) -> float:
+        """Wrap width for the label — leaves room for a lead-icon gutter so
+        the text never runs past the box edge."""
+        if self._has_lead_icon():
+            return w - (self._lead_icon_side() + 24.0)
+        return w - 16.0
 
     def _paint_icon(self, painter: QPainter):
         """Draw the visual-vocabulary glyph. ``fill`` (default): big icon, the
@@ -605,6 +618,7 @@ class BoxItem(QGraphicsRectItem):
         return _apply_emphasis(QFont(FONT_FAMILY, px), self.box.emphasis)
 
     def _position_label(self):
+        self._label.setTextWidth(self._label_width_for(self.box.w))
         br = self._label.boundingRect()
         w = self.box.w
         h = self.box.h
@@ -663,7 +677,7 @@ class BoxItem(QGraphicsRectItem):
     def update_label(self, text: str):
         self.box.label = text
         self._label.setPlainText(text)
-        self._label.setTextWidth(self.box.w - 16)
+        self._label.setTextWidth(self._label_width_for(self.box.w))
         self._auto_grow()
         self._position_label()
 
@@ -676,7 +690,7 @@ class BoxItem(QGraphicsRectItem):
         self._min_h = h
         self.setPos(x, y)
         self.setRect(0, 0, w, h)
-        self._label.setTextWidth(w - 16)
+        self._label.setTextWidth(self._label_width_for(w))
         self._update_handles()
         self._position_label()
         view = _get_view(self)
@@ -701,7 +715,7 @@ class BoxItem(QGraphicsRectItem):
         self._label.setTextWidth(-1)
         natural_w = self._label.boundingRect().width()
         new_w = min(self.box.w, max(DEFAULT_BOX_W, natural_w + 32))
-        self._label.setTextWidth(new_w - 16)
+        self._label.setTextWidth(self._label_width_for(new_w))
         needed_h = self._label.boundingRect().height() + 16
         new_h = min(self.box.h, max(DEFAULT_BOX_H, needed_h))
 
@@ -720,6 +734,7 @@ class BoxItem(QGraphicsRectItem):
             view.mark_dirty()
 
     def _auto_grow(self):
+        self._label.setTextWidth(self._label_width_for(self.box.w))
         needed = self._label.boundingRect().height() + 16
         new_h = max(self._min_h, needed)
         if new_h != self.box.h:
@@ -990,7 +1005,7 @@ class BoxItem(QGraphicsRectItem):
         self.box.h = h
         self.setPos(x, y)
         self.setRect(0, 0, w, h)
-        self._label.setTextWidth(w - 16)
+        self._label.setTextWidth(self._label_width_for(w))
         self._position_label()
         self._update_handles()
 
@@ -2148,9 +2163,20 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.update()
 
     def _note_font(self) -> QFont:
+        # Freeform notes are handwritten (Patrick Hand); code notes and notes
+        # explicitly set to !mono use the monospace face.
+        mono = self.note.style == "mono" or self._is_code_note()
+        family = FONT_FAMILY if mono else NOTE_FONT_FAMILY
         return _apply_emphasis(
-            QFont(FONT_FAMILY, resolve_textsize_px(self.note.textsize, "")),
+            QFont(family, resolve_textsize_px(self.note.textsize, "")),
             self.note.emphasis)
+
+    def set_text_mono(self, mono: bool):
+        """Switch a note between the monospace and handwritten face."""
+        self.prepareGeometryChange()
+        self.note.style = "mono" if mono else ""
+        self._brect_cache = None
+        self.update()
 
     def set_color(self, color: str):
         self.note.color = color

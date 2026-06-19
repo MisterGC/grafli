@@ -126,6 +126,17 @@ def test_picker_applies_to_note_too():
     assert view.board.notes[0].icon == chosen
 
 
+def test_lead_box_label_reserves_icon_gutter():
+    # A lead glyph must not push the label past the box edge.
+    view = _view('@ box t "Really long heading that would overflow a lead box"'
+                 ' 0,0 320x120 *lead:star\n')
+    it = view._box_items["t"]
+    # Wrap width leaves room for the icon gutter (vs the plain 16px inset).
+    assert it._label_width_for(it.box.w) < it.box.w - it._lead_icon_side()
+    # And the rendered label stays within the box bounds.
+    assert it._label.sceneBoundingRect().right() <= it.sceneBoundingRect().right() + 1.0
+
+
 def test_picker_tab_toggles_placement_and_commits():
     view = _view('@ box a "A" 0,0 140x70\n')
     view._box_items["a"].setSelected(True)

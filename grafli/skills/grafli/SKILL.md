@@ -631,6 +631,10 @@ Key rules:
   for the one or two things that must stand out (a title, the key
   node) and `!italic` for secondary asides — sparingly. If everything
   is bold, nothing is.
+* Notes render **handwritten** by default (a warmer, sketchnote feel);
+  add `!mono` for code-like notes that need a monospace face. Box
+  labels are always monospace (structure). Style mode → `t` opens a
+  size × bold/italic text grid; `Tab` toggles a note's font.
 
 ### Visual vocabulary & emphasis — use only when it earns its place
 

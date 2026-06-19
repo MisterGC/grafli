@@ -8,10 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Handwritten notes.** Notes now render in the bundled Patrick Hand face by
+  default — a warmer, sketchnote feel — while box labels stay monospace
+  (structure). `!mono` (and `code:` notes) keep the monospace face for code.
+  Toggle a note's font with `Tab` in the text grid. (Restores the long-dormant
+  `NOTE_FONT_FAMILY` / `"" vs mono` intent.) The style-mode text grid moved
+  from `s` to `t` (`s` → `t` = "style → text").
 - **Text emphasis + a type grid.** Box labels and notes can now be **bold**
   and/or *italic* (`!bold` / `!italic`, layered on `~size`) — the missing
-  emphasis dimension for visual-note hierarchy. Set it visually from a type
-  grid: **style mode → `s`** opens a size (rows) × style (Regular / Bold /
+  emphasis dimension for visual-note hierarchy. Set it visually from a text
+  grid: **style mode → `t`** opens a size (rows) × style (Regular / Bold /
   Italic / Bold+Italic, columns) matrix with live preview — `hjkl` to move,
   `Enter` to confirm, `Esc` to cancel. Works on boxes and notes.
 - **Visual vocabulary — glyph boxes & notes.** A box or note can carry a
@@ -69,6 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unreferenced docs.
 
 ### Fixed
+- **Lead-glyph box labels no longer overflow.** A box with a `*lead:` icon
+  offset its label by the icon gutter but still wrapped at the full width, so
+  long labels ran past the right edge. The wrap width now reserves the gutter.
 - **Crisp flow / step previews on hi-dpi displays.** The Flows panel
   thumbnails were painted at logical resolution and upscaled by the
   display, reading blurry on Retina screens. They now render and scale

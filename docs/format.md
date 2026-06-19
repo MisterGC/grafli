@@ -51,10 +51,13 @@ its version. It is required.
   `~width=40` for a narrow caption, `~width=120` for a wide code listing).
   You can also drag the right edge of a selected note to set this
   interactively — the value persists on save.
-- `!style` — `flat`, `dashed`, plus arrow-specific styles.
+- `!style` — `flat`, `dashed`, plus arrow-specific styles. **Notes render in
+  a handwritten face by default**; `!mono` (and `code:` notes) switch to the
+  monospace face — handwriting for prose, monospace for code. (Style mode →
+  `t` opens the text grid; `Tab` there toggles a note's font.)
 - `!bold` / `!italic` — *(boxes and notes)* text emphasis layered on the
   size, e.g. `~large !bold` for a heading. Combine freely (`!bold !italic`).
-  (Style mode → `s` opens a size × style type grid.)
+  (Style mode → `t` opens a size × style text grid.)
 - `*icon` — *(boxes and notes)* attach a visual-vocabulary glyph. Bare
   `*name` is *fill*: a big glyph with the label/text as a caption (a framed
   node on a box, a borderless marker on a note). `*lead:name` is *lead*: a

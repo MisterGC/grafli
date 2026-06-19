@@ -9,6 +9,7 @@ import os
 
 from PySide6.QtWidgets import QApplication
 
+from grafli.constants import FONT_FAMILY, NOTE_FONT_FAMILY
 from grafli.format import parse, serialize
 from grafli.view import GrafliView, Mode
 
@@ -100,6 +101,45 @@ def test_type_picker_cancel_reverts():
     view._cancel_type_picker()
     assert view._box_items["a"].box.textsize == "small"
     assert view._box_items["a"].box.emphasis == "italic"
+
+
+# ── note font (handwritten by default, !mono = monospace) ───────
+
+def test_note_handwritten_by_default():
+    view = _view('@ note n 0,0 "freeform"\n')
+    assert view._note_items["n"]._note_font().family() == NOTE_FONT_FAMILY
+
+
+def test_mono_note_uses_monospace():
+    view = _view('@ note n 0,0 "x" !mono\n')
+    assert view._note_items["n"]._note_font().family() == FONT_FAMILY
+
+
+def test_code_note_uses_monospace():
+    view = _view('@ note c 0,0 "code: y = 2"\n')
+    assert view._note_items["c"]._note_font().family() == FONT_FAMILY
+
+
+def test_type_picker_tab_toggles_note_font():
+    view = _view('@ note n 0,0 "hi"\n')
+    view._note_items["n"].setSelected(True)
+    view._open_type_picker()
+    assert view._type_picker_font == ""                 # handwritten
+    view._toggle_type_font()
+    assert view._type_picker_font == "mono"
+    assert view._note_items["n"].note.style == "mono"   # live
+    view._commit_type_picker()
+    assert view.board.notes[0].style == "mono"
+
+
+def test_type_picker_cancel_restores_note_font():
+    view = _view('@ note n 0,0 "hi" !mono\n')
+    view._note_items["n"].setSelected(True)
+    view._open_type_picker()
+    assert view._type_picker_font == "mono"
+    view._toggle_type_font()                            # preview hand
+    view._cancel_type_picker()
+    assert view._note_items["n"].note.style == "mono"   # reverted
 
 
 def test_type_picker_applies_to_note():

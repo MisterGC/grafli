@@ -321,7 +321,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._type_picker_active: bool = False
         self._type_picker_size_idx: int = 1   # "" (medium)
         self._type_picker_emph_idx: int = 0
-        self._type_picker_original: dict[str, tuple[str, str]] = {}
+        self._type_picker_font: str = ""      # "" hand / "mono" — notes only
+        # id -> (textsize, emphasis, note_style|None); style restored for notes.
+        self._type_picker_original: dict[str, tuple] = {}
         self._mode_badge: QGraphicsTextItem | None = None
         self._mode_badge_bg: QGraphicsRectItem | None = None
 
@@ -2460,7 +2462,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self.toast("Select a box or note", kind="warn")
             return
         self._type_picker_original = {
-            self._el_id(it): (self._el_textsize(it), self._el_emphasis(it))
+            self._el_id(it): (
+                self._el_textsize(it), self._el_emphasis(it),
+                it.note.style if isinstance(it, NoteItem) else None)
             for it in targets}
         size = self._el_textsize(targets[0])
         self._type_picker_size_idx = (self._TYPE_SIZES.index(size)
@@ -2468,8 +2472,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         emph = self._el_emphasis(targets[0])
         self._type_picker_emph_idx = (self._TYPE_EMPH.index(emph)
                                       if emph in self._TYPE_EMPH else 0)
+        notes = [it for it in targets if isinstance(it, NoteItem)]
+        self._type_picker_font = notes[0].note.style if notes else ""
         self._type_picker_active = True
         self.viewport().update()
+
+    def _type_picker_has_note(self) -> bool:
+        return any(isinstance(it, NoteItem)
+                   for it in self._type_picker_targets())
 
     def _apply_type_picker_live(self):
         size = self._TYPE_SIZES[self._type_picker_size_idx]
@@ -2477,6 +2487,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         for it in self._type_picker_targets():
             it.set_textsize(size)
             it.set_emphasis(emph)
+            if isinstance(it, NoteItem):
+                it.set_text_mono(self._type_picker_font == "mono")
 
     def _type_picker_move(self, dcol: int, drow: int):
         self._type_picker_emph_idx = max(
@@ -2486,12 +2498,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._apply_type_picker_live()
         self.viewport().update()
 
+    def _toggle_type_font(self):
+        # hand ("") <-> mono; only meaningful for notes.
+        self._type_picker_font = "mono" if self._type_picker_font == "" else ""
+        self._apply_type_picker_live()
+        self.viewport().update()
+
     def _handle_type_picker_key(self, event):
         key = event.key()
         if key == Qt.Key.Key_Escape:
             self._cancel_type_picker()
         elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self._commit_type_picker()
+        elif key == Qt.Key.Key_Tab:
+            self._toggle_type_font()
         elif key == Qt.Key.Key_H:
             self._type_picker_move(-1, 0)
         elif key == Qt.Key.Key_L:
@@ -2501,27 +2521,33 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         elif key == Qt.Key.Key_J:
             self._type_picker_move(0, 1)
 
+    def _restore_type_original(self, it):
+        orig = self._type_picker_original.get(self._el_id(it))
+        if orig is None:
+            return
+        it.set_textsize(orig[0])
+        it.set_emphasis(orig[1])
+        if isinstance(it, NoteItem) and orig[2] is not None:
+            it.set_text_mono(orig[2] == "mono")
+
     def _commit_type_picker(self):
         targets = self._type_picker_targets()
         size = self._TYPE_SIZES[self._type_picker_size_idx]
         emph = self._TYPE_EMPH[self._type_picker_emph_idx]
         for it in targets:
-            os_, oe = self._type_picker_original.get(self._el_id(it), ("", ""))
-            it.set_textsize(os_)
-            it.set_emphasis(oe)
+            self._restore_type_original(it)
         self._push_undo()
         for it in targets:
             it.set_textsize(size)
             it.set_emphasis(emph)
+            if isinstance(it, NoteItem):
+                it.set_text_mono(self._type_picker_font == "mono")
         self.mark_dirty()
         self._close_type_picker()
 
     def _cancel_type_picker(self):
         for it in self._type_picker_targets():
-            orig = self._type_picker_original.get(self._el_id(it))
-            if orig is not None:
-                it.set_textsize(orig[0])
-                it.set_emphasis(orig[1])
+            self._restore_type_original(it)
         self._close_type_picker()
 
     def _close_type_picker(self):
@@ -2598,8 +2624,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         painter.setFont(QFont(FONT_FAMILY, 9))
         sl = self._TYPE_SIZE_LABELS[self._TYPE_SIZES[self._type_picker_size_idx]]
         el = self._TYPE_EMPH_LABELS[self._type_picker_emph_idx]
+        status = f"{sl} · {el}"
+        if self._type_picker_has_note():
+            font = "mono" if self._type_picker_font == "mono" else "hand"
+            status += f" · {font}   ⇥ font"
         painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
-                         Qt.AlignmentFlag.AlignCenter, f"{sl} · {el}")
+                         Qt.AlignmentFlag.AlignCenter, status)
         painter.restore()
 
     # ── Arrow mode (vim-like style) ──
@@ -4332,7 +4362,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     self._open_icon_picker()
                     event.accept()
                     return
-                if event.key() == Qt.Key.Key_S and no_mod:
+                if event.key() == Qt.Key.Key_T and no_mod:
                     self._open_type_picker()
                     event.accept()
                     return
@@ -7339,7 +7369,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("s", "Style mode — then:"),
                 ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
                 ("  i", "Icon grid (visual vocab; ⇥ fill/lead)"),
-                ("  s", "Type grid: size × bold/italic"),
+                ("  t", "Text grid: size × bold/italic (⇥ note font)"),
                 ("  j / k", "Nudge text size"),
                 ("  d", "Dimension mode (resize)"),
                 ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),

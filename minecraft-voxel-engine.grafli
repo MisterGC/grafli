@@ -1,0 +1,49 @@
+#!grafli v1
+# Inside Minecraft's Voxel Engine — my notes from the talk
+
+@ note title 190,-230 "Inside Minecraft's Voxel Engine" ~xxxlarge !bold
+@ note speaker 190,-120 "a talk @ VoxelConf '26" ~large !bold *lead:person
+@ note intro 640,-170 "My notes from a great session — how the game turns billions of cubes into a smooth 60 fps. The theme all talk long: never do work you don't have to." ~width=44 !italic
+
+# ── 1. the problem ──
+@ box num1 "1" 40,40 110x110 %clay ~xxxlarge !flat !bold
+@ box s1 "The problem" 190,55 360x80 ~large !flat !bold *lead:warning
+@ note d1 200,150 "A 16-chunk view ≈︎ 16 million blocks. You can't draw — or even loop over — all of them. The rest of the talk = four ways to dodge that." ~width=48 !italic
+
+# ── 2. make the world ──
+@ box num2 "2" 40,300 110x110 %clay ~xxxlarge !flat !bold
+@ box s2 "Make the world" 190,315 360x80 ~large !flat !bold *lead:gear
+@ note d2 200,410 "From one seed, noise (Perlin / Simplex) carves terrain, biomes, caves & ores. Only the chunks near you ever exist." ~width=48 !italic
+
+# ── 3. pack it tight ──
+@ box num3 "3" 40,560 110x110 %clay ~xxxlarge !flat !bold
+@ box s3 "Pack it tight" 190,575 360x80 ~large !flat !bold *lead:database
+@ note d3 200,670 "A chunk = 16³ sections, stored as a palette of block types + tightly-packed indices." ~width=46 !italic
+@ note aha 610,560 "whoa →︎ an all-stone chunk is basically free to store!" ~width=28 *lead:bulb
+
+# ── 4. THE TRICK (the hero of the talk) ──
+@ box num4 "4" 40,840 110x110 %clay ~xxxlarge !flat !bold
+@ box s4 "THE TRICK — don't draw what you can't see" 190,840 430x120 %clay ~large !flat !bold *lead:star
+@ box cull "Cull hidden faces" 680,830 240x58 !flat *lead:check
+@ box atlas "Texture atlas" 680,898 240x58 !flat *lead:doc
+@ box light "Bake lighting" 680,966 240x58 !flat *lead:bulb
+@ box gpu "one mesh / section →︎ GPU" 680,1034 240x58 !flat *lead:link
+@ arrow s4 -> cull
+@ arrow cull -> atlas
+@ arrow atlas -> light
+@ arrow light -> gpu
+@ note quote 960,830 "“A voxel engine is 90% deciding what NOT to draw.”" %clay ~width=34 !bold
+@ note dmesh 960,985 "Only faces touching air become triangles; sky + block light bake into the mesh, so drawing stays cheap." ~width=34 !italic
+
+# ── 5. draw it + the edit loop ──
+@ box num5 "5" 40,1180 110x110 %clay ~xxxlarge !flat !bold
+@ box s5 "Draw it — and let players break it" 190,1180 430x80 ~large !flat !bold *lead:gear
+@ note d5 200,1275 "Frustum-cull chunks, draw their cached meshes. A raycast picks a block; break / place re-meshes just that one section." ~width=48 !italic
+
+# ── Q&A + my takeaway ──
+@ note qa 680,1180 "Q&A — “greedy meshing”? merge coplanar same-texture faces into big quads →︎ far fewer triangles." ~width=34 *lead:question
+@ note take 680,1320 "MY TAKEAWAY: clever culling beats raw GPU power. TODO: try greedy meshing in my toy engine!" %clay ~large ~width=40 !bold *lead:flag
+@ arrow num1 -> num2
+@ arrow num2 -> num3
+@ arrow num3 -> num4
+@ arrow num4 -> num5

@@ -60,6 +60,7 @@ def note_prefix(text: str) -> tuple[str, str] | None:
 from grafli.code_note import is_code_note, split_signature, tokenize_line
 from grafli.md_note import note_is_md, note_md_body
 from grafli.format import Box, Image, Note
+from grafli import iconset
 
 
 def _attach_tooltip(el) -> str:
@@ -427,6 +428,10 @@ class BoxLabelItem(QGraphicsTextItem):
         self.setAcceptHoverEvents(False)
 
     def paint(self, painter: QPainter, option, widget=None):
+        # No caption (e.g. a glyph box cleared to fill with its icon) → draw
+        # nothing, so the contrast plate doesn't linger as an empty strip.
+        if not self._box_item.box.label:
+            return
         if _resolve_color(self._box_item.box.color):
             bg_rect = self.boundingRect()
             bg = QColor("#F2F0EB")
@@ -512,6 +517,40 @@ class BoxItem(QGraphicsRectItem):
         self._apply_color()
         self.update()
 
+    def set_icon(self, name: str, placement: str = ""):
+        self.box.icon = name
+        self.box.icon_placement = placement
+        self._position_label()
+        self.update()
+
+    def _lead_icon_side(self) -> float:
+        """Small leading-icon size, scaled to the box's text."""
+        is_parent = self._is_parent
+        px = resolve_textsize_px(self.box.textsize,
+                                 "small" if is_parent else "")
+        return max(14.0, min(px * 1.7, self.box.h - 8))
+
+    def _paint_icon(self, painter: QPainter):
+        """Draw the visual-vocabulary glyph. ``fill`` (default): big icon, the
+        label is a caption (positioned by _position_label). ``lead``: a small
+        icon at the left, the label keeps its normal weight beside it."""
+        w, h = self.box.w, self.box.h
+        color = QColor("#2F3437")
+        if self.box.icon_placement == "lead":
+            side = self._lead_icon_side()
+            iconset.paint_icon(painter, self.box.icon,
+                               QRectF(8.0, (h - side) / 2, side, side), color)
+            return
+        pad = 10.0
+        cap_h = (self._label.boundingRect().height() + 6
+                 if self.box.label else 0.0)
+        avail_h = h - 2 * pad - cap_h
+        side = max(8.0, min(w - 2 * pad, avail_h))
+        ix = (w - side) / 2
+        iy = pad + (avail_h - side) / 2
+        iconset.paint_icon(painter, self.box.icon,
+                           QRectF(ix, iy, side, side), color)
+
     def set_style(self, style: str):
         self.box.style = style
         self._apply_color()
@@ -555,8 +594,25 @@ class BoxItem(QGraphicsRectItem):
         h = self.box.h
         bx = self.pos().x()
         by = self.pos().y()
-        anchor = self._get_effective_anchor()
         doc = self._label.document()
+        # Glyph box. ``lead``: a small icon sits at the left and the label
+        # keeps its weight beside it. ``fill``: the icon fills the body, so the
+        # label rides at the bottom as a caption.
+        if self.box.icon and iconset.has_icon(self.box.icon):
+            if self.box.icon_placement == "lead":
+                gutter = 8.0 + self._lead_icon_side() + 8.0
+                opt = QTextOption()
+                opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                doc.setDefaultTextOption(opt)
+                self._label.setPos(bx + gutter, by + (h - br.height()) / 2)
+                return
+            opt = QTextOption()
+            opt.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            doc.setDefaultTextOption(opt)
+            self._label.setPos(bx + (w - br.width()) / 2,
+                               by + h - br.height() - 6)
+            return
+        anchor = self._get_effective_anchor()
         opt = QTextOption()
         if anchor == "topleft":
             opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -972,6 +1028,9 @@ class BoxItem(QGraphicsRectItem):
         radius = 0 if self.box.style == "flat" or self._is_parent else BOX_RADIUS
         painter.drawRoundedRect(self.rect(), radius, radius)
 
+        if self.box.icon and iconset.has_icon(self.box.icon):
+            self._paint_icon(painter)
+
         if self.box.url:
             _paint_link_glyph(painter, self.rect())
 
@@ -1174,13 +1233,93 @@ class NoteItem(QGraphicsSimpleTextItem):
 
     def _wrap_cache_key(self) -> tuple:
         return (self.note.text, self.note.wrap_chars, self.note.textsize,
-                self.note.wrap_chars_explicit)
+                self.note.wrap_chars_explicit, self.note.icon)
 
     def _bbox_cache_key(self, sel: bool) -> tuple:
         # Include the live drag target so the visible box tracks the cursor
         # smoothly (text wrap is still keyed on wrap_chars only).
         return (self._wrap_cache_key(), sel,
                 getattr(self, "_resize_target_px", None))
+
+    def set_icon(self, name: str, placement: str = ""):
+        self.prepareGeometryChange()
+        self.note.icon = name
+        self.note.icon_placement = placement
+        self._brect_cache = None
+        self.update()
+
+    def _icon_color(self) -> QColor:
+        return (QColor(_resolve_color(self.note.color)) if self.note.color
+                else QColor("#2F3437"))
+
+    def _icon_side(self) -> float:
+        px = resolve_textsize_px(self.note.textsize, "")
+        if self.note.icon_placement == "lead":
+            return max(16.0, min(px * 1.7, 64.0))
+        return max(40.0, min(220.0, px * 3.5))
+
+    def _icon_metrics(self):
+        """(side, caption_lines, total_w, total_h) for a glyph note —
+        ``fill`` stacks icon over caption, ``lead`` sets icon left of text."""
+        pad = self._PAD
+        side = self._icon_side()
+        lead = self.note.icon_placement == "lead"
+        lines: list[str] = []
+        text_w = text_h = 0.0
+        if self.note.text:
+            font = self._note_font()
+            fm = QFontMetricsF(font)
+            wrap_w = self._wrap_width_px(font) if lead else max(side, 80.0)
+            lines = self._wrap_text_to_width(self.note.text, font, wrap_w)
+            text_w = max((fm.horizontalAdvance(ln) for ln in lines), default=0.0)
+            text_h = len(lines) * fm.height()
+        if lead:
+            gap = 6.0 if lines else 0.0
+            total_w = pad + side + gap + text_w + pad
+            total_h = pad + max(side, text_h) + pad
+        else:
+            cap_h = text_h + 4 if lines else 0.0
+            total_w = pad + max(side, text_w) + pad
+            total_h = pad + side + cap_h + pad
+        return side, lines, total_w, total_h
+
+    def _paint_icon_note(self, painter: QPainter):
+        """A borderless floating glyph. ``fill``: big icon with the text as a
+        caption beneath. ``lead``: a small icon left of the text."""
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        side, lines, total_w, total_h = self._icon_metrics()
+        pad = self._PAD
+        color = self._icon_color()
+        font = self._note_font()
+        fm = QFontMetricsF(font)
+        if self.note.icon_placement == "lead":
+            iconset.paint_icon(painter, self.note.icon,
+                               QRectF(pad, (total_h - side) / 2, side, side),
+                               color)
+            painter.setFont(font)
+            painter.setPen(color)
+            if lines:
+                x = pad + side + 6
+                y = (total_h - len(lines) * fm.height()) / 2 + fm.ascent()
+                for ln in lines:
+                    painter.drawText(QPointF(x, y), ln)
+                    y += fm.height()
+        else:
+            iconset.paint_icon(painter, self.note.icon,
+                               QRectF((total_w - side) / 2, pad, side, side),
+                               color)
+            painter.setFont(font)
+            painter.setPen(color)
+            if lines:
+                y = pad + side + fm.ascent() + 2
+                for ln in lines:
+                    tw = fm.horizontalAdvance(ln)
+                    painter.drawText(QPointF((total_w - tw) / 2, y), ln)
+                    y += fm.height()
+        if self.isSelected():
+            painter.setPen(QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(QRectF(0, 0, total_w, total_h).adjusted(-3, -3, 3, 3))
 
     def _wrap_width_px(self, font: QFont) -> float:
         """Pixel width corresponding to ``note.wrap_chars`` for *font*."""
@@ -1563,7 +1702,10 @@ class NoteItem(QGraphicsSimpleTextItem):
         if cache is not None and cache[0] == cache_key:
             return cache[1]
         target_px = getattr(self, "_resize_target_px", None)
-        if self._is_code_note():
+        if self.note.icon and iconset.has_icon(self.note.icon):
+            _, _, tw, th = self._icon_metrics()
+            r = QRectF(0, 0, tw, th)
+        elif self._is_code_note():
             _, visual = self._visual_code_lines()
             _, _, _, tw, th = self._code_metrics(visual)
             if self.note.wrap_chars_explicit:
@@ -1619,6 +1761,10 @@ class NoteItem(QGraphicsSimpleTextItem):
         return r
 
     def paint(self, painter: QPainter, option, widget=None):
+        if self.note.icon and iconset.has_icon(self.note.icon):
+            self._paint_icon_note(painter)
+            return
+
         if self._is_code_note():
             self._paint_code(painter)
             return

@@ -52,6 +52,14 @@ its version. It is required.
   You can also drag the right edge of a selected note to set this
   interactively — the value persists on save.
 - `!style` — `flat`, `dashed`, plus arrow-specific styles.
+- `*icon` — *(boxes and notes)* attach a visual-vocabulary glyph. Bare
+  `*name` is *fill*: a big glyph with the label/text as a caption (a framed
+  node on a box, a borderless marker on a note). `*lead:name` is *lead*: a
+  small glyph to the left of the label, which keeps its normal weight — for
+  labeled items (`*lead:lock` → 🔒 Auth) and flagging existing nodes. Names:
+  `person`, `gear`, `cloud`, `database`, `warning`, `bulb`, `check`, `cross`,
+  `money`, `clock`, `doc`, `lock`, `flag`, `star`, `link`, `question`.
+  (Style mode → `i`; `Tab` toggles fill ↔ lead.)
 - `>parent` — nest this element inside the box with the given ID.
 
 Graph connectors are drawn with a thickness proportional to the size of the

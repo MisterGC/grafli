@@ -71,6 +71,11 @@ class Box:
     attach_kind: str = ""
     parent: str = ""
     annotation: str = ""
+    # Visual-vocabulary glyph (curated icon name, see grafli.iconset). "" = no
+    # icon. ``icon_placement``: "" = fill (icon fills the body, label becomes a
+    # caption), "lead" = a small icon left of the label.
+    icon: str = ""
+    icon_placement: str = ""
 
 
 @dataclass
@@ -121,6 +126,11 @@ class Note:
     # default and the box collapses to content-fit; when True, the box
     # always reserves the chosen budget.
     wrap_chars_explicit: bool = False
+    # See Box.icon. On a note the glyph renders borderless (a floating marker)
+    # with the text as an optional caption beneath (fill), or a small icon left
+    # of the text (lead).
+    icon: str = ""
+    icon_placement: str = ""
 
 
 @dataclass
@@ -361,6 +371,31 @@ def doc_name(element) -> str:
     return element.url or getattr(element, "id", "")
 
 
+# Glyph placement on a box/note. "" (bare ``*name``) = "fill" (icon fills the
+# body, label/text becomes a caption); "lead" = a small icon left of the label.
+ICON_PLACEMENTS = ("lead",)
+
+
+def split_icon(raw: str) -> tuple[str, str]:
+    """Split a raw ``*`` token into (placement, name).
+
+    ``*lead:gear`` carries an explicit placement; bare ``*gear`` is the default
+    fill placement (returned as "").
+    """
+    for place in ICON_PLACEMENTS:
+        if raw.startswith(place + ":"):
+            return place, raw[len(place) + 1:]
+    return "", raw
+
+
+def icon_token(element) -> str:
+    """Serialize an element's icon as a ``*`` token value (without the ``*``)."""
+    if not element.icon:
+        return ""
+    place = getattr(element, "icon_placement", "")
+    return f"{place}:{element.icon}" if place else element.icon
+
+
 # ── Regex patterns ──────────────────────────────────────────────
 
 _RE_BOX = re.compile(
@@ -370,6 +405,7 @@ _RE_BOX = re.compile(
     r'(?:\s+\^(topleft|topcenter))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
     r'((?:\s+!(?:flat|ratio|fit))*)'
+    r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'
@@ -395,6 +431,7 @@ _RE_NOTE = re.compile(
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
     r'(?:\s+~width=(\d+))?'
     r'(?:\s+!(mono))?'
+    r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'
@@ -412,6 +449,7 @@ _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
     r'(?:\s+~width=(\d+))?'
     r'(?:\s+!(mono))?'
+    r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'
@@ -513,7 +551,7 @@ def parse(text: str) -> Board:
             # The flags run tolerates legacy !ratio / !fit (now no-ops) so older
             # files still load; only !flat is honoured and re-serialized.
             flags = set(re.findall(r'!(\w+)', m.group(10) or ""))
-            kind, url = split_attach(m.group(11) or "") if m.group(11) else ("", "")
+            kind, url = split_attach(m.group(12) or "") if m.group(12) else ("", "")
             box = Box(
                 id=m.group(1),
                 label=ensure_text_presentation(m.group(2).replace("\\n", "\n")),
@@ -525,10 +563,12 @@ def parse(text: str) -> Board:
                 anchor=m.group(8) or "",
                 textsize=m.group(9) or "",
                 style="flat" if "flat" in flags else "",
+                icon=split_icon(m.group(11) or "")[1],
+                icon_placement=split_icon(m.group(11) or "")[0],
                 url=url,
                 attach_kind=kind,
-                parent=m.group(12) or "",
-                annotation=(m.group(13) or "").replace("\\n", "\n"),
+                parent=m.group(13) or "",
+                annotation=(m.group(14) or "").replace("\\n", "\n"),
             )
             board.boxes.append(box)
             board._lines.append(("box", box))
@@ -574,8 +614,8 @@ def parse(text: str) -> Board:
 
             sm = _RE_NOTE_BLOCK_SUFFIX.match(suffix.strip())
             if sm:
-                kind, url = (split_attach(sm.group(5) or "")
-                             if sm.group(5) else ("", ""))
+                kind, url = (split_attach(sm.group(6) or "")
+                             if sm.group(6) else ("", ""))
                 note = Note(
                     id=note_id,
                     x=x,
@@ -587,10 +627,12 @@ def parse(text: str) -> Board:
                                                 else DEFAULT_NOTE_WRAP_CHARS,
                     wrap_chars_explicit=bool(sm.group(3)),
                     style=sm.group(4) or "",
+                    icon=split_icon(sm.group(5) or "")[1],
+                    icon_placement=split_icon(sm.group(5) or "")[0],
                     url=url,
                     attach_kind=kind,
-                    parent=sm.group(6) or "",
-                    annotation=(sm.group(7) or "").replace("\\n", "\n"),
+                    parent=sm.group(7) or "",
+                    annotation=(sm.group(8) or "").replace("\\n", "\n"),
                     block_text=True,
                 )
                 board.notes.append(note)
@@ -610,7 +652,7 @@ def parse(text: str) -> Board:
 
         m = _RE_NOTE.match(stripped)
         if m:
-            kind, url = split_attach(m.group(9) or "") if m.group(9) else ("", "")
+            kind, url = split_attach(m.group(10) or "") if m.group(10) else ("", "")
             note = Note(
                 id=m.group(1) or "",
                 x=float(m.group(2)),
@@ -623,10 +665,12 @@ def parse(text: str) -> Board:
                                             else DEFAULT_NOTE_WRAP_CHARS,
                 wrap_chars_explicit=bool(m.group(7)),
                 style=m.group(8) or "",
+                icon=split_icon(m.group(9) or "")[1],
+                icon_placement=split_icon(m.group(9) or "")[0],
                 url=url,
                 attach_kind=kind,
-                parent=m.group(10) or "",
-                annotation=(m.group(11) or "").replace("\\n", "\n"),
+                parent=m.group(11) or "",
+                annotation=(m.group(12) or "").replace("\\n", "\n"),
             )
             board.notes.append(note)
             board._lines.append(("note", note))
@@ -768,6 +812,8 @@ def _serialize_box(box: Box) -> str:
         s += f" ~{box.textsize}"
     if box.style:
         s += f" !{box.style}"
+    if box.icon:
+        s += f" *{icon_token(box)}"
     s += _attach_token(box)
     if box.parent:
         s += f" >{box.parent}"
@@ -811,6 +857,8 @@ def _note_attrs(note: Note) -> str:
         s += f" ~width={note.wrap_chars}"
     if note.style:
         s += f" !{note.style}"
+    if note.icon:
+        s += f" *{icon_token(note)}"
     s += _attach_token(note, bare_doc_id=note.id)
     if note.parent:
         s += f" >{note.parent}"
@@ -824,6 +872,9 @@ def _serialize_note(note: Note, embed_doc_bodies: bool = False) -> str:
     # geometry/presentation. Undo snapshots (embed_doc_bodies) inline the body
     # so undo/redo can restore it without touching the filesystem.
     if note.attach_kind == "doc" and not embed_doc_bodies:
+        return f'@ note {note.id} {x},{y}' + _note_attrs(note)
+    # A glyph note with no caption needs no text slot — keep the line tidy.
+    if note.icon and not note.text and not note.block_text:
         return f'@ note {note.id} {x},{y}' + _note_attrs(note)
     # Multiline text defaults to the triple-quoted block form: prose then
     # diffs line-by-line instead of collapsing into one \n-escaped line.

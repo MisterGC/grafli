@@ -110,6 +110,7 @@ from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
 from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, parse, serialize
 from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
+from grafli.iconset import ICON_NAMES, icon_pixmap
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
 from grafli.md_note import note_is_md
 from grafli.minimap import MinimapMixin
@@ -309,6 +310,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._color_picker_active: bool = False
         self._color_picker_index: int = 0
         self._color_picker_original: dict[str, str] = {}
+        # Icon-grid picker (style mode -> i): live-preview glyph vocabulary.
+        # Tab toggles placement (fill <-> lead). Originals are (name, placement).
+        self._icon_picker_active: bool = False
+        self._icon_picker_index: int = 0
+        self._icon_picker_placement: str = ""
+        self._icon_picker_original: dict[str, tuple[str, str]] = {}
         self._mode_badge: QGraphicsTextItem | None = None
         self._mode_badge_bg: QGraphicsRectItem | None = None
 
@@ -467,6 +474,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._draw_flow_overlay(painter)
         self._draw_debug_overlay(painter)
         self._draw_color_picker(painter)
+        self._draw_icon_picker(painter)
         self._draw_toast(painter)
 
     # Grid mode cycle order for the # key / "grid" action.
@@ -2239,6 +2247,184 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                          COLOR_PALETTE[self._color_picker_index][0])
         painter.restore()
 
+    # ── Icon-grid picker (style mode -> i), boxes and notes ──
+
+    _ICON_GRID_COLS = 6
+    _ICON_ENTRIES = [""] + ICON_NAMES   # "" = clear/none
+
+    def _icon_picker_targets(self):
+        return [it for it in self._scene.selectedItems()
+                if isinstance(it, (BoxItem, NoteItem))]
+
+    @staticmethod
+    def _el_icon(item) -> str:
+        return item.box.icon if isinstance(item, BoxItem) else item.note.icon
+
+    @staticmethod
+    def _el_placement(item) -> str:
+        return (item.box.icon_placement if isinstance(item, BoxItem)
+                else item.note.icon_placement)
+
+    @staticmethod
+    def _el_id(item) -> str:
+        return item.box.id if isinstance(item, BoxItem) else item.note.id
+
+    def _open_icon_picker(self):
+        targets = self._icon_picker_targets()
+        if not targets:
+            self.toast("Select a box or note to add an icon", kind="warn")
+            return
+        self._icon_picker_original = {
+            self._el_id(it): (self._el_icon(it), self._el_placement(it))
+            for it in targets}
+        cur = self._el_icon(targets[0])
+        self._icon_picker_index = (self._ICON_ENTRIES.index(cur)
+                                   if cur in self._ICON_ENTRIES else 0)
+        self._icon_picker_placement = self._el_placement(targets[0])
+        self._icon_picker_active = True
+        self.viewport().update()
+
+    def _apply_icon_picker_live(self):
+        name = self._ICON_ENTRIES[self._icon_picker_index]
+        for it in self._icon_picker_targets():
+            it.set_icon(name, self._icon_picker_placement)
+
+    def _icon_picker_move(self, dcol: int, drow: int):
+        cols = self._ICON_GRID_COLS
+        n = len(self._ICON_ENTRIES)
+        rows = (n + cols - 1) // cols
+        col = self._icon_picker_index % cols
+        row = self._icon_picker_index // cols
+        col = max(0, min(cols - 1, col + dcol))
+        row = max(0, min(rows - 1, row + drow))
+        idx = min(row * cols + col, n - 1)
+        if idx != self._icon_picker_index:
+            self._icon_picker_index = idx
+            self._apply_icon_picker_live()
+        self.viewport().update()
+
+    def _toggle_icon_placement(self):
+        # fill ("") <-> lead; live-preview the change.
+        self._icon_picker_placement = (
+            "lead" if self._icon_picker_placement == "" else "")
+        self._apply_icon_picker_live()
+        self.viewport().update()
+
+    def _handle_icon_picker_key(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self._cancel_icon_picker()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._commit_icon_picker()
+        elif key == Qt.Key.Key_Tab:
+            self._toggle_icon_placement()
+        elif key == Qt.Key.Key_H:
+            self._icon_picker_move(-1, 0)
+        elif key == Qt.Key.Key_L:
+            self._icon_picker_move(1, 0)
+        elif key == Qt.Key.Key_K:
+            self._icon_picker_move(0, -1)
+        elif key == Qt.Key.Key_J:
+            self._icon_picker_move(0, 1)
+
+    def _commit_icon_picker(self):
+        targets = self._icon_picker_targets()
+        name = self._ICON_ENTRIES[self._icon_picker_index]
+        place = self._icon_picker_placement
+        for it in targets:
+            on, op = self._icon_picker_original.get(self._el_id(it), ("", ""))
+            it.set_icon(on, op)
+        self._push_undo()
+        for it in targets:
+            it.set_icon(name, place)
+        self.mark_dirty()
+        self._close_icon_picker()
+
+    def _cancel_icon_picker(self):
+        for it in self._icon_picker_targets():
+            tid = self._el_id(it)
+            if tid in self._icon_picker_original:
+                it.set_icon(*self._icon_picker_original[tid])
+        self._close_icon_picker()
+
+    def _close_icon_picker(self):
+        self._icon_picker_active = False
+        self._icon_picker_original = {}
+        self.viewport().update()
+
+    def _draw_icon_picker(self, painter: QPainter):
+        """An icon grid anchored beside the selection, with the live choice
+        ringed in cyan. Static (no animation), viewport coords."""
+        if not self._icon_picker_active:
+            return
+        targets = self._icon_picker_targets()
+        if not targets:
+            return
+        scene_rect = targets[0].sceneBoundingRect()
+        for it in targets[1:]:
+            scene_rect = scene_rect.united(it.sceneBoundingRect())
+        anchor = self.mapFromScene(scene_rect).boundingRect()
+
+        cols = self._ICON_GRID_COLS
+        n = len(self._ICON_ENTRIES)
+        rows = (n + cols - 1) // cols
+        sw, gap, pad, label_h = 30, 6, 10, 18
+        grid_w = cols * sw + (cols - 1) * gap
+        grid_h = rows * sw + (rows - 1) * gap
+        panel_w = grid_w + pad * 2
+        panel_h = grid_h + pad * 2 + label_h
+        margin = 14
+        vw, vh = self.viewport().width(), self.viewport().height()
+        px = anchor.right() + margin
+        if px + panel_w > vw - 4:
+            px = anchor.left() - margin - panel_w
+        px = max(4, min(px, vw - panel_w - 4))
+        py = anchor.center().y() - panel_h / 2
+        py = max(4, min(py, vh - panel_h - 4))
+
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.96)
+        painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
+
+        gx0, gy0 = px + pad, py + pad
+        cyan = QColor(0, 209, 224)
+        ink = QColor(220, 220, 216)
+        dpr = self.devicePixelRatioF() or 1.0
+        for i, name in enumerate(self._ICON_ENTRIES):
+            sx = gx0 + (i % cols) * (sw + gap)
+            sy = gy0 + (i // cols) * (sw + gap)
+            cell = QRectF(sx, sy, sw, sw)
+            if name:
+                pm = icon_pixmap(name, ink, sw - 8, dpr)
+                if pm is not None:
+                    painter.drawPixmap(QPointF(sx + 4, sy + 4), pm)
+            else:
+                # "none" cell: a slash marks "no icon".
+                painter.setPen(QPen(QColor(150, 60, 60), 1.5))
+                painter.drawLine(QPointF(sx + 7, sy + sw - 7),
+                                 QPointF(sx + sw - 7, sy + 7))
+            if i == self._icon_picker_index:
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(cyan, 2))
+                painter.drawRoundedRect(cell.adjusted(-1, -1, 1, 1), 5, 5)
+
+        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setFont(QFont(FONT_FAMILY, 9))
+        name = self._ICON_ENTRIES[self._icon_picker_index]
+        if name:
+            place = self._icon_picker_placement or "fill"
+            cur = f"{name} · {place}   ⇥ placement"
+        else:
+            cur = "none"
+        painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
+                         Qt.AlignmentFlag.AlignCenter, cur)
+        painter.restore()
+
     # ── Arrow mode (vim-like style) ──
 
     def _arrow_label_midpoint(self) -> QPointF | None:
@@ -3027,7 +3213,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._redraw_arrows()
             self._select_arrow(arrow)
             return
-        if text:
+        # Empty commits are normally ignored (guards against a stray edit
+        # wiping a label), but a glyph element may legitimately want no
+        # caption so the icon fills the node — allow clearing then.
+        target = self._edit_target
+        has_icon = ((isinstance(target, BoxItem) and target.box.icon)
+                    or (isinstance(target, NoteItem) and target.note.icon))
+        if text or has_icon:
             if isinstance(self._edit_target, BoxItem):
                 self._edit_target.update_label(text)
             elif isinstance(self._edit_target, NoteItem):
@@ -3574,6 +3766,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
+        # Icon-grid picker owns all input while open
+        if self._icon_picker_active:
+            self._handle_icon_picker_key(event)
+            event.accept()
+            return
+
         if event.key() == Qt.Key.Key_Escape:
             if self._search_filter_active:
                 self._clear_search_filter()
@@ -3945,6 +4143,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             elif self._box_mode == "style":
                 if event.key() == Qt.Key.Key_C and no_mod:
                     self._open_color_picker()
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_I and no_mod:
+                    self._open_icon_picker()
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_J and no_mod:

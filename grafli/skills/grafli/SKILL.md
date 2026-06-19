@@ -163,7 +163,7 @@ catches them before the user opens the file.
 ## Box syntax
 
 ```
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat] [&attach] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat] [*icon] [&attach] [>parent]
 ```
 
 | Modifier | Values | Effect |
@@ -172,8 +172,18 @@ catches them before the user opens the file.
 | `^anchor` | `^topleft`, `^topcenter` | label alignment (default: center) |
 | `~size` | `~small`, `~large`, `~xlarge`, `~xxlarge`, `~xxxlarge` | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |
+| `*icon` | `*bulb` (fill), `*lead:gear` (lead) | visual-vocabulary glyph — fill: big icon + caption; lead: small icon left of the label |
 | `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>` | typed attachment (see "Attachments") |
 | `>parent` | `>parent_id` | nest inside parent box |
+
+Visual-vocabulary icons (`*name`, on boxes and notes): `person`, `gear`,
+`cloud`, `database`, `warning`, `bulb`, `check`, `cross`, `money`, `clock`,
+`doc`, `lock`, `flag`, `star`, `link`, `question`. Placement: bare `*name`
+*fills* the element (big glyph, label/text becomes a caption) — a framed
+concept node on a box (`*bulb` = idea), a borderless marker on a note.
+`*lead:name` puts a *small* glyph left of the label, which stays primary — for
+labeled items (`*lead:database` → a "Postgres" node) and flagging existing
+nodes (`*lead:warning`). Use fill for visual graphs, lead for accents.
 
 Container behavior: when a box has children, its anchor auto-switches
 to `^topleft` and text defaults to `~small` (10 pt). Set `~large`

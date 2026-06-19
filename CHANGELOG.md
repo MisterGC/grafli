@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Visual vocabulary — glyph boxes & notes.** A box or note can carry a
+  curated line icon via the `*name` sigil (e.g. `*bulb`, `*warning`,
+  `*database`), with two placements: *fill* (`*bulb`) makes the glyph the
+  body with the label as a caption — a framed concept node on a box, a
+  borderless marker on a note; *lead* (`*lead:lock`) puts a small glyph left
+  of the label, which stays primary — labeled items and flags on existing
+  nodes. 16 monochrome icons (person, gear, cloud, database, warning, bulb,
+  check, cross, money, clock, doc, lock, flag, star, link, question). Pick
+  from a live-preview grid: **style mode → `i`** (`hjkl` to move, `Tab` to
+  toggle fill ↔ lead, `Enter` to confirm, `Esc` to cancel), with a "none"
+  cell to clear. Works on boxes and notes alike.
 - **Visual colour picker with live preview.** In style mode, <kbd>c</kbd>
   opens a colour grid beside the selection: navigate the palette with
   <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> and the box(es) recolour

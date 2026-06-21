@@ -121,12 +121,17 @@ Markdown notes are small canvas annotations, not documents. The
 | `# ` / `## ` / `### ` | Headings (3 levels, bold) |
 | `- ` / `* ` | Bullet list |
 | `1. ` | Ordered list |
-| `- [ ]` / `- [x]` | Task checkboxes |
+| `- [ ]` / `- [x]` | Task checkboxes — **click to tick/untick** |
 | `> ` | Blockquote |
 | `---` | Horizontal rule |
 | ` ``` ` fenced / `` `code` `` | Code block / inline code (muted plate) |
 | `**bold**`, `*italic*`, `~~strike~~` | Inline emphasis |
 | `[text](url)` | Link — click to open (reuses the `&url` handling) |
+
+Task checkboxes are **interactive**: click anywhere on a `- [ ]` / `- [x]`
+line to tick or untick it — the note's source flips that one checkbox
+(a one-character diff) and saves, no editor needed. A `[text](url)` link
+on the same line still opens on click; the rest of the line toggles.
 
 Heavier Markdown (tables, images, raw HTML, footnotes) is parsed by the
 underlying engine but isn't part of the supported surface and rarely

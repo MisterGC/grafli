@@ -113,7 +113,7 @@ from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.iconset import ICON_NAMES, icon_pixmap
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
-from grafli.md_note import note_is_md
+from grafli.md_note import note_is_md, toggle_task
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
 from grafli.zen_md import ZenMarkdownEditor
@@ -3346,6 +3346,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             target.update_text(new_text)
             self.mark_dirty()
         self._teardown_note_editor()
+
+    def _toggle_md_task(self, item, idx: int):
+        """Flip the *idx*-th task checkbox in a markdown note and persist —
+        a one-character source edit, one undo step, no editor."""
+        new_text, changed = toggle_task(item.note.text, idx)
+        if not changed:
+            return
+        self._push_undo()
+        item.update_text(new_text)
+        self.mark_dirty()
 
     def _cancel_note_editor(self):
         self._teardown_note_editor()

@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Clickable task lists in markdown notes.** GitHub-style task checkboxes
+  in a markdown note (`- [ ]` / `- [x]`) are now interactive: click anywhere
+  on the line to tick or untick it — no editing markdown by hand. The toggle
+  rewrites just that one checkbox in the note's source (a one-character diff),
+  saves, and is a single undo step. A `[text](url)` link on the same line
+  still opens on click; the rest of the line toggles.
 - **Handwritten notes.** Notes now render in the bundled Patrick Hand face by
   default — a warmer, sketchnote feel — while box labels stay monospace
   (structure). `!mono` (and `code:` notes) keep the monospace face for code.

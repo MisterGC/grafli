@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QAbstractTextDocumentLayout, QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QTextCharFormat, QTextCursor, QTextDocument, QTextOption
+from PySide6.QtGui import QAbstractTextDocumentLayout, QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QTextBlockFormat, QTextCharFormat, QTextCursor, QTextDocument, QTextOption
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
@@ -1156,6 +1156,8 @@ class NoteItem(QGraphicsSimpleTextItem):
             self.setCursor(Qt.CursorShape.PointingHandCursor)
         elif self._is_md_note() and self._md_anchor_at(event.pos()) is not None:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
+        elif self._is_md_note() and self._md_task_index_at(event.pos()) is not None:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
         elif self._on_right_edge(event.pos()):
             self.setCursor(Qt.CursorShape.SizeHorCursor)
         else:
@@ -1165,6 +1167,7 @@ class NoteItem(QGraphicsSimpleTextItem):
     def mousePressEvent(self, event):
         self._pending_ref = None
         self._pending_link = None
+        self._pending_task = None
         self._resizing = False
         if (
             event.button() == Qt.MouseButton.LeftButton
@@ -1189,6 +1192,10 @@ class NoteItem(QGraphicsSimpleTextItem):
             href = self._md_anchor_at(event.pos())
             if href is not None:
                 self._pending_link = (href, event.pos())
+            else:
+                idx = self._md_task_index_at(event.pos())
+                if idx is not None:
+                    self._pending_task = (idx, event.pos())
         _begin_drag_guides(self)
         super().mousePressEvent(event)
 
@@ -1260,11 +1267,30 @@ class NoteItem(QGraphicsSimpleTextItem):
                     event.accept()
                     super().mouseReleaseEvent(event)
                     return
+        pending_task = getattr(self, "_pending_task", None)
+        self._pending_task = None
+        if (
+            pending_task is not None
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            idx, press_pos = pending_task
+            if (event.pos() - press_pos).manhattanLength() <= 4 \
+                    and self._md_task_index_at(event.pos()) == idx:
+                view = _get_view(self)
+                if view is not None and hasattr(view, "_toggle_md_task"):
+                    view._toggle_md_task(self, idx)
+                    event.accept()
+                    super().mouseReleaseEvent(event)
+                    return
         super().mouseReleaseEvent(event)
 
     def _wrap_cache_key(self) -> tuple:
+        # style (mono) and emphasis (bold/italic) change the rendering font,
+        # so they must invalidate the wrap / markdown / code layout caches —
+        # otherwise toggling them shows no change until the next text edit.
         return (self.note.text, self.note.wrap_chars, self.note.textsize,
-                self.note.wrap_chars_explicit, self.note.icon)
+                self.note.wrap_chars_explicit, self.note.icon,
+                self.note.style, self.note.emphasis)
 
     def _bbox_cache_key(self, sel: bool) -> tuple:
         # Include the live drag target so the visible box tracks the cursor
@@ -1609,6 +1635,32 @@ class NoteItem(QGraphicsSimpleTextItem):
         layout = doc.documentLayout()
         href = layout.anchorAt(QPointF(pos.x() - self._PAD, pos.y() - self._PAD))
         return href or None
+
+    def _md_task_index_at(self, pos: QPointF) -> int | None:
+        """Return the 0-based index of the task-list item whose line is under
+        *pos* (item coords) among all checkbox items, or None.
+
+        The whole rendered line is the hit zone (not just the marker glyph),
+        and the index counts checkbox blocks in document order — the same
+        order ``md_note.toggle_task`` walks the source, so they stay aligned.
+        """
+        if not self._is_md_note():
+            return None
+        doc = self._md_document()
+        layout = doc.documentLayout()
+        y = pos.y() - self._PAD
+        idx = 0
+        block = doc.begin()
+        while block.isValid():
+            marker = block.blockFormat().marker()
+            if marker in (QTextBlockFormat.MarkerType.Checked,
+                          QTextBlockFormat.MarkerType.Unchecked):
+                rect = layout.blockBoundingRect(block)
+                if rect.top() <= y <= rect.bottom():
+                    return idx
+                idx += 1
+            block = block.next()
+        return None
 
     def _code_lines(self) -> tuple[int | None, list[str]]:
         return split_signature(self.note.text)

@@ -120,6 +120,18 @@ def test_code_note_uses_monospace():
     assert view._note_items["c"]._note_font().family() == FONT_FAMILY
 
 
+def test_mono_toggle_invalidates_markdown_doc_cache():
+    # Regression: the layout cache key must include style/emphasis, else a
+    # mono (or bold/italic) toggle shows no change on an already-painted note.
+    view = _view('@ note n 0,0 """\nmd:\n- [ ] t\n"""\n')
+    it = view._note_items["n"]
+    assert it._md_document().defaultFont().family() == NOTE_FONT_FAMILY
+    it.set_text_mono(True)
+    assert it._md_document().defaultFont().family() == FONT_FAMILY
+    it.set_emphasis("bold")
+    assert it._md_document().defaultFont().bold()
+
+
 def test_type_picker_tab_toggles_note_font():
     view = _view('@ note n 0,0 "hi"\n')
     view._note_items["n"].setSelected(True)

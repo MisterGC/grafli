@@ -26,10 +26,16 @@ detection and prefix stripping, mirroring ``code_note``.
 
 from __future__ import annotations
 
+import re
+
 
 # Recognised prefixes, longest first so ``markdown:`` is matched before
 # the shorter ``md:`` could partially apply.
 PREFIXES = ("markdown:", "md:")
+
+# A GFM task-list item: optional indent, a bullet (``-``/``*``/``+``) or an
+# ordered marker (``1.``/``1)``), then a ``[ ]`` / ``[x]`` checkbox.
+_TASK_LINE_RE = re.compile(r"^(\s*(?:[-*+]|\d+[.)])\s+)\[([ xX])\]")
 
 
 def _matched_prefix(stripped: str) -> str | None:
@@ -59,6 +65,29 @@ def note_md_body(note) -> str:
     if getattr(note, "attach_kind", "") == "doc":
         return note.text
     return md_body(note.text)
+
+
+def toggle_task(text: str, index: int) -> tuple[str, bool]:
+    """Flip the *index*-th GFM task checkbox (0-based) in *text*.
+
+    Returns ``(new_text, changed)``. Task items are matched in document
+    order, so *index* lines up with the order Qt renders the checkboxes.
+    Everything else in the text is left byte-identical, so a toggle is a
+    one-character diff.
+    """
+    lines = text.split("\n")
+    seen = 0
+    for i, line in enumerate(lines):
+        m = _TASK_LINE_RE.match(line)
+        if m is None:
+            continue
+        if seen == index:
+            done = m.group(2) in "xX"
+            mark = " " if done else "x"
+            lines[i] = line[:m.start(2)] + mark + line[m.end(2):]
+            return "\n".join(lines), True
+        seen += 1
+    return text, False
 
 
 def md_body(text: str) -> str:

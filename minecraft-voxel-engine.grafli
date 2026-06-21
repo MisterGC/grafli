@@ -8,7 +8,7 @@
 # ── 1. the problem ──
 @ box num1 "1" 40,40 110x110 %clay ~xxxlarge !flat !bold
 @ box s1 "The problem" 190,55 360x80 ~large !flat !bold *lead:warning
-@ note d1 200,150 "A 16-chunk view ≈︎ 16 million blocks. You can't draw — or even loop over — all of them. The rest of the talk = four ways to dodge that." ~width=48 !italic
+@ note d1 200,147 ~width=48 !mono !italic &doc
 
 # ── 2. make the world ──
 @ box num2 "2" 40,300 110x110 %clay ~xxxlarge !flat !bold
@@ -27,7 +27,7 @@
 @ box cull "Cull hidden faces" 680,830 240x58 !flat *lead:check
 @ box atlas "Texture atlas" 680,898 240x58 !flat *lead:doc
 @ box light "Bake lighting" 680,966 240x58 !flat *lead:bulb
-@ box gpu "one mesh / section →︎ GPU" 680,1034 240x58 !flat *lead:link
+@ box gpu "one mesh / section →︎ GPU" 680,1034 240x60 !flat *lead:link
 @ arrow s4 -> cull
 @ arrow cull -> atlas
 @ arrow atlas -> light

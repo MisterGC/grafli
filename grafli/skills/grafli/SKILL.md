@@ -285,7 +285,7 @@ class as a misplaced triple-quote modifier.
 |----------|--------|--------|
 | `%color` | color token or `#RRGGBB` | fill color |
 | `^anchor` | `^topleft`, `^topcenter` | label alignment (default: center) |
-| `~size` | `~small`, `~large`, `~xlarge`, `~xxlarge`, `~xxxlarge` | text size (default: medium) |
+| `~size` | named `~small`…`~xxxlarge`, or numeric `~16` (any point size) | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |
 | `!bold` / `!italic` | `!bold`, `!italic` | text emphasis, in the `!`-flag group (combine for headings/asides) |
 | `*icon` | `*bulb` (fill), `*lead:gear` (lead) | visual-vocabulary glyph — fill: big icon + caption; lead: small icon left of the label |
@@ -745,6 +745,22 @@ Every diagram needs a clear reading order:
 | Nested container label | `^topleft !flat` box (auto-default `~small`) | 10 pt |
 | Context annotation | note (default) | 13 pt |
 | Small annotation | `~small` note | 10 pt |
+
+**Sizes, named and numeric.** `~size` takes a named token *or* a raw point
+size like `~16` — both are valid in the file, and stepping a size in the app
+(`j`/`k` in style mode) persists the numeric form, so a board you read may
+carry `~16` / `~24`-style tokens. Use named tokens when authoring (they read
+clearly); reach for numeric only to hit an in-between size. The named tokens
+resolve to slightly larger points on notes than on boxes:
+
+| Token | box pt | note pt |
+|-------|--------|---------|
+| `~small` | 10 | 11 |
+| (default) | 13 | 15 |
+| `~large` | 18 | 21 |
+| `~xlarge` | 24 | 28 |
+| `~xxlarge` | 32 | 40 |
+| `~xxxlarge` | 44 | 52 |
 
 Key rules:
 

@@ -47,6 +47,58 @@ unambiguous:
 * **Attachments deepen a node.** `&doc:<name>` / `&graph:<name>` point
   into the `<stem>-res/` vault; open them when a node's detail matters.
 
+## Collaborating on a board (human ↔ AI)
+
+A `.grafli` is a shared workspace, not a one-shot render. A human edits
+it in the desktop app (drag, click, type); you edit the same file with
+`Read` / `Write` / `Edit`; it live-reloads both ways. So treat the board
+as an **async work queue** — the canvas itself carries the open requests
+and your replies, and the collaboration leaves a visible trail instead
+of living only in chat.
+
+**On opening a board (or when asked to "work" it), scan for open items
+and act on them:**
+
+* **`T:` / `TODO:` notes are tasks for you.** Do the work on the node
+  the task is anchored to — the nearest box, the one joined by a dotted
+  `note -> box` arrow, or its `>parent` — then **clear the task**: delete
+  the `T:` note, or if it's a `- [ ]` item in an `md:` note, tick it to
+  `- [x]`.
+* **`Q:` / `QUESTION:` notes are questions for you.** **Answer inline**
+  by turning the note into a short thread: keep the question and add your
+  reply on a new line under a speaker tag. Two distinct tags (here `Q`
+  and `AI`) make it render as a threaded exchange with coloured badges:
+  ```
+  @ note q1 600,200 "Q: which store backs sessions?\nAI: Redis - see the cache node, 30-day TTL."
+  @ arrow q1 -> cache !dotted
+  ```
+* **`- [ ]` task lists in `md:` notes** — tick items to `- [x]` as you
+  finish them (humans click them in the app; you edit the source — it's
+  a one-character diff and a single undo step).
+
+**Leaving requests for the human** is the same move in reverse: drop a
+`Q:` note anchored to the node you need a decision on, or a `T:` note
+naming what you'd do pending approval. Keep each to a short headline.
+
+**Etiquette that keeps collaboration healthy:**
+
+* **Respect human layout.** Humans place boxes deliberately. When you add
+  or change an element, fit it into the existing arrangement — reposition
+  only what your change requires, never reflow the whole board.
+* **Minimal diffs.** One element per line: touch only the lines your
+  change needs. Rewriting untouched boxes/notes pollutes the human's git
+  diff and review.
+* **Make your trail visible on the canvas.** After acting, the board
+  itself should show what you did — a ticked box, a cleared task, an
+  inline answer — so the human sees it on reload without diffing the file.
+* **Anchor, don't float.** A request or answer note belongs next to (or
+  dotted-arrowed to) the node it's about, so it reads in context.
+
+Speaker tags (for discussions and `Q:` replies): **a label of 1–16
+characters starting with an uppercase letter, then `: `** — `AI:`,
+`User:`, `GC:`, `Reviewer:`. 2+ distinct tags in one note trigger the
+threaded rendering.
+
 ## Plan before you write
 
 Skills produce noticeably better grafli when the model **plans first**
@@ -562,9 +614,11 @@ read code. Summarise ruthlessly.
 
 ### Discussion notes
 
-Notes with 2+ distinct speaker prefixes (2-3 uppercase letters
-followed by `: `) render as threaded conversations. Each speaker
-gets a colored badge and block-indented body text.
+Notes with 2+ distinct speaker prefixes render as threaded
+conversations. A speaker prefix is a label of **1–16 characters starting
+with an uppercase letter, followed by `: `** (`GC:`, `CC:`, `AI:`,
+`User:`, `Reviewer:`). Each speaker gets a colored badge and
+block-indented body text.
 
 ```
 @ note n1 500,300 "GC: How does a user specify the label content?\nCC: Most discoverable: action from inspection panel.\nUser inspects feature, sees attribute.\n\nCan be session-only or persisted.\nGC: Makes sense, what about batch mode?"
@@ -572,8 +626,8 @@ gets a colored badge and block-indented body text.
 
 Rules:
 
-* A line starting with `XX: ` (2-3 uppercase letters + colon +
-  space) starts a new speaker block.
+* A line starting with a speaker prefix (uppercase-initial label,
+  1–16 chars, + `: `) starts a new speaker block.
 * All subsequent lines (including empty lines) belong to that
   block until the next speaker prefix.
 * Requires 2+ distinct speakers to activate discussion rendering —

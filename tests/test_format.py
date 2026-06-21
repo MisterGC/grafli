@@ -10,12 +10,12 @@ from grafli.format import (
     Board,
     Box,
     Note,
-    merge_box_positions,
     parse,
     parse_file,
     serialize,
     serialize_to_file,
 )
+from grafli.sync import merge_boards
 
 SAMPLE = """\
 #!grafli v1
@@ -1500,7 +1500,10 @@ def test_note_wrap_chars_explicit_default_is_emitted():
     assert "~width=80" in serialize(board)
 
 
-# ── merge_box_positions: live-reload 3-way merge ──────────────────
+# ── merge_boards: live-reload 3-way merge (position cases) ────────
+# These pin the box-position semantics the live-reload merge inherited
+# from the old position-only merge; merge_boards(base, local, remote)
+# generalises them to every field (see tests/test_sync.py).
 
 
 def _board_with_box(bid: str, x: float, y: float) -> Board:
@@ -1510,51 +1513,52 @@ def _board_with_box(bid: str, x: float, y: float) -> Board:
 def test_merge_external_position_change_wins():
     """External edit moved a box. In-mem still has the previous disk pos.
     The new disk position must survive the merge — this is the bug fix."""
-    prev_disk = _board_with_box("a", 0, 0)
-    in_memory = _board_with_box("a", 0, 0)        # never dragged
-    new_disk = _board_with_box("a", 500, 500)     # external edit
-    merged = merge_box_positions(new_disk, prev_disk, in_memory)
+    base = _board_with_box("a", 0, 0)
+    local = _board_with_box("a", 0, 0)        # never dragged
+    remote = _board_with_box("a", 500, 500)   # external edit
+    merged, _ = merge_boards(base, local, remote)
     assert (merged.boxes[0].x, merged.boxes[0].y) == (500, 500)
 
 
 def test_merge_in_app_drag_preserved_when_disk_unchanged():
     """User dragged a box in-app. External edit only changed something
     else (e.g. label). The in-app drag must NOT be reverted."""
-    prev_disk = _board_with_box("a", 0, 0)
-    in_memory = _board_with_box("a", 200, 100)    # user drag
-    new_disk = _board_with_box("a", 0, 0)          # disk pos unchanged
-    merged = merge_box_positions(new_disk, prev_disk, in_memory)
+    base = _board_with_box("a", 0, 0)
+    local = _board_with_box("a", 200, 100)    # user drag
+    remote = _board_with_box("a", 0, 0)        # disk pos unchanged
+    merged, _ = merge_boards(base, local, remote)
     assert (merged.boxes[0].x, merged.boxes[0].y) == (200, 100)
 
 
 def test_merge_disk_wins_when_both_changed():
     """Conflict: user dragged AND external edit moved the box.
-    Disk wins (deterministic, matches 'external editor wins')."""
-    prev_disk = _board_with_box("a", 0, 0)
-    in_memory = _board_with_box("a", 200, 100)
-    new_disk = _board_with_box("a", 999, 999)
-    merged = merge_box_positions(new_disk, prev_disk, in_memory)
+    Disk (remote) wins deterministically and the clash is reported."""
+    base = _board_with_box("a", 0, 0)
+    local = _board_with_box("a", 200, 100)
+    remote = _board_with_box("a", 999, 999)
+    merged, conflicts = merge_boards(base, local, remote)
     assert (merged.boxes[0].x, merged.boxes[0].y) == (999, 999)
+    assert conflicts   # not silently resolved
 
 
-def test_merge_handles_no_prev_disk():
-    """First load — no prior disk content. new disk wins by default."""
-    in_memory = _board_with_box("a", 200, 100)
-    new_disk = _board_with_box("a", 0, 0)
-    merged = merge_box_positions(new_disk, None, in_memory)
+def test_merge_handles_no_base():
+    """First reconcile — no common ancestor. Disk (remote) wins by default."""
+    local = _board_with_box("a", 200, 100)
+    remote = _board_with_box("a", 0, 0)
+    merged, _ = merge_boards(None, local, remote)
     assert (merged.boxes[0].x, merged.boxes[0].y) == (0, 0)
 
 
 def test_merge_handles_new_box_added_externally():
     """A new box appears on disk that wasn't in memory before.
     It should land at the disk position (no in-mem to merge from)."""
-    prev_disk = _board_with_box("a", 0, 0)
-    in_memory = _board_with_box("a", 0, 0)
-    new_disk = Board(boxes=[
+    base = _board_with_box("a", 0, 0)
+    local = _board_with_box("a", 0, 0)
+    remote = Board(boxes=[
         Box(id="a", label="X", x=0, y=0, w=100, h=50),
         Box(id="b", label="Y", x=300, y=300, w=100, h=50),
     ])
-    merged = merge_box_positions(new_disk, prev_disk, in_memory)
+    merged, _ = merge_boards(base, local, remote)
     new_b = next(b for b in merged.boxes if b.id == "b")
     assert (new_b.x, new_b.y) == (300, 300)
 

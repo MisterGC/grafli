@@ -28,7 +28,8 @@ from PySide6.QtWidgets import (
 from grafli.buffers import BufferManager, BufferState, ViewState
 from grafli.constants import Mode
 from grafli.filewatcher import JsonSafeWatcher, MultiFileWatcher
-from grafli.format import Board, merge_box_positions, parse, serialize
+from grafli.format import Board, parse, serialize
+from grafli.sync import Conflict, atomic_write, merge_boards
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
 from grafli.sidepanel import PanelToggleButton, SidePanel
 from grafli.view import GrafliView
@@ -805,6 +806,27 @@ class MainWindow(QMainWindow):
             return False
         from grafli.resources import (classify_attachments, externalize_md_notes,
                                       res_dir, save_docs)
+        # Conflict-check-on-save: if the file changed on disk since we last
+        # reconciled (an external/AI write the 500 ms watcher hasn't reloaded
+        # yet), merge it into the board *before* serializing — otherwise this
+        # save would silently clobber that write. Closes the autosave race.
+        try:
+            disk_text = self._file_path.read_text(encoding="utf-8")
+        except OSError:
+            disk_text = None
+        if disk_text is not None and disk_text != self._last_written:
+            try:
+                merged, conflicts = self._reconcile_external(disk_text)
+            except Exception:
+                # Disk holds something we can't parse yet (e.g. a mid-write
+                # from a non-atomic external editor). Skip this save and let
+                # the next tick retry against a complete file rather than
+                # overwrite an edit we couldn't read.
+                return False
+            _load_vault(self._file_path, merged)
+            self._view.load_board(merged)
+            if conflicts:
+                self._report_conflicts(conflicts)
         # Save is the migration moment (opening never mutates the working
         # tree): inline md: notes become doc-bodied, legacy &url attachments
         # take their kind, and doc bodies land in the vault.
@@ -817,7 +839,7 @@ class MainWindow(QMainWindow):
             return False
         text = serialize(self.board)
         try:
-            self._file_path.write_text(text, encoding="utf-8")
+            atomic_write(self._file_path, text)
         except OSError as exc:
             # Autosave and manual save both land here — a sticky error toast so
             # a failing write (read-only dir, full disk) can't pass unnoticed.
@@ -905,6 +927,24 @@ class MainWindow(QMainWindow):
             self._docs_watcher.stop()
             self._docs_watcher = None
 
+    def _reconcile_external(self, disk_text: str) -> tuple[Board, list[Conflict]]:
+        """3-way merge an external on-disk edit into the in-memory board.
+
+        ``base`` is the disk content we last reconciled against
+        (``_last_written``), ``local`` the current in-memory board (the
+        human's unsaved edits), ``remote`` the new disk text (e.g. an AI
+        write). Returns the merged board and any conflicts. When there is
+        no in-memory board yet, the disk version is taken verbatim.
+        """
+        remote = parse(disk_text)
+        if not self.board:
+            return remote, []
+        try:
+            base = parse(self._last_written) if self._last_written else None
+        except Exception:
+            base = None
+        return merge_boards(base, self.board, remote)
+
     def _on_file_changed(self):
         if not self._file_path or not self._file_path.exists():
             return
@@ -915,28 +955,36 @@ class MainWindow(QMainWindow):
         if text == self._last_written:
             return
 
-        new_board = parse(text)
-
-        # External edits (e.g. AI tools writing the file) must update box
-        # positions on screen. The in-memory positions may differ from
-        # disk because the user dragged boxes in-app — keep those drags
-        # only when the disk position itself didn't change.
-        if self.board:
-            try:
-                prev_disk = parse(self._last_written) if self._last_written else None
-            except Exception:
-                prev_disk = None
-            merge_box_positions(new_board, prev_disk, self.board)
-
-        _load_vault(self._file_path, new_board)
-        self._view.load_board(new_board)
+        merged, conflicts = self._reconcile_external(text)
+        _load_vault(self._file_path, merged)
+        self._view.load_board(merged)
         self._watch_docs()
-        self._view.mark_clean()
         self._last_written = text
+        # If the merge folded in local edits not yet on disk, the board is
+        # dirty and the next autosave converges the file to the merged
+        # result; otherwise it already matches disk and is clean.
+        if serialize(merged) != text:
+            self._view.mark_dirty()
+        else:
+            self._view.mark_clean()
         buf = self._buffers.active
         if buf:
             buf.file_mtime = self._get_mtime(self._file_path)
             buf.last_written = text
+        if conflicts:
+            self._report_conflicts(conflicts)
+
+    def _report_conflicts(self, conflicts: list[Conflict]) -> None:
+        """Surface merge conflicts so a concurrent edit clash is never
+        silent — the merge already resolved them deterministically; this
+        just tells the human which elements diverged."""
+        n = len(conflicts)
+        first = conflicts[0]
+        head = f"{first.kind} {first.key} ({first.detail})"
+        msg = (f"Merged {n} concurrent edit conflict"
+               + ("s" if n != 1 else "")
+               + f" — e.g. {head}" if n > 1 else f"Merged a concurrent edit: {head}")
+        self._view.toast(msg, "error")
 
     @staticmethod
     def _get_mtime(path: Path) -> float:

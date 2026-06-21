@@ -1041,31 +1041,3 @@ def serialize_to_file(board: Board, path: str) -> None:
     """Write a Board to a .grafli file on disk."""
     with open(path, "w", encoding="utf-8") as f:
         f.write(serialize(board))
-
-
-def merge_box_positions(
-    new_board: Board, prev_disk: Board | None, in_memory: Board,
-) -> Board:
-    """3-way merge of box positions for live-reload after external edits.
-
-    For each box in ``new_board``, keep the ``in_memory`` position only
-    when the previous disk content had it at the same place as the new
-    disk content (user dragged in-app, external edit didn't touch the
-    position). When the disk position changed externally, accept it —
-    otherwise external position edits are silently discarded.
-
-    Mutates and returns ``new_board``. Notes / images / arrows are
-    untouched (their positions already round-trip cleanly via the
-    file watcher).
-    """
-    prev_pos = (
-        {b.id: (b.x, b.y) for b in prev_disk.boxes} if prev_disk else {}
-    )
-    mem_pos = {b.id: (b.x, b.y) for b in in_memory.boxes}
-    for box in new_board.boxes:
-        was = prev_pos.get(box.id)
-        now = (box.x, box.y)
-        mem = mem_pos.get(box.id)
-        if was is not None and was == now and mem is not None and mem != was:
-            box.x, box.y = mem
-    return new_board

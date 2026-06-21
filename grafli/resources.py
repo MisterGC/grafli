@@ -16,6 +16,14 @@ from pathlib import Path
 
 from grafli.format import Board, Note, doc_name
 from grafli.md_note import is_md_note, md_body
+from grafli.sync import atomic_write, merge3_text
+
+
+# Per-note merge base for a doc body: the disk content we last synced this
+# note against (common ancestor for a 3-way merge). Stored as a dynamic
+# attribute, not a dataclass field, so it never affects Note equality (the
+# board merge compares fields) yet rides along through deepcopy.
+_DOC_BASE_ATTR = "_doc_base"
 
 
 def res_dir(grafli_path: Path) -> Path:
@@ -85,17 +93,33 @@ def load_docs(grafli_path: Path, board: Board) -> list[str]:
     typing into the note and saving recreates the file (self-healing), and
     ``save_docs``'s lazy-create rule means an untouched empty note never
     spawns one.
+
+    On a *reload* (the note already carries a merge base from an earlier
+    load) an external change to the ``.md`` is 3-way merged with any
+    unsaved in-memory edit, so a concurrent zen-editor edit and an AI ``.md``
+    edit don't clobber each other — the symmetric twin of ``save_docs``.
     """
     missing: list[str] = []
     for note in board.notes:
         if note.attach_kind != "doc":
             continue
-        p = doc_path(grafli_path, doc_name(note))
+        name = doc_name(note)
+        p = doc_path(grafli_path, name)
         try:
-            note.text = p.read_text(encoding="utf-8")
+            disk = p.read_text(encoding="utf-8")
         except OSError:
             note.text = ""
-            missing.append(doc_name(note))
+            setattr(note, _DOC_BASE_ATTR, None)
+            missing.append(name)
+            continue
+        base = getattr(note, _DOC_BASE_ATTR, None)
+        local = note.text
+        if base is not None and local != base and disk != base and local != disk:
+            note.text, _ = merge3_text(base, local, disk)   # both moved → merge
+        elif base is None or disk != base:
+            note.text = disk                                # external change, no local edit
+        # else disk == base: no external change — keep the unsaved local edit.
+        setattr(note, _DOC_BASE_ATTR, disk)
     return missing
 
 
@@ -106,8 +130,13 @@ def save_docs(grafli_path: Path, board: Board) -> list[str]:
     reconciled first: an in-memory text that differs from the file is the
     edited one and wins; the others are synced to it, so a stale sibling
     can never flip the file back.
-    Files are created lazily — an empty body never creates a file, and an
-    existing file is only touched when the body actually changed.
+
+    If the file also changed on disk since we last synced this note (an
+    external/AI ``.md`` edit), the in-memory body and the disk body are
+    3-way merged against the note's stored base instead of one clobbering
+    the other. Writes are atomic (temp + replace); files are created
+    lazily — an empty body never creates a file, and an existing file is
+    only touched when the body actually changed.
     """
     groups: dict[str, list] = {}
     for note in board.notes:
@@ -124,14 +153,21 @@ def save_docs(grafli_path: Path, board: Board) -> list[str]:
         body = edited[0] if edited else on_disk
         if body is None:
             body = notes[0].text
+        # 3-way merge if the disk moved out from under our base while we
+        # were holding an edit — otherwise we'd overwrite the external edit.
+        base = getattr(notes[0], _DOC_BASE_ATTR, None)
+        if (on_disk is not None and base is not None
+                and base != on_disk and body != on_disk):
+            body, _ = merge3_text(base, body, on_disk)
         for n in notes:
             n.text = body
+            setattr(n, _DOC_BASE_ATTR, body if body is not None else on_disk)
         if body == on_disk:
             continue
         if on_disk is None and not body.strip():
             continue   # lazy: an empty new note creates no file
         ensure_res_dir(grafli_path)
-        p.write_text(body, encoding="utf-8")
+        atomic_write(p, body)
         written.append(name)
     return written
 

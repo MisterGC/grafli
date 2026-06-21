@@ -84,7 +84,8 @@ naming what you'd do pending approval. Keep each to a short headline.
 
 * **Respect human layout.** Humans place boxes deliberately. When you add
   or change an element, fit it into the existing arrangement — reposition
-  only what your change requires, never reflow the whole board.
+  only what your change requires, never reflow the whole board. (See
+  "Adding a node to an existing board" for the placement arithmetic.)
 * **Minimal diffs.** One element per line: touch only the lines your
   change needs. Rewriting untouched boxes/notes pollutes the human's git
   diff and review.
@@ -832,6 +833,46 @@ Example for 3 children, 2 rows, 220×100 boxes, 40 px gaps,
 * Use consistent child box sizes within one container — mixed sizes
   look accidental unless intentional (e.g., a wider "main" component
   flanked by smaller helpers).
+
+### Adding a node to an existing board
+
+When you add to a board someone else laid out, drop the new node into the
+existing structure and leave everything else **byte-identical** — never
+reflow the whole diagram. grafli has no auto-layout, so a clean fit is
+*your* arithmetic: compute the absolute `x,y` from the neighbours and
+emit it directly (there is no "place near X" token — you do the
+resolution once, at write time, and the file stays plain coordinates a
+human can read and drag).
+
+**Next slot in a container** — the common case ("add another child"):
+
+1. Read the container's existing children (boxes with `>container`). Note
+   their shared width `w`, height `h`, and orientation: children sharing
+   a Y are a **row**, children sharing an X are a **column**.
+2. Recover the gap from two existing siblings —
+   `gap = next.x - (prev.x + prev.w)` for a row (Y-equivalent for a
+   column).
+3. Place the new child one `gap` past the last sibling, on the row's Y
+   (or column's X): `x = last.x + last.w + gap`, `y = last.y`. Match its
+   `w`×`h` to the siblings.
+4. **Check it still fits** inside the container minus margins (20 px
+   sides / bottom). If it doesn't, this is the *only* time you touch an
+   existing line: grow the **container's** `w` (or `h`) by `w + gap` per
+   the sizing formula — don't move the siblings. If the row is truly
+   full, start a new row at the same left X, one `row_gap` lower.
+
+**A free-standing node near another** (no container): reuse the spacing
+already between nearby nodes — don't invent a new rhythm. Below:
+`x = anchor.x`, `y = anchor.y + anchor.h + gap`. Beside: `y = anchor.y`,
+`x = anchor.x + anchor.w + gap`.
+
+**Then verify.** Render and run `grafli diagnose` —
+`children-outside-parent` or `sibling-overlap` findings mean the
+arithmetic was off. Fix the one new node (or the one grown container),
+never the whole board. The discipline: one new line, sized and aligned
+to its neighbours, with at most one existing line changed — a clean,
+reviewable diff that leaves the diagram as comprehensible as the human
+left it.
 
 ## 4. Arrow discipline
 

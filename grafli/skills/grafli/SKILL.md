@@ -20,11 +20,41 @@ Read, create, and modify `.grafli` files using the built-in `Read` /
 `Write` / `Edit` tools. If the user has the desktop app open on the
 file, it live-reloads — no need to ask them to refresh.
 
+## Reading an existing board
+
+When the user asks what a board shows, walks through it, or wants it
+explained, reconstruct the model before answering — the file is the
+source of truth, so read it directly. A few rules make the source
+unambiguous:
+
+* **Build the graph.** Each `@ box` / `@ note` is a node; each `@ arrow`
+  is a directed edge (`->` / `<-` / `<->` / `--` line-only). Edge labels
+  and semantic prefixes (`call:`, `data:`, `event:`, …) say what flows.
+* **Find the entry point.** The node with no incoming arrow — or the one
+  a label marks as the trigger / request ingress — is usually where the
+  story starts; follow arrows from there in causal order.
+* **Containers are grouping.** `>parent` nests a node inside a container
+  (layer, service, bounded context); read the parent label as the group
+  name.
+* **Notes carry the detail.** Semantic prefixes are normalised on render
+  (`TODO:` → `T:` task, `QUESTION:` → `Q:`); a `code:` note's first line
+  is a function signature and the rest is scannable pseudocode; a note
+  with 2+ `XX:` speaker prefixes is a threaded discussion; `md:` / `&doc`
+  notes are Markdown bodies.
+* **Flows are the author's own narration.** If the file has `@ bookmark`
+  / `@ flow` directives, that ordered sequence of viewpoints *is* the
+  intended explanation — follow it rather than inventing a reading order.
+* **Attachments deepen a node.** `&doc:<name>` / `&graph:<name>` point
+  into the `<stem>-res/` vault; open them when a node's detail matters.
+
 ## Plan before you write
 
 Skills produce noticeably better grafli when the model **plans first**
 instead of writing code. Walk through these steps before you produce
-any `@ box` / `@ arrow` / `@ note` lines:
+any `@ box` / `@ arrow` / `@ note` lines. (This is the workflow for a
+*precise* diagram — architecture, design, behavior. For a fast, memory-
+first **sketchnote**, skip the ceremony and see "Sketchnotes — capturing
+a talk for memory" instead.)
 
 1. **Question.** What single question does the diagram answer?
    ("How does an OAuth callback flow?" / "Which services own which
@@ -32,10 +62,9 @@ any `@ box` / `@ arrow` / `@ note` lines:
    user.
 2. **Cast.** List every actor / component / state as a flat bullet
    list. No coordinates yet.
-3. **Flow direction.** Pick **one** for the whole diagram:
-   * Left-to-right — pipelines, request flows, timelines.
-   * Top-to-bottom — hierarchies, layer architectures, call stacks.
-   * Center-out — hub-and-spoke (gateway, event bus, orchestrator).
+3. **Flow direction.** Pick **one** for the whole diagram —
+   left-to-right, top-to-bottom, or center-out (see "Flow direction"
+   under Layout strategy for which fits what).
 4. **Containers.** Group related items into `!flat` containers
    (services, layers, bounded contexts) before placing children.
 5. **Place children inside containers**, sized and aligned to the
@@ -49,10 +78,8 @@ any `@ box` / `@ arrow` / `@ note` lines:
    other multi-line detail, use a `code:` note; for prose with light
    structure (rationale, checklists, review notes), use an `md:`
    Markdown note — those are the right home for content too long for
-   a box label. **Never inline that detail into a box label itself.**
-   Boxes are identifiers; notes are bodies. If you find yourself
-   writing more than a short phrase inside a `@ box` label, stop and
-   move it to a note.
+   a box label. Boxes are identifiers, notes are bodies (see the Box
+   section) — never inline multi-line detail into a box label.
 8. **Re-read.** Pretend you're the user opening the file: does the
    eye land on the right entry point? Are arrows crossing? If yes,
    reposition before saving — repositioning beats decoration.
@@ -86,7 +113,7 @@ any `@ box` / `@ arrow` / `@ note` lines:
 
 ```
 # Comments and titles
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!style] [&attach] [>parent] [# annotation]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat !bold !italic] [*icon] [&attach] [>parent] [# annotation]
 @ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [!style] [~size] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md
@@ -127,18 +154,17 @@ catches them before the user opens the file.
   ...
   """ ~small
   ```
-* **Code-mode notes auto-widen to fit their longest line.** When notes
-  are placed side-by-side (multi-column phases), a long line in one note
-  pushes its background into the neighbour's column. If `box_w=220` and
-  `gap=40`, the column budget is **260 px**; at default note size that
-  is roughly **24 chars per line**, at `~small` it is roughly **32**.
-  The rightmost column also has to fit inside the container's right
-  margin. **Default to `~small` whenever a code-mode note sits in a
-  multi-column phase** — it shrinks both width and height, leaves
-  margin to spare, and stays readable.
+* **Code-mode notes auto-widen to fit their longest line**, so a long
+  line spills into a neighbouring column when notes sit side-by-side.
+  Default to `~small` (and cap `~width`) in multi-column phases — see
+  "Sizing in multi-column phases" for the budget math.
 * **Disconnected boxes.** Every box should either have an arrow,
   sit inside a container, or be a deliberate standalone label. Drifting
   orphans look like errors.
+* **Massive flat layouts.** 15+ boxes at the same level is noise —
+  group them into `!flat` containers.
+* **Tiny containers.** Don't nest a single box; nesting implies a
+  grouping of multiple elements.
 * **Children outside the parent.** A box with `>parent` must visually
   fit inside the parent's rect after the margin model. Re-check the
   parent's `<w>x<h>`.
@@ -163,8 +189,17 @@ catches them before the user opens the file.
 ## Box syntax
 
 ```
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat] [*icon] [&attach] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat !bold !italic] [*icon] [&attach] [>parent]
 ```
+
+**Modifier order is enforced** — write them in exactly this sequence:
+`%color` → `^anchor` → `~size` → `!`-flags → `*icon` → `&attach` →
+`>parent` → `# annotation`. The `!`-flags (`!flat` / `!bold` / `!italic`)
+are one group and may appear in any order *among themselves*, but the
+whole group must sit **after `~size` and before `*icon`**. Putting a flag
+out of place (e.g. `*lead:gear !bold`) makes the line fail to parse and
+the element **silently disappears** from the render — the same failure
+class as a misplaced triple-quote modifier.
 
 | Modifier | Values | Effect |
 |----------|--------|--------|
@@ -172,7 +207,7 @@ catches them before the user opens the file.
 | `^anchor` | `^topleft`, `^topcenter` | label alignment (default: center) |
 | `~size` | `~small`, `~large`, `~xlarge`, `~xxlarge`, `~xxxlarge` | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |
-| `!bold` / `!italic` | `!bold`, `!italic` | text emphasis layered on `~size` (combine for headings/asides) |
+| `!bold` / `!italic` | `!bold`, `!italic` | text emphasis, in the `!`-flag group (combine for headings/asides) |
 | `*icon` | `*bulb` (fill), `*lead:gear` (lead) | visual-vocabulary glyph — fill: big icon + caption; lead: small icon left of the label |
 | `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>` | typed attachment (see "Attachments") |
 | `>parent` | `>parent_id` | nest inside parent box |
@@ -389,11 +424,17 @@ review notes — where code-mode would be the wrong shape and a plain note
 too flat. It's a sibling of code-mode: a formatted block on the same
 beige plate, with near-black body text.
 
-**Canonical form: doc-bodied** — `@ note <id> <x>,<y> &doc` with the
-body in `<stem>-res/<id>.md` (pristine markdown, no sentinel). Prefer it
-when authoring: write the `.md` file, then the one-line note. The legacy
-inline form — first non-empty line `md:` (or `markdown:`) — still parses
-everywhere and is auto-converted to doc-bodied on the app's first save.
+Two equivalent forms — pick by length:
+
+* **Inline `md:`** — first non-empty line is `md:` (or `markdown:`),
+  body in the note. Best for a few lines kept *with* the board; this is
+  what the compact examples below use.
+* **Doc-bodied `&doc`** — `@ note <id> <x>,<y> &doc`, body in
+  `<stem>-res/<id>.md` (pristine markdown, no sentinel). The on-disk
+  canonical form: the app rewrites inline `md:` into it on save, edits
+  diff line-by-line in git, and several notes can share one `.md`. Reach
+  for it when the note is more than a handful of lines or you want to
+  read/rewrite the prose without touching the board.
 
 Supported (GitHub-flavoured) subset:
 
@@ -401,7 +442,7 @@ Supported (GitHub-flavoured) subset:
 |----------|------------|
 | `# ` / `## ` / `### ` | Headings (3 levels, bold) |
 | `- ` / `* ` / `1. ` | Bullet / ordered list |
-| `- [ ]` / `- [x]` | Task checkboxes |
+| `- [ ]` / `- [x]` | Task checkboxes — **click to tick/untick** |
 | `> ` | Blockquote |
 | `---` | Horizontal rule |
 | ` ``` ` / `` `code` `` | Code block / inline code (muted plate) |
@@ -557,8 +598,13 @@ Path is relative to the `.grafli` file. The companion folder
 %clay    %teal        %rose       %forest     %plum
 ```
 
-Plus arbitrary `#RRGGBB` hex. Stick to **3–4 colors per diagram**;
-each should encode something semantic (layer, ownership, status).
+This is a palette to *choose from*, not a set to *use*. The default
+that almost always reads well: a neutral field (`%muted` / `%soft` /
+`%subtle` for containers and background nodes) plus **one or two
+saturated accents** (`%primary`, `%highlight`, or a `#RRGGBB`) reserved
+for the focal point and one semantic category. Stick to **3–4 colors
+per diagram total**, each encoding something (layer, ownership, status) —
+reaching for a fifth token is the start of a rainbow, not a new meaning.
 
 ## Nerd Font glyphs
 
@@ -831,6 +877,15 @@ authoring metadata.
 
 ## 6. Common patterns
 
+Most technical diagrams reduce to one of these shapes, and the format
+covers the common types directly: **architecture** (layered containers),
+**flow / pipeline** (L→R chain), **hub-and-spoke** (gateway / event bus),
+**state machines** and **sequences** (nodes + transition arrows, or a
+`code:` note with `state from -> to` lines), **ER / class** (boxes +
+labelled relationship arrows), and **mind maps / concept boards** (center
+node + radiating ideas — see "Visual notes" below). Pick the shape from
+the question, then the flow direction.
+
 ### Architecture (layered)
 
 Top-to-bottom flow. One `!flat` container per layer. Arrows flow
@@ -916,34 +971,97 @@ renders as its own canvas, and the viewer follows the link.
 @ box orders "Order Processing" 100,100 220x100 &graph:orders-flow
 ```
 
-## 7. Things to avoid
+### Visual notes / concept boards
 
-* **Rainbow diagrams**: more than 4 colors creates noise, not
-  information.
-* **Unlabeled arrows**: an arrow without a label is a relationship
-  without meaning.
-* **Massive flat layouts**: if you have 15+ boxes at the same level,
-  group them into containers.
-* **Tiny containers**: don't nest a single box — nesting implies
-  grouping of multiple elements.
-* **Decoration for its own sake**: every visual choice (color, size,
-  style) should encode information.
-* **Glyphs / bold on technical diagrams**: don't sprinkle `*icons` or
-  emphasis on a state machine or architecture diagram — they're for
-  explaining concepts, not labelling a system (see "Visual vocabulary
-  & emphasis — use only when it earns its place").
-* **Cramped containers**: children must never visually overlap the
-  parent's headline — follow the container margin model.
-* **Uniform text sizes**: if every element uses the same font size,
-  nothing is emphasized — use the typography scale.
-* **Orphaned elements**: boxes floating far from their logical group
-  look accidental — keep related items close and aligned.
-* **Undersized boxes**: a box should comfortably fit its label.
-* **Text bodies inside box labels**: bullet lists, pseudocode,
-  assertion checklists, multi-paragraph descriptions belong in a
-  `code:` or plain note next to the box, not crammed into the box
-  label. If a box label needs more than a short phrase to identify
-  the node, the extra content is a note opportunity.
+For explaining a *concept* rather than a *system* — a teaching sketch,
+a mind map, a retrospective, a "how X works" board on any topic — flip
+the defaults the technical patterns set. Here recognition and hierarchy
+**are** the point, so lean into the sketchnote vocabulary the technical
+diagrams hold back (see "Visual vocabulary & emphasis"):
+
+* **Center the idea, radiate the rest.** A center-out layout: the
+  concept in the middle, contributing ideas around it. A `*bulb` (or
+  other fill glyph) turns the center box into a framed concept node.
+* **Glyphs earn their place here.** `*lead:` icons label the satellites
+  (`*lead:star` sunlight, `*lead:cloud` a gas) — recognition at a glance
+  is exactly what a teaching board wants.
+* **Emphasis carries hierarchy.** A `!bold` title, a small `!italic`
+  aside; notes render handwritten by default, which suits the form.
+* **One note for the takeaway.** A short `md:` note gives the
+  one-sentence gist the picture is building toward.
+
+```
+@ note title 300,40 "How photosynthesis works" ~xlarge !bold
+
+@ box sun "Sunlight" 100,150 180x80 %soft *lead:star
+@ box water "Water  H2O" 100,300 180x80 %soft
+@ box co2 "CO2 from air" 100,450 180x80 %soft *lead:cloud
+
+@ box leaf "Photosynthesis" 420,270 220x140 %highlight *bulb
+
+@ box sugar "Glucose  food" 780,230 180x80 %forest *lead:check
+@ box o2 "Oxygen out" 780,420 180x80 %teal *lead:cloud
+
+@ arrow sun -> leaf "light"
+@ arrow water -> leaf "H2O"
+@ arrow co2 -> leaf "CO2"
+@ arrow leaf -> sugar "stored energy"
+@ arrow leaf -> o2 "released"
+
+@ note gist 100,600 """
+md:
+**Gist:** a leaf turns *light + water + CO2* into sugar it
+can store, and breathes out the oxygen we need.
+""" ~small
+```
+
+The same restraint rule still applies in reverse: every glyph and bold
+should make the idea *easier to grasp*. A concept board that's lost its
+hierarchy is as noisy as a state machine covered in icons.
+
+### Sketchnotes — capturing a talk for memory
+
+A conference sketchnote is a different job from a technical diagram: the
+goal is **recall of a few take-aways**, not faithful structure. Optimise
+for memory, and **skip the heavy ceremony** — the plan-first /
+render / diagnose loop is for precise diagrams; a live sketchnote wants
+speed and personality, so capture first and tidy later (if at all).
+
+* **Reduce ruthlessly.** A talk has 3–5 things worth keeping. Capture
+  those as headline boxes; let everything else go. If you're writing
+  full sentences, you're transcribing, not sketchnoting.
+* **Headline hierarchy.** One `~xxlarge !bold` title (the talk's thesis),
+  a handful of `~large` key points, small notes for the supporting
+  detail. Size *is* the memory cue — the biggest things are what you'll
+  recall.
+* **One glyph per point as a memory hook.** `*lead:` icons make a point
+  recognisable at a glance weeks later (`*lead:warning` a pitfall,
+  `*lead:bulb` the key insight, `*lead:check` a recommendation). Here
+  glyphs *aid recall* — the opposite of the restraint a technical diagram
+  needs.
+* **Capture the arc, not the outline.** Hook → 2–4 key points → the
+  one thing to remember. A loose top-to-bottom or center-out flow beats
+  a rigid grid; don't agonise over coordinates.
+* **Let a `md:` note hold a punchline** — a memorable quote or the single
+  call-to-action, in the speaker's words.
+
+```
+@ note title 200,40 "Make it work, then make it fast" ~xxlarge !bold
+
+@ box hook "Premature optimisation = wasted weeks" 120,180 320x90 %soft ~large *lead:warning
+@ box k1 "Measure before you tune" 120,330 320x80 %soft ~large *lead:bulb
+@ box k2 "90% of time is in 10% of code" 120,470 320x80 %soft ~large *lead:clock
+@ box k3 "A profiler beats a guess" 120,610 320x80 %soft ~large *lead:check
+
+@ note punch 520,330 """
+md:
+> "Find the hot 10% with a profiler,
+> leave the other 90% alone."
+""" ~large
+```
+
+This isn't a diagram of the talk — it's the four things you want to walk
+out remembering, sized so the eye (and memory) keeps them.
 
 ---
 

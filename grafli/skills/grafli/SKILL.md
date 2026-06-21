@@ -95,6 +95,33 @@ naming what you'd do pending approval. Keep each to a short headline.
 * **Anchor, don't float.** A request or answer note belongs next to (or
   dotted-arrowed to) the node it's about, so it reads in context.
 
+### Editing safely while the board is open
+
+The desktop app autosaves and live-reloads, and it 3-way-merges your
+external writes with the human's in-app edits — a true clash (you and the
+human changing the same element at the same moment) is resolved
+deterministically and flagged, never silently lost. You keep that machinery
+in its clean-merge path by editing like a good concurrent citizen:
+
+* **Re-read immediately before you write.** Between your last `Read` and
+  your write the human (or the app's autosave) may have changed the file.
+  Read right before you `Edit`/`Write` so you diff against the current
+  state, not a stale snapshot.
+* **Prefer a targeted `Edit` over a whole-file `Write`.** A small `Edit`
+  touches only the lines it must, so it merges cleanly with a human
+  editing a different part; a full rewrite is far likelier to collide.
+* **Keep each change small and localized, then let it save.** Many small
+  edits merge better than one big rewrite — and each is a cleaner undo
+  step for the human.
+* **Edit vault `.md` doc bodies directly, in place.** A doc-bodied note's
+  body lives in `<stem>-res/<name>.md`; editing that file is the canonical
+  path (line-by-line git diffs) and the app merges it with any unsaved
+  zen-editor edit. Same rules apply: re-read the `.md` right before
+  writing, prefer a localized `Edit`.
+
+Small, current, localized edits avoid conflicts almost entirely — the
+merge is the safety net, not the plan.
+
 Speaker tags (for discussions and `Q:` replies): **a label of 1–16
 characters starting with an uppercase letter, then `: `** — `AI:`,
 `User:`, `GC:`, `Reviewer:`. 2+ distinct tags in one note trigger the

@@ -162,3 +162,67 @@ def test_type_picker_applies_to_note():
     view._commit_type_picker()
     note = view.board.notes[0]
     assert note.textsize == "large" and note.emphasis == "bold"
+
+
+# ── bold actually renders (regression) ──────────────────────────
+#
+# The handwritten face (Patrick Hand) ships no bold weight and the platform's
+# synthetic emboldening of it is near-invisible, so bold notes used to read as
+# regular. Mono now bundles a real Bold face; handwritten gets a painter-level
+# faux-bold stroke. Both must make bold visibly differ from regular.
+
+def _render_note(text: str, emphasis: str, style: str = "") -> "object":
+    from PySide6.QtGui import QImage, QPainter, QColor
+    from PySide6.QtCore import QRectF
+    from PySide6.QtWidgets import QGraphicsScene
+    from grafli.format import Note
+    from grafli.items import NoteItem
+    item = NoteItem(Note(id="n", text=text, x=0, y=0,
+                         emphasis=emphasis, style=style))
+    scene = QGraphicsScene()
+    scene.addItem(item)
+    r = scene.itemsBoundingRect()
+    img = QImage(int(r.width()) + 16, int(r.height()) + 16,
+                 QImage.Format.Format_ARGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    scene.render(p, QRectF(0, 0, img.width(), img.height()),
+                 r.adjusted(-8, -8, 8, 8))
+    p.end()
+    return img
+
+
+def _pixel_diff_pct(a, b) -> float:
+    w, h = min(a.width(), b.width()), min(a.height(), b.height())
+    diff = sum(1 for y in range(h) for x in range(w)
+               if a.pixel(x, y) != b.pixel(x, y))
+    return 100.0 * diff / (w * h)
+
+
+def test_real_mono_bold_face_is_bundled():
+    # The crisp mono bold depends on a real Bold face for the family, not the
+    # platform's weak synthesis.
+    from PySide6.QtGui import QFontDatabase
+    from grafli.app import _register_bundled_fonts
+    QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    assert "Bold" in QFontDatabase.styles(FONT_FAMILY)
+
+
+def test_bold_visibly_changes_handwritten_note():
+    QApplication.instance() or QApplication([])
+    from grafli.app import _register_bundled_fonts
+    _register_bundled_fonts()
+    reg = _render_note("Sample text here", "")
+    bold = _render_note("Sample text here", "bold")
+    assert _pixel_diff_pct(reg, bold) > 1.5
+
+
+def test_bold_visibly_changes_mono_note():
+    QApplication.instance() or QApplication([])
+    from grafli.app import _register_bundled_fonts
+    _register_bundled_fonts()
+    reg = _render_note("Sample text here", "", "mono")
+    bold = _render_note("Sample text here", "bold", "mono")
+    assert _pixel_diff_pct(reg, bold) > 1.5

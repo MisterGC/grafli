@@ -25,7 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emphasis dimension for visual-note hierarchy. Set it visually from a text
   grid: **style mode → `t`** opens a size (rows) × style (Regular / Bold /
   Italic / Bold+Italic, columns) matrix with live preview — `hjkl` to move,
-  `Enter` to confirm, `Esc` to cancel. Works on boxes and notes.
+  `Enter` to confirm, `Esc` to cancel. Works on boxes and notes. Bold renders
+  crisply on both faces: the monospace UI font bundles a real Bold weight,
+  and the handwritten Patrick Hand face (which ships none) gets a
+  painter-level faux-bold so its bold no longer reads as regular.
 - **Visual vocabulary — glyph boxes & notes.** A box or note can carry a
   curated line icon via the `*name` sigil (e.g. `*bulb`, `*warning`,
   `*database`), with two placements: *fill* (`*bulb`) makes the glyph the

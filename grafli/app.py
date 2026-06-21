@@ -1053,7 +1053,8 @@ def _load_vault(path: Path, board: Board) -> list[str]:
 
 def _register_bundled_fonts():
     fonts_dir = Path(__file__).parent / "fonts"
-    for name in ("PatrickHand-Regular.ttf", "JetBrainsMonoNerdFont-Regular.ttf"):
+    for name in ("PatrickHand-Regular.ttf", "JetBrainsMonoNerdFont-Regular.ttf",
+                 "JetBrainsMonoNerdFont-Bold.ttf"):
         path = fonts_dir / name
         if path.exists():
             QFontDatabase.addApplicationFont(str(path))

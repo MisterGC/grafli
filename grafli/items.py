@@ -209,6 +209,31 @@ def _apply_emphasis(font: QFont, emphasis: str) -> QFont:
     return font
 
 
+def _draw_text(painter: QPainter, point: QPointF, text: str,
+               font: QFont, color: QColor) -> None:
+    """Draw ``text`` at a baseline ``point`` in ``color``.
+
+    The handwritten face (Patrick Hand) ships no bold weight, so a plain
+    ``setBold`` only yields the platform's weak synthetic emboldening — bold
+    notes then read as regular. For that family we synthesise a visible bold
+    by stroking the glyph outline; every other face (the mono UI font, which
+    has a real Bold) renders through the normal text path.
+    """
+    if font.bold() and font.family() == NOTE_FONT_FAMILY:
+        path = QPainterPath()
+        path.addText(point, font, text)
+        pen = QPen(color, max(0.5, font.pointSizeF() * 0.04))
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(color))
+        painter.drawPath(path)
+    else:
+        painter.setFont(font)
+        painter.setPen(color)
+        painter.drawText(point, text)
+
+
 def _begin_drag_guides(item):
     """Tell the view a free-move drag is starting (gathers alignment refs)."""
     view = _get_view(item)
@@ -1919,24 +1944,19 @@ class NoteItem(QGraphicsSimpleTextItem):
 
             bold_font = QFont(font)
             bold_font.setBold(True)
-            painter.setFont(bold_font)
-            painter.setPen(QColor("#FFFFFF"))
-            painter.drawText(
-                QPointF(pad + self._BADGE_HPAD, text_y), prefix
-            )
+            _draw_text(painter, QPointF(pad + self._BADGE_HPAD, text_y),
+                       prefix, bold_font, QColor("#FFFFFF"))
 
             # Body lines in accent color
-            painter.setFont(body_font)
-            painter.setPen(accent)
             body_x = pad + badge_w + self._BADGE_GAP
             for i, ln in enumerate(lines):
-                painter.drawText(QPointF(body_x, text_y + i * line_h), ln)
+                _draw_text(painter, QPointF(body_x, text_y + i * line_h),
+                           ln, body_font, accent)
         else:
             # Plain note: accent-colored text, no badge
-            painter.setFont(body_font)
-            painter.setPen(accent)
             for i, ln in enumerate(lines):
-                painter.drawText(QPointF(pad, text_y + i * line_h), ln)
+                _draw_text(painter, QPointF(pad, text_y + i * line_h),
+                           ln, body_font, accent)
 
         if self.note.url:
             _paint_link_glyph(painter, bg_rect)
@@ -2027,17 +2047,13 @@ class NoteItem(QGraphicsSimpleTextItem):
                 badge_rect, self._BADGE_RADIUS, self._BADGE_RADIUS
             )
 
-            painter.setFont(bold_font)
-            painter.setPen(QColor("#FFFFFF"))
-            painter.drawText(
-                QPointF(pad + self._BADGE_HPAD, y + fm.ascent()), speaker
-            )
+            _draw_text(painter, QPointF(pad + self._BADGE_HPAD, y + fm.ascent()),
+                       speaker, bold_font, QColor("#FFFFFF"))
 
             # Body lines (already wrapped)
-            painter.setFont(font)
-            painter.setPen(color)
             for ln in lines:
-                painter.drawText(QPointF(body_x, y + fm.ascent()), ln)
+                _draw_text(painter, QPointF(body_x, y + fm.ascent()), ln,
+                           font, color)
                 y += line_h
 
             if blk_idx < len(wrapped_blocks) - 1:

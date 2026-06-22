@@ -399,25 +399,21 @@ def icon_token(element) -> str:
     return f"{place}:{element.icon}" if place else element.icon
 
 
+# Canonical order of text-style flags within the ``!``-group / emphasis field:
+# weight and slant first, then the display treatments (outline, shadow).
+_EMPHASIS_ORDER = ("bold", "italic", "outline", "shadow")
+
+
 def emphasis_from_flags(flags) -> str:
-    """Canonical emphasis string (``bold`` before ``italic``) from a flag set."""
-    parts = []
-    if "bold" in flags:
-        parts.append("bold")
-    if "italic" in flags:
-        parts.append("italic")
-    return " ".join(parts)
+    """Canonical emphasis string from a flag set, in ``_EMPHASIS_ORDER``."""
+    return " ".join(k for k in _EMPHASIS_ORDER if k in flags)
 
 
 def emphasis_tokens(emphasis: str) -> str:
-    """Serialize an ``emphasis`` value back to ``!bold``/``!italic`` flags."""
+    """Serialize an ``emphasis`` value back to ``!bold`` / ``!italic`` /
+    ``!outline`` / ``!shadow`` flags, in canonical order."""
     parts = emphasis.split()
-    s = ""
-    if "bold" in parts:
-        s += " !bold"
-    if "italic" in parts:
-        s += " !italic"
-    return s
+    return "".join(f" !{k}" for k in _EMPHASIS_ORDER if k in parts)
 
 
 # ── Regex patterns ──────────────────────────────────────────────
@@ -428,7 +424,7 @@ _RE_BOX = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
-    r'((?:\s+!(?:flat|ratio|fit|bold|italic))*)'
+    r'((?:\s+!(?:flat|ratio|fit|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -454,7 +450,7 @@ _RE_NOTE = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'((?:\s+!(?:mono|bold|italic))*)'
+    r'((?:\s+!(?:mono|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -472,7 +468,7 @@ _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'((?:\s+!(?:mono|bold|italic))*)'
+    r'((?:\s+!(?:mono|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'

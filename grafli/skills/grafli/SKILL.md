@@ -288,6 +288,7 @@ class as a misplaced triple-quote modifier.
 | `~size` | named `~small`…`~xxxlarge`, or numeric `~16` (any point size) | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |
 | `!bold` / `!italic` | `!bold`, `!italic` | text emphasis, in the `!`-flag group (combine for headings/asides) |
+| `!outline` / `!shadow` | `!outline`, `!shadow` | **note** display lettering — hollow letters / drop-shadow depth, for sketchnote headers (layer with `~size` + `!bold`); render on notes, not boxes |
 | `*icon` | `*bulb` (fill), `*lead:gear` (lead) | visual-vocabulary glyph — fill: big icon + caption; lead: small icon left of the label |
 | `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>` | typed attachment (see "Attachments") |
 | `>parent` | `>parent_id` | nest inside parent box |
@@ -778,7 +779,8 @@ Key rules:
 * Notes render **handwritten** by default (a warmer, sketchnote feel);
   add `!mono` for code-like notes that need a monospace face. Box
   labels are always monospace (structure). Style mode → `t` opens a
-  size × bold/italic text grid; `Tab` toggles a note's font.
+  size × bold/italic text grid; `Tab` toggles a note's font, and (notes
+  only) `o` toggles **outline** and `s` toggles **shadow** display lettering.
 
 ### Visual vocabulary & emphasis — use only when it earns its place
 
@@ -1171,7 +1173,10 @@ speed and personality, so capture first and tidy later (if at all).
 * **Headline hierarchy.** One `~xxlarge !bold` title (the talk's thesis),
   a handful of `~large` key points, small notes for the supporting
   detail. Size *is* the memory cue — the biggest things are what you'll
-  recall.
+  recall. For a hand-lettered banner feel, give a header note **display
+  lettering**: `!outline` (hollow letters), `!shadow` (drop-shadow depth),
+  or `!bold !shadow` (a 3D header) — layered on `~size`. Use it on the
+  title and section headers, not body text.
 * **One glyph per point as a memory hook.** `*lead:` icons make a point
   recognisable at a glance weeks later (`*lead:warning` a pitfall,
   `*lead:bulb` the key insight, `*lead:check` a recommendation). Here

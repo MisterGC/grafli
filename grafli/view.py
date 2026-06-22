@@ -108,7 +108,7 @@ from grafli.constants import (
     _resolve_color,
 )
 from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
-from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, parse, serialize
+from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, emphasis_from_flags, parse, serialize
 from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.iconset import ICON_NAMES, icon_pixmap
@@ -322,6 +322,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._type_picker_size_idx: int = 1   # "" (medium)
         self._type_picker_emph_idx: int = 0
         self._type_picker_font: str = ""      # "" hand / "mono" — notes only
+        self._type_picker_outline: bool = False   # display styles — notes only
+        self._type_picker_shadow: bool = False
         # id -> (textsize, emphasis, note_style|None); style restored for notes.
         self._type_picker_original: dict[str, tuple] = {}
         self._mode_badge: QGraphicsTextItem | None = None
@@ -2469,11 +2471,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         size = self._el_textsize(targets[0])
         self._type_picker_size_idx = (self._TYPE_SIZES.index(size)
                                       if size in self._TYPE_SIZES else 1)
-        emph = self._el_emphasis(targets[0])
-        self._type_picker_emph_idx = (self._TYPE_EMPH.index(emph)
-                                      if emph in self._TYPE_EMPH else 0)
+        # Emphasis splits into the grid's bold/italic axis plus the
+        # independent display toggles (outline / shadow, notes only).
+        toks = self._el_emphasis(targets[0]).split()
+        base = emphasis_from_flags({t for t in toks if t in ("bold", "italic")})
+        self._type_picker_emph_idx = (self._TYPE_EMPH.index(base)
+                                      if base in self._TYPE_EMPH else 0)
         notes = [it for it in targets if isinstance(it, NoteItem)]
         self._type_picker_font = notes[0].note.style if notes else ""
+        first_emph = notes[0].note.emphasis if notes else ""
+        self._type_picker_outline = "outline" in first_emph
+        self._type_picker_shadow = "shadow" in first_emph
         self._type_picker_active = True
         self.viewport().update()
 
@@ -2481,14 +2489,26 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         return any(isinstance(it, NoteItem)
                    for it in self._type_picker_targets())
 
+    def _compose_note_emphasis(self, base: str) -> str:
+        """Combine the grid's bold/italic ``base`` with the note-only display
+        toggles (outline / shadow), in canonical order."""
+        flags = set(base.split())
+        if self._type_picker_outline:
+            flags.add("outline")
+        if self._type_picker_shadow:
+            flags.add("shadow")
+        return emphasis_from_flags(flags)
+
     def _apply_type_picker_live(self):
         size = self._TYPE_SIZES[self._type_picker_size_idx]
         emph = self._TYPE_EMPH[self._type_picker_emph_idx]
         for it in self._type_picker_targets():
             it.set_textsize(size)
-            it.set_emphasis(emph)
             if isinstance(it, NoteItem):
+                it.set_emphasis(self._compose_note_emphasis(emph))
                 it.set_text_mono(self._type_picker_font == "mono")
+            else:
+                it.set_emphasis(emph)
 
     def _type_picker_move(self, dcol: int, drow: int):
         self._type_picker_emph_idx = max(
@@ -2504,6 +2524,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._apply_type_picker_live()
         self.viewport().update()
 
+    def _toggle_type_outline(self):
+        # Hollow display letters — notes only, like the font toggle.
+        if not self._type_picker_has_note():
+            return
+        self._type_picker_outline = not self._type_picker_outline
+        self._apply_type_picker_live()
+        self.viewport().update()
+
+    def _toggle_type_shadow(self):
+        # Drop-shadow depth — notes only.
+        if not self._type_picker_has_note():
+            return
+        self._type_picker_shadow = not self._type_picker_shadow
+        self._apply_type_picker_live()
+        self.viewport().update()
+
     def _handle_type_picker_key(self, event):
         key = event.key()
         if key == Qt.Key.Key_Escape:
@@ -2512,6 +2548,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._commit_type_picker()
         elif key == Qt.Key.Key_Tab:
             self._toggle_type_font()
+        elif key == Qt.Key.Key_O:
+            self._toggle_type_outline()
+        elif key == Qt.Key.Key_S:
+            self._toggle_type_shadow()
         elif key == Qt.Key.Key_H:
             self._type_picker_move(-1, 0)
         elif key == Qt.Key.Key_L:
@@ -2539,9 +2579,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._push_undo()
         for it in targets:
             it.set_textsize(size)
-            it.set_emphasis(emph)
             if isinstance(it, NoteItem):
+                it.set_emphasis(self._compose_note_emphasis(emph))
                 it.set_text_mono(self._type_picker_font == "mono")
+            else:
+                it.set_emphasis(emph)
         self.mark_dirty()
         self._close_type_picker()
 
@@ -2568,12 +2610,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             scene_rect = scene_rect.united(it.sceneBoundingRect())
         anchor = self.mapFromScene(scene_rect).boundingRect()
 
+        has_note = self._type_picker_has_note()
         rows, cols = len(self._TYPE_SIZES), len(self._TYPE_EMPH)
         cell_w, cell_h, rowlab_w, pad, label_h = 52, 38, 30, 10, 18
         grid_w = rowlab_w + cols * cell_w
         grid_h = rows * cell_h
         panel_w = grid_w + pad * 2
-        panel_h = grid_h + pad * 2 + label_h
+        # Notes get a second line for the outline / shadow / font toggle hints.
+        panel_h = grid_h + pad * 2 + label_h + (label_h if has_note else 0)
         margin = 14
         vw, vh = self.viewport().width(), self.viewport().height()
         px = anchor.right() + margin
@@ -2625,11 +2669,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         sl = self._TYPE_SIZE_LABELS[self._TYPE_SIZES[self._type_picker_size_idx]]
         el = self._TYPE_EMPH_LABELS[self._type_picker_emph_idx]
         status = f"{sl} · {el}"
-        if self._type_picker_has_note():
+        status_y = gy0 + grid_h + 4
+        if has_note:
             font = "mono" if self._type_picker_font == "mono" else "hand"
-            status += f" · {font}   ⇥ font"
-        painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
+            status += f" · {font}"
+            for name, on in (("outline", self._type_picker_outline),
+                             ("shadow", self._type_picker_shadow)):
+                if on:
+                    status += f" · {name}"
+        painter.drawText(QRectF(px, status_y, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter, status)
+        if has_note:
+            painter.setPen(QPen(QColor(150, 150, 146)))
+            painter.setFont(QFont(FONT_FAMILY, 8))
+            painter.drawText(QRectF(px, status_y + label_h, panel_w, label_h),
+                             Qt.AlignmentFlag.AlignCenter,
+                             "⇥ font   o outline   s shadow")
         painter.restore()
 
     # ── Arrow mode (vim-like style) ──
@@ -3242,6 +3297,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._minimap_visible = not self._minimap_visible
         self.viewport().update()
 
+    def _minimap_selected_ids(self) -> set[str]:
+        """Ids of the currently selected boxes, notes and images — the set
+        the minimap rings with a glow."""
+        ids = {bid for bid, it in self._box_items.items() if it.isSelected()}
+        ids |= {nid for nid, it in self._note_items.items() if it.isSelected()}
+        ids |= {iid for iid, it in self._image_items.items() if it.isSelected()}
+        return ids
+
+    def _refresh_minimap(self):
+        """Repaint just the minimap panel (e.g. after a selection change) so
+        its highlight updates without redrawing the whole board."""
+        if not self._minimap_visible:
+            return
+        r = self._minimap_panel_rect
+        if r is not None and not r.isNull():
+            self.viewport().update(r.toRect().adjusted(-2, -2, 2, 2))
+        else:
+            self.viewport().update()
+
     def _start_editing(self, target: BoxItem | NoteItem):
         self._commit_editor()
         self._edit_target = target
@@ -3621,6 +3695,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             window._status_sel.setText(f"{count} selected" if count else "")
         self._update_breadcrumb()
         self._update_note_selection_highlight()
+        self._refresh_minimap()
         self.selection_changed_for_panel.emit(bool(self._scene.selectedItems()))
 
         # Recompute focus filter when selection changes
@@ -7379,7 +7454,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("s", "Style mode — then:"),
                 ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
                 ("  i", "Icon grid (visual vocab; ⇥ fill/lead)"),
-                ("  t", "Text grid: size × bold/italic (⇥ note font)"),
+                ("  t", "Text grid: size × bold/italic (⇥ font, o outline, s shadow)"),
                 ("  j / k", "Nudge text size"),
                 ("  d", "Dimension mode (resize)"),
                 ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),

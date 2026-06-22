@@ -210,28 +210,59 @@ def _apply_emphasis(font: QFont, emphasis: str) -> QFont:
 
 
 def _draw_text(painter: QPainter, point: QPointF, text: str,
-               font: QFont, color: QColor) -> None:
+               font: QFont, color: QColor, emphasis: str = "") -> None:
     """Draw ``text`` at a baseline ``point`` in ``color``.
 
-    The handwritten face (Patrick Hand) ships no bold weight, so a plain
-    ``setBold`` only yields the platform's weak synthetic emboldening — bold
-    notes then read as regular. For that family we synthesise a visible bold
-    by stroking the glyph outline; every other face (the mono UI font, which
-    has a real Bold) renders through the normal text path.
+    Handles the display text styles that can't be expressed through a plain
+    ``QFont``:
+
+    * **faux-bold** — the handwritten face (Patrick Hand) ships no bold weight,
+      so a plain ``setBold`` only yields weak synthetic emboldening; for that
+      family we thicken by stroking the glyph outline.
+    * **outline** (``emphasis`` contains ``outline``) — hollow letters: the
+      glyph path is stroked, not filled.
+    * **shadow** (``emphasis`` contains ``shadow``) — an offset dark copy of
+      the glyphs is laid down first, giving depth.
+
+    The mono UI font has a real Bold, so it takes the plain text path unless a
+    display style is requested.
     """
-    if font.bold() and font.family() == NOTE_FONT_FAMILY:
-        path = QPainterPath()
-        path.addText(point, font, text)
-        pen = QPen(color, max(0.5, font.pointSizeF() * 0.04))
-        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
-        painter.setBrush(QBrush(color))
-        painter.drawPath(path)
-    else:
+    outline = "outline" in emphasis
+    shadow = "shadow" in emphasis
+    faux_bold = font.bold() and font.family() == NOTE_FONT_FAMILY
+    if not (outline or shadow or faux_bold):
         painter.setFont(font)
         painter.setPen(color)
         painter.drawText(point, text)
+        return
+
+    path = QPainterPath()
+    path.addText(point, font, text)
+    painter.save()
+    if shadow:
+        offset = max(1.5, font.pointSizeF() * 0.06)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(0, 0, 0, 90)))
+        painter.translate(offset, offset)
+        painter.drawPath(path)
+        painter.translate(-offset, -offset)
+    if outline:
+        pen = QPen(color, max(0.8, font.pointSizeF() * 0.05))
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+    else:
+        painter.setBrush(QBrush(color))
+        if faux_bold:
+            pen = QPen(color, max(0.5, font.pointSizeF() * 0.04))
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawPath(path)
+    painter.restore()
 
 
 def _begin_drag_guides(item):
@@ -1951,12 +1982,12 @@ class NoteItem(QGraphicsSimpleTextItem):
             body_x = pad + badge_w + self._BADGE_GAP
             for i, ln in enumerate(lines):
                 _draw_text(painter, QPointF(body_x, text_y + i * line_h),
-                           ln, body_font, accent)
+                           ln, body_font, accent, self.note.emphasis)
         else:
             # Plain note: accent-colored text, no badge
             for i, ln in enumerate(lines):
                 _draw_text(painter, QPointF(pad, text_y + i * line_h),
-                           ln, body_font, accent)
+                           ln, body_font, accent, self.note.emphasis)
 
         if self.note.url:
             _paint_link_glyph(painter, bg_rect)
@@ -2053,7 +2084,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             # Body lines (already wrapped)
             for ln in lines:
                 _draw_text(painter, QPointF(body_x, y + fm.ascent()), ln,
-                           font, color)
+                           font, color, self.note.emphasis)
                 y += line_h
 
             if blk_idx < len(wrapped_blocks) - 1:

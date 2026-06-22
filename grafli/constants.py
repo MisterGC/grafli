@@ -134,6 +134,7 @@ MINIMAP_INFO_COLOR = QColor(106, 159, 181)  # #6A9FB5 accent
 MINIMAP_CONNECTOR_COLOR = QColor(180, 180, 180, 110)  # neutral, low alpha — density only
 MINIMAP_CAMERA_COLOR = QColor(106, 159, 181)   # RTS camera frame — the minimap's own accent (#6A9FB5)
 MINIMAP_GRID_COLOR = QColor(150, 142, 128, 24)   # faint warm-neutral grid
+MINIMAP_SELECT_COLOR = QColor(255, 196, 87)   # selected-element glow ring — warm amber, distinct from the blue camera
 
 # ── Complexity heatmap ──────────────────────────────────────────
 HEATMAP_STOPS = [

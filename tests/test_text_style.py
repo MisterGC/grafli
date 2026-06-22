@@ -50,6 +50,26 @@ def test_emphasis_flag_order_normalizes():
     assert "!bold !italic" in serialize(b)
 
 
+def test_display_styles_outline_shadow_roundtrip():
+    # Display lettering: !outline / !shadow layer onto the emphasis field in
+    # canonical order (bold, italic, outline, shadow), byte-stable.
+    src = (
+        "#!grafli v1\n"
+        '@ note plan 0,0 "PLAN" ~xxlarge !bold !outline\n'
+        '@ note refine 0,200 "REFINE" ~xxlarge !bold !shadow\n'
+    )
+    b = parse(src)
+    assert b.notes[0].emphasis == "bold outline"
+    assert b.notes[1].emphasis == "bold shadow"
+    assert serialize(b) == src
+
+
+def test_display_style_flag_order_normalizes():
+    b = parse('#!grafli v1\n@ note n 0,0 "H" !shadow !outline !italic !bold\n')
+    assert b.notes[0].emphasis == "bold italic outline shadow"
+    assert "!bold !italic !outline !shadow" in serialize(b)
+
+
 # ── type picker ─────────────────────────────────────────────────
 
 def test_type_picker_open_starts_on_current():
@@ -226,3 +246,42 @@ def test_bold_visibly_changes_mono_note():
     reg = _render_note("Sample text here", "", "mono")
     bold = _render_note("Sample text here", "bold", "mono")
     assert _pixel_diff_pct(reg, bold) > 1.5
+
+
+# ── display lettering (outline / shadow) ────────────────────────
+
+def test_outline_and_shadow_change_render():
+    QApplication.instance() or QApplication([])
+    from grafli.app import _register_bundled_fonts
+    _register_bundled_fonts()
+    plain = _render_note("HEADER", "")
+    assert _pixel_diff_pct(plain, _render_note("HEADER", "outline")) > 1.5
+    assert _pixel_diff_pct(plain, _render_note("HEADER", "shadow")) > 1.5
+
+
+def test_type_picker_outline_shadow_toggle_on_note():
+    view = _view('@ note n 0,0 "HEADER"\n')
+    view._note_items["n"].setSelected(True)
+    view._open_type_picker()
+    view._type_picker_move(1, 0)              # emphasis -> bold
+    view._toggle_type_outline()
+    view._toggle_type_shadow()
+    view._commit_type_picker()
+    assert view.board.notes[0].emphasis == "bold outline shadow"
+    # Re-opening reflects the persisted display toggles.
+    view._note_items["n"].setSelected(True)
+    view._open_type_picker()
+    assert view._type_picker_outline and view._type_picker_shadow
+
+
+def test_display_toggles_are_noop_on_boxes():
+    # Display lettering is a note treatment; toggling on a box selection
+    # leaves the box emphasis untouched.
+    view = _view('@ box a "A" 0,0 160x60\n')
+    view._box_items["a"].setSelected(True)
+    view._open_type_picker()
+    view._toggle_type_outline()
+    view._toggle_type_shadow()
+    view._commit_type_picker()
+    assert "outline" not in view.board.box_by_id("a").emphasis
+    assert "shadow" not in view.board.box_by_id("a").emphasis

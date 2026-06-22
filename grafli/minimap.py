@@ -19,6 +19,7 @@ from grafli.constants import (
     MINIMAP_MARGIN,
     MINIMAP_MAX_H,
     MINIMAP_MAX_W,
+    MINIMAP_SELECT_COLOR,
     MINIMAP_STATS_COLOR,
     MINIMAP_STATS_FONT_SIZE,
     MINIMAP_TIER_COLORS,
@@ -258,6 +259,11 @@ class MinimapMixin:
         dimmed_ids: set[str] = getattr(self, "_search_dimmed_ids", set()) or set()
         dim_alpha = 50
 
+        # Selected ids get a pulsing glow ring drawn over the markers. Collect
+        # their minimap rects as we lay the markers down, then ring them last.
+        selected_ids: set[str] = self._minimap_selected_ids()
+        selected_rects: list[QRectF] = []
+
         # Draw boxes — top-level parents first so nested children
         # render on top instead of being covered by the parent's fill.
         painter.setPen(Qt.PenStyle.NoPen)
@@ -276,6 +282,8 @@ class MinimapMixin:
             bw = max(box.w * sx, 2)
             bh = max(box.h * sy, 2)
             painter.drawRect(QRectF(bx, by, bw, bh))
+            if box.id in selected_ids:
+                selected_rects.append(QRectF(bx, by, bw, bh))
 
         # Draw notes as small markers
         from grafli.items import note_prefix as _note_prefix
@@ -303,6 +311,24 @@ class MinimapMixin:
                 nw = nh = max(3, 20 * sx)
             self._draw_minimap_note(painter, QRectF(nx, ny, nw, nh), color,
                                     dimmed=note.id in dimmed_ids)
+            if note.id in selected_ids:
+                selected_rects.append(QRectF(nx, ny, nw, nh))
+
+        # Selected images aren't otherwise on the radar — drop a faint marker
+        # so the glow ring has something to frame.
+        painter.setPen(Qt.PenStyle.NoPen)
+        for image in getattr(self._board, "images", []):
+            if image.id not in selected_ids:
+                continue
+            ix = mx + (image.x - scene_rect.x()) * sx
+            iy = my + (image.y - scene_rect.y()) * sy
+            iw = max(image.w * sx, 3)
+            ih = max(image.h * sy, 3)
+            marker = QColor(MINIMAP_SELECT_COLOR)
+            marker.setAlpha(60)
+            painter.setBrush(QBrush(marker))
+            painter.drawRect(QRectF(ix, iy, iw, ih))
+            selected_rects.append(QRectF(ix, iy, iw, ih))
 
         # Camera box — RTS-style: faint fill, thin outline, glowing corner
         # brackets that read as the on-screen "camera".
@@ -319,12 +345,40 @@ class MinimapMixin:
         frame.setAlpha(120)
         self._corner_brackets(painter, self._minimap_rect, 9, [(frame, 1.4)])
 
+        # Selection glow rings on top of everything — the radar blip for the
+        # element(s) the user has selected, clipped to the map.
+        if selected_rects:
+            painter.save()
+            painter.setClipRect(self._minimap_rect)
+            for rect in selected_rects:
+                self._draw_minimap_selection(painter, rect)
+            painter.restore()
+
         # ── F1 Help hint in bottom-left of panel ──
         hint_font = QFont(FONT_FAMILY, 9)
         painter.setFont(hint_font)
         painter.setPen(QPen(MINIMAP_STATS_COLOR))
         hint_y = panel_y + panel_h - panel_pad
         painter.drawText(QPointF(mx, hint_y), "F1 Help")
+
+    def _draw_minimap_selection(self, painter, rect):
+        """Draw a static glow ring around a selected marker — an RTS radar
+        blip. A soft halo sits behind a crisp bright outline that hugs the
+        marker, so the selection reads at a glance without animation.
+        """
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # Soft outer halo.
+        halo = QColor(MINIMAP_SELECT_COLOR)
+        halo.setAlpha(80)
+        painter.setPen(QPen(halo, 2.4))
+        painter.drawRoundedRect(rect.adjusted(-3, -3, 3, 3), 3, 3)
+
+        # Crisp inner ring — bright so the blip stays legible.
+        ring = QColor(MINIMAP_SELECT_COLOR)
+        ring.setAlpha(235)
+        painter.setPen(QPen(ring, 1.2))
+        painter.drawRoundedRect(rect.adjusted(-1, -1, 1, 1), 2, 2)
 
     def _draw_minimap_note(self, painter, rect, accent, *, dimmed=False):
         """Draw a note marker as a light 'card' with an accent border and a

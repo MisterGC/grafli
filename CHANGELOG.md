@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Display lettering for notes (`!outline` / `!shadow`).** Two new text-style
+  flags turn a note into a hand-lettered sketchnote header: `!outline` draws
+  hollow letters, `!shadow` adds drop-shadow depth, and they layer on `~size`
+  and `!bold` — `~xxlarge !outline` for a big hollow title, `~xxlarge !bold
+  !shadow` for a 3D one. Set them from the text grid (style mode → `t`): `o`
+  toggles outline, `s` toggles shadow (notes only, alongside `Tab` for the
+  font). No new render mode — just more text styling, true to grafli's
+  plain-text nature.
+- **Selected element highlighted on the minimap.** The currently selected
+  box, note, or image now shows as an amber glow ring on the RTS-style
+  minimap — a radar "blip" that locates your selection at a glance, even when
+  it's scrolled off-screen.
 - **Clickable task lists in markdown notes.** GitHub-style task checkboxes
   in a markdown note (`- [ ]` / `- [x]`) are now interactive: click anywhere
   on the line to tick or untick it — no editing markdown by hand. The toggle

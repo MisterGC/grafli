@@ -3973,7 +3973,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         d = pixel.y() if has_pixel else angle.y()
         if d == 0:
             return None
-        return ("zoom", 1.15 if d > 0 else 1 / 1.15)
+        # Proportional zoom: one wheel notch (120 units) is a 1.15× step, and
+        # partial / multi-notch / pixel-precise deltas scale smoothly with it
+        # instead of jumping a fixed step.
+        return ("zoom", 1.15 ** (d / 120.0))
 
     def wheelEvent(self, event: QWheelEvent):
         if self._bounce_active:
@@ -4932,7 +4935,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        # Z — zoom to selection (no-op if nothing selected)
+        # Z — cycle zoom in (25 → 50 → 100 → 150 %, centered on the viewport)
         if event.key() == Qt.Key.Key_Z and no_mod:
             self._cycle_zoom_step()
             event.accept()
@@ -7700,8 +7703,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("C", "Connect arrow (one-shot)"),
             ]),
             ("Navigate", [
-                ("Arrow keys", "Pan viewport"),
+                ("Arrow keys", "Pan viewport (when nothing selected)"),
                 ("Middle/Right-drag", "Pan anywhere"),
+                ("Two-finger scroll", "Pan (trackpad)"),
+                ("Wheel / ⌃scroll / pinch", "Zoom in / out"),
                 ("+ / -", "Zoom in / out"),
                 ("z", "Zoom in: 25 → 50 → 100 → 150 % (cycle)"),
                 ("⇧Z", "Zoom to fit (whole graph)"),

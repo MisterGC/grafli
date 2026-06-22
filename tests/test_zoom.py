@@ -132,3 +132,16 @@ def test_trackpad_scroll_pans_and_wheel_zooms():
     assert view._wheel_action(Z, QPoint(0, 120), META)[0] == "zoom"
     # Nothing to do.
     assert view._wheel_action(Z, Z, NONE) is None
+
+
+def test_wheel_zoom_is_proportional_to_delta():
+    from PySide6.QtCore import QPoint, Qt
+    view = _view(parse(SAMPLE))
+    NONE = Qt.KeyboardModifier.NoModifier
+    Z = QPoint(0, 0)
+    one_notch = view._wheel_action(Z, QPoint(0, 120), NONE)[1]
+    half_notch = view._wheel_action(Z, QPoint(0, 60), NONE)[1]
+    two_notch = view._wheel_action(Z, QPoint(0, 240), NONE)[1]
+    assert abs(one_notch - 1.15) < 1e-6          # one notch is the 1.15x step
+    assert half_notch < one_notch < two_notch    # smooth, proportional
+    assert abs(half_notch * half_notch - one_notch) < 1e-6   # exponential

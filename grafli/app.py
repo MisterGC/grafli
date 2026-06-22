@@ -431,7 +431,8 @@ class MainWindow(QMainWindow):
         self._view._update_status_zoom()
 
     def _zoom_fit(self, animate: bool = True):
-        if self.board and (self.board.boxes or self.board.notes):
+        if self.board and (self.board.boxes or self.board.notes
+                           or self.board.images):
             rect = self._view.scene().itemsBoundingRect().adjusted(-40, -40, 40, 40)
             if animate:
                 self._view._animate_to_rect(rect)
@@ -494,11 +495,14 @@ class MainWindow(QMainWindow):
             self._open_file(Path(path))
 
     def _open_file(self, path: Path):
-        # If already open, just switch to it
+        # Already open — focus it and re-fit, since an explicit "open this
+        # file" (CLI, single-instance forward, file pick) means "show me this
+        # board," not "restore my last scroll position" (that's buffer
+        # switching via Ctrl+K, which keeps the saved view).
         existing = self._buffers.find_by_path(path)
         if existing >= 0:
             self._snapshot_current()
-            self._switch_buffer(existing)
+            self._switch_buffer(existing, zoom_fit=True)
             return
 
         if not path.exists():

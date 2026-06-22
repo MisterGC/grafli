@@ -15,6 +15,7 @@ from PySide6.QtCore import (
     QBuffer,
     QByteArray,
     QEasingCurve,
+    QEvent,
     QIODevice,
     QPoint,
     QPointF,
@@ -193,6 +194,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
+        # Infinite canvas — pan via drag / trackpad / keyboard / minimap, not
+        # scrollbars. Hiding them also keeps `fitInView` deterministic (a
+        # scrollbar toggling mid-fit otherwise shrinks the viewport and the
+        # fit comes out slightly off — a cause of flaky zoom-to-fit on load).
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # No context menu — the right button is used for panning.
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
 
@@ -3951,18 +3958,71 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._bounce_active = False
         self._update_status_zoom()
 
+    def _wheel_action(self, pixel: QPoint, angle: QPoint, mods):
+        """Decide what a wheel/scroll event does.
+
+        Trackpad two-finger scroll (pixel-precise deltas, no modifier) **pans**;
+        a classic mouse wheel — or any scroll with Ctrl/⌘ held — **zooms**.
+        Returns ``("pan", dx, dy)``, ``("zoom", factor)``, or ``None``.
+        """
+        ctrl = bool(mods & (Qt.KeyboardModifier.ControlModifier
+                            | Qt.KeyboardModifier.MetaModifier))
+        has_pixel = not pixel.isNull()
+        if has_pixel and not ctrl:
+            return ("pan", pixel.x(), pixel.y())
+        d = pixel.y() if has_pixel else angle.y()
+        if d == 0:
+            return None
+        return ("zoom", 1.15 if d > 0 else 1 / 1.15)
+
     def wheelEvent(self, event: QWheelEvent):
         if self._bounce_active:
             event.accept()
             return
-        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+        action = self._wheel_action(event.pixelDelta(), event.angleDelta(),
+                                    event.modifiers())
+        if action is None:
+            event.accept()
+            return
+        if action[0] == "pan":
+            _, dx, dy = action
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - dx)
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - dy)
+            event.accept()
+            return
+        factor = action[1]
         eff, hit = self._clamp_zoom_factor(factor)
         if hit:
             self._zoom_limit_feedback(factor > 1.0)
             event.accept()
             return
-        self.scale(eff, eff)
+        self.scale(eff, eff)   # anchored under the cursor (global anchor)
         self._update_status_zoom()
+        event.accept()
+
+    def event(self, e):
+        # Trackpad pinch-to-zoom arrives as a native gesture, not a wheel.
+        if e.type() == QEvent.Type.NativeGesture and self._handle_native_gesture(e):
+            return True
+        return super().event(e)
+
+    def _handle_native_gesture(self, e) -> bool:
+        if e.gestureType() != Qt.NativeGestureType.ZoomNativeGesture:
+            return False
+        if self._bounce_active:
+            return True
+        factor = 1.0 + e.value()
+        if abs(factor - 1.0) < 1e-6:
+            return True
+        eff, hit = self._clamp_zoom_factor(factor)
+        if hit:
+            self._zoom_limit_feedback(factor > 1.0)
+            return True
+        self.scale(eff, eff)   # under-cursor anchor (global)
+        self._update_status_zoom()
+        return True
 
     def _zoom_keyboard(self, factor: float):
         """Zoom for the +/- shortcuts, anchored on what the user cares about.

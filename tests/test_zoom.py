@@ -110,3 +110,25 @@ def test_empty_board_falls_back_to_absolute_min():
     view = _view(parse(""))
     lo, hi = view._zoom_bounds()
     assert lo == view.MIN_ZOOM_ABS and hi == view.MAX_ZOOM
+
+
+# ── Wheel routing: trackpad pans, wheel / Ctrl+scroll zooms ─────────
+
+def test_trackpad_scroll_pans_and_wheel_zooms():
+    from PySide6.QtCore import QPoint, Qt
+    view = _view(parse(SAMPLE))
+    NONE = Qt.KeyboardModifier.NoModifier
+    CTRL = Qt.KeyboardModifier.ControlModifier
+    META = Qt.KeyboardModifier.MetaModifier
+    Z = QPoint(0, 0)
+    # Trackpad two-finger scroll (pixel-precise, no modifier) -> pan.
+    assert view._wheel_action(QPoint(5, -30), Z, NONE) == ("pan", 5, -30)
+    # Classic mouse wheel (angle only) -> zoom.
+    assert view._wheel_action(Z, QPoint(0, 120), NONE)[0] == "zoom"
+    assert view._wheel_action(Z, QPoint(0, 120), NONE)[1] > 1
+    assert view._wheel_action(Z, QPoint(0, -120), NONE)[1] < 1
+    # Ctrl / Cmd + scroll -> zoom even with pixel deltas (trackpad).
+    assert view._wheel_action(QPoint(0, 20), Z, CTRL)[0] == "zoom"
+    assert view._wheel_action(Z, QPoint(0, 120), META)[0] == "zoom"
+    # Nothing to do.
+    assert view._wheel_action(Z, Z, NONE) is None

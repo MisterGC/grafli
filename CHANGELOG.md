@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Trackpad-native pan & zoom.** Two-finger trackpad scroll now **pans** the
+  canvas (it used to zoom), pinch-to-zoom works via native gestures, and
+  `Ctrl`/`⌘`+scroll zooms — matching how a modern canvas app behaves. Classic
+  mouse-wheel still zooms.
 - **Zoom limits with rubber-band feedback.** Zoom is now bounded so you can't
   get lost: zoom-in caps at 500%, and zoom-out is content-aware (stops once the
   board fills ~30% of the viewport, so a small board never shrinks to a speck
@@ -112,6 +116,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unreferenced docs.
 
 ### Fixed
+- **Reliable zoom-to-fit on load.** Opening a board now frames it correctly:
+  the canvas scrollbars are hidden (a scrollbar toggling mid-`fitInView` used
+  to shrink the viewport and throw the fit off), re-opening or
+  single-instance-forwarding a file re-fits it instead of restoring a stale
+  view, and images-only boards now fit too.
 - **Lead-glyph box labels no longer overflow.** A box with a `*lead:` icon
   offset its label by the icon gutter but still wrapped at the full width, so
   long labels ran past the right edge. The wrap width now reserves the gutter.

@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Zoom limits with rubber-band feedback.** Zoom is now bounded so you can't
+  get lost: zoom-in caps at 500%, and zoom-out is content-aware (stops once the
+  board fills ~30% of the viewport, so a small board never shrinks to a speck
+  dwarfed by the minimap). Hitting a limit gives a tactile bounce plus a brief
+  message ("Max zoom" / "Min zoom — ⇧Z to fit"). Applies to wheel, `+`/`-`,
+  and the zoom animations alike.
 - **Hero text size `~4xl` (+ short aliases).** A new top size tier (`~4xl`,
   60 pt) for full-page sketchnote titles, reachable as a `4XL` row in the text
   grid. The multi-x tiers now also accept the short modern aliases `~2xl` /

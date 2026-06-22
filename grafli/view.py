@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re as _re
+import time
 import shlex
 import shutil
 import subprocess
@@ -348,6 +349,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._anim_end_center: QPointF = QPointF()
         self._anim_start_zoom: float = 1.0
         self._anim_end_zoom: float = 1.0
+        # Zoom-limit feedback: a rubber-band bounce + throttled toast when the
+        # user tries to zoom past the min/max bounds.
+        self._bounce_timeline: QTimeLine | None = None
+        self._bounce_active: bool = False
+        self._bounce_dir: float = 1.0
+        self._bounce_last_s: float = 1.0
+        self._bounce_base: QTransform = QTransform()
+        self._bounce_prev_anchor = QGraphicsView.ViewportAnchor.AnchorUnderMouse
+        self._zoom_limit_toast_at: float = 0.0
 
 
         # Hide-notes toggle (Shift+N) — focus on the graph
@@ -3862,9 +3872,96 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     # ── Pan / Zoom ──
 
+    # Zoom-out is content-aware (stop before the board becomes a speck);
+    # zoom-in is a fixed cap (so a few glyphs can't fill the screen).
+    MIN_ZOOM_ABS = 0.02
+    MAX_ZOOM = 5.0
+
+    def _fit_zoom(self):
+        """Scale at which the whole board (plus margin) just fits the viewport,
+        or None when there's nothing to fit."""
+        rect = self._scene.itemsBoundingRect()
+        if rect.isNull():
+            return None
+        rect = rect.adjusted(-40, -40, 40, 40)
+        vp = self.viewport().rect()
+        if rect.width() <= 0 or rect.height() <= 0 or vp.width() <= 0 or vp.height() <= 0:
+            return None
+        return min(vp.width() / rect.width(), vp.height() / rect.height())
+
+    def _zoom_bounds(self) -> tuple[float, float]:
+        """(min, max) zoom. Min lets you zoom out until the board fills ~30%
+        of the viewport — never forced above 100% — so small boards can't
+        shrink to a dot; max is the fixed in-cap."""
+        fit = self._fit_zoom()
+        lo = (self.MIN_ZOOM_ABS if fit is None
+              else min(1.0, max(self.MIN_ZOOM_ABS, fit * 0.3)))
+        return lo, self.MAX_ZOOM
+
+    def _clamp_zoom_factor(self, factor: float) -> tuple[float, bool]:
+        """Adjust a relative zoom ``factor`` so the resulting scale stays in
+        bounds. Returns (effective_factor, hit_limit)."""
+        cur = self.transform().m11()
+        lo, hi = self._zoom_bounds()
+        target = max(lo, min(hi, cur * factor))
+        eff = target / cur if cur else 1.0
+        hit = abs(eff - 1.0) < 1e-9 and abs(factor - 1.0) > 1e-9
+        return eff, hit
+
+    def _zoom_limit_feedback(self, zooming_in: bool):
+        """A rubber-band bounce plus a throttled toast when a zoom is blocked
+        at the min/max bound."""
+        self._start_zoom_bounce(zooming_in)
+        now = time.monotonic()
+        if now - self._zoom_limit_toast_at > 1.2:
+            self._zoom_limit_toast_at = now
+            self.toast("Max zoom" if zooming_in
+                       else "Min zoom — ⇧Z to fit", kind="info")
+
+    def _start_zoom_bounce(self, zooming_in: bool):
+        """Spring the canvas ~4% past the limit and settle back. Input is
+        briefly consumed (see wheelEvent / _zoom_keyboard) so it can't fight
+        a new zoom mid-bounce."""
+        if self._bounce_active:
+            return
+        self._bounce_active = True
+        self._bounce_dir = 1.0 if zooming_in else -1.0
+        self._bounce_last_s = 1.0
+        self._bounce_base = QTransform(self.transform())
+        self._bounce_prev_anchor = self.transformationAnchor()
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        tl = QTimeLine(170, self)
+        tl.setUpdateInterval(16)
+        tl.valueChanged.connect(self._on_bounce_step)
+        tl.finished.connect(self._on_bounce_finished)
+        self._bounce_timeline = tl
+        tl.start()
+
+    def _on_bounce_step(self, v: float):
+        s = 1.0 + self._bounce_dir * 0.04 * math.sin(math.pi * v)
+        ratio = s / self._bounce_last_s
+        self._bounce_last_s = s
+        self.scale(ratio, ratio)
+
+    def _on_bounce_finished(self):
+        # Restore the exact pre-bounce transform (no float drift).
+        self.setTransform(self._bounce_base)
+        self.setTransformationAnchor(self._bounce_prev_anchor)
+        self._bounce_timeline = None
+        self._bounce_active = False
+        self._update_status_zoom()
+
     def wheelEvent(self, event: QWheelEvent):
+        if self._bounce_active:
+            event.accept()
+            return
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-        self.scale(factor, factor)
+        eff, hit = self._clamp_zoom_factor(factor)
+        if hit:
+            self._zoom_limit_feedback(factor > 1.0)
+            event.accept()
+            return
+        self.scale(eff, eff)
         self._update_status_zoom()
 
     def _zoom_keyboard(self, factor: float):
@@ -3875,6 +3972,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         way the focal point stays put while the rest of the canvas scales around
         it. (Wheel zoom keeps its own under-the-mouse anchor.)
         """
+        if self._bounce_active:
+            return
+        eff, hit = self._clamp_zoom_factor(factor)
+        if hit:
+            self._zoom_limit_feedback(factor > 1.0)
+            return
+        factor = eff
         items = self._scene.selectedItems()
         if items:
             rect = items[0].sceneBoundingRect()
@@ -5887,8 +5991,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         target_zoom = min(vp.width() / max(target_rect.width(), 1),
                           vp.height() / max(target_rect.height(), 1))
-        # Clamp to reasonable bounds
-        target_zoom = max(0.05, min(target_zoom, 10.0))
+        # Clamp to reasonable bounds (same in-cap as interactive zoom).
+        target_zoom = max(self.MIN_ZOOM_ABS, min(target_zoom, self.MAX_ZOOM))
         end_center = target_rect.center()
 
         self._anim_start_zoom = start_zoom
@@ -5916,7 +6020,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         start_zoom = self.transform().m11()
         start_center = self.mapToScene(self.viewport().rect().center())
-        target_zoom = max(0.05, min(zoom, 10.0))
+        target_zoom = max(self.MIN_ZOOM_ABS, min(zoom, self.MAX_ZOOM))
 
         self._anim_start_zoom = start_zoom
         self._anim_end_zoom = target_zoom

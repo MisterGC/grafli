@@ -285,10 +285,11 @@ class as a misplaced triple-quote modifier.
 |----------|--------|--------|
 | `%color` | color token or `#RRGGBB` | fill color |
 | `^anchor` | `^topleft`, `^topcenter` | label alignment (default: center) |
-| `~size` | named `~small`…`~xxxlarge`, or numeric `~16` (any point size) | text size (default: medium) |
+| `~size` | named `~small`…`~xxxlarge`, `~4xl` (hero), short aliases `~2xl`/`~3xl`, or numeric `~16` | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |
 | `!bold` / `!italic` | `!bold`, `!italic` | text emphasis, in the `!`-flag group (combine for headings/asides) |
 | `!outline` / `!shadow` | `!outline`, `!shadow` | **note** display lettering — hollow letters / drop-shadow depth, for sketchnote headers (layer with `~size` + `!bold`); render on notes, not boxes |
+| `!flat` (note) | `!flat` | drop the beige background plate — the note's text sits directly on the canvas (for a hand-lettered title/header) |
 | `*icon` | `*bulb` (fill), `*lead:gear` (lead) | visual-vocabulary glyph — fill: big icon + caption; lead: small icon left of the label |
 | `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>` | typed attachment (see "Attachments") |
 | `>parent` | `>parent_id` | nest inside parent box |
@@ -371,7 +372,7 @@ regardless of how it was typed.
 
 | Modifier | Values | Effect |
 |----------|--------|--------|
-| `~size` | `~small`, `~large`, `~xlarge`, `~xxlarge`, `~xxxlarge` | text size |
+| `~size` | `~small`…`~xxxlarge`, `~4xl`; aliases `~2xl`/`~3xl` | text size |
 | `~width=N` | integer, `N` chars per line | soft-wrap width (default 80) |
 | `&attach` | `&link:<url>`, `&doc[:<name>]`, `&graph:<name>` | typed attachment; `&doc` makes the note doc-bodied |
 | `>parent` | `>parent_id` | nest inside parent box |
@@ -751,17 +752,22 @@ Every diagram needs a clear reading order:
 size like `~16` — both are valid in the file, and stepping a size in the app
 (`j`/`k` in style mode) persists the numeric form, so a board you read may
 carry `~16` / `~24`-style tokens. Use named tokens when authoring (they read
-clearly); reach for numeric only to hit an in-between size. The named tokens
-resolve to slightly larger points on notes than on boxes:
+clearly); reach for numeric only to hit an in-between size. Boxes and notes
+share one scale, and the bigger multi-x tiers accept short aliases:
 
-| Token | box pt | note pt |
-|-------|--------|---------|
-| `~small` | 10 | 11 |
-| (default) | 13 | 15 |
-| `~large` | 18 | 21 |
-| `~xlarge` | 24 | 28 |
-| `~xxlarge` | 32 | 40 |
-| `~xxxlarge` | 44 | 52 |
+| Token | pt | alias |
+|-------|----|-------|
+| `~small` | 10 | |
+| (default) | 13 | |
+| `~large` | 18 | |
+| `~xlarge` | 24 | |
+| `~xxlarge` | 32 | `~2xl` |
+| `~xxxlarge` | 44 | `~3xl` |
+| `~4xl` | 60 | `~xxxxlarge` |
+
+`~4xl` is the hero tier — a full-page sketchnote title. Pair it with `!flat`
+and display lettering (`!outline` / `!shadow`) for a banner header that sits
+on the canvas.
 
 Key rules:
 
@@ -781,6 +787,8 @@ Key rules:
   labels are always monospace (structure). Style mode → `t` opens a
   size × bold/italic text grid; `Tab` toggles a note's font, and (notes
   only) `o` toggles **outline** and `s` toggles **shadow** display lettering.
+  Style mode → `c` on a note chooses its **background**: beige plate or none
+  (`!flat`, text on the canvas).
 
 ### Visual vocabulary & emphasis — use only when it earns its place
 
@@ -1126,12 +1134,16 @@ diagrams hold back (see "Visual vocabulary & emphasis"):
   (`*lead:star` sunlight, `*lead:cloud` a gas) — recognition at a glance
   is exactly what a teaching board wants.
 * **Emphasis carries hierarchy.** A `!bold` title, a small `!italic`
-  aside; notes render handwritten by default, which suits the form.
+  aside; notes render handwritten by default, which suits the form. For a
+  hand-lettered heading, give the title **display lettering** — `!outline`
+  (hollow) or `!shadow` (depth) — and `!flat` so it sits on the canvas with
+  no plate, like a sketchnoter's title. (Notes only; set live from style
+  mode → `t` for outline/shadow, → `c` for the plate.)
 * **One note for the takeaway.** A short `md:` note gives the
   one-sentence gist the picture is building toward.
 
 ```
-@ note title 300,40 "How photosynthesis works" ~xlarge !bold
+@ note title 300,40 "How photosynthesis works" ~xxlarge !flat !bold
 
 @ box sun "Sunlight" 100,150 180x80 %soft *lead:star
 @ box water "Water  H2O" 100,300 180x80 %soft
@@ -1175,8 +1187,10 @@ speed and personality, so capture first and tidy later (if at all).
   detail. Size *is* the memory cue — the biggest things are what you'll
   recall. For a hand-lettered banner feel, give a header note **display
   lettering**: `!outline` (hollow letters), `!shadow` (drop-shadow depth),
-  or `!bold !shadow` (a 3D header) — layered on `~size`. Use it on the
-  title and section headers, not body text.
+  or `!bold !shadow` (a 3D header) — layered on `~size`. Add `!flat` to drop
+  the beige plate so the title sits **directly on the canvas**, the way a
+  sketchnoter letters a heading. Use these on the title and section headers,
+  not body text.
 * **One glyph per point as a memory hook.** `*lead:` icons make a point
   recognisable at a glance weeks later (`*lead:warning` a pitfall,
   `*lead:bulb` the key insight, `*lead:check` a recommendation). Here
@@ -1189,7 +1203,7 @@ speed and personality, so capture first and tidy later (if at all).
   call-to-action, in the speaker's words.
 
 ```
-@ note title 200,40 "Make it work, then make it fast" ~xxlarge !bold
+@ note title 200,40 "Make it work, then make it fast" ~xxlarge !flat !bold !shadow
 
 @ box hook "Premature optimisation = wasted weeks" 120,180 320x90 %soft ~large *lead:warning
 @ box k1 "Measure before you tune" 120,330 320x80 %soft ~large *lead:bulb

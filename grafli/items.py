@@ -1367,6 +1367,11 @@ class NoteItem(QGraphicsSimpleTextItem):
         self._brect_cache = None
         self.update()
 
+    def set_flat(self, flat: bool):
+        """Toggle the background plate — flat notes draw text on the canvas."""
+        self.note.flat = flat
+        self.update()
+
     def _icon_color(self) -> QColor:
         return (QColor(_resolve_color(self.note.color)) if self.note.color
                 else QColor("#2F3437"))
@@ -1958,11 +1963,12 @@ class NoteItem(QGraphicsSimpleTextItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Light background
-        bg = QColor("#F2F0EB")
-        bg.setAlphaF(0.85)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+        if not self.note.flat:
+            bg = QColor("#F2F0EB")
+            bg.setAlphaF(0.85)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
 
         text_y = pad + fm.ascent()
 
@@ -2012,11 +2018,12 @@ class NoteItem(QGraphicsSimpleTextItem):
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        bg = QColor("#F2F0EB")
-        bg.setAlphaF(0.85)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+        if not self.note.flat:
+            bg = QColor("#F2F0EB")
+            bg.setAlphaF(0.85)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
 
         painter.save()
         painter.translate(pad, pad)
@@ -2058,11 +2065,12 @@ class NoteItem(QGraphicsSimpleTextItem):
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        bg = QColor("#F2F0EB")
-        bg.setAlphaF(0.85)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+        if not self.note.flat:
+            bg = QColor("#F2F0EB")
+            bg.setAlphaF(0.85)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
 
         body_x = pad + max_badge_w + self._BADGE_GAP
         y = pad
@@ -2129,15 +2137,16 @@ class NoteItem(QGraphicsSimpleTextItem):
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        bg = QColor(NOTE_CODE_BG_COLOR)
-        bg.setAlphaF(0.85)
-        border_color = NOTE_CODE_BORDER_COLOR
-        painter.setPen(QPen(border_color, 1))
-        painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(
-            bg_rect.adjusted(0.5, 0.5, -0.5, -0.5),
-            self._CODE_BG_RADIUS, self._CODE_BG_RADIUS,
-        )
+        if not self.note.flat:
+            bg = QColor(NOTE_CODE_BG_COLOR)
+            bg.setAlphaF(0.85)
+            border_color = NOTE_CODE_BORDER_COLOR
+            painter.setPen(QPen(border_color, 1))
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(
+                bg_rect.adjusted(0.5, 0.5, -0.5, -0.5),
+                self._CODE_BG_RADIUS, self._CODE_BG_RADIUS,
+            )
 
         # Per-visual-line top offsets, with a divider gap after the LAST
         # visual line that traces back to the signature (handles wrap of

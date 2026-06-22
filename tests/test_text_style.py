@@ -191,14 +191,15 @@ def test_type_picker_applies_to_note():
 # regular. Mono now bundles a real Bold face; handwritten gets a painter-level
 # faux-bold stroke. Both must make bold visibly differ from regular.
 
-def _render_note(text: str, emphasis: str, style: str = "") -> "object":
+def _render_note(text: str, emphasis: str, style: str = "",
+                 flat: bool = False) -> "object":
     from PySide6.QtGui import QImage, QPainter, QColor
     from PySide6.QtCore import QRectF
     from PySide6.QtWidgets import QGraphicsScene
     from grafli.format import Note
     from grafli.items import NoteItem
     item = NoteItem(Note(id="n", text=text, x=0, y=0,
-                         emphasis=emphasis, style=style))
+                         emphasis=emphasis, style=style, flat=flat))
     scene = QGraphicsScene()
     scene.addItem(item)
     r = scene.itemsBoundingRect()
@@ -285,3 +286,63 @@ def test_display_toggles_are_noop_on_boxes():
     view._commit_type_picker()
     assert "outline" not in view.board.box_by_id("a").emphasis
     assert "shadow" not in view.board.box_by_id("a").emphasis
+
+
+# ── note background plate (!flat) ───────────────────────────────
+
+def test_flat_note_roundtrip():
+    src = '#!grafli v1\n@ note t 0,0 "Title" ~xxlarge !flat !bold\n'
+    b = parse(src)
+    assert b.notes[0].flat is True
+    assert serialize(b) == src
+
+
+def _nonwhite(img) -> int:
+    from PySide6.QtGui import QColor
+    white = QColor("white").rgb()
+    return sum(1 for y in range(img.height()) for x in range(img.width())
+               if img.pixel(x, y) != white)
+
+
+def test_flat_note_drops_background_plate():
+    QApplication.instance() or QApplication([])
+    from grafli.app import _register_bundled_fonts
+    _register_bundled_fonts()
+    plated = _render_note("HEADER", "")
+    flat = _render_note("HEADER", "", flat=True)
+    # The plate fills the whole note rect; without it only the text inks,
+    # so a flat note paints far fewer non-white pixels.
+    assert _nonwhite(flat) * 3 < _nonwhite(plated)
+
+
+def test_color_picker_sets_note_background():
+    # Style mode -> c on a note opens the two-option background chooser
+    # (Plate / None); picking None sets !flat.
+    view = _view('@ note n 0,0 "Title"\n')
+    assert view.board.notes[0].flat is False
+    view._note_items["n"].setSelected(True)
+    view._open_color_picker()
+    assert view._color_picker_mode == "note-bg"
+    view._color_picker_move(1, 0)       # Plate -> None
+    view._commit_color_picker()
+    assert view.board.notes[0].flat is True
+    # Re-opening starts on the persisted option (None).
+    view._note_items["n"].setSelected(True)
+    view._open_color_picker()
+    assert view._color_picker_index == 1
+
+
+def test_color_picker_cancel_reverts_note_background():
+    view = _view('@ note n 0,0 "Title"\n')
+    view._note_items["n"].setSelected(True)
+    view._open_color_picker()
+    view._color_picker_move(1, 0)       # preview None
+    view._cancel_color_picker()
+    assert view.board.notes[0].flat is False
+
+
+def test_color_picker_box_uses_palette_mode():
+    view = _view('@ box a "A" 0,0 160x60\n')
+    view._box_items["a"].setSelected(True)
+    view._open_color_picker()
+    assert view._color_picker_mode == "box"

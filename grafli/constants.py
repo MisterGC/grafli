@@ -88,8 +88,13 @@ BOX_FONT = QFont(FONT_FAMILY, 13)
 NOTE_FONT = QFont(NOTE_FONT_FAMILY, 15)
 LABEL_FONT = QFont(FONT_FAMILY, 10)
 
-BOX_FONT_SIZES = {"": 13, "small": 10, "large": 18, "xlarge": 24, "xxlarge": 32, "xxxlarge": 44}
-NOTE_FONT_SIZES = {"": 15, "small": 11, "large": 21, "xlarge": 28, "xxlarge": 40, "xxxlarge": 52}
+BOX_FONT_SIZES = {"": 13, "small": 10, "large": 18, "xlarge": 24, "xxlarge": 32, "xxxlarge": 44, "xxxxlarge": 60}
+NOTE_FONT_SIZES = {"": 15, "small": 11, "large": 21, "xlarge": 28, "xxlarge": 40, "xxxlarge": 52, "xxxxlarge": 64}
+# Short aliases accepted on input for the multi-x tiers — the modern
+# "2xl / 3xl / 4xl" scheme (the type grid already labels them that way).
+# Resolved to the canonical token below; stored verbatim, so a file keeps
+# whichever form was written.
+_SIZE_ALIASES = {"2xl": "xxlarge", "3xl": "xxxlarge", "4xl": "xxxxlarge"}
 ARROW_LABEL_FONT_SIZES = {"": 10, "small": 8, "large": 13, "xlarge": 18, "xxlarge": 24, "xxxlarge": 32}
 
 # ── Sizes ────────────────────────────────────────────────────────
@@ -214,10 +219,10 @@ LAYOUT_PADDING = 20     # px padding inside parent box
 
 # ── Sequences & cycles ───────────────────────────────────────────
 
-_SIZE_SEQUENCE = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge"]
+_SIZE_SEQUENCE = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge", "4xl"]
 # Fine-grained size ladder that box/note text-size cycling steps through.
 # Stored numerically (e.g. textsize="16"); legacy named sizes still resolve.
-_SIZE_LADDER = [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 40, 48]
+_SIZE_LADDER = [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 40, 48, 56, 64, 72]
 _BOX_STYLE_CYCLE = ["", "flat"]
 _ARROW_STYLE_CYCLE = ["", "thick", "dashed", "dotted"]
 
@@ -225,14 +230,15 @@ _ARROW_STYLE_CYCLE = ["", "thick", "dashed", "dotted"]
 def resolve_textsize_px(textsize: str, default_key: str) -> int:
     """Resolve a box/note ``textsize`` token to a font size.
 
-    Accepts a numeric size string (e.g. "16"), a legacy named size
-    ("small"/"large"/…), or "" / unknown which falls back to ``default_key``
-    in ``BOX_FONT_SIZES`` (use "small" for a parent header, "" for a normal
-    node default).
+    Accepts a numeric size string (e.g. "16"), a named size
+    ("small"/"large"/…), a short alias ("2xl"/"3xl"/"4xl"), or "" / unknown
+    which falls back to ``default_key`` in ``BOX_FONT_SIZES`` (use "small" for
+    a parent header, "" for a normal node default).
     """
     if textsize:
         if textsize.isdigit():
             return max(1, int(textsize))
+        textsize = _SIZE_ALIASES.get(textsize, textsize)
         if textsize in BOX_FONT_SIZES:
             return BOX_FONT_SIZES[textsize]
     return BOX_FONT_SIZES[default_key]

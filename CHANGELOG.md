@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Hero text size `~4xl` (+ short aliases).** A new top size tier (`~4xl`,
+  60 pt) for full-page sketchnote titles, reachable as a `4XL` row in the text
+  grid. The multi-x tiers now also accept the short modern aliases `~2xl` /
+  `~3xl` / `~4xl` (for `~xxlarge` / `~xxxlarge` / `~xxxxlarge`); files keep
+  whichever form you write.
+- **Notes can drop their background plate (`!flat`).** A note can now render
+  with no beige plate, so a hand-lettered title or header sits directly on the
+  canvas — beige plate (default) or nothing, two states only. Choose it from
+  the colour picker (style mode → `c`) on a note. Pairs naturally with the
+  display-lettering flags below.
 - **Display lettering for notes (`!outline` / `!shadow`).** Two new text-style
   flags turn a note into a hand-lettered sketchnote header: `!outline` draws
   hollow letters, `!shadow` adds drop-shadow depth, and they layer on `~size`

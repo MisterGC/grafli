@@ -308,9 +308,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._box_mode: str = ""          # "", "style", "dimension"
         self._arrow_mode: str = ""        # "", "style"
         # Colour-grid picker (style mode -> c): live-preview palette overlay.
+        # Boxes pick a palette colour; notes pick a background plate (two
+        # options: beige plate / none), so the picker has a small mode flag.
         self._color_picker_active: bool = False
         self._color_picker_index: int = 0
-        self._color_picker_original: dict[str, str] = {}
+        self._color_picker_original: dict = {}
+        self._color_picker_mode: str = "box"   # "box" | "note-bg"
         # Icon-grid picker (style mode -> i): live-preview glyph vocabulary.
         # Tab toggles placement (fill <-> lead). Originals are (name, placement).
         self._icon_picker_active: bool = False
@@ -2116,30 +2119,61 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     # ── Colour-grid picker (style mode -> c) ──
 
     _COLOR_GRID_COLS = 5
+    # Note background plate options shown when the colour picker targets a
+    # note: a beige plate (default) or none (text on the canvas).
+    _NOTE_BG_OPTIONS = (("Plate", False), ("None", True))
 
     def _color_picker_boxes(self):
         return [it for it in self._scene.selectedItems()
                 if isinstance(it, BoxItem)]
 
+    def _color_picker_notes(self):
+        return [it for it in self._scene.selectedItems()
+                if isinstance(it, NoteItem)]
+
     def _open_color_picker(self):
         boxes = self._color_picker_boxes()
-        if not boxes:
-            self.toast("Select a box to recolour", kind="warn")
+        if boxes:
+            self._color_picker_mode = "box"
+            self._color_picker_original = {it.box.id: it.box.color
+                                           for it in boxes}
+            values = [v for _, v in COLOR_PALETTE]
+            cur = boxes[0].box.color
+            self._color_picker_index = values.index(cur) if cur in values else 0
+            self._color_picker_active = True
+            self.viewport().update()
             return
-        self._color_picker_original = {it.box.id: it.box.color for it in boxes}
-        values = [v for _, v in COLOR_PALETTE]
-        cur = boxes[0].box.color
-        self._color_picker_index = values.index(cur) if cur in values else 0
-        self._color_picker_active = True
-        self.viewport().update()
+        notes = self._color_picker_notes()
+        if notes:
+            self._color_picker_mode = "note-bg"
+            self._color_picker_original = {it.note.id: it.note.flat
+                                           for it in notes}
+            self._color_picker_index = 1 if notes[0].note.flat else 0
+            self._color_picker_active = True
+            self.viewport().update()
+            return
+        self.toast("Select a box or note", kind="warn")
 
     def _apply_color_picker_live(self):
-        """Preview the highlighted colour on the selection (no undo/dirty)."""
+        """Preview the highlighted choice on the selection (no undo/dirty)."""
+        if self._color_picker_mode == "note-bg":
+            flat = self._NOTE_BG_OPTIONS[self._color_picker_index][1]
+            for it in self._color_picker_notes():
+                it.set_flat(flat)
+            return
         value = COLOR_PALETTE[self._color_picker_index][1]
         for it in self._color_picker_boxes():
             it.set_color(value)
 
     def _color_picker_move(self, dcol: int, drow: int):
+        if self._color_picker_mode == "note-bg":
+            n = len(self._NOTE_BG_OPTIONS)
+            idx = max(0, min(n - 1, self._color_picker_index + dcol))
+            if idx != self._color_picker_index:
+                self._color_picker_index = idx
+                self._apply_color_picker_live()
+            self.viewport().update()
+            return
         cols = self._COLOR_GRID_COLS
         n = len(COLOR_PALETTE)
         rows = (n + cols - 1) // cols
@@ -2169,6 +2203,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._color_picker_move(0, 1)
 
     def _commit_color_picker(self):
+        if self._color_picker_mode == "note-bg":
+            notes = self._color_picker_notes()
+            flat = self._NOTE_BG_OPTIONS[self._color_picker_index][1]
+            for it in notes:
+                it.set_flat(self._color_picker_original.get(it.note.id,
+                                                            it.note.flat))
+            self._push_undo()
+            for it in notes:
+                it.set_flat(flat)
+            self.mark_dirty()
+            self._close_color_picker()
+            return
         boxes = self._color_picker_boxes()
         value = COLOR_PALETTE[self._color_picker_index][1]
         # Restore the pre-picker colours so the undo snapshot captures the
@@ -2183,6 +2229,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._close_color_picker()
 
     def _cancel_color_picker(self):
+        if self._color_picker_mode == "note-bg":
+            for it in self._color_picker_notes():
+                if it.note.id in self._color_picker_original:
+                    it.set_flat(self._color_picker_original[it.note.id])
+            self._close_color_picker()
+            return
         for it in self._color_picker_boxes():
             if it.box.id in self._color_picker_original:
                 it.set_color(self._color_picker_original[it.box.id])
@@ -2197,6 +2249,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         """A small palette grid anchored beside the selection, with the live
         choice ringed in cyan. Static (no animation), viewport coords."""
         if not self._color_picker_active:
+            return
+        if self._color_picker_mode == "note-bg":
+            self._draw_note_bg_picker(painter)
             return
         boxes = self._color_picker_boxes()
         if not boxes:
@@ -2256,6 +2311,68 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter,
                          COLOR_PALETTE[self._color_picker_index][0])
+        painter.restore()
+
+    def _draw_note_bg_picker(self, painter: QPainter):
+        """Two-option background chooser for a note selection — beige plate or
+        none (text on the canvas), the live choice ringed in cyan."""
+        notes = self._color_picker_notes()
+        if not notes:
+            return
+        scene_rect = notes[0].sceneBoundingRect()
+        for it in notes[1:]:
+            scene_rect = scene_rect.united(it.sceneBoundingRect())
+        anchor = self.mapFromScene(scene_rect).boundingRect()
+
+        opts = self._NOTE_BG_OPTIONS
+        sw, gap, pad, label_h = 30, 8, 10, 18
+        grid_w = len(opts) * sw + (len(opts) - 1) * gap
+        panel_w = grid_w + pad * 2
+        panel_h = sw + pad * 2 + label_h
+        margin = 14
+        vw, vh = self.viewport().width(), self.viewport().height()
+        px = anchor.right() + margin
+        if px + panel_w > vw - 4:
+            px = anchor.left() - margin - panel_w
+        px = max(4, min(px, vw - panel_w - 4))
+        py = anchor.center().y() - panel_h / 2
+        py = max(4, min(py, vh - panel_h - 4))
+
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.96)
+        painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
+
+        gx0, gy0 = px + pad, py + pad
+        cyan = QColor(0, 209, 224)
+        for i, (_name, flat) in enumerate(opts):
+            cell = QRectF(gx0 + i * (sw + gap), gy0, sw, sw)
+            painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
+            if flat:
+                # "None": canvas-coloured swatch with a diagonal slash.
+                painter.setBrush(QBrush(QColor("#E8E4DD")))
+                painter.drawRoundedRect(cell, 4, 4)
+                painter.setPen(QPen(QColor(150, 60, 60), 1.5))
+                painter.drawLine(QPointF(cell.left() + 5, cell.bottom() - 5),
+                                 QPointF(cell.right() - 5, cell.top() + 5))
+            else:
+                # "Plate": the beige note plate.
+                painter.setBrush(QBrush(QColor("#F2F0EB")))
+                painter.drawRoundedRect(cell, 4, 4)
+            if i == self._color_picker_index:
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(cyan, 2))
+                painter.drawRoundedRect(cell.adjusted(-2, -2, 2, 2), 5, 5)
+
+        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setFont(QFont(FONT_FAMILY, 9))
+        painter.drawText(QRectF(px, gy0 + sw + 4, panel_w, label_h),
+                         Qt.AlignmentFlag.AlignCenter,
+                         opts[self._color_picker_index][0])
         painter.restore()
 
     # ── Icon-grid picker (style mode -> i), boxes and notes ──
@@ -2438,9 +2555,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     # ── Type grid (style mode -> s): size rows x emphasis columns ──
 
-    _TYPE_SIZES = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge"]
+    _TYPE_SIZES = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge", "4xl"]
     _TYPE_SIZE_LABELS = {"small": "S", "": "M", "large": "L",
-                         "xlarge": "XL", "xxlarge": "2XL", "xxxlarge": "3XL"}
+                         "xlarge": "XL", "xxlarge": "2XL", "xxxlarge": "3XL",
+                         "4xl": "4XL"}
+    # Map alias tokens to the grid's canonical size strings (so opening the
+    # grid on a hand-written ``~2xl`` / ``~xxxxlarge`` lands on the right row).
+    _TYPE_SIZE_NORMALIZE = {"2xl": "xxlarge", "3xl": "xxxlarge",
+                            "xxxxlarge": "4xl"}
     _TYPE_EMPH = ["", "bold", "italic", "bold italic"]
     _TYPE_EMPH_LABELS = ["regular", "bold", "italic", "bold italic"]
 
@@ -2469,6 +2591,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 it.note.style if isinstance(it, NoteItem) else None)
             for it in targets}
         size = self._el_textsize(targets[0])
+        size = self._TYPE_SIZE_NORMALIZE.get(size, size)
         self._type_picker_size_idx = (self._TYPE_SIZES.index(size)
                                       if size in self._TYPE_SIZES else 1)
         # Emphasis splits into the grid's bold/italic axis plus the

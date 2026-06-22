@@ -1668,3 +1668,31 @@ def test_double_roundtrip_byte_stable():
     twice = serialize(parse(once))
     assert once == twice
     assert _no_decimals_in_coords(once)
+
+
+def test_hero_size_4xl_resolves_and_roundtrips():
+    from grafli.constants import resolve_textsize_px
+    assert resolve_textsize_px("4xl", "") == 60
+    src = '#!grafli v1\n@ note t 0,0 "HERO" ~4xl\n'
+    b = parse(src)
+    assert b.notes[0].textsize == "4xl"
+    assert serialize(b) == src   # short form persists verbatim
+
+
+def test_size_short_aliases_resolve_to_canonical_px():
+    from grafli.constants import resolve_textsize_px
+    # 2xl/3xl/4xl mirror xxlarge/xxxlarge/xxxxlarge.
+    assert resolve_textsize_px("2xl", "") == resolve_textsize_px("xxlarge", "")
+    assert resolve_textsize_px("3xl", "") == resolve_textsize_px("xxxlarge", "")
+    assert resolve_textsize_px("4xl", "") == resolve_textsize_px("xxxxlarge", "")
+
+
+def test_size_aliases_parse_on_box_note_arrow():
+    src = ('#!grafli v1\n'
+           '@ box b "B" 0,0 200x100 ~2xl\n'
+           '@ note n 0,200 "N" ~3xl\n'
+           '@ arrow b -> n ~4xl\n')
+    b = parse(src)
+    assert b.boxes[0].textsize == "2xl"
+    assert b.notes[0].textsize == "3xl"
+    assert serialize(b) == src

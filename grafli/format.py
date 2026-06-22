@@ -111,6 +111,7 @@ class Note:
     color: str = ""
     textsize: str = ""
     style: str = ""       # "" (handwritten) or "mono"
+    flat: bool = False    # True = no background plate; text sits on the canvas
     url: str = ""
     # See Box.attach_kind. On a note, kind "doc" means the note is
     # *doc-bodied*: its body lives at <stem>-res/<name>.md (name = ``url``,
@@ -423,7 +424,7 @@ _RE_BOX = re.compile(
     r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'((?:\s+!(?:flat|ratio|fit|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
@@ -437,7 +438,7 @@ _RE_ARROW = re.compile(
     r'(?:\s+"([^"]*)")?'
     r'(?:\s+@(-?[\d.]+),(-?[\d.]+))?'
     r'(?:\s+!(dashed|dotted|thick))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+~kind=(graph|annotation))?'
     r'(?:\s+#\s*(.+?))?'
@@ -448,9 +449,9 @@ _RE_NOTE = re.compile(
     r'^@\s+note\s+(?:([a-zA-Z_]\S*)\s+)?(-?[\d.]+),\s*(-?[\d.]+)'
     r'(?:\s+"([^"]*)")?'    # text slot — absent on doc-bodied notes
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'((?:\s+!(?:mono|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:mono|flat|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -466,9 +467,9 @@ _RE_NOTE_BLOCK_START = re.compile(
 _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'^\s*"""'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|\d+))?'
+    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'((?:\s+!(?:mono|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:mono|flat|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -649,6 +650,7 @@ def parse(text: str) -> Board:
                                                 else DEFAULT_NOTE_WRAP_CHARS,
                     wrap_chars_explicit=bool(sm.group(3)),
                     style="mono" if "mono" in blk_flags else "",
+                    flat="flat" in blk_flags,
                     emphasis=emphasis_from_flags(blk_flags),
                     icon=split_icon(sm.group(5) or "")[1],
                     icon_placement=split_icon(sm.group(5) or "")[0],
@@ -689,6 +691,7 @@ def parse(text: str) -> Board:
                                             else DEFAULT_NOTE_WRAP_CHARS,
                 wrap_chars_explicit=bool(m.group(7)),
                 style="mono" if "mono" in note_flags else "",
+                flat="flat" in note_flags,
                 emphasis=emphasis_from_flags(note_flags),
                 icon=split_icon(m.group(9) or "")[1],
                 icon_placement=split_icon(m.group(9) or "")[0],
@@ -881,6 +884,8 @@ def _note_attrs(note: Note) -> str:
         s += f" ~{note.textsize}"
     if note.wrap_chars_explicit:
         s += f" ~width={note.wrap_chars}"
+    if note.flat:
+        s += " !flat"
     if note.style:
         s += f" !{note.style}"
     s += emphasis_tokens(note.emphasis)

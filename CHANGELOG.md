@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-23
+
 ### Added
 - **Trackpad-native pan & zoom.** Two-finger trackpad scroll now **pans** the
   canvas (it used to zoom), pinch-to-zoom works via native gestures, and
@@ -115,6 +117,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removal. External edits to vault docs live-reload via one
   consolidated watcher; `grafli diagnose` reports missing and
   unreferenced docs.
+- **PowerPoint export onto an existing template.** The flow → `.pptx`
+  export can now drop onto an existing `.pptx`, keeping its master,
+  theme, fonts and slide size: the slide title fills the template's
+  title placeholder, the diagram fits the body placeholder's region
+  (respecting the template's header / footer / logo), and grafli's own
+  chrome, footer and progress counter are dropped — the template
+  supplies its own. The corporate look applies with no manual
+  restyling. Existing slides in the template are stripped first, and the
+  template's own page size is adopted (4:3 templates letterbox the
+  diagram). In the app the **Flow PPTX** export offers it under *Use a
+  template…* (with layout pickers); headless via `--template`,
+  `--title-layout` and `--content-layout`. The exporter geometry is now
+  page-size agnostic, shared by the from-scratch and template paths.
+- **Inline vim-capable note editing** ([#66]). Editing a note (`e` /
+  double-click) now opens a small vim editor in place on the canvas —
+  the same keybindings as the full-window zen editor, without leaving
+  the diagram. Opens in INSERT (type right away); `Esc` drops to NORMAL,
+  a second `Esc` commits, `Shift+Esc` discards, clicking away commits.
+  Markdown (`md:`) notes are syntax-highlighted while editing. The
+  editor lives in a new dependency-clean `grafli.editor` package so the
+  reusable widget can later move into a standalone editor project.
+- **`E` opens the zen editor on a note's own text** ([#66]). For longer
+  prose, `Shift+E` on a note now opens the full-window zen editor seeded
+  with the note's text and writes the result straight back — instead of
+  implicitly creating an attached markdown file. Boxes and images keep
+  the attached-markdown behaviour.
+- **Markdown-mode notes** ([#65]). A note whose first non-empty line is
+  `md:` (or `markdown:`) renders its body as a small subset of
+  GitHub-flavoured Markdown — headings, bullet / ordered / task lists,
+  blockquotes, horizontal rules, fenced and inline code (on a muted
+  plate), inline `**bold**` / `*italic*` / `~~strike~~`, and clickable
+  `[text](url)` links. A sibling of code-mode: a formatted block on the
+  same beige plate with near-black body text. Rendered via Qt's
+  `QTextDocument` Markdown engine, so it honours `~size` / `~width` and
+  drag-to-resize like other notes.
 
 ### Fixed
 - **Reliable zoom-to-fit on load.** Opening a board now frames it correctly:
@@ -151,43 +188,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   border and a few text lines — so they read as text at a glance, stay
   high-contrast against the panel, and keep their task / question /
   discussion colour.
-
-### Added
-- **PowerPoint export onto an existing template.** The flow → `.pptx`
-  export can now drop onto an existing `.pptx`, keeping its master,
-  theme, fonts and slide size: the slide title fills the template's
-  title placeholder, the diagram fits the body placeholder's region
-  (respecting the template's header / footer / logo), and grafli's own
-  chrome, footer and progress counter are dropped — the template
-  supplies its own. The corporate look applies with no manual
-  restyling. Existing slides in the template are stripped first, and the
-  template's own page size is adopted (4:3 templates letterbox the
-  diagram). In the app the **Flow PPTX** export offers it under *Use a
-  template…* (with layout pickers); headless via `--template`,
-  `--title-layout` and `--content-layout`. The exporter geometry is now
-  page-size agnostic, shared by the from-scratch and template paths.
-- **Inline vim-capable note editing** ([#66]). Editing a note (`e` /
-  double-click) now opens a small vim editor in place on the canvas —
-  the same keybindings as the full-window zen editor, without leaving
-  the diagram. Opens in INSERT (type right away); `Esc` drops to NORMAL,
-  a second `Esc` commits, `Shift+Esc` discards, clicking away commits.
-  Markdown (`md:`) notes are syntax-highlighted while editing. The
-  editor lives in a new dependency-clean `grafli.editor` package so the
-  reusable widget can later move into a standalone editor project.
-- **`E` opens the zen editor on a note's own text** ([#66]). For longer
-  prose, `Shift+E` on a note now opens the full-window zen editor seeded
-  with the note's text and writes the result straight back — instead of
-  implicitly creating an attached markdown file. Boxes and images keep
-  the attached-markdown behaviour.
-- **Markdown-mode notes** ([#65]). A note whose first non-empty line is
-  `md:` (or `markdown:`) renders its body as a small subset of
-  GitHub-flavoured Markdown — headings, bullet / ordered / task lists,
-  blockquotes, horizontal rules, fenced and inline code (on a muted
-  plate), inline `**bold**` / `*italic*` / `~~strike~~`, and clickable
-  `[text](url)` links. A sibling of code-mode: a formatted block on the
-  same beige plate with near-black body text. Rendered via Qt's
-  `QTextDocument` Markdown engine, so it honours `~size` / `~width` and
-  drag-to-resize like other notes.
 
 ## [0.3.0] - 2026-05-09
 
@@ -422,7 +422,9 @@ First public release of grafli on PyPI.
 - Python 3.12+
 - PySide6 (Qt 6.7+)
 
-[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/MisterGC/grafli/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/MisterGC/grafli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MisterGC/grafli/releases/tag/v0.2.0
 [0.1.1]: https://github.com/MisterGC/grafli/releases/tag/v0.1.1
 [0.1.0]: https://github.com/MisterGC/grafli/releases/tag/v0.1.0

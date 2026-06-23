@@ -19,7 +19,10 @@
 
 @ note title1 1477,19 "Baker's day" ~xxlarge
 
-@ note caption1 -301,-109 "A daily routine as a state machine.\nEach arrow's `step:` / `state:` / `event:` prefix renders as a colored chip on the edge." ~small
+@ note caption1 -301,-109 """
+A daily routine as a state machine.
+Each arrow's `step:` / `state:` / `event:` prefix renders as a colored chip on the edge.
+""" ~small
 
 @ box sleep "Sleep" 140,142 160x90 %subtle
 @ box bake "Bake bread" 126,390 180x90 %accent
@@ -35,10 +38,22 @@
 @ arrow deliver -> dinner "step: 20:00"
 @ arrow dinner -> sleep "step: 22:00"
 
-@ note bake_code 434,218 "code:\nbake() -> Bread\nif flour < 1\n   err OutOfFlour\ndough = mix(flour, water, yeast)\nstate rising -> baking\nemit BatchReady\nreturn bread"
+@ note bake_code 434,218 """
+code:
+bake() -> Bread
+if flour < 1
+   err OutOfFlour
+dough = mix(flour, water, yeast)
+state rising -> baking
+emit BatchReady
+return bread
+"""
 @ arrow bake_code -- bake
 
-@ note qa_flour 1400,380 "Q: what if flour runs out mid-bake?\nA: the `code:` note bails — `if: flour < 1` raises OutOfFlour and ends the routine for the day." ~width=61
+@ note qa_flour 1400,380 """
+Q: what if flour runs out mid-bake?
+A: the `code:` note bails — `if: flour < 1` raises OutOfFlour and ends the routine for the day.
+""" ~width=61
 
 # ============================================================
 # Region 2 — Threat reaction (annotations)
@@ -49,11 +64,11 @@
 @ note caption2 -43,782 "Behavior under review. `T:` tasks, `Q:` questions, threaded discussions, and `code:` notes live next to the boxes they describe." ~small
 
 @ box sense "Sense threat" -16,1007 220x90 %subtle
-@ box assess "Assess danger" 340,1000 240x90 %accent &showcase-res/assess.grafli
+@ box assess "Assess danger" 340,1000 240x90 %accent &graph:assess
 @ box flee "Flee" 878,1001 180x90 %muted
 @ box fight "Fight" 894,1205 180x90 %accent
 @ box guards "Call guards" 425,1213 200x90 %tertiary
-@ box hide "Hide" 874,819 180x90 %muted &showcase-res/hide.md
+@ box hide "Hide" 874,819 180x90 %muted &doc:hide
 
 @ arrow sense -> assess "call: classify"
 @ arrow assess -> flee "event: weak"
@@ -66,9 +81,27 @@
 
 @ note todo -6,1341 "T: add audible cue when sense triggers"
 @ note q1 340,1340 "Q: should fear scale with NPC level?"
-@ note disc 684,1345 "Designer: Should child NPCs ever pick fight?\nReviewer: No — clamp to flee/hide when AgeTag is child.\nDesigner: Will add the tag check inside assess." ~width=54
-@ note qa_recover 410,840 "Q: should Hide auto-recover after a timer?\nA: no — only on `verify: clear` from assess. \nA timer risks re-engaging an active threat." ~width=47
-@ note assess_code 20,1140 "code:\nassessDanger(npc, threat) -> Action\nratio = threat.power / npc.power\nif ratio > 2.0\n   return flee\nif threat.count > npc.allies\n   return guards\nverify tests/test_assess.py:matrix\nreturn fight  @ai/threat.py:88" ~width=38
+@ note disc 684,1345 """
+Designer: Should child NPCs ever pick fight?
+Reviewer: No — clamp to flee/hide when AgeTag is child.
+Designer: Will add the tag check inside assess.
+""" ~width=54
+@ note qa_recover 410,840 """
+Q: should Hide auto-recover after a timer?
+A: no — only on `verify: clear` from assess. 
+A timer risks re-engaging an active threat.
+""" ~width=47
+@ note assess_code 20,1140 """
+code:
+assessDanger(npc, threat) -> Action
+ratio = threat.power / npc.power
+if ratio > 2.0
+   return flee
+if threat.count > npc.allies
+   return guards
+verify tests/test_assess.py:matrix
+return fight  @ai/threat.py:88
+""" ~width=38
 @ arrow assess_code -- assess
 
 # ============================================================
@@ -77,7 +110,12 @@
 
 @ note title3 -440,1640 "Town life" ~xxlarge ~width=10
 
-@ note caption3 -435,1804 "NPCs `owns:` a shift,\n`step:` through routines,\nreact to world `event:`s.\nPress A for the heatmap." ~small ~width=39
+@ note caption3 -435,1804 """
+NPCs `owns:` a shift,
+`step:` through routines,
+react to world `event:`s.
+Press A for the heatmap.
+""" ~small ~width=39
 
 # NPCs (column 1)
 @ box baker "Baker" -31,1831 180x80 %accent
@@ -129,6 +167,11 @@
 @ arrow trade -> smith "event: stock_tools"
 @ arrow trade -> innkeep "event: extra_rooms"
 
-@ note qa_busiest -220,1720 "Q: who is the busiest NPC?\nA: Priest — temple shift + well + square + festival + raid. \nFive edges, the brightest hotspot in the heatmap." ~width=106
+@ note qa_busiest -220,1720 """
+Q: who is the busiest NPC?
+A: Priest — temple shift + well + square + festival + raid. 
+Five edges, the brightest hotspot in the heatmap.
+""" ~width=106
 @ arrow disc -> fight
 @ note n1 1400,300 "This is some interesting text which is quite long but I want to have it wrapping among multiple lines, does this work?" ~width=61
+@ note n2 584,1882 &doc

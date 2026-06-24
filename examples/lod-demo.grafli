@@ -1,0 +1,65 @@
+# LoD demo — web app architecture
+# Structured to exercise semantic-zoom / Level-of-Detail (see issue #103):
+#   - containers with many children (collapse to a headline tile)
+#   - 3-level nesting: Backend > API / Workers > leaf boxes
+#   - a dense parent-less "Observability" mesh (loose-node region)
+#   - cross-group arrows that should survive collapse as tile-to-tile flow
+
+# ── Frontend (container) ──────────────────────────────────────────────
+@ box frontend "Frontend" 0,0 300x520 #2B6CB0 ~large !flat
+@ box fe_web "Web SPA" 40,90 220x80 #2B6CB0 >frontend
+@ box fe_mobile "Mobile app" 40,190 220x80 #2B6CB0 >frontend
+@ box fe_admin "Admin console" 40,290 220x80 #2B6CB0 >frontend
+@ box fe_cdn "Static CDN" 40,390 220x80 #2B6CB0 >frontend
+
+# ── Backend (container with two sub-containers) ───────────────────────
+@ box backend "Backend" 450,0 560x620 #2F855A ~large !flat
+@ box api "API" 490,90 220x480 #2F855A !flat >backend
+@ box api_gw "Gateway" 510,150 180x70 #2F855A >api
+@ box api_rest "REST service" 510,250 180x70 #2F855A >api
+@ box api_auth "Auth service" 510,350 180x70 #2F855A >api
+@ box workers "Workers" 750,90 220x480 #2F855A !flat >backend
+@ box wk_queue "Job queue" 770,150 180x70 #2F855A >workers
+@ box wk_email "Email worker" 770,250 180x70 #2F855A >workers
+@ box wk_cron "Cron worker" 770,350 180x70 #2F855A >workers
+
+# ── Storage (container) ───────────────────────────────────────────────
+@ box storage "Storage" 1100,0 320x520 #B7791F ~large !flat
+@ box st_pg "Postgres" 1140,90 240x80 #B7791F >storage
+@ box st_redis "Redis" 1140,190 240x80 #B7791F >storage
+@ box st_s3 "Object store" 1140,290 240x80 #B7791F >storage
+@ box st_search "Search index" 1140,390 240x80 #B7791F >storage
+
+# ── Observability (dense, parent-less mesh) ───────────────────────────
+@ box obs_collector "Collector" 200,760 180x70 #6B46C1
+@ box obs_logs "Logs" 200,900 180x70 #6B46C1
+@ box obs_metrics "Metrics" 450,830 180x70 #6B46C1
+@ box obs_traces "Traces" 700,760 180x70 #6B46C1
+@ box obs_alerts "Alerts" 700,900 180x70 #6B46C1
+@ box obs_dash "Dashboards" 950,830 180x70 #6B46C1
+
+# ── Internal arrows (vanish when their group collapses) ───────────────
+@ arrow api_gw -> api_rest "route" @55,0
+@ arrow api_gw -> api_auth "verify"
+@ arrow fe_web -> fe_cdn "assets"
+
+# ── Dense mesh links (the loose-node region) ──────────────────────────
+@ arrow obs_collector -- obs_logs
+@ arrow obs_collector -- obs_metrics
+@ arrow obs_logs -- obs_metrics
+@ arrow obs_metrics -- obs_traces
+@ arrow obs_metrics -- obs_alerts
+@ arrow obs_metrics -- obs_dash
+@ arrow obs_traces -- obs_dash
+@ arrow obs_alerts -- obs_dash
+
+# ── Cross-group flow (survives collapse as tile-to-tile arrows) ───────
+@ arrow fe_web -> api_gw "https"
+@ arrow fe_mobile -> api_gw "https"
+@ arrow api_gw -> wk_queue "enqueue"
+@ arrow api_rest -> st_pg "sql"
+@ arrow api_auth -> st_redis "session"
+@ arrow wk_queue -> st_pg "write"
+@ arrow wk_email -> st_s3 "render"
+@ arrow obs_collector -> api_gw "scrape" !dotted
+@ arrow api_gw -> obs_logs "logs" !dotted

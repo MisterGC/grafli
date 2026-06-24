@@ -115,6 +115,7 @@ from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.iconset import ICON_NAMES, icon_pixmap
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
+from grafli.lod import LodModel, should_collapse
 from grafli.md_note import note_is_md, toggle_task
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
@@ -215,6 +216,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._note_items: dict[str, NoteItem] = {}
         self._image_items: dict[str, ImageItem] = {}
         self._dirty = False
+
+        # Level-of-Detail (semantic zoom). _lod holds the derived structural
+        # model; _lod_simplified is the set of box ids currently rendered as
+        # bare shells at the current zoom; _lod_enabled is the opt-out toggle.
+        self._lod: LodModel | None = None
+        self._lod_simplified: set[str] = set()
+        self._lod_enabled = True
 
         # Pan state (middle-click always works)
         self._panning = False
@@ -741,11 +749,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def load_board(self, board: Board):
         self._board = board
+        self._lod = LodModel.from_board(board)
+        self._lod_simplified = set()
         # A fresh board invalidates any in-flight flow recording/playback.
         self._recording_flow = None
         if self._flow_player is not None:
             self._flow_player.stop()
         self._rebuild_scene()
+        self._refresh_lod()
         self.flows_changed.emit()
 
     def snapshot_state(self) -> ViewState:
@@ -3824,6 +3835,38 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if hasattr(window, '_status_zoom'):
             pct = round(self._current_zoom() * 100)
             window._status_zoom.setText(f"{pct}%")
+        self._refresh_lod()
+
+    def _refresh_lod(self):
+        """Recompute which boxes are simplified at the current zoom.
+
+        The "zoom clock": cheap, reads the live scale and flips per-box label /
+        icon visibility with hysteresis so scrubbing the zoom doesn't flicker.
+        Disabled (every box detailed) when LoD is toggled off.
+        """
+        scale = self._current_zoom()
+        prev = self._lod_simplified
+        now: set[str] = set()
+        if self._lod_enabled:
+            for bid, item in self._box_items.items():
+                default_key = "small" if item._is_parent else ""
+                label_px = resolve_textsize_px(
+                    item.box.textsize, default_key) * scale
+                if should_collapse(label_px, bid in prev):
+                    now.add(bid)
+        if now == prev:
+            return
+        for bid, item in self._box_items.items():
+            simplified = bid in now
+            item.set_lod_simplified(simplified)
+            item._label.setVisible(not simplified)
+        self._lod_simplified = now
+
+    def _toggle_lod(self):
+        self._lod_enabled = not self._lod_enabled
+        self._refresh_lod()
+        self._record_shortcut(
+            "level-of-detail ON" if self._lod_enabled else "level-of-detail OFF")
 
     def _on_selection_changed(self):
         self._clear_box_mode()
@@ -4932,6 +4975,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # M — toggle minimap
         if event.key() == Qt.Key.Key_M and no_mod:
             self._toggle_minimap()
+            event.accept()
+            return
+
+        # Shift+D — toggle Level-of-Detail (semantic zoom) on/off
+        if event.key() == Qt.Key.Key_D and shift_only:
+            self._toggle_lod()
             event.accept()
             return
 
@@ -7764,6 +7813,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ("View", [
                 ("#", "Toggle grid"),
                 ("M", "Toggle minimap"),
+                ("⇧D", "Toggle level-of-detail (semantic zoom)"),
                 ("\\", "Toggle tools panel"),
             ]),
             ("Bookmarks & Flows", [

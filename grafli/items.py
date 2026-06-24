@@ -540,6 +540,10 @@ class BoxItem(QGraphicsRectItem):
         self._resizing = False
         self._scaling = False
         self._is_parent = False
+        # Level-of-Detail: when the view zooms out far enough that this box's
+        # label would be illegible, the view marks it simplified — the box
+        # paints as a bare coloured shell (no icon; its label item is hidden).
+        self._lod_simplified = False
 
         self._label = BoxLabelItem(self)
         self._label.setFont(self._box_font())
@@ -1108,6 +1112,13 @@ class BoxItem(QGraphicsRectItem):
         self.unsetCursor()
         super().hoverLeaveEvent(event)
 
+    def set_lod_simplified(self, simplified: bool) -> None:
+        """Mark/clear the zoomed-out simplified state (driven by the view)."""
+        if simplified == self._lod_simplified:
+            return
+        self._lod_simplified = simplified
+        self.update()
+
     def paint(self, painter: QPainter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(self.pen())
@@ -1115,7 +1126,8 @@ class BoxItem(QGraphicsRectItem):
         radius = 0 if self.box.style == "flat" or self._is_parent else BOX_RADIUS
         painter.drawRoundedRect(self.rect(), radius, radius)
 
-        if self.box.icon and iconset.has_icon(self.box.icon):
+        if (not self._lod_simplified
+                and self.box.icon and iconset.has_icon(self.box.icon)):
             self._paint_icon(painter)
 
         if self.box.url:

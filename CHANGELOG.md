@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Level-of-Detail / semantic zoom (in progress).** Zooming far out now
+  simplifies the canvas instead of shrinking everything into unreadable mush:
+  once a box's label would render below the legibility floor it drops to a bare
+  coloured shell (no label or icon), with a hysteresis band so scrubbing the
+  zoom doesn't flicker. Toggle it with `⇧D` (on by default; off restores the
+  uniform-shrink behaviour). First slice of a larger feature (container
+  collapse and loose-node summaries to follow) — see issue #103. Ships with an
+  `examples/lod-demo.grafli` board built to show it off.
+
 ## [0.4.0] - 2026-06-23
 
 ### Added

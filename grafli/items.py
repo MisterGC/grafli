@@ -544,6 +544,10 @@ class BoxItem(QGraphicsRectItem):
         # label would be illegible, the view marks it simplified — the box
         # paints as a bare coloured shell (no icon; its label item is hidden).
         self._lod_simplified = False
+        # When this box is a collapsed container, the view sets a (headline,
+        # count) tuple; paint() then draws a counter-scaled headline + count
+        # badge in place of the hidden children, and the normal label is hidden.
+        self._lod_tile: tuple[str, int] | None = None
 
         self._label = BoxLabelItem(self)
         self._label.setFont(self._box_font())
@@ -1119,6 +1123,14 @@ class BoxItem(QGraphicsRectItem):
         self._lod_simplified = simplified
         self.update()
 
+    def set_lod_tile(self, summary) -> None:
+        """Set/clear collapsed-container tile rendering from a ContainerSummary."""
+        tile = (summary.label, summary.descendants) if summary else None
+        if tile == self._lod_tile:
+            return
+        self._lod_tile = tile
+        self.update()
+
     def paint(self, painter: QPainter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(self.pen())
@@ -1126,7 +1138,9 @@ class BoxItem(QGraphicsRectItem):
         radius = 0 if self.box.style == "flat" or self._is_parent else BOX_RADIUS
         painter.drawRoundedRect(self.rect(), radius, radius)
 
-        if (not self._lod_simplified
+        if self._lod_tile is not None:
+            self._paint_lod_tile(painter)
+        elif (not self._lod_simplified
                 and self.box.icon and iconset.has_icon(self.box.icon)):
             self._paint_icon(painter)
 
@@ -1144,6 +1158,52 @@ class BoxItem(QGraphicsRectItem):
             sel_color.setAlphaF(0.85)
             painter.setPen(QPen(sel_color, 4, Qt.PenStyle.SolidLine))
             painter.drawRoundedRect(sel_rect, radius, radius)
+
+    def _paint_lod_tile(self, painter: QPainter):
+        """Draw a collapsed container as a headline + child-count badge.
+
+        Drawn counter-scaled to the view zoom so the text stays readable as the
+        tile shrinks on screen (like a place name on a map), but capped to the
+        tile's on-screen size so it never overflows a small tile.
+        """
+        label, count = self._lod_tile
+        rect = self.rect()
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        on_screen_min = min(rect.width(), rect.height()) * scale
+        head_px = max(7.0, min(16.0, on_screen_min * 0.32))
+
+        painter.save()
+        painter.translate(rect.center())
+        painter.scale(1.0 / scale, 1.0 / scale)   # 1 unit == 1 on-screen px
+
+        head_font = QFont(FONT_FAMILY)
+        head_font.setPixelSize(round(head_px))
+        head_font.setBold(True)
+        painter.setFont(head_font)
+        painter.setPen(QColor("#2F3437"))
+        fm = QFontMetricsF(head_font)
+        gap = head_px * 0.35
+        badge_px = max(6.0, head_px * 0.72)
+        total_h = fm.height() + gap + badge_px
+        top = -total_h / 2
+        painter.drawText(
+            QRectF(-fm.horizontalAdvance(label), top,
+                   2 * fm.horizontalAdvance(label), fm.height()),
+            Qt.AlignmentFlag.AlignCenter, label)
+
+        badge_font = QFont(FONT_FAMILY)
+        badge_font.setPixelSize(round(badge_px))
+        painter.setFont(badge_font)
+        painter.setPen(QColor("#2F3437"))
+        text = f"{count} node" + ("" if count == 1 else "s")
+        bfm = QFontMetricsF(badge_font)
+        bw = bfm.horizontalAdvance(text)
+        painter.drawText(
+            QRectF(-bw, top + fm.height() + gap, 2 * bw, badge_px * 1.6),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, text)
+        painter.restore()
 
 
 class NoteItem(QGraphicsSimpleTextItem):

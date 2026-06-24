@@ -10,11 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Level-of-Detail / semantic zoom (in progress).** Zooming far out now
   simplifies the canvas instead of shrinking everything into unreadable mush:
-  once a box's label would render below the legibility floor it drops to a bare
-  coloured shell (no label or icon), with a hysteresis band so scrubbing the
-  zoom doesn't flicker. Toggle it with `⇧D` (on by default; off restores the
-  uniform-shrink behaviour). First slice of a larger feature (container
-  collapse and loose-node summaries to follow) — see issue #103. Ships with an
+  - A **container collapses to a single tile** — its counter-scaled headline
+    (kept legible like a place name on a map) plus a child-count badge — and
+    its children hide. Arrows that crossed the boundary re-route to the tile;
+    edges internal to the group vanish. Nesting collapses **innermost-first**,
+    so a board reads as detail → inner-group tiles → outer-group tiles as you
+    pull back.
+  - A leaf whose own label would be illegible drops to a bare coloured shell.
+  - A hysteresis band keeps threshold crossings from flickering while you
+    scrub the zoom.
+  Toggle the whole thing with `⇧D` (on by default; off restores the
+  uniform-shrink behaviour). Part of a larger feature (loose-node summaries and
+  click-to-expand still to come) — see issue #103. Ships with an
   `examples/lod-demo.grafli` board built to show it off.
 
 ## [0.4.0] - 2026-06-23

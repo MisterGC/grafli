@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from grafli.format import parse
 from grafli.lod import (
+    CHILD_COLLAPSE_PX,
+    CHILD_EXPAND_PX,
     COLLAPSE_PX,
     EXPAND_PX,
     LodModel,
     ContainerSummary,
     should_collapse,
+    should_collapse_container,
 )
 
 # A compact stand-in for the demo board: two top-level containers (one with a
@@ -129,6 +132,26 @@ def test_should_collapse_is_hysteretic():
     mid = (COLLAPSE_PX + EXPAND_PX) / 2
     assert should_collapse(mid, was_collapsed=True)
     assert not should_collapse(mid, was_collapsed=False)
+
+
+def test_child_extent_drives_innermost_first_collapse():
+    m = _model()
+    # api's children are leaf boxes (180x70 -> shorter side 70); backend's direct
+    # children are the big API sub-container (220x480 -> 220). The bigger extent
+    # crosses the collapse floor later, so backend collapses AFTER api.
+    assert m.child_extent("api") == 70.0
+    assert m.child_extent("backend") == 220.0
+    assert m.child_extent("api") < m.child_extent("backend")
+    # A container with no sized children never collapses on size alone.
+    assert m.child_extent("api_gw") == float("inf")
+
+
+def test_should_collapse_container_is_hysteretic():
+    assert should_collapse_container(CHILD_COLLAPSE_PX - 1, False)
+    assert not should_collapse_container(CHILD_EXPAND_PX + 1, True)
+    mid = (CHILD_COLLAPSE_PX + CHILD_EXPAND_PX) / 2
+    assert should_collapse_container(mid, was_collapsed=True)
+    assert not should_collapse_container(mid, was_collapsed=False)
 
 
 def test_demo_board_parses_and_models_cleanly():

@@ -30,20 +30,32 @@ from dataclasses import dataclass
 COLLAPSE_PX = 8.0
 EXPAND_PX = 10.0
 
+# A container collapses to a single tile once its children render smaller than
+# this on-screen (the largest child's shorter side, in pixels). Smaller, deeper
+# children cross the floor first, so nesting collapses innermost-first.
+CHILD_COLLAPSE_PX = 50.0
+CHILD_EXPAND_PX = 64.0
+
 Rect = tuple[float, float, float, float]  # x, y, w, h
 
 
+def _hysteretic(value: float, lo: float, hi: float, was: bool) -> bool:
+    """Collapsed if `value` is below `lo`; once collapsed, stay so until `hi`."""
+    return value < (hi if was else lo)
+
+
 def should_collapse(label_px: float, was_collapsed: bool) -> bool:
-    """Hysteretic collapse decision for one level.
+    """Hysteretic per-element label legibility (the phase-2 "shell" tier).
 
     `label_px` is the element's label size in *screen* pixels (font px x view
-    scale). `was_collapsed` is that level's previous state. Returns whether the
-    level should be collapsed now.
+    scale). The dead band between the thresholds stops flicker at the boundary.
     """
-    if was_collapsed:
-        # Stay collapsed until labels are clearly legible again.
-        return label_px < EXPAND_PX
-    return label_px < COLLAPSE_PX
+    return _hysteretic(label_px, COLLAPSE_PX, EXPAND_PX, was_collapsed)
+
+
+def should_collapse_container(child_px: float, was_collapsed: bool) -> bool:
+    """Hysteretic container collapse, driven by on-screen child size."""
+    return _hysteretic(child_px, CHILD_COLLAPSE_PX, CHILD_EXPAND_PX, was_collapsed)
 
 
 @dataclass(frozen=True)
@@ -194,6 +206,23 @@ class LodModel:
         return visible
 
     # ── summaries ───────────────────────────────────────────────────────
+
+    def child_extent(self, container_id: str) -> float:
+        """On-screen-size driver for collapse: the largest direct child's
+        shorter side (scene units). The view multiplies by the zoom scale and
+        compares against the collapse threshold. ``inf`` when no sized child
+        exists, so such a container never collapses on size alone.
+        """
+        best = 0.0
+        for cid in self._children.get(container_id, ()):
+            r = self._rects.get(cid)
+            if r is None:
+                continue
+            _, _, w, h = r
+            if w <= 0 or h <= 0:
+                continue
+            best = max(best, min(w, h))
+        return best if best > 0 else float("inf")
 
     def summary(self, container_id: str) -> ContainerSummary:
         cached = self._summaries.get(container_id)

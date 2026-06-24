@@ -1,4 +1,4 @@
-"""View-level tests for the LoD simplified-paint tier (zoom clock + toggle)."""
+"""View-level tests for the LoD tiers: leaf shells, container collapse, toggle."""
 
 from __future__ import annotations
 
@@ -11,10 +11,12 @@ from grafli.format import parse
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+# group (container) > child; loose is a parent-less leaf, linked to child.
 SAMPLE = """\
 @ box group "Group" 0,0 400x400 !flat
 @ box child "Child" 40,80 200x80 >group
-@ box loose "Loose" 600,0 200x80
+@ box loose "Loose" 700,0 200x80
+@ arrow child -> loose "x"
 """
 
 
@@ -38,50 +40,68 @@ def _set_zoom(view, z):
     view._refresh_lod()
 
 
-def test_boxes_detailed_at_full_zoom():
+def test_full_detail_at_full_zoom():
     view = _view(parse(SAMPLE))
     _set_zoom(view, 1.0)
+    assert view._lod_collapsed == set()
     assert view._lod_simplified == set()
     for item in view._box_items.values():
-        assert not item._lod_simplified
-        assert item._label.isVisible()
+        assert item.isVisible() and item._label.isVisible()
+        assert item._lod_tile is None and not item._lod_simplified
 
 
-def test_boxes_simplify_when_zoomed_far_out():
+def test_container_collapses_to_a_tile_and_hides_children():
     view = _view(parse(SAMPLE))
-    _set_zoom(view, 0.05)               # labels would be sub-pixel
-    assert view._lod_simplified == {"group", "child", "loose"}
-    for item in view._box_items.values():
-        assert item._lod_simplified
-        assert not item._label.isVisible()   # label hidden -> bare shell
+    _set_zoom(view, 0.3)                       # children sub-threshold
+    assert view._lod_collapsed == {"group"}
+    g = view._box_items["group"]
+    assert g._lod_tile == ("Group", 1)         # headline + descendant count
+    assert not g._label.isVisible()            # tile draws its own headline
+    # The child is subsumed into the tile.
+    assert not view._box_items["child"].isVisible()
+    # The parent-less leaf simplifies to a bare shell, not a tile.
+    assert view._lod_simplified == {"loose"}
+    assert view._box_items["loose"]._lod_simplified
 
 
-def test_zooming_back_in_restores_detail():
+def test_arrow_reroutes_from_hidden_child_to_the_tile():
     view = _view(parse(SAMPLE))
-    _set_zoom(view, 0.05)
-    assert view._lod_simplified
+    _set_zoom(view, 0.3)
+    # child is hidden inside group's tile, so its edge re-routes to group.
+    assert view._lod_reroute("child") == "group"
+    assert view._lod_reroute("loose") == "loose"   # visible leaf unchanged
+
+
+def test_zoom_back_in_restores_full_detail():
+    view = _view(parse(SAMPLE))
+    _set_zoom(view, 0.3)
+    assert view._lod_collapsed
     _set_zoom(view, 1.0)
+    assert view._lod_collapsed == set()
     assert view._lod_simplified == set()
-    assert all(it._label.isVisible() for it in view._box_items.values())
+    for item in view._box_items.values():
+        assert item.isVisible() and item._label.isVisible()
+        assert item._lod_tile is None
 
 
 def test_toggle_off_keeps_full_detail_even_zoomed_out():
     view = _view(parse(SAMPLE))
     view._lod_enabled = False
-    _set_zoom(view, 0.05)
+    _set_zoom(view, 0.3)
+    assert view._lod_collapsed == set()
     assert view._lod_simplified == set()
-    assert all(not it._lod_simplified for it in view._box_items.values())
-    assert all(it._label.isVisible() for it in view._box_items.values())
+    for item in view._box_items.values():
+        assert item.isVisible() and item._label.isVisible()
+        assert item._lod_tile is None
 
 
 def test_toggle_helper_flips_and_reapplies():
     view = _view(parse(SAMPLE))
-    _set_zoom(view, 0.05)
-    assert view._lod_simplified                # simplified while on
-    view._toggle_lod()                         # -> off
+    _set_zoom(view, 0.3)
+    assert view._lod_collapsed == {"group"}
+    view._toggle_lod()                          # -> off
     assert not view._lod_enabled
-    assert view._lod_simplified == set()
-    assert all(it._label.isVisible() for it in view._box_items.values())
-    view._toggle_lod()                         # -> on again
-    assert view._lod_enabled
-    assert view._lod_simplified == {"group", "child", "loose"}
+    assert view._lod_collapsed == set()
+    assert view._box_items["child"].isVisible()
+    view._toggle_lod()                          # -> on
+    assert view._lod_collapsed == {"group"}

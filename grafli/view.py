@@ -115,7 +115,7 @@ from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.iconset import ICON_NAMES, icon_pixmap
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
-from grafli.lod import LodModel, should_collapse
+from grafli.lod import LodModel, should_collapse, should_collapse_container
 from grafli.md_note import note_is_md, toggle_task
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
@@ -221,7 +221,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # model; _lod_simplified is the set of box ids currently rendered as
         # bare shells at the current zoom; _lod_enabled is the opt-out toggle.
         self._lod: LodModel | None = None
-        self._lod_simplified: set[str] = set()
+        self._lod_simplified: set[str] = set()   # boxes drawn as bare shells
+        self._lod_collapsed: set[str] = set()    # containers collapsed to tiles
         self._lod_enabled = True
 
         # Pan state (middle-click always works)
@@ -931,6 +932,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ))
 
         for from_id, to_id, draw_head_to, draw_head_from, fwd, rev in render_list:
+            # Level-of-Detail: an endpoint inside a collapsed container re-routes
+            # to that container's tile; an edge that becomes internal to a single
+            # tile (both ends resolve to it) is dropped.
+            from_id = self._lod_reroute(from_id)
+            to_id = self._lod_reroute(to_id)
+            if from_id == to_id:
+                continue
             from_elem = self._board.box_by_id(from_id) or self._board.note_by_id(from_id)
             to_elem = self._board.box_by_id(to_id) or self._board.note_by_id(to_id)
             if not from_elem or not to_elem:
@@ -3838,29 +3846,85 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._refresh_lod()
 
     def _refresh_lod(self):
-        """Recompute which boxes are simplified at the current zoom.
+        """Recompute the Level-of-Detail state at the current zoom.
 
-        The "zoom clock": cheap, reads the live scale and flips per-box label /
-        icon visibility with hysteresis so scrubbing the zoom doesn't flicker.
-        Disabled (every box detailed) when LoD is toggled off.
+        The "zoom clock": cheap, reads the live scale and resolves each box into
+        one of four states with hysteresis (so scrubbing the zoom doesn't
+        flicker):
+
+        * **tile** — a collapsed container with no collapsed ancestor: its
+          headline + child-count badge stand in for the whole group.
+        * **hidden** — a box inside a collapsed container (subsumed by the tile).
+        * **shell** — a leaf whose own label is illegible: a bare coloured box.
+        * **detailed** — shown as authored.
+
+        Disabled (everything detailed) when LoD is toggled off. Re-routes arrows
+        to the surviving tiles only when the collapsed set actually changes.
         """
         scale = self._current_zoom()
-        prev = self._lod_simplified
-        now: set[str] = set()
+        model = self._lod
+        collapsed: set[str] = set()
+        if self._lod_enabled and model is not None:
+            prev_c = self._lod_collapsed
+            for cid in model.containers:
+                if cid not in self._box_items:
+                    continue
+                child_px = model.child_extent(cid) * scale
+                if should_collapse_container(child_px, cid in prev_c):
+                    collapsed.add(cid)
+
+        # Outermost collapsed containers become tiles; anything with a collapsed
+        # ancestor is hidden inside one.
+        tiles: set[str] = set()
+        hidden: set[str] = set()
+        if model is not None:
+            for bid in self._box_items:
+                ancestors = model.ancestors(bid)
+                if any(a in collapsed for a in ancestors):
+                    hidden.add(bid)
+                elif bid in collapsed:
+                    tiles.add(bid)
+
+        # Leaf shells: visible, non-container leaves whose own label is illegible.
+        shells: set[str] = set()
         if self._lod_enabled:
             for bid, item in self._box_items.items():
-                default_key = "small" if item._is_parent else ""
-                label_px = resolve_textsize_px(
-                    item.box.textsize, default_key) * scale
-                if should_collapse(label_px, bid in prev):
-                    now.add(bid)
-        if now == prev:
-            return
+                if bid in hidden or bid in tiles or item._is_parent:
+                    continue
+                label_px = resolve_textsize_px(item.box.textsize, "") * scale
+                if should_collapse(label_px, bid in self._lod_simplified):
+                    shells.add(bid)
+
+        collapsed_changed = collapsed != self._lod_collapsed
+        if not collapsed_changed and shells == self._lod_simplified:
+            return  # tiles derive purely from collapsed, so nothing changed
+
         for bid, item in self._box_items.items():
-            simplified = bid in now
-            item.set_lod_simplified(simplified)
-            item._label.setVisible(not simplified)
-        self._lod_simplified = now
+            if bid in hidden:
+                item.setVisible(False)
+                item._label.setVisible(False)
+                continue
+            item.setVisible(True)
+            is_shell = bid in shells
+            is_tile = bid in tiles
+            item.set_lod_simplified(is_shell)
+            item.set_lod_tile(model.summary(bid) if is_tile else None)
+            # The tile paints its own counter-scaled headline; a shell shows
+            # nothing — so the normal label item is hidden in both cases.
+            item._label.setVisible(not is_shell and not is_tile)
+
+        self._lod_simplified = shells
+        self._lod_collapsed = collapsed
+        if collapsed_changed:
+            # Hidden endpoints must re-route to their tiles (or vanish).
+            self._redraw_arrows()
+
+    def _lod_reroute(self, elem_id: str) -> str:
+        """Map an arrow endpoint to its visible tile if it sits in a collapsed
+        container; otherwise return it unchanged."""
+        if self._lod is None or not self._lod_collapsed:
+            return elem_id
+        return self._lod.resolve_visible(elem_id, self._lod_collapsed)
 
     def _toggle_lod(self):
         self._lod_enabled = not self._lod_enabled

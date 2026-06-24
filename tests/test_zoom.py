@@ -121,14 +121,17 @@ def test_trackpad_scroll_pans_and_wheel_zooms():
     CTRL = Qt.KeyboardModifier.ControlModifier
     META = Qt.KeyboardModifier.MetaModifier
     Z = QPoint(0, 0)
-    # Trackpad two-finger scroll (pixel-precise, no modifier) -> pan.
-    assert view._wheel_action(QPoint(5, -30), Z, NONE) == ("pan", 5, -30)
+    # Trackpad two-finger scroll (synthesized gesture, no modifier) -> pan.
+    assert view._wheel_action(QPoint(5, -30), Z, NONE, True) == ("pan", 5, -30)
+    # A high-res / Bluetooth mouse wheel ALSO emits pixel deltas, but it is not
+    # a trackpad gesture -> it must zoom, not pan (regression guard).
+    assert view._wheel_action(QPoint(0, 40), Z, NONE, False)[0] == "zoom"
     # Classic mouse wheel (angle only) -> zoom.
     assert view._wheel_action(Z, QPoint(0, 120), NONE)[0] == "zoom"
     assert view._wheel_action(Z, QPoint(0, 120), NONE)[1] > 1
     assert view._wheel_action(Z, QPoint(0, -120), NONE)[1] < 1
-    # Ctrl / Cmd + scroll -> zoom even with pixel deltas (trackpad).
-    assert view._wheel_action(QPoint(0, 20), Z, CTRL)[0] == "zoom"
+    # Ctrl / Cmd + scroll -> zoom even on a trackpad with pixel deltas.
+    assert view._wheel_action(QPoint(0, 20), Z, CTRL, True)[0] == "zoom"
     assert view._wheel_action(Z, QPoint(0, 120), META)[0] == "zoom"
     # Nothing to do.
     assert view._wheel_action(Z, Z, NONE) is None

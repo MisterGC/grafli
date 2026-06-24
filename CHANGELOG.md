@@ -12,8 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Trackpad-native pan & zoom.** Two-finger trackpad scroll now **pans** the
   canvas (it used to zoom), pinch-to-zoom works via native gestures, and
-  `Ctrl`/`⌘`+scroll zooms — matching how a modern canvas app behaves. Classic
-  mouse-wheel still zooms, now **proportional** to the scroll amount (partial
+  `Ctrl`/`⌘`+scroll zooms — matching how a modern canvas app behaves. The
+  trackpad-vs-mouse distinction uses the gesture source, so **mouse wheels
+  always zoom — including high-resolution / Bluetooth wheels** that emit
+  pixel-precise deltas — now **proportional** to the scroll amount (partial
   and fast scrolls zoom smoothly instead of in fixed steps).
 - **Zoom limits with rubber-band feedback.** Zoom is now bounded so you can't
   get lost: zoom-in caps at 500%, and zoom-out is content-aware (stops once the

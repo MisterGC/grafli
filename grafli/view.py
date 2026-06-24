@@ -3958,17 +3958,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._bounce_active = False
         self._update_status_zoom()
 
-    def _wheel_action(self, pixel: QPoint, angle: QPoint, mods):
+    def _wheel_action(self, pixel: QPoint, angle: QPoint, mods,
+                      is_trackpad: bool = False):
         """Decide what a wheel/scroll event does.
 
-        Trackpad two-finger scroll (pixel-precise deltas, no modifier) **pans**;
-        a classic mouse wheel — or any scroll with Ctrl/⌘ held — **zooms**.
+        A **trackpad** two-finger scroll (no zoom modifier) **pans**; anything
+        else — a mouse wheel, including a high-resolution / Bluetooth wheel that
+        also emits pixel deltas, or any scroll with Ctrl/⌘ held — **zooms**.
+
+        The trackpad vs. mouse distinction comes from the event source/phase
+        (passed in as ``is_trackpad``), *not* from whether ``pixelDelta`` is
+        present: high-res mice emit pixel deltas too, so keying on that routed
+        their wheel to pan by mistake.
         Returns ``("pan", dx, dy)``, ``("zoom", factor)``, or ``None``.
         """
         ctrl = bool(mods & (Qt.KeyboardModifier.ControlModifier
                             | Qt.KeyboardModifier.MetaModifier))
         has_pixel = not pixel.isNull()
-        if has_pixel and not ctrl:
+        if is_trackpad and has_pixel and not ctrl:
             return ("pan", pixel.x(), pixel.y())
         d = pixel.y() if has_pixel else angle.y()
         if d == 0:
@@ -3982,8 +3989,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if self._bounce_active:
             event.accept()
             return
+        # A trackpad gesture is synthesized by the system and/or carries a
+        # scroll phase; a mouse wheel (even a high-res one with pixel deltas)
+        # is neither. Only the former pans.
+        is_trackpad = (
+            event.source() == Qt.MouseEventSource.MouseEventSynthesizedBySystem
+            or event.phase() != Qt.ScrollPhase.NoScrollPhase
+        )
         action = self._wheel_action(event.pixelDelta(), event.angleDelta(),
-                                    event.modifiers())
+                                    event.modifiers(), is_trackpad)
         if action is None:
             event.accept()
             return

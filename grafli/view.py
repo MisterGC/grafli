@@ -1053,8 +1053,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 label_tooltips.append(rev.url)
 
             total_len = math.hypot(dx, dy)
+            # Drop the connector label when either end is a LoD-collapsed node
+            # (tile or hull) — its authored size would render as illegible
+            # clutter on a rerouted edge.
+            endpoint_collapsed = (
+                from_hull is not None or to_hull is not None
+                or from_id in self._lod_collapsed or to_id in self._lod_collapsed)
             has_label = False
-            if label_texts and total_len > 0:
+            if label_texts and total_len > 0 and not endpoint_collapsed:
                 mid_x = (start.x() + end.x()) / 2
                 mid_y = (start.y() + end.y()) / 2
 

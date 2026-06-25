@@ -154,6 +154,22 @@ def test_collapsed_tile_renders_above_arrows():
     assert arrow_z and tile_z > max(arrow_z)
 
 
+def test_no_connector_label_when_an_endpoint_is_collapsed():
+    from grafli.items import LabelItem
+    board = parse(
+        "@ box grp \"G\" 0,0 400x300 !flat\n"
+        "@ box ch \"C\" 40,80 200x80 >grp\n"
+        "@ box other \"O\" 700,0 160x70\n"
+        "@ arrow other -> ch \"important\"\n"
+    )
+    view = _view(board)
+    _set_zoom(view, 1.0)
+    assert any(isinstance(it, LabelItem) for it in view._arrow_items)
+    _set_zoom(view, 0.2)                      # ch collapses into grp's tile
+    assert "grp" in view._lod_collapsed
+    assert not any(isinstance(it, LabelItem) for it in view._arrow_items)
+
+
 def test_toggle_helper_flips_and_reapplies():
     view = _view(parse(SAMPLE))
     _set_zoom(view, 0.3)

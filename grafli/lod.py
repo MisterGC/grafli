@@ -205,6 +205,51 @@ class LodModel:
                 visible = node  # keep climbing; last match = outermost
         return visible
 
+    # ── loose clusters (parent-less connected components) ────────────────
+
+    def component_edges(self, component) -> list[tuple[str, str]]:
+        """Undirected member-to-member edges within a component (each once)."""
+        members = set(component)
+        out: list[tuple[str, str]] = []
+        seen: set[frozenset[str]] = set()
+        for a in members:
+            for b in self._adjacency.get(a, ()):
+                if b in members and a != b:
+                    key = frozenset((a, b))
+                    if key not in seen:
+                        seen.add(key)
+                        out.append((a, b))
+        return out
+
+    def component_hub(self, component) -> str:
+        """The most-connected member (highest in-component degree) — the label
+        a collapsed cluster borrows, since it has no author-given name."""
+        members = set(component)
+        best, best_deg = component[0], -1
+        for m in component:
+            deg = sum(1 for n in self._adjacency.get(m, ()) if n in members)
+            if deg > best_deg:
+                best, best_deg = m, deg
+        return best
+
+    def cluster_pad(self, component) -> float:
+        """Adaptive hull padding (scene units): the smallest cushion that still
+        reads as one region, scaled to the members' size. Connectivity itself is
+        guaranteed by stroking the member edges, so this only sets tightness."""
+        dims = []
+        for m in component:
+            r = self._rects.get(m)
+            if r and r[2] > 0 and r[3] > 0:
+                dims.append(min(r[2], r[3]))
+        if not dims:
+            return 18.0
+        dims.sort()
+        median = dims[len(dims) // 2]
+        return max(16.0, min(36.0, 0.34 * median))
+
+    def label_of(self, elem_id: str) -> str:
+        return self._labels.get(elem_id, elem_id)
+
     # ── summaries ───────────────────────────────────────────────────────
 
     def child_extent(self, container_id: str) -> float:

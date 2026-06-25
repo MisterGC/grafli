@@ -17,12 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     so a board reads as detail → inner-group tiles → outer-group tiles as you
     pull back.
   - A leaf whose own label would be illegible drops to a bare coloured shell.
+  - A **parent-less cluster** (a connected, spatially-compact group of ≥3 loose
+    nodes) collapses behind a **concave "bubble" hull** — a tight, organic
+    outline (built from Qt path unions, padding adapted to node size) labelled
+    by its hub node and count. Arrows from outside re-attach to the hull
+    outline; edges inside it vanish.
   - A hysteresis band keeps threshold crossings from flickering while you
     scrub the zoom.
   Toggle the whole thing with `⇧D` (on by default; off restores the
-  uniform-shrink behaviour). Part of a larger feature (loose-node summaries and
-  click-to-expand still to come) — see issue #103. Ships with an
-  `examples/lod-demo.grafli` board built to show it off.
+  uniform-shrink behaviour). Part of a larger feature (click-to-expand still to
+  come) — see issue #103. Ships with an `examples/lod-demo.grafli` board built
+  to show it off.
 
 ## [0.4.0] - 2026-06-23
 

@@ -114,7 +114,7 @@ from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, No
 from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.iconset import ICON_NAMES, icon_pixmap
-from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
+from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ClusterHullItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
 from grafli.lod import LodModel, should_collapse, should_collapse_container
 from grafli.md_note import note_is_md, toggle_task
 from grafli.minimap import MinimapMixin
@@ -223,6 +223,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._lod: LodModel | None = None
         self._lod_simplified: set[str] = set()   # boxes drawn as bare shells
         self._lod_collapsed: set[str] = set()    # containers collapsed to tiles
+        self._lod_hulls: dict[tuple, object] = {}        # cluster key -> hull item
+        self._lod_hull_member: dict[str, object] = {}    # member id -> hull item
+        self._lod_state = None                   # change-detection snapshot
         self._lod_enabled = True
 
         # Pan state (middle-click always works)
@@ -752,6 +755,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._board = board
         self._lod = LodModel.from_board(board)
         self._lod_simplified = set()
+        self._lod_collapsed = set()
+        self._lod_hulls = {}          # items live in the about-to-be-rebuilt scene
+        self._lod_hull_member = {}
+        self._lod_state = None
         # A fresh board invalidates any in-flight flow recording/playback.
         self._recording_flow = None
         if self._flow_player is not None:
@@ -939,6 +946,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             to_id = self._lod_reroute(to_id)
             if from_id == to_id:
                 continue
+            from_hull = self._lod_hull_member.get(from_id)
+            to_hull = self._lod_hull_member.get(to_id)
+            if from_hull is not None and from_hull is to_hull:
+                continue  # internal to one cluster — drop it
             from_elem = self._board.box_by_id(from_id) or self._board.note_by_id(from_id)
             to_elem = self._board.box_by_id(to_id) or self._board.note_by_id(to_id)
             if not from_elem or not to_elem:
@@ -995,6 +1006,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 to_center = QPointF(to_r[0] + to_r[2] / 2, to_r[1] + to_r[3] / 2)
                 start = _rect_edge_point(*from_r, to_center)
                 end = _rect_edge_point(*to_r, from_center)
+
+            # An endpoint hidden inside a cluster re-attaches to its hull outline.
+            if from_hull is not None or to_hull is not None:
+                ref_start, ref_end = QPointF(start), QPointF(end)
+                if from_hull is not None:
+                    start = from_hull.boundary_point(ref_end)
+                if to_hull is not None:
+                    end = to_hull.boundary_point(ref_start)
 
             dx = end.x() - start.x()
             dy = end.y() - start.y()
@@ -3849,17 +3868,19 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         """Recompute the Level-of-Detail state at the current zoom.
 
         The "zoom clock": cheap, reads the live scale and resolves each box into
-        one of four states with hysteresis (so scrubbing the zoom doesn't
+        one of these states with hysteresis (so scrubbing the zoom doesn't
         flicker):
 
         * **tile** — a collapsed container with no collapsed ancestor: its
           headline + child-count badge stand in for the whole group.
         * **hidden** — a box inside a collapsed container (subsumed by the tile).
         * **shell** — a leaf whose own label is illegible: a bare coloured box.
+        * **cluster** — a parent-less connected component (>=3) whose members are
+          all illegible and spatially compact: hidden behind a concave hull.
         * **detailed** — shown as authored.
 
         Disabled (everything detailed) when LoD is toggled off. Re-routes arrows
-        to the surviving tiles only when the collapsed set actually changes.
+        to the surviving tiles / hulls only when the routing actually changes.
         """
         scale = self._current_zoom()
         model = self._lod
@@ -3895,9 +3916,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 if should_collapse(label_px, bid in self._lod_simplified):
                     shells.add(bid)
 
-        collapsed_changed = collapsed != self._lod_collapsed
-        if not collapsed_changed and shells == self._lod_simplified:
-            return  # tiles derive purely from collapsed, so nothing changed
+        # Loose clusters: a component is hulled (members hidden) when all of its
+        # members are illegible and it is spatially compact. Members move out of
+        # `shells` (they no longer draw individually) and into `hidden`.
+        clusters: dict[tuple, list] = {}
+        if self._lod_enabled and model is not None:
+            for comp in model.components:
+                if (len(comp) >= 3 and all(m in shells for m in comp)
+                        and self._cluster_compact(comp)):
+                    clusters[tuple(sorted(comp))] = comp
+                    shells.difference_update(comp)
+                    hidden.update(comp)
+
+        state = (frozenset(collapsed), frozenset(shells), frozenset(clusters))
+        if state == self._lod_state:
+            return
+        routing_changed = (collapsed != self._lod_collapsed
+                           or set(clusters) != set(self._lod_hulls))
+        self._lod_state = state
 
         for bid, item in self._box_items.items():
             if bid in hidden:
@@ -3913,11 +3949,63 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             # nothing — so the normal label item is hidden in both cases.
             item._label.setVisible(not is_shell and not is_tile)
 
+        self._apply_lod_hulls(clusters)
         self._lod_simplified = shells
         self._lod_collapsed = collapsed
-        if collapsed_changed:
-            # Hidden endpoints must re-route to their tiles (or vanish).
+        if routing_changed:
+            # Hidden endpoints must re-route to their tile or hull (or vanish).
             self._redraw_arrows()
+
+    def _cluster_compact(self, comp) -> bool:
+        """A component is compact when no non-member box centre falls inside its
+        bounding box — so a hull won't visually swallow unrelated nodes."""
+        boxes = [self._box_items[m].box for m in comp if m in self._box_items]
+        if not boxes:
+            return False
+        x0 = min(b.x for b in boxes); y0 = min(b.y for b in boxes)
+        x1 = max(b.x + b.w for b in boxes); y1 = max(b.y + b.h for b in boxes)
+        member = set(comp)
+        for bid, item in self._box_items.items():
+            if bid in member:
+                continue
+            b = item.box
+            cx, cy = b.x + b.w / 2, b.y + b.h / 2
+            if x0 <= cx <= x1 and y0 <= cy <= y1:
+                return False
+        return True
+
+    def _apply_lod_hulls(self, clusters: dict[tuple, list]):
+        """Create / update / remove cluster hull items to match `clusters`."""
+        model = self._lod
+        # Drop hulls that are no longer active.
+        for key in list(self._lod_hulls):
+            if key not in clusters:
+                self._scene.removeItem(self._lod_hulls.pop(key))
+        # Add hulls that became active.
+        for key, comp in clusters.items():
+            if key in self._lod_hulls:
+                continue
+            rects = {m: (self._box_items[m].box.x, self._box_items[m].box.y,
+                         self._box_items[m].box.w, self._box_items[m].box.h)
+                     for m in comp if m in self._box_items}
+            hub = model.component_hub(comp)
+            raw = self._box_items[hub].box.color if hub in self._box_items else ""
+            color = raw if raw.startswith("#") else "#6B46C1"
+            hull = ClusterHullItem(rects, model.component_edges(comp),
+                                   model.cluster_pad(comp), model.label_of(hub),
+                                   len(comp), color)
+            self._scene.addItem(hull)
+            self._lod_hulls[key] = hull
+        # Rebuild the member -> hull lookup used for arrow re-anchoring.
+        self._lod_hull_member = {}
+        for key, comp in clusters.items():
+            hull = self._lod_hulls[key]
+            for m in comp:
+                self._lod_hull_member[m] = hull
+
+    def _lod_reroute(self, elem_id: str) -> str:
+        """Map an arrow endpoint to its visible tile if it sits in a collapsed
+        container; otherwise return it unchanged."""
 
     def _lod_reroute(self, elem_id: str) -> str:
         """Map an arrow endpoint to its visible tile if it sits in a collapsed

@@ -9,6 +9,7 @@ from PySide6.QtGui import QAbstractTextDocumentLayout, QBrush, QColor, QFont, QF
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
+    QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsSimpleTextItem,
@@ -1198,6 +1199,110 @@ class BoxItem(QGraphicsRectItem):
         painter.setFont(badge_font)
         painter.setPen(QColor("#2F3437"))
         text = f"{count} node" + ("" if count == 1 else "s")
+        bfm = QFontMetricsF(badge_font)
+        bw = bfm.horizontalAdvance(text)
+        painter.drawText(
+            QRectF(-bw, top + fm.height() + gap, 2 * bw, badge_px * 1.6),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, text)
+        painter.restore()
+
+
+class ClusterHullItem(QGraphicsPathItem):
+    """A concave "bubble" enclosing a collapsed parent-less node cluster.
+
+    The outline is a pure-Qt concave hull: the boolean union of each member's
+    inflated rounded-rect with a thick-stroked path of the member-to-member
+    edges (so the blob follows the graph and never fragments). The cluster has
+    no backing element, so it is navigation-only — it carries a hub label and
+    node count drawn counter-scaled at the centroid, like a collapsed tile.
+    """
+
+    def __init__(self, member_rects, edges, pad: float,
+                 label: str, count: int, color: str):
+        super().__init__()
+        self._label = label
+        self._count = count
+        path = self._build_path(member_rects, edges, pad)
+        self.setPath(path)
+        self._centroid = path.boundingRect().center()
+        fill = QColor(color)
+        fill.setAlphaF(0.16)
+        self.setBrush(QBrush(fill))
+        pen = QPen(QColor(color))
+        pen.setWidthF(2.5)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        self.setPen(pen)
+        self.setZValue(-100)   # behind the (hidden) nodes and arrows
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+    @staticmethod
+    def _build_path(member_rects, edges, pad: float) -> QPainterPath:
+        path = QPainterPath()
+        centers: dict[str, QPointF] = {}
+        for mid, (x, y, w, h) in member_rects.items():
+            sub = QPainterPath()
+            sub.addRoundedRect(QRectF(x - pad, y - pad, w + 2 * pad, h + 2 * pad),
+                               pad, pad)
+            path = path.united(sub)
+            centers[mid] = QPointF(x + w / 2, y + h / 2)
+        if edges:
+            ep = QPainterPath()
+            for a, b in edges:
+                if a in centers and b in centers:
+                    ep.moveTo(centers[a])
+                    ep.lineTo(centers[b])
+            stroker = QPainterPathStroker()
+            stroker.setWidth(2 * pad)
+            stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
+            stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            path = path.united(stroker.createStroke(ep))
+        return path.simplified()
+
+    def centroid(self) -> QPointF:
+        return QPointF(self._centroid)
+
+    def boundary_point(self, from_pt: QPointF) -> QPointF:
+        """Where a line from ``from_pt`` to the centroid crosses the hull
+        outline — the attach point for an external arrow into the cluster."""
+        path = self.path()
+        if path.contains(from_pt):
+            return QPointF(self._centroid)
+        outside, inside = QPointF(from_pt), QPointF(self._centroid)
+        for _ in range(24):
+            mid = (outside + inside) / 2
+            if path.contains(mid):
+                inside = mid
+            else:
+                outside = mid
+        return outside
+
+    def paint(self, painter: QPainter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        super().paint(painter, option, widget)   # fill + concave outline
+
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        painter.save()
+        painter.translate(self._centroid)
+        painter.scale(1.0 / scale, 1.0 / scale)
+        head_font = QFont(FONT_FAMILY)
+        head_font.setPixelSize(14)
+        head_font.setBold(True)
+        painter.setFont(head_font)
+        painter.setPen(QColor("#2F3437"))
+        fm = QFontMetricsF(head_font)
+        gap = 5.0
+        badge_px = 10.0
+        top = -(fm.height() + gap + badge_px) / 2
+        painter.drawText(
+            QRectF(-fm.horizontalAdvance(self._label), top,
+                   2 * fm.horizontalAdvance(self._label), fm.height()),
+            Qt.AlignmentFlag.AlignCenter, self._label)
+        badge_font = QFont(FONT_FAMILY)
+        badge_font.setPixelSize(round(badge_px))
+        painter.setFont(badge_font)
+        text = f"{self._count} nodes"
         bfm = QFontMetricsF(badge_font)
         bw = bfm.horizontalAdvance(text)
         painter.drawText(

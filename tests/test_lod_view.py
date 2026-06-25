@@ -95,6 +95,46 @@ def test_toggle_off_keeps_full_detail_even_zoomed_out():
         assert item._lod_tile is None
 
 
+MESH = """\
+@ box a "A" 0,0 160x70
+@ box b "B" 250,0 160x70
+@ box c "C" 500,0 160x70
+@ arrow a -- b
+@ arrow b -- c
+"""
+
+
+def test_compact_cluster_collapses_to_a_concave_hull():
+    view = _view(parse(MESH))
+    _set_zoom(view, 0.05)
+    assert sorted(view._lod_hull_member) == ["a", "b", "c"]
+    assert len(view._lod_hulls) == 1
+    for m in ("a", "b", "c"):
+        assert not view._box_items[m].isVisible()   # members hidden behind hull
+    assert view._lod_simplified == set()            # not shelled individually
+
+
+def test_cluster_clears_when_zoomed_in():
+    view = _view(parse(MESH))
+    _set_zoom(view, 0.05)
+    assert view._lod_hulls
+    _set_zoom(view, 1.0)
+    assert view._lod_hulls == {}
+    assert view._lod_hull_member == {}
+    for m in ("a", "b", "c"):
+        assert view._box_items[m].isVisible()
+
+
+def test_non_compact_cluster_falls_back_to_shells():
+    # An unrelated box sitting in the gap between members (inside the cluster's
+    # bounding box, overlapping nothing) blocks the hull.
+    board = parse(MESH + '@ box intruder "X" 185,15 40x40\n')
+    view = _view(board)
+    _set_zoom(view, 0.05)
+    assert view._lod_hulls == {}
+    assert {"a", "b", "c"} <= view._lod_simplified   # bare shells instead
+
+
 def test_toggle_helper_flips_and_reapplies():
     view = _view(parse(SAMPLE))
     _set_zoom(view, 0.3)

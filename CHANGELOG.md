@@ -24,10 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     outline; edges inside it vanish.
   - A hysteresis band keeps threshold crossings from flickering while you
     scrub the zoom.
+  - Aggregated nodes (tiles and hulls) are **read-only** — you edit at full
+    detail, reached by zooming in, toggling LoD off, or **double-clicking the
+    tile/hull to fly into it**. (This also closes a desync where dragging a
+    collapsed container would have left its children behind.)
   Toggle the whole thing with `⇧D` (on by default; off restores the
-  uniform-shrink behaviour). Part of a larger feature (click-to-expand still to
-  come) — see issue #103. Ships with an `examples/lod-demo.grafli` board built
-  to show it off.
+  uniform-shrink behaviour) — see issue #103. Ships with an
+  `examples/lod-demo.grafli` board built to show it off.
 
 ## [0.4.0] - 2026-06-23
 

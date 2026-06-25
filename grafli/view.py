@@ -3744,6 +3744,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         the file — so doc deletion is undoable without stashing files."""
         if not self._board:
             return
+        if self._refuse_locked_edit():   # can't delete a collapsed aggregate
+            return
         self._push_undo()
         deleted = False
         former_parents: set[str] = set()
@@ -4016,13 +4018,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     def _lod_reroute(self, elem_id: str) -> str:
         """Map an arrow endpoint to its visible tile if it sits in a collapsed
         container; otherwise return it unchanged."""
-
-    def _lod_reroute(self, elem_id: str) -> str:
-        """Map an arrow endpoint to its visible tile if it sits in a collapsed
-        container; otherwise return it unchanged."""
         if self._lod is None or not self._lod_collapsed:
             return elem_id
         return self._lod.resolve_visible(elem_id, self._lod_collapsed)
+
+    def _selection_has_locked(self) -> bool:
+        """True if the selection includes a LoD-collapsed tile — a read-only
+        aggregate that stands in for hidden content (you edit at full detail)."""
+        if not self._lod_enabled:
+            return False
+        return any(isinstance(it, BoxItem) and it._lod_tile is not None
+                   for it in self._scene.selectedItems())
+
+    def _refuse_locked_edit(self) -> bool:
+        """Block a mutation on a collapsed aggregate, nudging toward full detail."""
+        if self._selection_has_locked():
+            self.toast("Zoom in or ⇧D to edit a collapsed group", "info")
+            return True
+        return False
 
     def _toggle_lod(self):
         self._lod_enabled = not self._lod_enabled
@@ -4477,6 +4490,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), BoxItem):
             item = item.parentItem()
 
+        # Double-click a collapsed aggregate to fly into it (the folder *feel*
+        # as pure navigation — no persistent state). Editing is blocked until
+        # the group is at full detail anyway.
+        if isinstance(item, ClusterHullItem) or (
+                isinstance(item, BoxItem) and item._lod_tile is not None):
+            self._animate_to_rect(
+                item.sceneBoundingRect().adjusted(-60, -60, 60, 60))
+            event.accept()
+            return
+
         if isinstance(item, BoxItem):
             self._start_editing(item)
             event.accept()
@@ -4884,6 +4907,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Vim-like box modes — SELECT mode with selection
         if self._mode == Mode.SELECT and has_selection:
+            # A collapsed aggregate is read-only: block move / style / resize
+            # here (navigation keys live outside this block).
+            if self._refuse_locked_edit():
+                event.accept()
+                return
             shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
             only_shift = shift and not (mods & ~Qt.KeyboardModifier.ShiftModifier & _SIGNIFICANT_MODS)
 
@@ -7976,6 +8004,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("#", "Toggle grid"),
                 ("M", "Toggle minimap"),
                 ("⇧D", "Toggle level-of-detail (semantic zoom)"),
+                ("Dbl-click tile", "Fly into a collapsed group"),
                 ("\\", "Toggle tools panel"),
             ]),
             ("Bookmarks & Flows", [

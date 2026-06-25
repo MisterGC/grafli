@@ -170,6 +170,39 @@ def test_no_connector_label_when_an_endpoint_is_collapsed():
     assert not any(isinstance(it, LabelItem) for it in view._arrow_items)
 
 
+def test_collapsed_tile_is_read_only_and_immovable():
+    from PySide6.QtWidgets import QGraphicsItem
+    MOVABLE = QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+    board = parse(
+        "@ box grp \"G\" 0,0 400x300 !flat\n"
+        "@ box ch \"C\" 40,80 200x80 >grp\n"
+    )
+    view = _view(board)
+    _set_zoom(view, 0.2)
+    grp = view._box_items["grp"]
+    assert grp._lod_tile is not None
+    assert not (grp.flags() & MOVABLE)          # can't drag a tile (no desync)
+    grp.setSelected(True)
+    assert view._selection_has_locked()         # mutations are refused
+    _set_zoom(view, 1.0)                         # full detail -> editable again
+    assert grp._lod_tile is None
+    assert grp.flags() & MOVABLE
+    assert not view._selection_has_locked()
+
+
+def test_lock_lifts_when_lod_disabled():
+    board = parse(
+        "@ box grp \"G\" 0,0 400x300 !flat\n"
+        "@ box ch \"C\" 40,80 200x80 >grp\n"
+    )
+    view = _view(board)
+    _set_zoom(view, 0.2)
+    view._box_items["grp"].setSelected(True)
+    assert view._selection_has_locked()
+    view._toggle_lod()                          # LoD off -> nothing aggregated
+    assert not view._selection_has_locked()
+
+
 def test_toggle_helper_flips_and_reapplies():
     view = _view(parse(SAMPLE))
     _set_zoom(view, 0.3)

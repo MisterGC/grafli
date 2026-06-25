@@ -869,7 +869,10 @@ class BoxItem(QGraphicsRectItem):
         # resize; presses on a handle square are driven by the handle itself.
         if event.button() == Qt.MouseButton.LeftButton:
             corner = self._handle_at(event.pos())
-            if corner is not None and self.isSelected():
+            # A collapsed tile is read-only — no resize (it would desync the
+            # hidden children); the press just selects (for navigation).
+            if (corner is not None and self.isSelected()
+                    and self._lod_tile is None):
                 self._begin_handle_drag(corner, event.scenePos())
                 event.accept()
                 return
@@ -1130,6 +1133,10 @@ class BoxItem(QGraphicsRectItem):
         if tile == self._lod_tile:
             return
         self._lod_tile = tile
+        # A tile is read-only: dragging it would move the container box but
+        # leave its absolutely-positioned children behind (desync). Disable the
+        # move flag while collapsed; restore it when expanded.
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, tile is None)
         self.update()
 
     def paint(self, painter: QPainter, option, widget=None):

@@ -135,6 +135,25 @@ def test_non_compact_cluster_falls_back_to_shells():
     assert {"a", "b", "c"} <= view._lod_simplified   # bare shells instead
 
 
+def test_collapsed_tile_renders_above_arrows():
+    # An arrow crossing a collapsed tile must pass behind it so the tile's
+    # headline stays readable.
+    from grafli.items import LabelItem
+    board = parse(
+        "@ box grp \"G\" 0,0 400x300 !flat\n"
+        "@ box ch \"C\" 40,80 200x80 >grp\n"
+        "@ box other \"O\" 700,0 160x70\n"
+        "@ arrow other -> ch \"x\"\n"
+    )
+    view = _view(board)
+    _set_zoom(view, 0.2)
+    assert "grp" in view._lod_collapsed
+    tile_z = view._box_items["grp"].zValue()
+    arrow_z = [it.zValue() for it in view._arrow_items
+               if not isinstance(it, LabelItem)]
+    assert arrow_z and tile_z > max(arrow_z)
+
+
 def test_toggle_helper_flips_and_reapplies():
     view = _view(parse(SAMPLE))
     _set_zoom(view, 0.3)

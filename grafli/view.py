@@ -1581,7 +1581,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         box_label_z = max_depth + 4
         for box_id, item in self._box_items.items():
             d = self._box_depth(box_id)
-            if self._has_children(box_id):
+            # A container normally sits behind arrows (it's a backdrop for its
+            # children). But a LoD-collapsed container is a solid tile, so it
+            # rises above arrows like a leaf — an arrow crossing it passes behind,
+            # keeping the tile's headline readable.
+            if self._has_children(box_id) and box_id not in self._lod_collapsed:
                 item.setZValue(d)
             else:
                 item.setZValue(leaf_z + d)

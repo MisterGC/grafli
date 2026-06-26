@@ -3951,6 +3951,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if bid in hidden:
                 item.setVisible(False)
                 item._label.setVisible(False)
+                # Clear any stale tile/shell state: a box subsumed by an outer
+                # tile must not keep reporting as a tile (it would linger as a
+                # read-only lock and leave its move flag disabled).
+                item.set_lod_tile(None)
+                item.set_lod_simplified(False)
                 continue
             item.setVisible(True)
             is_shell = bid in shells

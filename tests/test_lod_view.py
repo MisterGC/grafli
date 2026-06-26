@@ -203,6 +203,41 @@ def test_lock_lifts_when_lod_disabled():
     assert not view._selection_has_locked()
 
 
+def test_deep_nesting_collapses_innermost_first_with_no_stale_state():
+    # GP > P > C > {L1,L2} — three container levels.
+    board = parse(
+        "@ box gp \"GP\" 0,0 900x700 !flat\n"
+        "@ box p \"P\" 40,80 800x560 !flat >gp\n"
+        "@ box c \"C\" 80,160 700x400 !flat >p\n"
+        "@ box l1 \"L1\" 120,240 200x80 >c\n"
+        "@ box l2 \"L2\" 400,240 200x80 >c\n"
+    )
+    view = _view(board)
+
+    def state():
+        tiles = {b for b, it in view._box_items.items()
+                 if it._lod_tile is not None}
+        hidden = {b for b, it in view._box_items.items() if not it.isVisible()}
+        return tiles, hidden
+
+    # Innermost collapses first: open ancestors nest a single tile (C).
+    _set_zoom(view, 0.5)
+    tiles, hidden = state()
+    assert tiles == {"c"} and hidden == {"l1", "l2"}
+
+    # Further out: the middle (P) becomes the one tile; C is subsumed/hidden and
+    # must NOT keep a stale tile flag (would linger as a read-only lock).
+    _set_zoom(view, 0.1)
+    tiles, hidden = state()
+    assert tiles == {"p"}
+    assert "c" in hidden and not (tiles & hidden)
+
+    # Fully out: a single outer tile, everything inside hidden.
+    _set_zoom(view, 0.08)
+    tiles, hidden = state()
+    assert tiles == {"gp"} and not (tiles & hidden)
+
+
 def test_toggle_helper_flips_and_reapplies():
     view = _view(parse(SAMPLE))
     _set_zoom(view, 0.3)

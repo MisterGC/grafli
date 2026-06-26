@@ -129,9 +129,11 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        # A pending fit waits here for the viewport to reach its real size;
+        # _zoom_fit clears the flag once it actually fits (or re-arms if still
+        # too small), so a window-sizing race can't leave the board off-screen.
         if self._pending_zoom_fit and self.isVisible():
-            self._pending_zoom_fit = False
-            QTimer.singleShot(0, lambda: self._zoom_fit(animate=False))
+            self._zoom_fit(animate=False)
 
     def _title_for_path(self, path: Path | None, dirty: bool = False) -> str:
         if path is None:
@@ -431,14 +433,25 @@ class MainWindow(QMainWindow):
         self._view._update_status_zoom()
 
     def _zoom_fit(self, animate: bool = True):
-        if self.board and (self.board.boxes or self.board.notes
-                           or self.board.images):
-            rect = self._view.scene().itemsBoundingRect().adjusted(-40, -40, 40, 40)
-            if animate:
-                self._view._animate_to_rect(rect)
-            else:
-                self._view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
-                self._view._update_status_zoom()
+        if not (self.board and (self.board.boxes or self.board.notes
+                                or self.board.images)):
+            return
+        vp = self._view.viewport()
+        if vp.width() < 50 or vp.height() < 50:
+            # Viewport not laid out yet — fitInView would land far off. Defer to
+            # the next resize, which fires when the canvas gets its real size.
+            self._pending_zoom_fit = True
+            return
+        rect = self._view.scene().itemsBoundingRect().adjusted(-40, -40, 40, 40)
+        if animate:
+            self._view._animate_to_rect(rect)
+        else:
+            self._view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+            self._view._update_status_zoom()
+        # Keep re-fitting on resize until the window reaches a real size, so a
+        # transient small layout during open doesn't leave the board tiny. Once
+        # the window is real-sized the fit is final (no more auto-refit).
+        self._pending_zoom_fit = vp.width() < 400 or vp.height() < 300
 
     def _setup_status_bar(self):
         self._status_mode = QLabel("SELECT")
@@ -602,9 +615,16 @@ class MainWindow(QMainWindow):
         )
         self._update_buf_status()
 
+        # An explicit open leaves the canvas focused so its shortcuts (M, ⇧Z,
+        # …) work immediately — without this the keys silently do nothing until
+        # the user clicks the canvas, which reads as a frozen app.
+        self._view.setFocus()
+
         if zoom_fit:
-            # Defer so the viewport has its real size — fitInView with a
-            # not-yet-laid-out (or zero-size) viewport lands far zoomed out.
+            # Arm a fit and try it now; if the viewport isn't laid out yet the
+            # attempt no-ops and re-arms, and resizeEvent completes it once the
+            # viewport has its real size (otherwise the board opens off-screen).
+            self._pending_zoom_fit = True
             QTimer.singleShot(0, lambda: self._zoom_fit(animate=False))
 
     def close_buffer(self):

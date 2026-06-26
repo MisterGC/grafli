@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Opening a file reliably frames it and focuses the canvas.** A board could
+  open off-screen (the on-open zoom-to-fit fired before the window had its real
+  size, leaving the view at 1:1 near the origin) and the canvas didn't grab
+  keyboard focus, so `M` / `⇧Z` did nothing until you clicked it — together
+  reading as a frozen app on a blank canvas. The fit now defers past an
+  unsized viewport and re-fits as the window reaches its real size, and the
+  canvas takes focus the moment a buffer loads.
+
 ### Added
 - **Level-of-Detail / semantic zoom (in progress).** Zooming far out now
   simplifies the canvas instead of shrinking everything into unreadable mush:

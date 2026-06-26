@@ -1190,18 +1190,17 @@ class BoxItem(QGraphicsRectItem):
         base.setAlpha(255)
         front_path = QPainterPath()
         front_path.addRect(front)
-        edge = QColor(0, 0, 0, 70)
-        pen = QPen(edge)
+        pen = QPen(QColor(0, 0, 0, 70))
         pen.setWidthF(max(0.8, 1.0 / scale))
-        # Furthest layer first; only the L-shaped sliver outside the cover shows.
-        for i in (2, 1):
-            layer = QPainterPath()
-            layer.addRect(front.translated(off * i, -off * i))
-            visible = layer.subtracted(front_path)
-            painter.fillPath(visible, base.darker(108 + 14 * i))
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(visible)
+        # One layer: just the L-shaped sliver of a single notebook behind the
+        # cover peeks out at the top and right.
+        layer = QPainterPath()
+        layer.addRect(front.translated(off, -off))
+        visible = layer.subtracted(front_path)
+        painter.fillPath(visible, base.darker(122))
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(visible)
 
     def _paint_lod_tile(self, painter: QPainter):
         """Draw a collapsed container as a headline + child-count badge.

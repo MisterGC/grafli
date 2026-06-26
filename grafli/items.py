@@ -860,8 +860,12 @@ class BoxItem(QGraphicsRectItem):
 
     def boundingRect(self):
         r = super().boundingRect()
-        if self.isSelected():
-            return r.adjusted(-6, -6, 6, 6)
+        m = 6 if self.isSelected() else 0
+        if self._lod_tile is not None:
+            # The "stacked edges" mark peeks up and to the right of the tile.
+            return r.adjusted(-m, -m - 64, m + 64, m)
+        if m:
+            return r.adjusted(-m, -m, m, m)
         return r
 
     def mousePressEvent(self, event):
@@ -1132,6 +1136,7 @@ class BoxItem(QGraphicsRectItem):
         tile = (summary.label, summary.descendants) if summary else None
         if tile == self._lod_tile:
             return
+        self.prepareGeometryChange()   # boundingRect grows for the stack mark
         self._lod_tile = tile
         # A tile is read-only: dragging it would move the container box but
         # leave its absolutely-positioned children behind (desync). Disable the
@@ -1141,6 +1146,8 @@ class BoxItem(QGraphicsRectItem):
 
     def paint(self, painter: QPainter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self._lod_tile is not None:
+            self._paint_lod_stack(painter)   # offset edges behind the fill
         painter.setPen(self.pen())
         painter.setBrush(self.brush())
         radius = 0 if self.box.style == "flat" or self._is_parent else BOX_RADIUS
@@ -1166,6 +1173,25 @@ class BoxItem(QGraphicsRectItem):
             sel_color.setAlphaF(0.85)
             painter.setPen(QPen(sel_color, 4, Qt.PenStyle.SolidLine))
             painter.drawRoundedRect(sel_rect, radius, radius)
+
+    def _paint_lod_stack(self, painter: QPainter):
+        """Offset outline 'cards' peeking behind the tile — the mark that says
+        'this is a LoD summary of many things, not a single authored node.'
+        Drawn counter-scaled (constant small on-screen offset, capped) so it
+        stays compact and never bloats the layout."""
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        off = min(5.0 / scale, 30.0)
+        base = self.brush().color()
+        edge = base.darker(135) if base.alpha() else QColor(0, 0, 0, 90)
+        pen = QPen(edge)
+        pen.setWidthF(max(1.0, 1.2 / scale))
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for i in (2, 1):
+            painter.drawRect(self.rect().translated(off * i, -off * i))
 
     def _paint_lod_tile(self, painter: QPainter):
         """Draw a collapsed container as a headline + child-count badge.
@@ -1238,6 +1264,9 @@ class ClusterHullItem(QGraphicsPathItem):
         pen = QPen(QColor(color))
         pen.setWidthF(2.5)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        # Dashed outline marks the hull as a derived boundary (a LoD summary),
+        # not an authored shape.
+        pen.setStyle(Qt.PenStyle.DashLine)
         self.setPen(pen)
         self.setZValue(-100)   # behind the (hidden) nodes and arrows
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)

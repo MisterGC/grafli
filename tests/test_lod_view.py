@@ -262,6 +262,26 @@ def test_notes_and_images_follow_lod():
     assert all(i.isVisible() for i in view._image_items.values())
 
 
+def test_hull_color_is_neutral_when_members_disagree():
+    uniform = parse(
+        "@ box a \"A\" 0,0 160x70 #2C7A7B\n"
+        "@ box b \"B\" 250,0 160x70 #2C7A7B\n"
+        "@ box c \"C\" 500,0 160x70 #2C7A7B\n"
+        "@ arrow a -- b\n@ arrow b -- c\n"
+    )
+    v = _view(uniform)
+    assert v._cluster_color(["a", "b", "c"]) != v.LOD_NEUTRAL   # shared colour
+
+    mixed = parse(
+        "@ box a \"A\" 0,0 160x70 #2C7A7B\n"
+        "@ box b \"B\" 250,0 160x70 #B83280\n"
+        "@ box c \"C\" 500,0 160x70 #2C7A7B\n"
+        "@ arrow a -- b\n@ arrow b -- c\n"
+    )
+    v2 = _view(mixed)
+    assert v2._cluster_color(["a", "b", "c"]) == v2.LOD_NEUTRAL  # mixed -> neutral
+
+
 def test_toggle_helper_flips_and_reapplies():
     view = _view(parse(SAMPLE))
     _set_zoom(view, 0.3)

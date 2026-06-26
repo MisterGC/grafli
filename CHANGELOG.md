@@ -32,6 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     detail, reached by zooming in, toggling LoD off, or **double-clicking the
     tile/hull to fly into it**. (This also closes a desync where dragging a
     collapsed container would have left its children behind.)
+  - LoD-generated proxies are **visually distinct from real elements** so the
+    two are never confused: a collapsed tile shows **stacked "card" edges**, and
+    a cluster hull has a **dashed outline**. When an aggregate's members don't
+    share a colour, it renders **neutral grey** rather than borrowing one
+    member's colour.
+  - The **LoD state is surfaced**: a status-bar indicator (`◧ LoD` while
+    summarizing, `LoD off` when toggled off), and the **minimap outlines the
+    currently-collapsed regions** against its always-full-detail view.
   Toggle the whole thing with `⇧D` (on by default; off restores the
   uniform-shrink behaviour) — see issue #103. Ships with an
   `examples/lod-demo.grafli` board built to show it off.

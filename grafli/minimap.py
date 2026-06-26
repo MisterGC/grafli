@@ -330,6 +330,10 @@ class MinimapMixin:
             painter.drawRect(QRectF(ix, iy, iw, ih))
             selected_rects.append(QRectF(ix, iy, iw, ih))
 
+        # LoD overlay: outline the regions currently summarized in the main
+        # view, so the minimap (always full detail) shows what's aggregated.
+        self._draw_minimap_lod(painter, mx, my, sx, sy, scene_rect)
+
         # Camera box — RTS-style: faint fill, thin outline, glowing corner
         # brackets that read as the on-screen "camera".
         vp_scene = self.mapToScene(vp).boundingRect()
@@ -360,6 +364,35 @@ class MinimapMixin:
         painter.setPen(QPen(MINIMAP_STATS_COLOR))
         hint_y = panel_y + panel_h - panel_pad
         painter.drawText(QPointF(mx, hint_y), "F1 Help")
+
+    def _draw_minimap_lod(self, painter, mx, my, sx, sy, scene_rect):
+        """Outline the regions the main view is currently summarizing (collapsed
+        container tiles and cluster hulls) in the LoD accent colour."""
+        if not getattr(self, "_lod_enabled", True):
+            return
+        tiles = [it for it in self._box_items.values()
+                 if it._lod_tile is not None]
+        hulls = list(getattr(self, "_lod_hulls", {}).values())
+        if not tiles and not hulls:
+            return
+        pen = QPen(QColor("#C77A52"))
+        pen.setWidthF(1.2)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        def to_mini(r: QRectF) -> QRectF:
+            return QRectF(mx + (r.x() - scene_rect.x()) * sx,
+                          my + (r.y() - scene_rect.y()) * sy,
+                          r.width() * sx, r.height() * sy)
+
+        for it in tiles:
+            b = it.box
+            painter.drawRect(to_mini(QRectF(b.x, b.y, b.w, b.h))
+                             .intersected(self._minimap_rect))
+        for hull in hulls:
+            painter.drawRect(to_mini(hull.sceneBoundingRect())
+                             .intersected(self._minimap_rect))
 
     def _draw_minimap_selection(self, painter, rect):
         """Draw a static glow ring around a selected marker — an RTS radar

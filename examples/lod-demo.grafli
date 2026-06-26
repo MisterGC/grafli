@@ -32,12 +32,13 @@
 @ box st_search "Search index" 1140,390 240x80 #B7791F >storage
 
 # ── Observability (dense, parent-less mesh) ───────────────────────────
+# Mixed colours on purpose: the hull goes neutral grey (heterogeneous group).
 @ box obs_collector "Collector" 200,760 180x70 #6B46C1
 @ box obs_logs "Logs" 200,900 180x70 #6B46C1
-@ box obs_metrics "Metrics" 450,830 180x70 #6B46C1
-@ box obs_traces "Traces" 700,760 180x70 #6B46C1
-@ box obs_alerts "Alerts" 700,900 180x70 #6B46C1
-@ box obs_dash "Dashboards" 950,830 180x70 #6B46C1
+@ box obs_metrics "Metrics" 450,830 180x70 #2C7A7B
+@ box obs_traces "Traces" 700,760 180x70 #2C7A7B
+@ box obs_alerts "Alerts" 700,900 180x70 #B83280
+@ box obs_dash "Dashboards" 950,830 180x70 #B83280
 
 # ── Internal arrows (vanish when their group collapses) ───────────────
 @ arrow api_gw -> api_rest "route" @55,0
@@ -71,8 +72,15 @@
 
 # ── Standalone notes (hide once their own text is illegible) ──────────
 @ note title 330,-140 "Qt 6 — System Overview" ~xxlarge
-@ note legend 1520,40 "Zoom out: groups summarize.\nDouble-click a tile to dive in.\nShift+D toggles LoD." ~small
-@ note disc 220,1080 "Dev: hull groups the mesh\nAI: yes — by connectivity" ~small
+@ note legend 1520,40 """
+Zoom out: groups summarize.
+Double-click a tile to dive in.
+Shift+D toggles LoD.
+""" ~small
+@ note disc 220,1080 """
+Dev: hull groups the mesh
+AI: yes — by connectivity
+""" ~small
 
 # ── Docs container: an image + a note, both subsumed when it collapses ─
 @ box docs "Docs" 1520,260 400x360 #6B46C1 ~large !flat
@@ -80,4 +88,12 @@
 @ note docnote 1560,520 "screenshots & ADRs" ~small >docs
 
 # ── Standalone image (stays a legible thumbnail when zoomed out) ───────
-@ image shot "lod-demo-res/shot.png" 1520,680 360x200
+@ image shot "lod-demo-res/shot.png" 1540,-10 360x200
+
+# ── Four-level nesting: Infra > Region > Zone > Rack > nodes ───────────
+@ box infra "Infra" 1170,665 350x445 #4C5B8F ~large !flat
+@ box region "Region" 1200,725 290x365 #4C5B8F !flat >infra
+@ box zone "Zone" 1225,775 240x290 #4C5B8F !flat >region
+@ box rack "Rack" 1250,820 190x230 #4C5B8F !flat >zone
+@ box node1 "Node 1" 1272,875 145x70 #4C5B8F >rack
+@ box node2 "Node 2" 1272,960 145x70 #4C5B8F >rack

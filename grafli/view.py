@@ -3877,6 +3877,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             pct = round(self._current_zoom() * 100)
             window._status_zoom.setText(f"{pct}%")
         self._refresh_lod()
+        self._update_status_lod()
+
+    def _update_status_lod(self):
+        """Reflect the LoD state in the status bar: off / actively summarizing /
+        (blank when on but showing everything at full detail)."""
+        window = self.window()
+        if not hasattr(window, '_status_lod'):
+            return
+        aggregating = bool(self._lod_collapsed or self._lod_hulls
+                           or self._lod_simplified or self._lod_hidden_notes)
+        if not self._lod_enabled:
+            window._status_lod.setText("LoD off")
+            window._status_lod.setStyleSheet("color: #999999;")
+        elif aggregating:
+            window._status_lod.setText("◧ LoD")
+            window._status_lod.setStyleSheet("color: #C77A52; font-weight: bold;")
+        else:
+            window._status_lod.setText("")
 
     def _refresh_lod(self):
         """Recompute the Level-of-Detail state at the current zoom.
@@ -4034,8 +4052,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                          self._box_items[m].box.w, self._box_items[m].box.h)
                      for m in comp if m in self._box_items}
             hub = model.component_hub(comp)
-            raw = self._box_items[hub].box.color if hub in self._box_items else ""
-            color = raw if raw.startswith("#") else "#6B46C1"
+            color = self._cluster_color(comp)
             hull = ClusterHullItem(rects, model.component_edges(comp),
                                    model.cluster_pad(comp), model.label_of(hub),
                                    len(comp), color)
@@ -4054,6 +4071,19 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if self._lod is None or not self._lod_collapsed:
             return elem_id
         return self._lod.resolve_visible(elem_id, self._lod_collapsed)
+
+    def _cluster_color(self, comp) -> str:
+        """Hull colour: the members' shared colour, or a neutral grey when they
+        disagree — an honest 'this is a heterogeneous group' instead of picking
+        one member's colour and misrepresenting the rest."""
+        from grafli.items import _resolve_color
+        hexes = set()
+        for m in comp:
+            it = self._box_items.get(m)
+            if it is not None:
+                hexes.add(_resolve_color(it.box.color))
+        hexes.discard(None)
+        return hexes.pop() if len(hexes) == 1 else self.LOD_NEUTRAL
 
     def _selection_has_locked(self) -> bool:
         """True if the selection includes a LoD-collapsed tile — a read-only
@@ -4134,6 +4164,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     # zoom-in is a fixed cap (so a few glyphs can't fill the screen).
     MIN_ZOOM_ABS = 0.02
     MAX_ZOOM = 5.0
+    # Muted grey for a LoD aggregate whose members don't share a colour.
+    LOD_NEUTRAL = "#8E9299"
 
     def _fit_zoom(self):
         """Scale at which the whole board (plus margin) just fits the viewport,

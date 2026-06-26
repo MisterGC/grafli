@@ -1270,12 +1270,10 @@ class ClusterHullItem(QGraphicsPathItem):
         fill = QColor(color)
         fill.setAlphaF(0.16)
         self.setBrush(QBrush(fill))
-        pen = QPen(QColor(color))
-        pen.setWidthF(2.5)
+        self._fill_color = QColor(color)
+        pen = QPen(QColor(color).darker(115))
+        pen.setWidthF(2.0)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        # Dashed outline marks the hull as a derived boundary (a LoD summary),
-        # not an authored shape.
-        pen.setStyle(Qt.PenStyle.DashLine)
         self.setPen(pen)
         self.setZValue(-100)   # behind the (hidden) nodes and arrows
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
@@ -1321,9 +1319,35 @@ class ClusterHullItem(QGraphicsPathItem):
                 outside = mid
         return outside
 
+    def boundingRect(self) -> QRectF:
+        # Room for the offset shadow (top-right) and the counter-scaled label.
+        return super().boundingRect().adjusted(-20, -40, 40, 20)
+
+    def _paint_hull_stack(self, painter: QPainter):
+        """One offset layer peeking behind the hull — the same 'stack of
+        notebooks' aggregation cue used on collapsed tiles, so the whole LoD
+        vocabulary is consistent."""
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        off = min(5.0 / scale, 30.0)
+        front = self.path()
+        layer = QPainterPath(front)
+        layer.translate(off, -off)
+        visible = layer.subtracted(front)
+        shade = QColor(self._fill_color).darker(118)
+        shade.setAlpha(165)
+        painter.fillPath(visible, shade)
+        pen = QPen(QColor(0, 0, 0, 60))
+        pen.setWidthF(max(0.8, 1.0 / scale))
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(visible)
+
     def paint(self, painter: QPainter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        super().paint(painter, option, widget)   # fill + concave outline
+        self._paint_hull_stack(painter)          # offset 'notebook' edge behind
+        super().paint(painter, option, widget)   # fill + solid concave outline
 
         scale = _view_scale(self)
         if scale <= 0:

@@ -35,6 +35,31 @@ from grafli.sidepanel import PanelToggleButton, SidePanel
 from grafli.view import GrafliView
 
 
+def running_version() -> str:
+    """A label identifying the *running* code. For a packaged install that's
+    the version; for an editable/dev checkout the cached version goes stale, so
+    show the live git HEAD (branch@sha, ``*`` if dirty) — it changes every
+    commit, so a relaunch visibly reflects whether new code was picked up."""
+    import os
+    import subprocess
+    from grafli import __version__
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def _git(*a: str) -> str:
+        try:
+            return subprocess.run(("git", "-C", repo, *a), capture_output=True,
+                                  text=True, timeout=2).stdout.strip()
+        except Exception:
+            return ""
+
+    sha = _git("rev-parse", "--short", "HEAD")
+    if not sha:
+        return f"v{__version__}"
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD") or "?"
+    dirty = "*" if _git("status", "--porcelain") else ""
+    return f"{branch}@{sha}{dirty}"
+
+
 # ── Main window ─────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
@@ -432,6 +457,20 @@ class MainWindow(QMainWindow):
         self._view.scale(1 / 1.15, 1 / 1.15)
         self._view._update_status_zoom()
 
+    def _warn_parse_issues(self, board):
+        """Surface lines the parser couldn't read (and demoted to comments) on
+        open/reload — so an AI/hand-edit slip is visible, not silently lost."""
+        warnings = getattr(board, "parse_warnings", None)
+        if not warnings:
+            return
+        shown = ", ".join(str(w.line) for w in warnings[:6])
+        more = f" (+{len(warnings) - 6} more)" if len(warnings) > 6 else ""
+        n = len(warnings)
+        self._view.toast(
+            f"⚠ {n} line{'s' if n != 1 else ''} couldn't be parsed "
+            f"({'lines' if n != 1 else 'line'} {shown}{more}) — kept as comments",
+            "warn")
+
     def _zoom_fit(self, animate: bool = True):
         if not (self.board and (self.board.boxes or self.board.notes
                                 or self.board.images)):
@@ -472,6 +511,13 @@ class MainWindow(QMainWindow):
         self._status_buf = QLabel("")
         self._status_buf.setStyleSheet("color: #6A9FB5;")
 
+        # Running-code identity (git branch@sha for dev checkouts) — so it's
+        # obvious at a glance whether a relaunch picked up new code.
+        self._status_version = QLabel(running_version())
+        self._status_version.setStyleSheet("color: #999999;")
+        self._status_version.setToolTip("Running grafli build")
+
+        self.statusBar().addPermanentWidget(self._status_version)
         self.statusBar().addWidget(self._status_mode)
         self.statusBar().addWidget(self._status_breadcrumb)
         self.statusBar().addWidget(self._status_focus)
@@ -546,6 +592,7 @@ class MainWindow(QMainWindow):
         self._snapshot_current()
         idx = self._buffers.add(buf)
         self._switch_buffer(idx, zoom_fit=True)
+        self._warn_parse_issues(board)
         if missing:
             self._view.toast(
                 "Missing vault doc"
@@ -593,6 +640,7 @@ class MainWindow(QMainWindow):
                     buf.board = new_board
                     buf.last_written = text
                     buf.view_state.dirty = False
+                    self._warn_parse_issues(new_board)
                 buf.file_mtime = disk_mtime
 
         # Set the path before loading so the scene rebuild can resolve image
@@ -684,6 +732,7 @@ class MainWindow(QMainWindow):
                     buf.board = new_board
                     buf.last_written = text
                     buf.view_state.dirty = False
+                    self._warn_parse_issues(new_board)
                 buf.file_mtime = disk_mtime
 
         # Set the path before loading so image paths resolve during the scene
@@ -1654,6 +1703,15 @@ def _cmd_diagnose(argv: list[str]) -> int:
 
     text = args.input.read_text(encoding="utf-8")
     board = parse(text)
+    from grafli.diagnostics import Diagnostic
+    # Parse-level problems come first and as errors: a demoted line is lost data,
+    # the highest-severity thing a check can find.
+    parse_diags = [
+        Diagnostic(code="parse-error", severity="error",
+                   message=f"line {w.line}: {w.reason} — {w.text.strip()}",
+                   item_ids=[], fixable=False)
+        for w in getattr(board, "parse_warnings", [])
+    ]
     note_rect = _make_note_rect_provider()
     arrow_label_size = _make_arrow_label_size_provider()
     diags = run_all(
@@ -1664,7 +1722,6 @@ def _cmd_diagnose(argv: list[str]) -> int:
     )
     # Vault integrity: referenced docs whose file is gone (error — a doc-bodied
     # note would render blank) and unreferenced docs (info — legitimate state).
-    from grafli.diagnostics import Diagnostic
     from grafli.resources import classify_attachments, vault_docs
     classify_attachments(args.input.resolve(), board)
     inv = vault_docs(args.input.resolve(), board)
@@ -1681,6 +1738,8 @@ def _cmd_diagnose(argv: list[str]) -> int:
                     f"(grafli vault --clean removes it)",
             item_ids=[name], fixable=False,
         ))
+
+    diags = parse_diags + diags
 
     if args.json:
         print(_json.dumps([d.to_dict() for d in diags], indent=2))

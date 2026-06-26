@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Parse problems are surfaced, not swallowed.** When a line can't be
+  interpreted (a malformed `@` directive, an unterminated `"""` note block) the
+  parser still keeps it as a comment — but now *records* it and the app shows a
+  warning toast on open/reload (`⚠ N lines couldn't be parsed (line …) — kept
+  as comments`), and `grafli diagnose` reports each as an `error`. Previously a
+  small AI/hand-edit syntax slip silently dropped the element from the diagram
+  with no indication anything was wrong.
+- **Running-build indicator in the status bar.** A small `branch@sha` (with `*`
+  when the tree is dirty) for dev/editable checkouts — so it's obvious at a
+  glance whether a relaunch actually picked up new code (a packaged install
+  shows `vX.Y.Z` instead).
+
 ### Fixed
 - **Opening a file reliably frames it and focuses the canvas.** A board could
   open off-screen (the on-open zoom-to-fit fired before the window had its real

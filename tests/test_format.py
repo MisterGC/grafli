@@ -1696,3 +1696,27 @@ def test_size_aliases_parse_on_box_note_arrow():
     assert b.boxes[0].textsize == "2xl"
     assert b.notes[0].textsize == "3xl"
     assert serialize(b) == src
+
+
+# ── Parse-warning surfacing (no silent demotion of malformed lines) ──
+
+def test_malformed_directive_is_flagged_not_silently_dropped():
+    from grafli.format import parse
+    b = parse('#!grafli v1\n@ box ok "OK" 0,0 200x80\n@ box bad "B" 0,0 200\n')
+    assert [x.id for x in b.boxes] == ["ok"]      # the bad box is gone...
+    assert len(b.parse_warnings) == 1             # ...but it's reported
+    w = b.parse_warnings[0]
+    assert w.line == 3 and "malformed" in w.reason
+
+
+def test_unterminated_block_is_flagged_with_its_start_line():
+    from grafli.format import parse
+    b = parse('#!grafli v1\n@ box ok "OK" 0,0 200x80\n@ note n 0,0 """\nbody\n')
+    assert any('unterminated' in w.reason for w in b.parse_warnings)
+    assert b.parse_warnings[0].line == 3          # the opening `@ note … """`
+
+
+def test_clean_file_has_no_parse_warnings():
+    from grafli.format import parse
+    b = parse('#!grafli v1\n@ box a "A" 0,0 200x80\n@ note n 0,0 "hi"\n')
+    assert b.parse_warnings == []

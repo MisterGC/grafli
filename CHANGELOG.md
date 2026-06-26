@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     so a board reads as detail → inner-group tiles → outer-group tiles as you
     pull back.
   - A leaf whose own label would be illegible drops to a bare coloured shell.
+  - **Notes and images follow the same rules**: ones inside a collapsed
+    container are subsumed into its tile; a standalone note hides once its own
+    text is illegible; a standalone image stays (a shrunk image is still a
+    legible thumbnail).
   - A **parent-less cluster** (a connected, spatially-compact group of ≥3 loose
     nodes) collapses behind a **concave "bubble" hull** — a tight, organic
     outline (built from Qt path unions, padding adapted to node size) labelled

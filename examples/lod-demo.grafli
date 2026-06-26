@@ -1,3 +1,4 @@
+#!grafli v1
 # LoD demo — web app architecture
 # Structured to exercise semantic-zoom / Level-of-Detail (see issue #103):
 #   - containers with many children (collapse to a headline tile)
@@ -14,10 +15,10 @@
 
 # ── Backend (container with two sub-containers) ───────────────────────
 @ box backend "Backend" 450,0 560x620 #2F855A ~large !flat
-@ box api "API" 490,90 220x480 #2F855A !flat >backend
-@ box api_gw "Gateway" 510,150 180x70 #2F855A >api
-@ box api_rest "REST service" 510,250 180x70 #2F855A >api
-@ box api_auth "Auth service" 510,350 180x70 #2F855A >api
+@ box api "API" 498,90 220x480 #2F855A !flat >backend
+@ box api_gw "Gateway" 518,150 180x70 #2F855A >api
+@ box api_rest "REST service" 518,250 180x70 #2F855A >api
+@ box api_auth "Auth service" 518,350 180x70 #2F855A >api
 @ box workers "Workers" 750,90 220x480 #2F855A !flat >backend
 @ box wk_queue "Job queue" 770,150 180x70 #2F855A >workers
 @ box wk_email "Email worker" 770,250 180x70 #2F855A >workers
@@ -63,3 +64,20 @@
 @ arrow wk_email -> st_s3 "render"
 @ arrow obs_collector -> api_gw "scrape" !dotted
 @ arrow api_gw -> obs_logs "logs" !dotted
+
+# ── Notes inside containers (subsumed into the tile when it collapses) ─
+@ note apitodo 510,450 "T: rate limiting" ~small >api
+@ note wkq 770,450 "Q: retry policy?" ~small >workers
+
+# ── Standalone notes (hide once their own text is illegible) ──────────
+@ note title 330,-140 "Qt 6 — System Overview" ~xxlarge
+@ note legend 1520,40 "Zoom out: groups summarize.\nDouble-click a tile to dive in.\nShift+D toggles LoD." ~small
+@ note disc 220,1080 "Dev: hull groups the mesh\nAI: yes — by connectivity" ~small
+
+# ── Docs container: an image + a note, both subsumed when it collapses ─
+@ box docs "Docs" 1520,260 400x360 #6B46C1 ~large !flat
+@ image arch "lod-demo-res/arch.png" 1560,330 320x170 >docs
+@ note docnote 1560,520 "screenshots & ADRs" ~small >docs
+
+# ── Standalone image (stays a legible thumbnail when zoomed out) ───────
+@ image shot "lod-demo-res/shot.png" 1520,680 360x200

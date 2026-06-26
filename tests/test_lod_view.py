@@ -238,6 +238,30 @@ def test_deep_nesting_collapses_innermost_first_with_no_stale_state():
     assert tiles == {"gp"} and not (tiles & hidden)
 
 
+def test_notes_and_images_follow_lod():
+    board = parse(
+        "@ box grp \"G\" 0,0 500x400 !flat\n"
+        "@ box ch \"C\" 40,80 200x80 >grp\n"
+        "@ note inside 60,250 \"in the group\" >grp\n"
+        "@ note solo 900,0 \"standalone note\"\n"
+        "@ image imgin \"x.png\" 60,320 100x60 >grp\n"
+        "@ image imgsolo \"y.png\" 900,200 200x120\n"
+    )
+    view = _view(board)
+    _set_zoom(view, 0.2)
+    assert "grp" in view._lod_collapsed
+    # subsumed into the collapsed container:
+    assert not view._note_items["inside"].isVisible()
+    assert not view._image_items["imgin"].isVisible()
+    # standalone note hides once illegible; standalone image stays a thumbnail:
+    assert not view._note_items["solo"].isVisible()
+    assert view._image_items["imgsolo"].isVisible()
+    # back to detail -> everything visible again:
+    _set_zoom(view, 1.0)
+    assert all(n.isVisible() for n in view._note_items.values())
+    assert all(i.isVisible() for i in view._image_items.values())
+
+
 def test_toggle_helper_flips_and_reapplies():
     view = _view(parse(SAMPLE))
     _set_zoom(view, 0.3)

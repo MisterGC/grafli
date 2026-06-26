@@ -463,9 +463,23 @@ class MainWindow(QMainWindow):
         warnings = getattr(board, "parse_warnings", None)
         if not warnings:
             return
+        n = len(warnings)
+        # Distinguish "a board with a few bad lines" from "not a board at all"
+        # (e.g. a Markdown doc opened by mistake): if there's no `#!grafli`
+        # header and the file failed to parse far more lines than it
+        # recognized, don't cry "N broken lines" — say it isn't a grafli file.
+        recognized = (len(board.boxes) + len(board.arrows) + len(board.notes)
+                      + len(board.images) + len(board.bookmarks)
+                      + len(board.flows))
+        if not getattr(board, "had_header", False) and n >= max(5, 1.5 * recognized):
+            total = n + recognized
+            self._view.toast(
+                f"⚠ This doesn't look like a grafli file — {n} of {total} "
+                "lines aren't grafli directives. Opened as an empty board.",
+                "warn")
+            return
         shown = ", ".join(str(w.line) for w in warnings[:6])
         more = f" (+{len(warnings) - 6} more)" if len(warnings) > 6 else ""
-        n = len(warnings)
         self._view.toast(
             f"⚠ {n} line{'s' if n != 1 else ''} couldn't be parsed "
             f"({'lines' if n != 1 else 'line'} {shown}{more}) — kept as comments",

@@ -222,6 +222,10 @@ class Board:
     parse_warnings: list = field(default_factory=list, repr=False)
     """Lines that failed to parse and were demoted to comments (ParseWarning).
     Populated by parse(); not serialized."""
+    had_header: bool = field(default=False, repr=False)
+    """True if the file carried a `#!grafli` header line. A file without one
+    that also fails to parse most of its lines is probably not a board at all
+    (e.g. a Markdown doc opened by mistake) rather than a broken board."""
 
     def box_by_id(self, box_id: str) -> Box | None:
         for b in self.boxes:
@@ -572,6 +576,7 @@ def parse(text: str) -> Board:
 
         if stripped in (HEADER, HEADER_V2):
             board._lines.append(("header", stripped))
+            board.had_header = True
             continue
 
         if stripped.startswith("#"):

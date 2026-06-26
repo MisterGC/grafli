@@ -1720,3 +1720,24 @@ def test_clean_file_has_no_parse_warnings():
     from grafli.format import parse
     b = parse('#!grafli v1\n@ box a "A" 0,0 200x80\n@ note n 0,0 "hi"\n')
     assert b.parse_warnings == []
+
+
+def test_header_records_had_header_flag():
+    from grafli.format import parse
+    assert parse('#!grafli v1\n@ box a "A" 0,0 200x80\n').had_header is True
+    assert parse('@ box a "A" 0,0 200x80\n').had_header is False
+
+
+def test_non_grafli_file_has_no_header_and_mostly_warnings():
+    """A Markdown doc opened as a board: no header, nearly every line fails.
+    The app uses this shape to say 'not a grafli file' instead of crying
+    'N broken lines' on an otherwise-fine board."""
+    from grafli.format import parse
+    md = ("# A heading\n\n> a quote line\n- a bullet\n- another bullet\n"
+          "Some prose sentence.\nMore prose here.\n")
+    b = parse(md)
+    assert b.had_header is False
+    recognized = (len(b.boxes) + len(b.arrows) + len(b.notes)
+                  + len(b.images) + len(b.bookmarks) + len(b.flows))
+    assert recognized == 0
+    assert len(b.parse_warnings) >= 5

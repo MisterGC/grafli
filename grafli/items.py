@@ -1175,23 +1175,33 @@ class BoxItem(QGraphicsRectItem):
             painter.drawRoundedRect(sel_rect, radius, radius)
 
     def _paint_lod_stack(self, painter: QPainter):
-        """Offset outline 'cards' peeking behind the tile — the mark that says
-        'this is a LoD summary of many things, not a single authored node.'
-        Drawn counter-scaled (constant small on-screen offset, capped) so it
-        stays compact and never bloats the layout."""
+        """Mark a tile as a LoD summary by stacking it like a few thin notebooks:
+        only the *edges* of the layers underneath peek out at the top and right
+        (the front cover hides the rest). Counter-scaled so the offset stays a
+        small, capped on-screen amount — compact, never bloats the layout."""
         scale = _view_scale(self)
         if scale <= 0:
             return
         off = min(5.0 / scale, 30.0)
-        base = self.brush().color()
-        edge = base.darker(135) if base.alpha() else QColor(0, 0, 0, 90)
+        front = self.rect()
+        base = QColor(self.brush().color())
+        if base.alpha() == 0:
+            base = QColor("#C8CCD0")
+        base.setAlpha(255)
+        front_path = QPainterPath()
+        front_path.addRect(front)
+        edge = QColor(0, 0, 0, 70)
         pen = QPen(edge)
-        pen.setWidthF(max(1.0, 1.2 / scale))
-        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
+        pen.setWidthF(max(0.8, 1.0 / scale))
+        # Furthest layer first; only the L-shaped sliver outside the cover shows.
         for i in (2, 1):
-            painter.drawRect(self.rect().translated(off * i, -off * i))
+            layer = QPainterPath()
+            layer.addRect(front.translated(off * i, -off * i))
+            visible = layer.subtracted(front_path)
+            painter.fillPath(visible, base.darker(108 + 14 * i))
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(visible)
 
     def _paint_lod_tile(self, painter: QPainter):
         """Draw a collapsed container as a headline + child-count badge.

@@ -281,11 +281,14 @@ class LodModel:
             _, _, w, h = r
             if w <= 0 or h <= 0:
                 continue
-            # A note is a horizontal badge: its on-screen *presence* is set by
-            # its width, not its thin one-line height — using the shorter side
-            # would keep a legend collapsed even at full zoom. Boxes use the
-            # shorter side (a box stops being usable when it's narrow either way).
-            best = max(best, max(w, h) if cid in self._note_ids else min(w, h))
+            # A box uses its shorter side. A note is a thin horizontal badge:
+            # its height alone would keep a legend collapsed even at full zoom,
+            # while its width would inflate a mixed container above its boxes and
+            # delay collapse out of step with note-free siblings. The geometric
+            # mean (the "equivalent square") sits between — comparable to a small
+            # box, so notes neither dominate nor get ignored.
+            ext = (w * h) ** 0.5 if cid in self._note_ids else min(w, h)
+            best = max(best, ext)
         return best if best > 0 else float("inf")
 
     def summary(self, container_id: str) -> ContainerSummary:

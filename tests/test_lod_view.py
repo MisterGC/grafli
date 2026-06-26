@@ -253,13 +253,37 @@ def test_notes_and_images_follow_lod():
     # subsumed into the collapsed container:
     assert not view._note_items["inside"].isVisible()
     assert not view._image_items["imgin"].isVisible()
-    # standalone note hides once illegible; standalone image stays a thumbnail:
-    assert not view._note_items["solo"].isVisible()
+    # standalone note stays visible but simplifies to a 'text here' marker once
+    # illegible (never silently vanishes); standalone image stays a thumbnail:
+    assert view._note_items["solo"].isVisible()
+    assert view._note_items["solo"]._lod_text_marker
     assert view._image_items["imgsolo"].isVisible()
-    # back to detail -> everything visible again:
+    # back to detail -> everything visible and no markers:
     _set_zoom(view, 1.0)
     assert all(n.isVisible() for n in view._note_items.values())
+    assert not any(n._lod_text_marker for n in view._note_items.values())
     assert all(i.isVisible() for i in view._image_items.values())
+
+
+def test_notes_only_container_collapses_to_tile():
+    # A legend-style container holding only notes must aggregate into a tile
+    # like any box container — not just have its notes vanish.
+    board = parse(
+        "@ box legend \"Legend\" 0,0 360x300 !flat\n"
+        "@ note l1 30,60 \"blue = service\" >legend\n"
+        "@ note l2 30,120 \"red = task\" >legend\n"
+        "@ note l3 30,180 \"purple = question\" >legend\n"
+    )
+    view = _view(board)
+    _set_zoom(view, 0.1)
+    assert "legend" in view._lod_collapsed
+    assert view._box_items["legend"]._lod_tile is not None
+    # its notes are subsumed by the tile, not left floating:
+    assert not view._note_items["l1"].isVisible()
+    assert not view._note_items["l3"].isVisible()
+    _set_zoom(view, 1.0)
+    assert "legend" not in view._lod_collapsed
+    assert all(view._note_items[n].isVisible() for n in ("l1", "l2", "l3"))
 
 
 def test_hull_color_is_neutral_when_members_disagree():

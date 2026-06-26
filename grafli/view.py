@@ -224,6 +224,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._lod_simplified: set[str] = set()   # boxes drawn as bare shells
         self._lod_collapsed: set[str] = set()    # containers collapsed to tiles
         self._lod_hidden_notes: set[str] = set() # notes hidden under LoD
+        self._lod_note_shells: set[str] = set()  # notes drawn as text markers
         self._lod_hulls: dict[tuple, object] = {}        # cluster key -> hull item
         self._lod_hull_member: dict[str, object] = {}    # member id -> hull item
         self._lod_state = None                   # change-detection snapshot
@@ -758,6 +759,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._lod_simplified = set()
         self._lod_collapsed = set()
         self._lod_hidden_notes = set()
+        self._lod_note_shells = set()
         self._lod_hulls = {}          # items live in the about-to-be-rebuilt scene
         self._lod_hull_member = {}
         self._lod_state = None
@@ -766,6 +768,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if self._flow_player is not None:
             self._flow_player.stop()
         self._rebuild_scene()
+        # Feed real note footprints to the model now the items exist, so a
+        # notes-only container can collapse on size like any box container.
+        self._lod.set_note_extents({
+            nid: (it.boundingRect().width(), it.boundingRect().height())
+            for nid, it in self._note_items.items()
+        })
         self._refresh_lod()
         self.flows_changed.emit()
 
@@ -3960,19 +3968,21 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     shells.difference_update(comp)
                     hidden.update(comp)
 
-        # Notes & images follow the same logic: hidden when subsumed by a
-        # collapsed container; a standalone note also hides once its own text is
-        # illegible (decluttering, like a leaf shell). Standalone images stay —
-        # a shrunk image is still a legible thumbnail.
+        # Notes & images: a note subsumed by a collapsed container is hidden
+        # (the tile stands in for it). A standalone note whose own text is
+        # illegible doesn't vanish — it paints a 'text here' marker (plate +
+        # skeleton bars + accent tick), so nothing is silently lost. Standalone
+        # images stay — a shrunk image is still a legible thumbnail.
         hidden_notes: set[str] = set()
+        note_shells: set[str] = set()
         for nid, nitem in self._note_items.items():
             if model is not None and any(a in collapsed
                                          for a in model.ancestors(nid)):
                 hidden_notes.add(nid)
             elif self._lod_enabled:
                 px = resolve_textsize_px(nitem.note.textsize, "") * scale
-                if should_collapse(px, nid in self._lod_hidden_notes):
-                    hidden_notes.add(nid)
+                if should_collapse(px, nid in self._lod_note_shells):
+                    note_shells.add(nid)
         hidden_images: set[str] = set()
         if model is not None:
             for iid in self._image_items:
@@ -3980,7 +3990,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     hidden_images.add(iid)
 
         state = (frozenset(collapsed), frozenset(shells), frozenset(clusters),
-                 frozenset(hidden_notes), frozenset(hidden_images))
+                 frozenset(hidden_notes), frozenset(note_shells),
+                 frozenset(hidden_images))
         if state == self._lod_state:
             return
         routing_changed = (collapsed != self._lod_collapsed
@@ -4007,7 +4018,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             item._label.setVisible(not is_shell and not is_tile)
 
         for nid, nitem in self._note_items.items():
-            nitem.setVisible(nid not in hidden_notes)
+            hidden = nid in hidden_notes
+            nitem.setVisible(not hidden)
+            nitem.set_lod_text_marker(not hidden and nid in note_shells)
         for iid, iitem in self._image_items.items():
             iitem.setVisible(iid not in hidden_images)
 
@@ -4015,6 +4028,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._lod_simplified = shells
         self._lod_collapsed = collapsed
         self._lod_hidden_notes = hidden_notes
+        self._lod_note_shells = note_shells
         if routing_changed:
             # Hidden endpoints must re-route to their tile or hull (or vanish).
             self._redraw_arrows()

@@ -86,6 +86,7 @@ class LodModel:
         adjacency: dict[str, set[str]],
         loose: set[str],
         components: list[list[str]],
+        note_ids: set[str] | None = None,
     ) -> None:
         self._parent = parent
         self._children = children
@@ -95,6 +96,7 @@ class LodModel:
         self._adjacency = adjacency
         self.loose = loose
         self.components = components
+        self._note_ids: set[str] = note_ids or set()
         self._summaries: dict[str, ContainerSummary] = {}
 
     # ── construction ────────────────────────────────────────────────────
@@ -149,7 +151,20 @@ class LodModel:
             adjacency=adjacency,
             loose=loose,
             components=components,
+            note_ids={n.id for n in board.notes},
         )
+
+    def set_note_extents(self, sizes: dict[str, tuple[float, float]]) -> None:
+        """Replace notes' placeholder zero size with their rendered footprint
+        (scene units), so a note counts as a real child for the collapse
+        decision — a notes-only container (a legend, a stack of stickies)
+        aggregates into a tile like any box container instead of just having
+        its notes vanish. Position is kept; only width/height change."""
+        for nid, (w, h) in sizes.items():
+            r = self._rects.get(nid)
+            if r is not None:
+                self._rects[nid] = (r[0], r[1], w, h)
+        self._summaries.clear()
 
     # ── hierarchy queries ───────────────────────────────────────────────
 
@@ -266,7 +281,11 @@ class LodModel:
             _, _, w, h = r
             if w <= 0 or h <= 0:
                 continue
-            best = max(best, min(w, h))
+            # A note is a horizontal badge: its on-screen *presence* is set by
+            # its width, not its thin one-line height — using the shorter side
+            # would keep a legend collapsed even at full zoom. Boxes use the
+            # shorter side (a box stops being usable when it's narrow either way).
+            best = max(best, max(w, h) if cid in self._note_ids else min(w, h))
         return best if best > 0 else float("inf")
 
     def summary(self, container_id: str) -> ContainerSummary:

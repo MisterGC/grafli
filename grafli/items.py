@@ -1407,7 +1407,18 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.setAcceptHoverEvents(True)
         self._code_ref_rects: list[tuple[QRectF, str]] = []
         self._pending_ref: tuple[str, QPointF] | None = None
+        self._lod_text_marker = False
         self._update_url_indicator()
+
+    def set_lod_text_marker(self, on: bool) -> None:
+        """LoD: when its text is too small to read, a standalone note paints a
+        'there is text here' marker (plate + skeleton lines + a semantic accent
+        tick) instead of unreadable glyphs — so the note isn't lost, just
+        simplified. Same footprint, so no geometry change."""
+        if on == self._lod_text_marker:
+            return
+        self._lod_text_marker = on
+        self.update()
 
     def _ref_at(self, pos: QPointF) -> str | None:
         for rect, ref in self._code_ref_rects:
@@ -2156,7 +2167,51 @@ class NoteItem(QGraphicsSimpleTextItem):
         self._brect_cache = (cache_key, r)
         return r
 
+    def _paint_lod_marker(self, painter: QPainter):
+        """Paint the LoD 'text here' placeholder: the note's plate with a few
+        skeleton bars (suggesting prose) and a semantic accent tick down the
+        left edge. Drawn at the note's real footprint, so a bigger note stays a
+        bigger blob and shows more bars."""
+        r = self.boundingRect()
+        if self.isSelected():
+            r = r.adjusted(4, 4, -4, -4)   # undo the selection padding
+        pad = self._PAD
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        bg = QColor("#F2F0EB")
+        bg.setAlphaF(0.85)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(r, self._BG_RADIUS, self._BG_RADIUS)
+
+        _, _, accent = self._parse_note()
+        tick = QRectF(r.left() + pad, r.top() + pad,
+                      3.0, max(0.0, r.height() - 2 * pad))
+        painter.setBrush(QBrush(QColor(accent)))
+        painter.drawRoundedRect(tick, 1.5, 1.5)
+
+        bar = QColor("#9A968D")
+        bar.setAlphaF(0.55)
+        painter.setBrush(QBrush(bar))
+        line_h, gap = 6.0, 5.0
+        x0 = tick.right() + 5.0
+        avail_w = r.right() - pad - x0
+        if avail_w <= 4:
+            return
+        widths = (1.0, 0.7, 0.9, 0.55, 0.8)   # varied so it reads as prose
+        y, idx = r.top() + pad, 0
+        while y + line_h <= r.bottom() - pad:
+            painter.drawRoundedRect(
+                QRectF(x0, y, avail_w * widths[idx % len(widths)], line_h),
+                2.0, 2.0)
+            y += line_h + gap
+            idx += 1
+
     def paint(self, painter: QPainter, option, widget=None):
+        if self._lod_text_marker:
+            self._paint_lod_marker(painter)
+            return
+
         if self.note.icon and iconset.has_icon(self.note.icon):
             self._paint_icon_note(painter)
             return

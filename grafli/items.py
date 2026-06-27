@@ -1232,9 +1232,10 @@ class BoxItem(QGraphicsRectItem):
     def _paint_lod_tile(self, painter: QPainter):
         """Draw a collapsed container as a headline + child-count badge.
 
-        Drawn counter-scaled to the view zoom so the text stays readable as the
-        tile shrinks on screen (like a place name on a map), but capped to the
-        tile's on-screen size so it never overflows a small tile.
+        Counter-scaled so the text stays readable as the tile shrinks (like a
+        place name on a map). The headline **wraps** to the tile's on-screen
+        width across multiple lines, only spilling past the edges when a single
+        word can't fit at all.
         """
         label, count = self._lod_tile
         rect = self.rect()
@@ -1253,15 +1254,21 @@ class BoxItem(QGraphicsRectItem):
         head_font.setBold(True)
         painter.setFont(head_font)
         painter.setPen(QColor("#2F3437"))
-        fm = QFontMetricsF(head_font)
         gap = head_px * 0.35
         badge_px = max(6.0, head_px * 0.72)
-        total_h = fm.height() + gap + badge_px
+
+        # Wrap the headline to the tile's on-screen width; a word too long to
+        # fit overflows (last resort) rather than being chopped mid-word.
+        pad = max(4.0, head_px * 0.5)
+        avail_w = max(24.0, rect.width() * scale - 2 * pad)
+        flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
+                    | Qt.TextFlag.TextWordWrap)
+        sandbox = QRectF(-avail_w / 2, 0.0, avail_w, 1.0e5)
+        head_h = painter.boundingRect(sandbox, flags, label).height()
+        total_h = head_h + gap + badge_px
         top = -total_h / 2
-        painter.drawText(
-            QRectF(-fm.horizontalAdvance(label), top,
-                   2 * fm.horizontalAdvance(label), fm.height()),
-            Qt.AlignmentFlag.AlignCenter, label)
+        painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h),
+                         flags, label)
 
         badge_font = QFont(FONT_FAMILY)
         badge_font.setPixelSize(round(badge_px))
@@ -1271,7 +1278,7 @@ class BoxItem(QGraphicsRectItem):
         bfm = QFontMetricsF(badge_font)
         bw = bfm.horizontalAdvance(text)
         painter.drawText(
-            QRectF(-bw, top + fm.height() + gap, 2 * bw, badge_px * 1.6),
+            QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6),
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, text)
         painter.restore()
 
@@ -1387,14 +1394,20 @@ class ClusterHullItem(QGraphicsPathItem):
         head_font.setBold(True)
         painter.setFont(head_font)
         painter.setPen(QColor("#2F3437"))
-        fm = QFontMetricsF(head_font)
         gap = 5.0
         badge_px = 10.0
-        top = -(fm.height() + gap + badge_px) / 2
-        painter.drawText(
-            QRectF(-fm.horizontalAdvance(self._label), top,
-                   2 * fm.horizontalAdvance(self._label), fm.height()),
-            Qt.AlignmentFlag.AlignCenter, self._label)
+        # Wrap the hub label to the hull's on-screen width (overflow only when a
+        # single word can't fit), same as a collapsed tile.
+        pad = 8.0
+        hull_w = self.path().boundingRect().width()
+        avail_w = max(40.0, hull_w * scale - 2 * pad)
+        flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
+                    | Qt.TextFlag.TextWordWrap)
+        sandbox = QRectF(-avail_w / 2, 0.0, avail_w, 1.0e5)
+        head_h = painter.boundingRect(sandbox, flags, self._label).height()
+        top = -(head_h + gap + badge_px) / 2
+        painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h),
+                         flags, self._label)
         badge_font = QFont(FONT_FAMILY)
         badge_font.setPixelSize(round(badge_px))
         painter.setFont(badge_font)
@@ -1402,7 +1415,7 @@ class ClusterHullItem(QGraphicsPathItem):
         bfm = QFontMetricsF(badge_font)
         bw = bfm.horizontalAdvance(text)
         painter.drawText(
-            QRectF(-bw, top + fm.height() + gap, 2 * bw, badge_px * 1.6),
+            QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6),
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, text)
         painter.restore()
 

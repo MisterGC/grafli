@@ -356,6 +356,24 @@ def test_loose_cluster_hull_syncs_to_depth1_collapse():
     assert len(view._lod_hulls) == 1
 
 
+def test_long_tile_headline_wraps_without_error():
+    from PySide6.QtGui import QPixmap, QPainter
+    board = parse(
+        "@ box grp \"A Very Long Collapsed Container Headline (modified)\" "
+        "0,0 360x300 !flat\n"
+        "@ box c1 \"child one\" 30,80 200x80 >grp\n"
+        "@ box c2 \"child two\" 30,180 200x80 >grp\n"
+    )
+    view = _view(board)
+    _set_zoom(view, 0.2)
+    item = view._box_items["grp"]
+    assert item._lod_tile is not None
+    pm = QPixmap(200, 200)
+    p = QPainter(pm)
+    item.paint(p, None)          # exercises the wrapping headline path
+    p.end()
+
+
 def test_notes_only_container_collapses_to_tile():
     # A legend-style container holding only notes must aggregate into a tile
     # like any box container — not just have its notes vanish.

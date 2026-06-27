@@ -201,6 +201,59 @@ def _view_scale(item) -> float:
     return 1.0
 
 
+def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
+                            ideal_px):
+    """Draw a centered '<label> / N nodes' caption for a collapsed tile or hull.
+
+    The painter is already translated to the centre and counter-scaled
+    (1 unit == 1 on-screen px). The headline wraps to the available width at the
+    ideal (most readable) size; it is shrunk **only if** it would still overflow
+    the available area — the largest size that fits — and overflows past the
+    edges only as a last resort (a single word too wide even at the floor).
+    """
+    flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
+                | Qt.TextFlag.TextWordWrap)
+    min_px = 6.0
+    head_px = max(min_px, ideal_px)
+    while True:
+        pad = max(3.0, head_px * 0.45)
+        avail_w = max(16.0, w_screen - 2 * pad)
+        avail_h = max(12.0, h_screen - 2 * pad)
+        head_font = QFont(FONT_FAMILY)
+        head_font.setPixelSize(round(head_px))
+        head_font.setBold(True)
+        painter.setFont(head_font)
+        gap = head_px * 0.35
+        badge_px = max(6.0, head_px * 0.72)
+        # Measure with QFontMetricsF, not painter.boundingRect: the latter
+        # returns an empty rect under the translated/counter-scaled scene
+        # painter (device-coordinate quirk). Font metrics are transform-free.
+        bound = QFontMetricsF(head_font).boundingRect(
+            QRectF(-avail_w / 2, 0.0, avail_w, 60.0 * head_px), flags, label)
+        fits = (bound.width() <= avail_w + 0.5
+                and bound.height() + gap + badge_px <= avail_h)
+        if fits or head_px <= min_px:
+            head_h = bound.height()
+            break
+        head_px -= 1.0
+
+    total_h = head_h + gap + badge_px
+    top = -total_h / 2
+    painter.setPen(QColor("#2F3437"))
+    painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h), flags, label)
+
+    badge_font = QFont(FONT_FAMILY)
+    badge_font.setPixelSize(round(badge_px))
+    painter.setFont(badge_font)
+    painter.setPen(QColor("#2F3437"))
+    text = f"{count} node" + ("" if count == 1 else "s")
+    bfm = QFontMetricsF(badge_font)
+    bw = bfm.horizontalAdvance(text)
+    painter.drawText(
+        QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6),
+        int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), text)
+
+
 def _apply_emphasis(font: QFont, emphasis: str) -> QFont:
     """Layer bold/italic onto ``font`` from an element's ``emphasis`` string."""
     if "bold" in emphasis:
@@ -1242,44 +1295,15 @@ class BoxItem(QGraphicsRectItem):
         scale = _view_scale(self)
         if scale <= 0:
             return
-        on_screen_min = min(rect.width(), rect.height()) * scale
-        head_px = max(7.0, min(16.0, on_screen_min * 0.32))
+        w_screen = rect.width() * scale
+        h_screen = rect.height() * scale
+        ideal = max(7.0, min(16.0, min(w_screen, h_screen) * 0.32))
 
         painter.save()
         painter.translate(rect.center())
         painter.scale(1.0 / scale, 1.0 / scale)   # 1 unit == 1 on-screen px
-
-        head_font = QFont(FONT_FAMILY)
-        head_font.setPixelSize(round(head_px))
-        head_font.setBold(True)
-        painter.setFont(head_font)
-        painter.setPen(QColor("#2F3437"))
-        gap = head_px * 0.35
-        badge_px = max(6.0, head_px * 0.72)
-
-        # Wrap the headline to the tile's on-screen width; a word too long to
-        # fit overflows (last resort) rather than being chopped mid-word.
-        pad = max(4.0, head_px * 0.5)
-        avail_w = max(24.0, rect.width() * scale - 2 * pad)
-        flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
-                    | Qt.TextFlag.TextWordWrap)
-        sandbox = QRectF(-avail_w / 2, 0.0, avail_w, 1.0e5)
-        head_h = painter.boundingRect(sandbox, flags, label).height()
-        total_h = head_h + gap + badge_px
-        top = -total_h / 2
-        painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h),
-                         flags, label)
-
-        badge_font = QFont(FONT_FAMILY)
-        badge_font.setPixelSize(round(badge_px))
-        painter.setFont(badge_font)
-        painter.setPen(QColor("#2F3437"))
-        text = f"{count} node" + ("" if count == 1 else "s")
-        bfm = QFontMetricsF(badge_font)
-        bw = bfm.horizontalAdvance(text)
-        painter.drawText(
-            QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6),
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, text)
+        _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
+                                ideal)
         painter.restore()
 
 
@@ -1386,37 +1410,15 @@ class ClusterHullItem(QGraphicsPathItem):
         scale = _view_scale(self)
         if scale <= 0:
             return
+        bounds = self.path().boundingRect()
+        w_screen = bounds.width() * scale
+        h_screen = bounds.height() * scale
+        ideal = max(7.0, min(16.0, min(w_screen, h_screen) * 0.32))
         painter.save()
         painter.translate(self._centroid)
         painter.scale(1.0 / scale, 1.0 / scale)
-        head_font = QFont(FONT_FAMILY)
-        head_font.setPixelSize(14)
-        head_font.setBold(True)
-        painter.setFont(head_font)
-        painter.setPen(QColor("#2F3437"))
-        gap = 5.0
-        badge_px = 10.0
-        # Wrap the hub label to the hull's on-screen width (overflow only when a
-        # single word can't fit), same as a collapsed tile.
-        pad = 8.0
-        hull_w = self.path().boundingRect().width()
-        avail_w = max(40.0, hull_w * scale - 2 * pad)
-        flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
-                    | Qt.TextFlag.TextWordWrap)
-        sandbox = QRectF(-avail_w / 2, 0.0, avail_w, 1.0e5)
-        head_h = painter.boundingRect(sandbox, flags, self._label).height()
-        top = -(head_h + gap + badge_px) / 2
-        painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h),
-                         flags, self._label)
-        badge_font = QFont(FONT_FAMILY)
-        badge_font.setPixelSize(round(badge_px))
-        painter.setFont(badge_font)
-        text = f"{self._count} nodes"
-        bfm = QFontMetricsF(badge_font)
-        bw = bfm.horizontalAdvance(text)
-        painter.drawText(
-            QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6),
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, text)
+        _draw_aggregate_caption(painter, self._label, self._count,
+                                w_screen, h_screen, ideal)
         painter.restore()
 
 

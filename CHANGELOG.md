@@ -16,8 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     zoom, **deepest first**, so the tiers themselves reveal the structure as you
     pull back: detail → innermost tiles → … → top-level tiles. A collapsed
     container becomes a single tile — its counter-scaled headline (kept legible
-    like a place name on a map) plus a child-count badge — and its children
-    hide. Boundary-crossing arrows re-route to the tile; internal edges vanish.
+    like a place name on a map, **wrapping across lines** and shrinking its font
+    only if it would still overflow the tile) plus a child-count badge — and its
+    children hide. Boundary-crossing arrows re-route to the tile; internal edges
+    vanish.
   - **Every simplified node speaks one "there's content here" language.** A leaf
     whose label is too small keeps its colour and shows **skeleton bars** where
     the label was; a connector **label** hides once it drops below the same

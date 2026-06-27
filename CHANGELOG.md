@@ -7,68 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Parse problems are surfaced, not swallowed.** When a line can't be
-  interpreted (a malformed `@` directive, an unterminated `"""` note block) the
-  parser still keeps it as a comment — but now *records* it and the app shows a
-  warning toast on open/reload (`⚠ N lines couldn't be parsed (line …) — kept
-  as comments`), and `grafli diagnose` reports each as an `error`. Previously a
-  small AI/hand-edit syntax slip silently dropped the element from the diagram
-  with no indication anything was wrong.
-- **Running-build indicator in the status bar.** A small `branch@sha` (with `*`
-  when the tree is dirty) for dev/editable checkouts — so it's obvious at a
-  glance whether a relaunch actually picked up new code (a packaged install
-  shows `vX.Y.Z` instead).
-
-### Fixed
-- **Opening a file reliably frames it and focuses the canvas.** A board could
-  open off-screen (the on-open zoom-to-fit fired before the window had its real
-  size, leaving the view at 1:1 near the origin) and the canvas didn't grab
-  keyboard focus, so `M` / `⇧Z` did nothing until you clicked it — together
-  reading as a frozen app on a blank canvas. The fit now defers past an
-  unsized viewport and re-fits as the window reaches its real size, and the
-  canvas takes focus the moment a buffer loads.
+## [0.4.0] - 2026-06-27
 
 ### Added
-- **Level-of-Detail / semantic zoom (in progress).** Zooming far out now
-  simplifies the canvas instead of shrinking everything into unreadable mush:
-  - A **container collapses to a single tile** — its counter-scaled headline
-    (kept legible like a place name on a map) plus a child-count badge — and
-    its children hide. Arrows that crossed the boundary re-route to the tile;
-    edges internal to the group vanish. Nesting collapses **innermost-first**,
-    so a board reads as detail → inner-group tiles → outer-group tiles as you
-    pull back.
-  - A leaf whose own label would be illegible drops to a bare coloured shell.
-  - **Notes and images follow the same rules**: ones inside a collapsed
-    container are subsumed into its tile; a standalone note hides once its own
-    text is illegible; a standalone image stays (a shrunk image is still a
-    legible thumbnail).
+- **Level-of-Detail / semantic zoom.** Zooming far out now simplifies the
+  canvas instead of shrinking everything into unreadable mush:
+  - **Containers collapse by nesting depth.** Each level folds together at one
+    zoom, **deepest first**, so the tiers themselves reveal the structure as you
+    pull back: detail → innermost tiles → … → top-level tiles. A collapsed
+    container becomes a single tile — its counter-scaled headline (kept legible
+    like a place name on a map) plus a child-count badge — and its children
+    hide. Boundary-crossing arrows re-route to the tile; internal edges vanish.
+  - **Every simplified node speaks one "there's content here" language.** A leaf
+    whose label is too small keeps its colour and shows **skeleton bars** where
+    the label was; a connector **label** hides once it drops below the same
+    legibility floor (and its line redraws unbroken — no leftover gap).
+  - **Notes are first-class nodes.** A notes-only container (a legend) collapses
+    to a tile like any container; a standalone note that gets too small shows a
+    **text marker** — its plate with skeleton bars and a semantic accent tick
+    (task / question / info) — instead of vanishing; a note inside a collapsed
+    container is subsumed into its tile. Images inside a collapsed container are
+    subsumed too; a standalone image stays (a shrunk image is still a legible
+    thumbnail).
   - A **parent-less cluster** (a connected, spatially-compact group of ≥3 loose
-    nodes) collapses behind a **concave "bubble" hull** — a tight, organic
-    outline (built from Qt path unions, padding adapted to node size) labelled
-    by its hub node and count. Arrows from outside re-attach to the hull
-    outline; edges inside it vanish.
-  - A hysteresis band keeps threshold crossings from flickering while you
-    scrub the zoom.
+    nodes) collapses behind a concave **"bubble" hull** — a tight organic
+    outline (Qt path unions, padding adapted to node size) labelled by its hub
+    node and count, with outside arrows re-attaching to the outline. The hull
+    peels **in step with the top-level (depth-1) tiles**, so the whole top level
+    aggregates together.
+  - A hysteresis band keeps threshold crossings from flickering while you scrub
+    the zoom.
   - Aggregated nodes (tiles and hulls) are **read-only** — you edit at full
     detail, reached by zooming in, toggling LoD off, or **double-clicking the
     tile/hull to fly into it**. (This also closes a desync where dragging a
     collapsed container would have left its children behind.)
-  - LoD-generated proxies are **visually distinct from real elements** so the
-    two are never confused: a collapsed tile shows **stacked "card" edges**, and
-    a cluster hull has a **dashed outline**. When an aggregate's members don't
-    share a colour, it renders **neutral grey** rather than borrowing one
-    member's colour.
+  - LoD-generated proxies are **visually distinct from real elements**: tiles
+    and hulls both carry an aggregation cue (stacked "notebook" edges / an
+    offset shadow behind a solid outline). When an aggregate's members don't
+    share a colour it renders **neutral grey** rather than borrowing one
+    member's.
   - The **LoD state is surfaced**: a status-bar indicator (`◧ LoD` while
     summarizing, `LoD off` when toggled off), and the **minimap outlines the
     currently-collapsed regions** against its always-full-detail view.
   Toggle the whole thing with `⇧D` (on by default; off restores the
   uniform-shrink behaviour) — see issue #103. Ships with an
   `examples/lod-demo.grafli` board built to show it off.
-
-## [0.4.0] - 2026-06-23
-
-### Added
+- **Parse problems are surfaced, not swallowed.** When a line can't be
+  interpreted (a malformed `@` directive, an unterminated `"""` note block) the
+  parser still keeps it as a comment — but now *records* it and the app shows a
+  warning toast on open/reload (`⚠ N lines couldn't be parsed (line …) — kept
+  as comments`), and `grafli diagnose` reports each as an `error`. Previously a
+  small AI/hand-edit syntax slip silently dropped the element from the diagram
+  with no indication anything was wrong. A file that isn't a grafli board at all
+  (e.g. a Markdown doc opened by mistake — no header, most lines unparseable) is
+  recognised as such and reported plainly ("doesn't look like a grafli file")
+  rather than as a board with N broken lines.
+- **Running-build indicator in the status bar.** A small `branch@sha` (with `*`
+  when the tree is dirty) for dev/editable checkouts — so it's obvious at a
+  glance whether a relaunch actually picked up new code (a packaged install
+  shows `vX.Y.Z` instead).
 - **Trackpad-native pan & zoom.** Two-finger trackpad scroll now **pans** the
   canvas (it used to zoom), pinch-to-zoom works via native gestures, and
   `Ctrl`/`⌘`+scroll zooms — matching how a modern canvas app behaves. The
@@ -215,6 +212,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drag-to-resize like other notes.
 
 ### Fixed
+- **Opening a file reliably frames it and focuses the canvas.** A board could
+  open off-screen (the on-open zoom-to-fit fired before the window had its real
+  size, leaving the view at 1:1 near the origin) and the canvas didn't grab
+  keyboard focus, so `M` / `⇧Z` did nothing until you clicked it — together
+  reading as a frozen app on a blank canvas. The fit now defers past an unsized
+  viewport and re-fits as the window reaches its real size, and the canvas takes
+  focus the moment a buffer loads.
 - **Reliable zoom-to-fit on load.** Opening a board now frames it correctly:
   the canvas scrollbars are hidden (a scrollbar toggling mid-`fitInView` used
   to shrink the viewport and throw the fit off), re-opening or

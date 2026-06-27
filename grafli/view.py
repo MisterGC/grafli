@@ -8466,9 +8466,9 @@ return out  @parser.py:44</div>
         <p style='{hdr}'>MARKDOWN EDITOR (ZEN MODE)</p>
         <p>Opens when you follow a link to a local <span style='{mono}'>.md</span>
         file from a node URL, or when you edit an annotation. Pure text, no
-        chrome &mdash; the shortcuts below are the controls. Files open
-        read-only so browsing never edits by accident; toggle with
-        <b>Ctrl+W</b>. Annotation edits start in write mode.</p>
+        chrome &mdash; the shortcuts below are the controls. The editor opens
+        ready to type (vim NORMAL mode); switch to a rendered reading view with
+        <b>Ctrl+R</b>.</p>
 
         <p style='{kw}'>Session</p>
         <table cellpadding='2' style='margin-left:8px'>
@@ -8479,11 +8479,17 @@ return out  @parser.py:44</div>
           <tr><td style='{key_cell}'>Shift+Esc</td>
               <td style='{cell}'>Cancel &mdash; discard pending changes
                   in annotation mode.</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+W</td>
-              <td style='{cell}'>Toggle read-only / write
-                  (file mode only). Write mode autosaves after 500&nbsp;ms
-                  of idle typing; read-only re-attaches the file watcher
-                  so external edits reload.</td></tr>
+          <tr><td style='{key_cell}'>Ctrl+R</td>
+              <td style='{cell}'>Toggle a read-only <b>rendered</b> Markdown
+                  view (formatted headings, bold, lists, links) and back to
+                  the editor. Scroll it with vim keys
+                  (j/k, Ctrl+d/u, Ctrl+f/b, gg/G).</td></tr>
+          <tr><td style='{key_cell}'>Ctrl+Enter</td>
+              <td style='{cell}'>Toggle full-window width
+                  (focused column &harr; fills the window).</td></tr>
+          <tr><td style='{key_cell}'>Ctrl+.</td>
+              <td style='{cell}'>Toggle section focus &mdash; dim everything
+                  but the current paragraph (off by default).</td></tr>
           <tr><td style='{key_cell}'>Ctrl+P</td>
               <td style='{cell}'>Open the native print dialog.</td></tr>
           <tr><td style='{key_cell}'>Ctrl++ / Ctrl+- / Ctrl+0</td>

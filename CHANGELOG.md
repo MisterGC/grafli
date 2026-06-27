@@ -71,12 +71,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `⌄ N more lines · double-click to open` pill — so a stray long note can't
   dominate the board, and it's obvious the full text lives in the editor
   (the note's clickable footprint is the displayed, capped area).
-- **Zen Markdown editor: rendered preview and fill-window.** `⌘R` toggles
-  between the source editor and a **read-only rendered Markdown view**
-  (formatted headings, bold, lists, links) — a quick read-perspective ↔
-  edit-perspective switch; `⌘↵` expands the editor card to fill the window
-  (toggle back to the focused column). Joins the existing `⌘W` write toggle,
-  `⌘P` print, and `⌘±` font zoom.
+- **Zen Markdown editor: rendered reading view, simpler modes.** The editor
+  now **opens ready to type** (no more read-only-on-open), and reading is a
+  proper **rendered view** rather than read-only source: `⌘R` toggles between
+  the source editor and a formatted Markdown render (headings, bold, lists,
+  links), navigable with **vim keys** (`j`/`k`, `Ctrl+d`/`u`, `Ctrl+f`/`b`,
+  `gg`/`G`). `⌘↵` expands the card to fill the window; `⌘.` toggles the
+  section-focus dim (everything but the current paragraph — now **off by
+  default**). The old `⌘W` read-only/write toggle is gone (redundant);
+  `⌘P` print and `⌘±` font zoom stay. Doc-backed notes autosave (with a
+  flush on close) and the source view’s help reflects the new keys.
 - **Trackpad-native pan & zoom.** Two-finger trackpad scroll now **pans** the
   canvas (it used to zoom), pinch-to-zoom works via native gestures, and
   `Ctrl`/`⌘`+scroll zooms — matching how a modern canvas app behaves. The

@@ -83,7 +83,11 @@ class ZenMarkdownEditor(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._file_path = file_path
         self._original_text = text
-        self._read_only = file_path is not None
+        # The editor always opens editable; reading is the ⌘R rendered view.
+        self._read_only = False
+        # Section-focus dim (everything but the current paragraph) — off by
+        # default, toggled with ⌘.
+        self._focus_enabled = False
         self._watcher = None
         self._autosave_timer: QTimer | None = None
         # The graph canvas widget — the dim wash skips over this rect so
@@ -108,6 +112,7 @@ class ZenMarkdownEditor(QWidget):
         self.resize(parent.size())
         self._build_ui(title, text)
         self._setup_file_watcher()
+        self._enable_autosave()
         if anchor:
             self._jump_to_anchor(anchor)
         self.show()
@@ -155,12 +160,11 @@ class ZenMarkdownEditor(QWidget):
         self._rendered.installEventFilter(self)
         layout.addWidget(self._rendered, stretch=1)
 
-        # Markdown highlighter + paragraph focus (disabled in read-only mode)
+        # Markdown highlighter + paragraph focus (off by default; ⌘. toggles)
         self._highlighter = MarkdownHighlighter(self._editor.document())
         self._highlighter.set_base_size(self._font_size)
         self._editor.cursorPositionChanged.connect(self._update_focus)
-        if self._read_only:
-            self._highlighter.set_focus_enabled(False)
+        self._highlighter.set_focus_enabled(self._focus_enabled)
 
         # Heading gutter — `#` markers hang to the left of body text.
         self._applying_layout = False
@@ -207,6 +211,7 @@ class ZenMarkdownEditor(QWidget):
 
     def _close_save(self):
         if self._file_path:
+            self._autosave()   # flush any pending edit before closing
             self._fade_out_and_close(self._emit_cancelled)
         else:
             captured = self._editor.toPlainText()
@@ -237,7 +242,7 @@ class ZenMarkdownEditor(QWidget):
         self._fade_out_anim = anim
 
     def _update_focus(self):
-        if self._read_only:
+        if not self._focus_enabled:
             return
         start, end = compute_focus_range(self._editor)
         self._highlighter.set_focus_range(start, end)
@@ -340,32 +345,27 @@ class ZenMarkdownEditor(QWidget):
         if self._watcher and path not in self._watcher.files():
             self._watcher.addPath(path)
 
-    def _toggle_write_mode(self):
-        """Toggle between read-only and auto-save write mode for files."""
+    def _enable_autosave(self):
+        """Doc-backed notes open editable, so wire up autosave from the start
+        (debounced) — the editor owns the file while open."""
         if not self._file_path:
             return
-        self._read_only = not self._read_only
-        self._editor.setReadOnly(self._read_only)
-        self._highlighter.set_focus_enabled(not self._read_only)
-        if not self._read_only:
+        if self._watcher:
+            self._watcher.removePath(str(self._file_path))
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(500)
+        self._autosave_timer.timeout.connect(self._autosave)
+        self._editor.textChanged.connect(self._schedule_autosave)
+
+    def _toggle_focus(self):
+        """⌘. — toggle the section-focus dim (everything but the current
+        paragraph). Off by default."""
+        self._focus_enabled = not self._focus_enabled
+        self._highlighter.set_focus_enabled(self._focus_enabled)
+        if self._focus_enabled:
             self._update_focus()
-        if self._read_only:
-            # Entering read-only: stop autosave, re-enable watcher
-            if self._autosave_timer:
-                self._autosave_timer.stop()
-                self._autosave_timer = None
-            if self._watcher and str(self._file_path) not in self._watcher.files():
-                self._watcher.addPath(str(self._file_path))
-        else:
-            # Entering write mode: setup autosave, pause watcher
-            if self._watcher:
-                self._watcher.removePath(str(self._file_path))
-            self._autosave_timer = QTimer(self)
-            self._autosave_timer.setSingleShot(True)
-            self._autosave_timer.setInterval(500)
-            self._autosave_timer.timeout.connect(self._autosave)
-            self._editor.textChanged.connect(self._schedule_autosave)
-        self._vim._set_mode(VimMode.NORMAL)
+        self.update()
 
     def _schedule_autosave(self):
         if self._autosave_timer:
@@ -386,7 +386,7 @@ class ZenMarkdownEditor(QWidget):
         dialog = QPrintDialog(printer, self)
         if dialog.exec() == QPrintDialog.DialogCode.Accepted:
             self._editor.print_(printer)
-        self._highlighter.set_focus_enabled(True)
+        self._highlighter.set_focus_enabled(self._focus_enabled)
 
     def _toggle_full_width(self):
         """⌘↵: expand the card to fill the window (and back to the column)."""
@@ -585,28 +585,20 @@ class ZenMarkdownEditor(QWidget):
             self._toggle_full_width()
             return True
 
-        # In rendered mode only Esc (save / cancel) is handled; everything else
-        # falls through so the browser can scroll.
+        # Ctrl+. — toggle section-focus dim (works in either view)
+        if (event.key() == Qt.Key.Key_Period
+                and event.modifiers() & _CTRL_MOD):
+            self._toggle_focus()
+            return True
+
+        # Rendered view: vim-style navigation; Esc saves & closes.
         if self._rendered_mode:
-            if event.key() == Qt.Key.Key_Escape:
-                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                    self._close_cancel()
-                else:
-                    self._close_save()
-                return True
-            return False
+            return self._handle_rendered_key(event)
 
         # Ctrl+J — activate word jump
         if (event.key() == Qt.Key.Key_J
                 and event.modifiers() & _CTRL_MOD):
             self._activate_jump()
-            return True
-
-        # Ctrl+W — toggle read-only / write mode (file mode only)
-        if (event.key() == Qt.Key.Key_W
-                and event.modifiers() & _CTRL_MOD
-                and self._file_path):
-            self._toggle_write_mode()
             return True
 
         # Ctrl+P — print
@@ -629,6 +621,56 @@ class ZenMarkdownEditor(QWidget):
 
         # Route through vim handler
         return self._vim.handle_key(event)
+
+    def _handle_rendered_key(self, event: QKeyEvent) -> bool:
+        """Vim-style normal-mode navigation for the read-only rendered view:
+        j/k line, Ctrl-d/u half-page, Ctrl-f/b/Space page, gg/G top/bottom,
+        Esc saves & closes (⇧Esc cancels)."""
+        key = event.key()
+        mods = event.modifiers()
+        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        ctrl = bool(mods & _CTRL_MOD)
+        sb = self._rendered.verticalScrollBar()
+        page = self._rendered.viewport().height()
+        line = max(sb.singleStep(), int(QFontMetricsF(
+            self._rendered.font()).height()))
+
+        # `gg` — two-key jump to top.
+        if key == Qt.Key.Key_G and not shift:
+            if getattr(self, "_rendered_pending_g", False):
+                self._rendered_pending_g = False
+                sb.setValue(sb.minimum())
+            else:
+                self._rendered_pending_g = True
+            return True
+        self._rendered_pending_g = False
+
+        if key == Qt.Key.Key_Escape:
+            self._close_cancel() if shift else self._close_save()
+            return True
+        if key == Qt.Key.Key_G and shift:                 # G — bottom
+            sb.setValue(sb.maximum())
+            return True
+        if key == Qt.Key.Key_J or key == Qt.Key.Key_Down:
+            sb.setValue(sb.value() + line)
+            return True
+        if key == Qt.Key.Key_K or key == Qt.Key.Key_Up:
+            sb.setValue(sb.value() - line)
+            return True
+        if ctrl and key == Qt.Key.Key_D:
+            sb.setValue(sb.value() + page // 2)
+            return True
+        if ctrl and key == Qt.Key.Key_U:
+            sb.setValue(sb.value() - page // 2)
+            return True
+        if key in (Qt.Key.Key_Space, Qt.Key.Key_PageDown) or (
+                ctrl and key == Qt.Key.Key_F):
+            sb.setValue(sb.value() + page)
+            return True
+        if key == Qt.Key.Key_PageUp or (ctrl and key == Qt.Key.Key_B):
+            sb.setValue(sb.value() - page)
+            return True
+        return False
 
     def _change_font_size(self, delta: int):
         """Change font size. delta=0 resets to default."""

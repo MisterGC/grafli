@@ -32,6 +32,7 @@ from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
     QPlainTextEdit,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -115,6 +116,8 @@ class ZenMarkdownEditor(QWidget):
     # ── UI construction ──
 
     def _build_ui(self, title: str, text: str):
+        self._full_width = False      # ⌘↵ expands the card to the window
+        self._rendered_mode = False   # ⌘R shows a read-only rendered view
         layout = QVBoxLayout(self)
         self._apply_card_margins(layout)
         layout.setSpacing(0)
@@ -136,6 +139,21 @@ class ZenMarkdownEditor(QWidget):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         layout.addWidget(self._editor, stretch=1)
+
+        # Read-only rendered Markdown view (⌘R toggles editor <-> this).
+        self._rendered = QTextBrowser()
+        self._rendered.setOpenExternalLinks(True)
+        self._rendered.setFont(QFont(FONT_FAMILY, self._font_size))
+        self._rendered.setStyleSheet(
+            f"QTextBrowser {{"
+            f" background: {ZEN_MD_BG.name()}; color: {ZEN_TEXT_COLOR.name()};"
+            f" border: none; padding: 0px;"
+            f" selection-background-color: #B8D4E8;"
+            f"}}"
+        )
+        self._rendered.setVisible(False)
+        self._rendered.installEventFilter(self)
+        layout.addWidget(self._rendered, stretch=1)
 
         # Markdown highlighter + paragraph focus (disabled in read-only mode)
         self._highlighter = MarkdownHighlighter(self._editor.document())
@@ -370,16 +388,46 @@ class ZenMarkdownEditor(QWidget):
             self._editor.print_(printer)
         self._highlighter.set_focus_enabled(True)
 
+    def _toggle_full_width(self):
+        """⌘↵: expand the card to fill the window (and back to the column)."""
+        self._full_width = not self._full_width
+        layout = self.layout()
+        if layout:
+            self._apply_card_margins(layout)
+        self._apply_heading_layout()
+        self.update()
+
+    def _toggle_rendered(self):
+        """⌘R: switch between the source editor and a read-only rendered
+        Markdown view — a quick read perspective <-> edit perspective."""
+        self._rendered_mode = not self._rendered_mode
+        if self._rendered_mode:
+            self._rendered.setFont(QFont(FONT_FAMILY, self._font_size))
+            self._rendered.document().setMarkdown(self._editor.toPlainText())
+            self._editor.setVisible(False)
+            self._rendered.setVisible(True)
+            self._rendered.setFocus()
+        else:
+            self._rendered.setVisible(False)
+            self._editor.setVisible(True)
+            self._editor.setFocus()
+        self.update()
+
     # ── Modal card geometry ──
 
     def _card_rect(self) -> QRectF:
         """Card width hugs the text column (ZEN_MD_MAX_WIDTH + padding);
-        height takes most of the window. Centered.
+        height takes most of the window. Centered. In full-width mode (⌘↵) the
+        card grows to nearly fill the window.
         """
-        desired_w = ZEN_MD_MAX_WIDTH + 2 * ZEN_MD_CARD_INNER_PAD_H
         max_w = max(self.width() - 80, 320)
-        w = min(desired_w, max_w)
-        h = min(self.height() * ZEN_MD_CARD_H_RATIO, self.height() - 60)
+        if getattr(self, "_full_width", False):
+            w = max_w
+            h = max(self.height() - 40, 320)
+        else:
+            desired_w = ZEN_MD_MAX_WIDTH + 2 * ZEN_MD_CARD_INNER_PAD_H
+            w = min(desired_w, max_w)
+            h = min(self.height() * ZEN_MD_CARD_H_RATIO, self.height() - 60)
         x = (self.width() - w) / 2
         y = (self.height() - h) / 2
         return QRectF(x, y, w, h)
@@ -511,7 +559,8 @@ class ZenMarkdownEditor(QWidget):
         if obj == self.parentWidget() and event.type() == QEvent.Type.Resize:
             self.resize(obj.size())
             return False
-        if obj == self._editor and event.type() == QEvent.Type.KeyPress:
+        if (obj in (self._editor, self._rendered)
+                and event.type() == QEvent.Type.KeyPress):
             return self._handle_key(event)
         return False
 
@@ -523,6 +572,29 @@ class ZenMarkdownEditor(QWidget):
         if self._jump and self._jump.is_active():
             self._jump.keyPressEvent(event)
             return True
+
+        # Ctrl+R — toggle rendered read-only view <-> source editor
+        if (event.key() == Qt.Key.Key_R
+                and event.modifiers() & _CTRL_MOD):
+            self._toggle_rendered()
+            return True
+
+        # Ctrl+Enter — toggle full-window width (works in either view)
+        if (event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                and event.modifiers() & _CTRL_MOD):
+            self._toggle_full_width()
+            return True
+
+        # In rendered mode only Esc (save / cancel) is handled; everything else
+        # falls through so the browser can scroll.
+        if self._rendered_mode:
+            if event.key() == Qt.Key.Key_Escape:
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self._close_cancel()
+                else:
+                    self._close_save()
+                return True
+            return False
 
         # Ctrl+J — activate word jump
         if (event.key() == Qt.Key.Key_J

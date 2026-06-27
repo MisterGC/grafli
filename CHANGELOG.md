@@ -66,6 +66,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when the tree is dirty) for dev/editable checkouts — so it's obvious at a
   glance whether a relaunch actually picked up new code (a packaged install
   shows `vX.Y.Z` instead).
+- **Over-long notes are capped on the canvas.** A note taller than ~12 lines
+  is clipped to a readable height with a soft bottom fade and a clear
+  `⌄ N more lines · double-click to open` pill — so a stray long note can't
+  dominate the board, and it's obvious the full text lives in the editor
+  (the note's clickable footprint is the displayed, capped area).
+- **Zen Markdown editor: rendered preview and fill-window.** `⌘R` toggles
+  between the source editor and a **read-only rendered Markdown view**
+  (formatted headings, bold, lists, links) — a quick read-perspective ↔
+  edit-perspective switch; `⌘↵` expands the editor card to fill the window
+  (toggle back to the focused column). Joins the existing `⌘W` write toggle,
+  `⌘P` print, and `⌘±` font zoom.
 - **Trackpad-native pan & zoom.** Two-finger trackpad scroll now **pans** the
   canvas (it used to zoom), pinch-to-zoom works via native gestures, and
   `Ctrl`/`⌘`+scroll zooms — matching how a modern canvas app behaves. The

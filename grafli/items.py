@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QAbstractTextDocumentLayout, QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QTextBlockFormat, QTextCharFormat, QTextCursor, QTextDocument, QTextOption
+from PySide6.QtGui import QAbstractTextDocumentLayout, QBrush, QColor, QFont, QFontMetricsF, QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QTextBlockFormat, QTextCharFormat, QTextCursor, QTextDocument, QTextOption
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
@@ -1418,6 +1418,8 @@ class NoteItem(QGraphicsSimpleTextItem):
     _BG_RADIUS = 4
     _CODE_BG_RADIUS = 6
     _BLOCK_GAP = 4
+    _DISPLAY_CAP_LINES = 12   # cap an over-long note's on-canvas height
+    _DISPLAY_FOOTER_H = 20.0  # 'open to read the rest' pill band
 
     def __init__(self, note: Note):
         super().__init__(note.text)
@@ -1435,6 +1437,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         self._code_ref_rects: list[tuple[QRectF, str]] = []
         self._pending_ref: tuple[str, QPointF] | None = None
         self._lod_text_marker = False
+        self._display_truncated = False    # set in boundingRect(): note capped?
+        self._display_hidden_lines = 0
         self._update_url_indicator()
 
     def set_lod_text_marker(self, on: bool) -> None:
@@ -2134,6 +2138,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         cache = getattr(self, "_brect_cache", None)
         cache_key = self._bbox_cache_key(sel)
         if cache is not None and cache[0] == cache_key:
+            self._display_truncated = cache[2]
+            self._display_hidden_lines = cache[3]
             return cache[1]
         target_px = getattr(self, "_resize_target_px", None)
         if self.note.icon and iconset.has_icon(self.note.icon):
@@ -2189,9 +2195,25 @@ class NoteItem(QGraphicsSimpleTextItem):
                     total_w = max(total_w, target_px)
                 total_h = pad + n_lines * line_h + pad
                 r = QRectF(0, 0, total_w, total_h)
+        # Cap an over-long note to a readable height on the canvas; the paint
+        # overlay tells the user to open the zen editor for the rest. Icon
+        # notes are a single glyph, not flowing text — never capped.
+        self._display_truncated = False
+        self._display_hidden_lines = 0
+        is_icon = self.note.icon and iconset.has_icon(self.note.icon)
+        if not is_icon:
+            line_h = QFontMetricsF(self._note_font()).height()
+            content_cap = self._PAD + self._DISPLAY_CAP_LINES * line_h
+            cap_h = content_cap + self._DISPLAY_FOOTER_H
+            if r.height() > cap_h + line_h:
+                self._display_truncated = True
+                self._display_hidden_lines = max(
+                    1, round((r.height() - content_cap) / line_h))
+                r = QRectF(r.x(), r.y(), r.width(), cap_h)
         if sel:
             r = r.adjusted(-4, -4, 4, 4)
-        self._brect_cache = (cache_key, r)
+        self._brect_cache = (cache_key, r, self._display_truncated,
+                             self._display_hidden_lines)
         return r
 
     def _paint_lod_marker(self, painter: QPainter):
@@ -2234,6 +2256,46 @@ class NoteItem(QGraphicsSimpleTextItem):
             y += line_h + gap
             idx += 1
 
+    def _paint_truncation_overlay(self, painter: QPainter):
+        """Fade the clipped bottom of a capped note and stamp a clear pill so
+        it's obvious the rest of the text lives in the zen editor."""
+        r = self.boundingRect()
+        if self.isSelected():
+            r = r.adjusted(4, 4, -4, -4)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        bg = QColor("#F2F0EB" if not self.note.flat else "#E9E5DD")
+        clip = QPainterPath()
+        clip.addRoundedRect(r, self._BG_RADIUS, self._BG_RADIUS)
+        painter.save()
+        painter.setClipPath(clip)
+        # Fade the last strip into the background so the cut reads intentional.
+        fade_h = 36.0
+        top = r.bottom() - fade_h
+        grad = QLinearGradient(0, top, 0, r.bottom())
+        c0 = QColor(bg); c0.setAlphaF(0.0)
+        c1 = QColor(bg); c1.setAlphaF(0.97)
+        grad.setColorAt(0.0, c0)
+        grad.setColorAt(0.5, c1)
+        grad.setColorAt(1.0, c1)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(grad))
+        painter.drawRect(QRectF(r.left(), top, r.width(), fade_h))
+        painter.restore()
+        # The pill: an unmistakable 'there's more — open it' cue.
+        n = self._display_hidden_lines
+        label = f"⌄ {n} more line{'s' if n != 1 else ''} · double-click to open"
+        font = QFont(self._note_font())
+        font.setPointSizeF(9.0)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#5A5A5A"))
+        band = QRectF(r.left() + self._PAD, r.bottom() - self._DISPLAY_FOOTER_H,
+                      r.width() - 2 * self._PAD, self._DISPLAY_FOOTER_H)
+        painter.drawText(
+            band,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter),
+            label)
+
     def paint(self, painter: QPainter, option, widget=None):
         if self._lod_text_marker:
             self._paint_lod_marker(painter)
@@ -2243,6 +2305,21 @@ class NoteItem(QGraphicsSimpleTextItem):
             self._paint_icon_note(painter)
             return
 
+        # Long notes are capped to a readable height (boundingRect); clip the
+        # body to the rounded card and overlay a fade + 'open to read all' pill.
+        truncated = getattr(self, "_display_truncated", False)
+        if truncated:
+            painter.save()
+            clip = QPainterPath()
+            clip.addRoundedRect(self.boundingRect(), self._BG_RADIUS,
+                                self._BG_RADIUS)
+            painter.setClipPath(clip)
+        self._paint_text_body(painter)
+        if truncated:
+            painter.restore()
+            self._paint_truncation_overlay(painter)
+
+    def _paint_text_body(self, painter: QPainter):
         if self._is_code_note():
             self._paint_code(painter)
             return

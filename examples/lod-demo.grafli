@@ -7,7 +7,7 @@
 #   - cross-group arrows that should survive collapse as tile-to-tile flow
 
 # ── Frontend (container) ──────────────────────────────────────────────
-@ box frontend "Frontend" 0,0 300x520 #2B6CB0 ~large !flat
+@ box frontend "Frontend" 0,0 384x666 #2B6CB0 ~23 !flat
 @ box fe_web "Web SPA" 40,90 220x80 #2B6CB0 >frontend
 @ box fe_mobile "Mobile app" 40,190 220x80 #2B6CB0 >frontend
 @ box fe_admin "Admin console" 40,290 220x80 #2B6CB0 >frontend
@@ -91,9 +91,9 @@ AI: yes — by connectivity
 @ image shot "lod-demo-res/shot.png" 1540,-10 360x200
 
 # ── Four-level nesting: Infra > Region > Zone > Rack > nodes ───────────
-@ box infra "Infra" 1170,665 350x445 #4C5B8F ~large !flat
-@ box region "Region" 1200,725 290x365 #4C5B8F !flat >infra
-@ box zone "Zone" 1225,775 240x290 #4C5B8F !flat >region
-@ box rack "Rack" 1250,820 190x230 #4C5B8F !flat >zone
-@ box node1 "Node 1" 1272,875 145x70 #4C5B8F >rack
-@ box node2 "Node 2" 1272,960 145x70 #4C5B8F >rack
+@ box infra "Infra" 1238,813 338x349 #4C5B8F ~51 !flat >zone
+@ box region "Region" 1200,725 407x510 #4C5B8F ~14 !flat
+@ box zone "Zone" 1218,754 378x430 #4C5B8F ~14 !flat >region
+@ box rack "Rack" 1270,955 160x80 #4C5B8F ~14 !flat >infra
+@ box node1 "Node 1" 1270,1058 145x70 #4C5B8F >infra
+@ box node2 "Node 2" 1396,962 160x80 #4C5B8F >infra

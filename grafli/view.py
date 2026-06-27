@@ -225,6 +225,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._lod_collapsed: set[str] = set()    # containers collapsed to tiles
         self._lod_hidden_notes: set[str] = set() # notes hidden under LoD
         self._lod_note_shells: set[str] = set()  # notes drawn as text markers
+        self._lod_arrow_labels_hidden: set = set()  # illegible connector labels
         self._lod_hulls: dict[tuple, object] = {}        # cluster key -> hull item
         self._lod_hull_member: dict[str, object] = {}    # member id -> hull item
         self._lod_state = None                   # change-detection snapshot
@@ -760,6 +761,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._lod_collapsed = set()
         self._lod_hidden_notes = set()
         self._lod_note_shells = set()
+        self._lod_arrow_labels_hidden = set()
         self._lod_hulls = {}          # items live in the about-to-be-rebuilt scene
         self._lod_hull_member = {}
         self._lod_state = None
@@ -1069,6 +1071,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             endpoint_collapsed = (
                 from_hull is not None or to_hull is not None
                 or from_id in self._lod_collapsed or to_id in self._lod_collapsed)
+            # Illegible at this zoom (set by _refresh_lod): the label is kept in
+            # the scene (hidden) so it's still tracked, but the line draws
+            # unbroken — no leftover gap where the caption sat.
+            label_too_small = (fwd.from_id, fwd.to_id) in self._lod_arrow_labels_hidden
             has_label = False
             if label_texts and total_len > 0 and not endpoint_collapsed:
                 mid_x = (start.x() + end.x()) / 2
@@ -1092,9 +1098,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 )
 
                 label.setPos(label_x, label_y)
+                label.setVisible(not label_too_small)
                 self._scene.addItem(label)
                 self._arrow_items.append(label)
-                has_label = True
+                has_label = not label_too_small
 
             # Draw line (split around label gap if needed)
             if has_label:
@@ -4004,14 +4011,32 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 if any(a in collapsed for a in model.ancestors(iid)):
                     hidden_images.add(iid)
 
+        # Arrow labels are text too: hide one once it's too small to read, the
+        # same legibility floor that shells a node label — otherwise a connector
+        # caption stays as unreadable specks over nodes already reduced to bars.
+        # When hidden the line is drawn unbroken (no leftover label gap), which
+        # _redraw_arrows handles off this set — so a crossing forces a redraw.
+        prev_labels_hidden = self._lod_arrow_labels_hidden
+        arrow_labels_hidden: set = set()
+        for it in self._arrow_items:
+            if not isinstance(it, LabelItem):
+                continue
+            a = it.data(0)
+            key = (a.from_id, a.to_id) if a is not None else id(it)
+            px = resolve_textsize_px(getattr(a, "textsize", ""), "") * scale
+            if self._lod_enabled and should_collapse(px, key in prev_labels_hidden):
+                arrow_labels_hidden.add(key)
+
         state = (frozenset(collapsed), frozenset(shells), frozenset(clusters),
                  frozenset(hidden_notes), frozenset(note_shells),
-                 frozenset(hidden_images))
+                 frozenset(hidden_images), frozenset(arrow_labels_hidden))
         if state == self._lod_state:
             return
         routing_changed = (collapsed != self._lod_collapsed
-                           or set(clusters) != set(self._lod_hulls))
+                           or set(clusters) != set(self._lod_hulls)
+                           or arrow_labels_hidden != prev_labels_hidden)
         self._lod_state = state
+        self._lod_arrow_labels_hidden = arrow_labels_hidden
 
         for bid, item in self._box_items.items():
             if bid in hidden:
@@ -4045,7 +4070,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._lod_hidden_notes = hidden_notes
         self._lod_note_shells = note_shells
         if routing_changed:
-            # Hidden endpoints must re-route to their tile or hull (or vanish).
+            # Hidden endpoints re-route to their tile/hull; illegible labels
+            # drop out and their lines redraw unbroken.
             self._redraw_arrows()
 
     def _cluster_compact(self, comp) -> bool:

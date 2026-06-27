@@ -289,6 +289,31 @@ def test_same_depth_containers_collapse_together():
     assert "big" in view._lod_collapsed
 
 
+def test_arrow_label_hides_when_too_small():
+    from grafli.items import LabelItem
+    board = parse(
+        "@ box a \"A\" 0,0 220x90\n"
+        "@ box b \"B\" 520,0 220x90\n"
+        "@ arrow a -> b \"sync call\"\n"
+    )
+    view = _view(board)
+
+    def labels():
+        return [it for it in view._arrow_items if isinstance(it, LabelItem)]
+
+    # Full detail: the caption is shown.
+    _set_zoom(view, 1.0)
+    assert labels() and all(it.isVisible() for it in labels())
+    # Zoomed out below the legibility floor: the caption hides (the line is
+    # redrawn unbroken, so the label is kept but invisible).
+    _set_zoom(view, 0.4)
+    assert labels() and not any(it.isVisible() for it in labels())
+    assert ("a", "b") in view._lod_arrow_labels_hidden
+    # Back to detail: shown again.
+    _set_zoom(view, 1.0)
+    assert all(it.isVisible() for it in labels())
+
+
 def test_leaf_shell_paints_skeleton_bars():
     # A shelled leaf keeps its fill and reports as simplified; its paint path
     # (bars) must run without error at a tiny on-screen size.

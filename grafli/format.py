@@ -194,6 +194,15 @@ class Flow:
 
 
 @dataclass
+class ParseWarning:
+    """A line the parser could not interpret as a directive and demoted to a
+    comment. Surfaced on file-open so an AI/hand-edit slip isn't lost silently."""
+    line: int        # 1-based line number in the source
+    text: str        # the offending line
+    reason: str
+
+
+@dataclass
 class Board:
     comments: list[str] = field(default_factory=list)
     boxes: list[Box] = field(default_factory=list)
@@ -210,6 +219,13 @@ class Board:
     """Ordered list of (kind, element) preserving original line order.
     kind is one of: 'comment', 'blank', 'box', 'arrow', 'note', 'image',
     'bookmark', 'flow'."""
+    parse_warnings: list = field(default_factory=list, repr=False)
+    """Lines that failed to parse and were demoted to comments (ParseWarning).
+    Populated by parse(); not serialized."""
+    had_header: bool = field(default=False, repr=False)
+    """True if the file carried a `#!grafli` header line. A file without one
+    that also fails to parse most of its lines is probably not a board at all
+    (e.g. a Markdown doc opened by mistake) rather than a broken board."""
 
     def box_by_id(self, box_id: str) -> Box | None:
         for b in self.boxes:
@@ -560,6 +576,7 @@ def parse(text: str) -> Board:
 
         if stripped in (HEADER, HEADER_V2):
             board._lines.append(("header", stripped))
+            board.had_header = True
             continue
 
         if stripped.startswith("#"):
@@ -621,6 +638,7 @@ def parse(text: str) -> Board:
 
         m = _RE_NOTE_BLOCK_START.match(stripped)
         if m:
+            block_start = i      # 1-based line of the opening `@ note … """`
             note_id = m.group(1) or ""
             x = float(m.group(2))
             y = float(m.group(3))
@@ -664,7 +682,11 @@ def parse(text: str) -> Board:
                 board._lines.append(("note", note))
                 continue
 
-            # Malformed block — preserve its contents as comments.
+            # Malformed block — preserve its contents as comments, and flag it
+            # (most often an unterminated """ — the whole note vanishes).
+            board.parse_warnings.append(ParseWarning(
+                block_start, stripped,
+                'unterminated """ note block — kept as comments'))
             board.comments.append(stripped)
             board._lines.append(("comment", stripped))
             for body_line in body_lines:
@@ -775,9 +797,16 @@ def parse(text: str) -> Board:
             board._lines.append(("image", image))
             continue
 
-        # Unknown line — preserve as comment
+        # Unknown line — preserve as comment, but record it: a line that is
+        # neither blank, a `#` comment, the header, nor a valid directive is an
+        # anomaly (most often a malformed `@` line from an AI/hand edit). Flag
+        # it so it isn't silently lost.
         board.comments.append(stripped)
         board._lines.append(("comment", stripped))
+        reason = ("malformed directive — kept as a comment"
+                  if stripped.startswith("@")
+                  else "unrecognized line — kept as a comment")
+        board.parse_warnings.append(ParseWarning(i, stripped, reason))
 
     # Backfill IDs for legacy notes that had no ID
     for note in board.notes:

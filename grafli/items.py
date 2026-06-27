@@ -9,6 +9,7 @@ from PySide6.QtGui import QAbstractTextDocumentLayout, QBrush, QColor, QFont, QF
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
+    QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsSimpleTextItem,
@@ -540,6 +541,14 @@ class BoxItem(QGraphicsRectItem):
         self._resizing = False
         self._scaling = False
         self._is_parent = False
+        # Level-of-Detail: when the view zooms out far enough that this box's
+        # label would be illegible, the view marks it simplified — the box
+        # paints as a bare coloured shell (no icon; its label item is hidden).
+        self._lod_simplified = False
+        # When this box is a collapsed container, the view sets a (headline,
+        # count) tuple; paint() then draws a counter-scaled headline + count
+        # badge in place of the hidden children, and the normal label is hidden.
+        self._lod_tile: tuple[str, int] | None = None
 
         self._label = BoxLabelItem(self)
         self._label.setFont(self._box_font())
@@ -851,8 +860,12 @@ class BoxItem(QGraphicsRectItem):
 
     def boundingRect(self):
         r = super().boundingRect()
-        if self.isSelected():
-            return r.adjusted(-6, -6, 6, 6)
+        m = 6 if self.isSelected() else 0
+        if self._lod_tile is not None:
+            # The "stacked edges" mark peeks up and to the right of the tile.
+            return r.adjusted(-m, -m - 64, m + 64, m)
+        if m:
+            return r.adjusted(-m, -m, m, m)
         return r
 
     def mousePressEvent(self, event):
@@ -860,7 +873,10 @@ class BoxItem(QGraphicsRectItem):
         # resize; presses on a handle square are driven by the handle itself.
         if event.button() == Qt.MouseButton.LeftButton:
             corner = self._handle_at(event.pos())
-            if corner is not None and self.isSelected():
+            # A collapsed tile is read-only — no resize (it would desync the
+            # hidden children); the press just selects (for navigation).
+            if (corner is not None and self.isSelected()
+                    and self._lod_tile is None):
                 self._begin_handle_drag(corner, event.scenePos())
                 event.accept()
                 return
@@ -1108,14 +1124,40 @@ class BoxItem(QGraphicsRectItem):
         self.unsetCursor()
         super().hoverLeaveEvent(event)
 
+    def set_lod_simplified(self, simplified: bool) -> None:
+        """Mark/clear the zoomed-out simplified state (driven by the view)."""
+        if simplified == self._lod_simplified:
+            return
+        self._lod_simplified = simplified
+        self.update()
+
+    def set_lod_tile(self, summary) -> None:
+        """Set/clear collapsed-container tile rendering from a ContainerSummary."""
+        tile = (summary.label, summary.descendants) if summary else None
+        if tile == self._lod_tile:
+            return
+        self.prepareGeometryChange()   # boundingRect grows for the stack mark
+        self._lod_tile = tile
+        # A tile is read-only: dragging it would move the container box but
+        # leave its absolutely-positioned children behind (desync). Disable the
+        # move flag while collapsed; restore it when expanded.
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, tile is None)
+        self.update()
+
     def paint(self, painter: QPainter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self._lod_tile is not None:
+            self._paint_lod_stack(painter)   # offset edges behind the fill
         painter.setPen(self.pen())
         painter.setBrush(self.brush())
         radius = 0 if self.box.style == "flat" or self._is_parent else BOX_RADIUS
         painter.drawRoundedRect(self.rect(), radius, radius)
 
-        if self.box.icon and iconset.has_icon(self.box.icon):
+        if self._lod_tile is not None:
+            self._paint_lod_tile(painter)
+        elif self._lod_simplified:
+            self._paint_lod_shell_bars(painter)
+        elif self.box.icon and iconset.has_icon(self.box.icon):
             self._paint_icon(painter)
 
         if self.box.url:
@@ -1132,6 +1174,237 @@ class BoxItem(QGraphicsRectItem):
             sel_color.setAlphaF(0.85)
             painter.setPen(QPen(sel_color, 4, Qt.PenStyle.SolidLine))
             painter.drawRoundedRect(sel_rect, radius, radius)
+
+    def _paint_lod_shell_bars(self, painter: QPainter):
+        """LoD shell: when its label is too small to read, a leaf box keeps its
+        fill colour (colour carries meaning) and shows skeleton bars where the
+        label was — the same 'there is text here' language as a note marker, so
+        every simplified node reads alike."""
+        r = self.rect()
+        fill = self.brush().color()
+        lum = 0.299 * fill.red() + 0.587 * fill.green() + 0.114 * fill.blue()
+        ink = QColor("#2D2D2D" if lum > 140 else "#F2F0EB")
+        ink.setAlphaF(0.45)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(ink))
+        pad = 12.0
+        avail_w = r.width() - 2 * pad
+        if avail_w <= 6 or r.height() < 24:
+            return
+        bar_h, gap = 7.0, 7.0
+        n = 2 if r.height() >= 70 else 1   # box labels are short: 1-2 bars
+        widths = (0.7, 0.45)
+        total_h = n * bar_h + (n - 1) * gap
+        y = r.center().y() - total_h / 2
+        for i in range(n):
+            painter.drawRoundedRect(
+                QRectF(r.left() + pad, y, avail_w * widths[i], bar_h), 2.0, 2.0)
+            y += bar_h + gap
+
+    def _paint_lod_stack(self, painter: QPainter):
+        """Mark a tile as a LoD summary by stacking it like a few thin notebooks:
+        only the *edges* of the layers underneath peek out at the top and right
+        (the front cover hides the rest). Counter-scaled so the offset stays a
+        small, capped on-screen amount — compact, never bloats the layout."""
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        off = min(5.0 / scale, 30.0)
+        front = self.rect()
+        base = QColor(self.brush().color())
+        if base.alpha() == 0:
+            base = QColor("#C8CCD0")
+        base.setAlpha(255)
+        front_path = QPainterPath()
+        front_path.addRect(front)
+        pen = QPen(QColor(0, 0, 0, 70))
+        pen.setWidthF(max(0.8, 1.0 / scale))
+        # One layer: just the L-shaped sliver of a single notebook behind the
+        # cover peeks out at the top and right.
+        layer = QPainterPath()
+        layer.addRect(front.translated(off, -off))
+        visible = layer.subtracted(front_path)
+        painter.fillPath(visible, base.darker(122))
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(visible)
+
+    def _paint_lod_tile(self, painter: QPainter):
+        """Draw a collapsed container as a headline + child-count badge.
+
+        Drawn counter-scaled to the view zoom so the text stays readable as the
+        tile shrinks on screen (like a place name on a map), but capped to the
+        tile's on-screen size so it never overflows a small tile.
+        """
+        label, count = self._lod_tile
+        rect = self.rect()
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        on_screen_min = min(rect.width(), rect.height()) * scale
+        head_px = max(7.0, min(16.0, on_screen_min * 0.32))
+
+        painter.save()
+        painter.translate(rect.center())
+        painter.scale(1.0 / scale, 1.0 / scale)   # 1 unit == 1 on-screen px
+
+        head_font = QFont(FONT_FAMILY)
+        head_font.setPixelSize(round(head_px))
+        head_font.setBold(True)
+        painter.setFont(head_font)
+        painter.setPen(QColor("#2F3437"))
+        fm = QFontMetricsF(head_font)
+        gap = head_px * 0.35
+        badge_px = max(6.0, head_px * 0.72)
+        total_h = fm.height() + gap + badge_px
+        top = -total_h / 2
+        painter.drawText(
+            QRectF(-fm.horizontalAdvance(label), top,
+                   2 * fm.horizontalAdvance(label), fm.height()),
+            Qt.AlignmentFlag.AlignCenter, label)
+
+        badge_font = QFont(FONT_FAMILY)
+        badge_font.setPixelSize(round(badge_px))
+        painter.setFont(badge_font)
+        painter.setPen(QColor("#2F3437"))
+        text = f"{count} node" + ("" if count == 1 else "s")
+        bfm = QFontMetricsF(badge_font)
+        bw = bfm.horizontalAdvance(text)
+        painter.drawText(
+            QRectF(-bw, top + fm.height() + gap, 2 * bw, badge_px * 1.6),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, text)
+        painter.restore()
+
+
+class ClusterHullItem(QGraphicsPathItem):
+    """A concave "bubble" enclosing a collapsed parent-less node cluster.
+
+    The outline is a pure-Qt concave hull: the boolean union of each member's
+    inflated rounded-rect with a thick-stroked path of the member-to-member
+    edges (so the blob follows the graph and never fragments). The cluster has
+    no backing element, so it is navigation-only — it carries a hub label and
+    node count drawn counter-scaled at the centroid, like a collapsed tile.
+    """
+
+    def __init__(self, member_rects, edges, pad: float,
+                 label: str, count: int, color: str):
+        super().__init__()
+        self._label = label
+        self._count = count
+        path = self._build_path(member_rects, edges, pad)
+        self.setPath(path)
+        self._centroid = path.boundingRect().center()
+        fill = QColor(color)
+        fill.setAlphaF(0.16)
+        self.setBrush(QBrush(fill))
+        self._fill_color = QColor(color)
+        pen = QPen(QColor(color).darker(115))
+        pen.setWidthF(2.0)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        self.setPen(pen)
+        self.setZValue(-100)   # behind the (hidden) nodes and arrows
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+    @staticmethod
+    def _build_path(member_rects, edges, pad: float) -> QPainterPath:
+        path = QPainterPath()
+        centers: dict[str, QPointF] = {}
+        for mid, (x, y, w, h) in member_rects.items():
+            sub = QPainterPath()
+            sub.addRoundedRect(QRectF(x - pad, y - pad, w + 2 * pad, h + 2 * pad),
+                               pad, pad)
+            path = path.united(sub)
+            centers[mid] = QPointF(x + w / 2, y + h / 2)
+        if edges:
+            ep = QPainterPath()
+            for a, b in edges:
+                if a in centers and b in centers:
+                    ep.moveTo(centers[a])
+                    ep.lineTo(centers[b])
+            stroker = QPainterPathStroker()
+            stroker.setWidth(2 * pad)
+            stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
+            stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            path = path.united(stroker.createStroke(ep))
+        return path.simplified()
+
+    def centroid(self) -> QPointF:
+        return QPointF(self._centroid)
+
+    def boundary_point(self, from_pt: QPointF) -> QPointF:
+        """Where a line from ``from_pt`` to the centroid crosses the hull
+        outline — the attach point for an external arrow into the cluster."""
+        path = self.path()
+        if path.contains(from_pt):
+            return QPointF(self._centroid)
+        outside, inside = QPointF(from_pt), QPointF(self._centroid)
+        for _ in range(24):
+            mid = (outside + inside) / 2
+            if path.contains(mid):
+                inside = mid
+            else:
+                outside = mid
+        return outside
+
+    def boundingRect(self) -> QRectF:
+        # Room for the offset shadow (top-right) and the counter-scaled label.
+        return super().boundingRect().adjusted(-20, -40, 40, 20)
+
+    def _paint_hull_stack(self, painter: QPainter):
+        """One offset layer peeking behind the hull — the same 'stack of
+        notebooks' aggregation cue used on collapsed tiles, so the whole LoD
+        vocabulary is consistent."""
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        off = min(5.0 / scale, 30.0)
+        front = self.path()
+        layer = QPainterPath(front)
+        layer.translate(off, -off)
+        visible = layer.subtracted(front)
+        shade = QColor(self._fill_color).darker(118)
+        shade.setAlpha(165)
+        painter.fillPath(visible, shade)
+        pen = QPen(QColor(0, 0, 0, 60))
+        pen.setWidthF(max(0.8, 1.0 / scale))
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(visible)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self._paint_hull_stack(painter)          # offset 'notebook' edge behind
+        super().paint(painter, option, widget)   # fill + solid concave outline
+
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        painter.save()
+        painter.translate(self._centroid)
+        painter.scale(1.0 / scale, 1.0 / scale)
+        head_font = QFont(FONT_FAMILY)
+        head_font.setPixelSize(14)
+        head_font.setBold(True)
+        painter.setFont(head_font)
+        painter.setPen(QColor("#2F3437"))
+        fm = QFontMetricsF(head_font)
+        gap = 5.0
+        badge_px = 10.0
+        top = -(fm.height() + gap + badge_px) / 2
+        painter.drawText(
+            QRectF(-fm.horizontalAdvance(self._label), top,
+                   2 * fm.horizontalAdvance(self._label), fm.height()),
+            Qt.AlignmentFlag.AlignCenter, self._label)
+        badge_font = QFont(FONT_FAMILY)
+        badge_font.setPixelSize(round(badge_px))
+        painter.setFont(badge_font)
+        text = f"{self._count} nodes"
+        bfm = QFontMetricsF(badge_font)
+        bw = bfm.horizontalAdvance(text)
+        painter.drawText(
+            QRectF(-bw, top + fm.height() + gap, 2 * bw, badge_px * 1.6),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, text)
+        painter.restore()
 
 
 class NoteItem(QGraphicsSimpleTextItem):
@@ -1161,7 +1434,18 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.setAcceptHoverEvents(True)
         self._code_ref_rects: list[tuple[QRectF, str]] = []
         self._pending_ref: tuple[str, QPointF] | None = None
+        self._lod_text_marker = False
         self._update_url_indicator()
+
+    def set_lod_text_marker(self, on: bool) -> None:
+        """LoD: when its text is too small to read, a standalone note paints a
+        'there is text here' marker (plate + skeleton lines + a semantic accent
+        tick) instead of unreadable glyphs — so the note isn't lost, just
+        simplified. Same footprint, so no geometry change."""
+        if on == self._lod_text_marker:
+            return
+        self._lod_text_marker = on
+        self.update()
 
     def _ref_at(self, pos: QPointF) -> str | None:
         for rect, ref in self._code_ref_rects:
@@ -1910,7 +2194,51 @@ class NoteItem(QGraphicsSimpleTextItem):
         self._brect_cache = (cache_key, r)
         return r
 
+    def _paint_lod_marker(self, painter: QPainter):
+        """Paint the LoD 'text here' placeholder: the note's plate with a few
+        skeleton bars (suggesting prose) and a semantic accent tick down the
+        left edge. Drawn at the note's real footprint, so a bigger note stays a
+        bigger blob and shows more bars."""
+        r = self.boundingRect()
+        if self.isSelected():
+            r = r.adjusted(4, 4, -4, -4)   # undo the selection padding
+        pad = self._PAD
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        bg = QColor("#F2F0EB")
+        bg.setAlphaF(0.85)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(r, self._BG_RADIUS, self._BG_RADIUS)
+
+        _, _, accent = self._parse_note()
+        tick = QRectF(r.left() + pad, r.top() + pad,
+                      3.0, max(0.0, r.height() - 2 * pad))
+        painter.setBrush(QBrush(QColor(accent)))
+        painter.drawRoundedRect(tick, 1.5, 1.5)
+
+        bar = QColor("#9A968D")
+        bar.setAlphaF(0.55)
+        painter.setBrush(QBrush(bar))
+        line_h, gap = 6.0, 5.0
+        x0 = tick.right() + 5.0
+        avail_w = r.right() - pad - x0
+        if avail_w <= 4:
+            return
+        widths = (1.0, 0.7, 0.9, 0.55, 0.8)   # varied so it reads as prose
+        y, idx = r.top() + pad, 0
+        while y + line_h <= r.bottom() - pad:
+            painter.drawRoundedRect(
+                QRectF(x0, y, avail_w * widths[idx % len(widths)], line_h),
+                2.0, 2.0)
+            y += line_h + gap
+            idx += 1
+
     def paint(self, painter: QPainter, option, widget=None):
+        if self._lod_text_marker:
+            self._paint_lod_marker(painter)
+            return
+
         if self.note.icon and iconset.has_icon(self.note.icon):
             self._paint_icon_note(painter)
             return

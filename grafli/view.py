@@ -114,7 +114,8 @@ from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, No
 from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.iconset import ICON_NAMES, icon_pixmap
-from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
+from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ClusterHullItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
+from grafli.lod import LodModel, should_collapse, should_collapse_container
 from grafli.md_note import note_is_md, toggle_task
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
@@ -215,6 +216,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._note_items: dict[str, NoteItem] = {}
         self._image_items: dict[str, ImageItem] = {}
         self._dirty = False
+
+        # Level-of-Detail (semantic zoom). _lod holds the derived structural
+        # model; _lod_simplified is the set of box ids currently rendered as
+        # bare shells at the current zoom; _lod_enabled is the opt-out toggle.
+        self._lod: LodModel | None = None
+        self._lod_simplified: set[str] = set()   # boxes drawn as bare shells
+        self._lod_collapsed: set[str] = set()    # containers collapsed to tiles
+        self._lod_hidden_notes: set[str] = set() # notes hidden under LoD
+        self._lod_note_shells: set[str] = set()  # notes drawn as text markers
+        self._lod_arrow_labels_hidden: set = set()  # illegible connector labels
+        self._lod_hulls: dict[tuple, object] = {}        # cluster key -> hull item
+        self._lod_hull_member: dict[str, object] = {}    # member id -> hull item
+        self._lod_state = None                   # change-detection snapshot
+        self._lod_enabled = True
 
         # Pan state (middle-click always works)
         self._panning = False
@@ -741,11 +756,27 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def load_board(self, board: Board):
         self._board = board
+        self._lod = LodModel.from_board(board)
+        self._lod_simplified = set()
+        self._lod_collapsed = set()
+        self._lod_hidden_notes = set()
+        self._lod_note_shells = set()
+        self._lod_arrow_labels_hidden = set()
+        self._lod_hulls = {}          # items live in the about-to-be-rebuilt scene
+        self._lod_hull_member = {}
+        self._lod_state = None
         # A fresh board invalidates any in-flight flow recording/playback.
         self._recording_flow = None
         if self._flow_player is not None:
             self._flow_player.stop()
         self._rebuild_scene()
+        # Feed real note footprints to the model now the items exist, so a
+        # notes-only container can collapse on size like any box container.
+        self._lod.set_note_extents({
+            nid: (it.boundingRect().width(), it.boundingRect().height())
+            for nid, it in self._note_items.items()
+        })
+        self._refresh_lod()
         self.flows_changed.emit()
 
     def snapshot_state(self) -> ViewState:
@@ -920,6 +951,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ))
 
         for from_id, to_id, draw_head_to, draw_head_from, fwd, rev in render_list:
+            # Level-of-Detail: an endpoint inside a collapsed container re-routes
+            # to that container's tile; an edge that becomes internal to a single
+            # tile (both ends resolve to it) is dropped.
+            from_id = self._lod_reroute(from_id)
+            to_id = self._lod_reroute(to_id)
+            if from_id == to_id:
+                continue
+            from_hull = self._lod_hull_member.get(from_id)
+            to_hull = self._lod_hull_member.get(to_id)
+            if from_hull is not None and from_hull is to_hull:
+                continue  # internal to one cluster — drop it
             from_elem = self._board.box_by_id(from_id) or self._board.note_by_id(from_id)
             to_elem = self._board.box_by_id(to_id) or self._board.note_by_id(to_id)
             if not from_elem or not to_elem:
@@ -977,6 +1019,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 start = _rect_edge_point(*from_r, to_center)
                 end = _rect_edge_point(*to_r, from_center)
 
+            # An endpoint hidden inside a cluster re-attaches to its hull outline.
+            if from_hull is not None or to_hull is not None:
+                ref_start, ref_end = QPointF(start), QPointF(end)
+                if from_hull is not None:
+                    start = from_hull.boundary_point(ref_end)
+                if to_hull is not None:
+                    end = to_hull.boundary_point(ref_start)
+
             dx = end.x() - start.x()
             dy = end.y() - start.y()
 
@@ -1015,8 +1065,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 label_tooltips.append(rev.url)
 
             total_len = math.hypot(dx, dy)
+            # Drop the connector label when either end is a LoD-collapsed node
+            # (tile or hull) — its authored size would render as illegible
+            # clutter on a rerouted edge.
+            endpoint_collapsed = (
+                from_hull is not None or to_hull is not None
+                or from_id in self._lod_collapsed or to_id in self._lod_collapsed)
+            # Illegible at this zoom (set by _refresh_lod): the label is kept in
+            # the scene (hidden) so it's still tracked, but the line draws
+            # unbroken — no leftover gap where the caption sat.
+            label_too_small = (fwd.from_id, fwd.to_id) in self._lod_arrow_labels_hidden
             has_label = False
-            if label_texts and total_len > 0:
+            if label_texts and total_len > 0 and not endpoint_collapsed:
                 mid_x = (start.x() + end.x()) / 2
                 mid_y = (start.y() + end.y()) / 2
 
@@ -1038,9 +1098,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 )
 
                 label.setPos(label_x, label_y)
+                label.setVisible(not label_too_small)
                 self._scene.addItem(label)
                 self._arrow_items.append(label)
-                has_label = True
+                has_label = not label_too_small
 
             # Draw line (split around label gap if needed)
             if has_label:
@@ -1543,7 +1604,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         box_label_z = max_depth + 4
         for box_id, item in self._box_items.items():
             d = self._box_depth(box_id)
-            if self._has_children(box_id):
+            # A container normally sits behind arrows (it's a backdrop for its
+            # children). But a LoD-collapsed container is a solid tile, so it
+            # rises above arrows like a leaf — an arrow crossing it passes behind,
+            # keeping the tile's headline readable.
+            if self._has_children(box_id) and box_id not in self._lod_collapsed:
                 item.setZValue(d)
             else:
                 item.setZValue(leaf_z + d)
@@ -3696,6 +3761,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         the file — so doc deletion is undoable without stashing files."""
         if not self._board:
             return
+        if self._refuse_locked_edit():   # can't delete a collapsed aggregate
+            return
         self._push_undo()
         deleted = False
         former_parents: set[str] = set()
@@ -3824,6 +3891,275 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if hasattr(window, '_status_zoom'):
             pct = round(self._current_zoom() * 100)
             window._status_zoom.setText(f"{pct}%")
+        self._refresh_lod()
+        self._update_status_lod()
+
+    def _update_status_lod(self):
+        """Reflect the LoD state in the status bar: off / actively summarizing /
+        (blank when on but showing everything at full detail)."""
+        window = self.window()
+        if not hasattr(window, '_status_lod'):
+            return
+        aggregating = bool(self._lod_collapsed or self._lod_hulls
+                           or self._lod_simplified or self._lod_hidden_notes)
+        if not self._lod_enabled:
+            window._status_lod.setText("LoD off")
+            window._status_lod.setStyleSheet("color: #999999;")
+        elif aggregating:
+            window._status_lod.setText("◧ LoD")
+            window._status_lod.setStyleSheet("color: #C77A52; font-weight: bold;")
+        else:
+            window._status_lod.setText("")
+
+    def _refresh_lod(self):
+        """Recompute the Level-of-Detail state at the current zoom.
+
+        The "zoom clock": cheap, reads the live scale and resolves each box into
+        one of these states with hysteresis (so scrubbing the zoom doesn't
+        flicker):
+
+        * **tile** — a collapsed container with no collapsed ancestor: its
+          headline + child-count badge stand in for the whole group.
+        * **hidden** — a box inside a collapsed container (subsumed by the tile).
+        * **shell** — a leaf whose own label is illegible: a bare coloured box.
+        * **cluster** — a parent-less connected component (>=3) whose members are
+          all illegible and spatially compact: hidden behind a concave hull.
+        * **detailed** — shown as authored.
+
+        Disabled (everything detailed) when LoD is toggled off. Re-routes arrows
+        to the surviving tiles / hulls only when the routing actually changes.
+        """
+        scale = self._current_zoom()
+        model = self._lod
+        collapsed: set[str] = set()
+        levels: dict[int, float] = {}
+        if self._lod_enabled and model is not None:
+            prev_c = self._lod_collapsed
+            # Collapse is keyed to nesting depth: every container at a level
+            # shares one extent, so siblings-by-depth fold together and the
+            # tiers reveal the structure as you zoom out (deepest peels first).
+            levels = model.level_extents()
+            for cid in model.containers:
+                if cid not in self._box_items:
+                    continue
+                ext = levels.get(model.depth(cid), float("inf"))
+                if ext == float("inf"):
+                    continue
+                if should_collapse_container(ext * scale, cid in prev_c):
+                    collapsed.add(cid)
+
+        # Outermost collapsed containers become tiles; anything with a collapsed
+        # ancestor is hidden inside one.
+        tiles: set[str] = set()
+        hidden: set[str] = set()
+        if model is not None:
+            for bid in self._box_items:
+                ancestors = model.ancestors(bid)
+                if any(a in collapsed for a in ancestors):
+                    hidden.add(bid)
+                elif bid in collapsed:
+                    tiles.add(bid)
+
+        # Leaf shells: visible, non-container leaves whose own label is illegible.
+        shells: set[str] = set()
+        if self._lod_enabled:
+            for bid, item in self._box_items.items():
+                if bid in hidden or bid in tiles or item._is_parent:
+                    continue
+                label_px = resolve_textsize_px(item.box.textsize, "") * scale
+                if should_collapse(label_px, bid in self._lod_simplified):
+                    shells.add(bid)
+
+        # Loose clusters: a component is hulled (members hidden) when it is
+        # spatially compact, has >=3 members, and the *depth-1 level* collapses
+        # — a loose top-level group is a top-level aggregate, so it peels in
+        # step with the depth-1 container tiles instead of on its own legibility.
+        # (Falls back to members-illegible when the board has no containers.)
+        clusters: dict[tuple, list] = {}
+        if self._lod_enabled and model is not None:
+            ext1 = levels.get(1, float("inf"))
+            if ext1 == float("inf"):
+                depth1_collapses = True   # no depth-1 level to sync to
+            else:
+                depth1_collapses = should_collapse_container(
+                    ext1 * scale, bool(self._lod_hulls))
+            for comp in model.components:
+                if (len(comp) >= 3 and all(m in shells for m in comp)
+                        and depth1_collapses and self._cluster_compact(comp)):
+                    clusters[tuple(sorted(comp))] = comp
+                    shells.difference_update(comp)
+                    hidden.update(comp)
+
+        # Notes & images: a note subsumed by a collapsed container is hidden
+        # (the tile stands in for it). A standalone note whose own text is
+        # illegible doesn't vanish — it paints a 'text here' marker (plate +
+        # skeleton bars + accent tick), so nothing is silently lost. Standalone
+        # images stay — a shrunk image is still a legible thumbnail.
+        hidden_notes: set[str] = set()
+        note_shells: set[str] = set()
+        for nid, nitem in self._note_items.items():
+            if model is not None and any(a in collapsed
+                                         for a in model.ancestors(nid)):
+                hidden_notes.add(nid)
+            elif self._lod_enabled:
+                px = resolve_textsize_px(nitem.note.textsize, "") * scale
+                if should_collapse(px, nid in self._lod_note_shells):
+                    note_shells.add(nid)
+        hidden_images: set[str] = set()
+        if model is not None:
+            for iid in self._image_items:
+                if any(a in collapsed for a in model.ancestors(iid)):
+                    hidden_images.add(iid)
+
+        # Arrow labels are text too: hide one once it's too small to read, the
+        # same legibility floor that shells a node label — otherwise a connector
+        # caption stays as unreadable specks over nodes already reduced to bars.
+        # When hidden the line is drawn unbroken (no leftover label gap), which
+        # _redraw_arrows handles off this set — so a crossing forces a redraw.
+        prev_labels_hidden = self._lod_arrow_labels_hidden
+        arrow_labels_hidden: set = set()
+        for it in self._arrow_items:
+            if not isinstance(it, LabelItem):
+                continue
+            a = it.data(0)
+            key = (a.from_id, a.to_id) if a is not None else id(it)
+            px = resolve_textsize_px(getattr(a, "textsize", ""), "") * scale
+            if self._lod_enabled and should_collapse(px, key in prev_labels_hidden):
+                arrow_labels_hidden.add(key)
+
+        state = (frozenset(collapsed), frozenset(shells), frozenset(clusters),
+                 frozenset(hidden_notes), frozenset(note_shells),
+                 frozenset(hidden_images), frozenset(arrow_labels_hidden))
+        if state == self._lod_state:
+            return
+        routing_changed = (collapsed != self._lod_collapsed
+                           or set(clusters) != set(self._lod_hulls)
+                           or arrow_labels_hidden != prev_labels_hidden)
+        self._lod_state = state
+        self._lod_arrow_labels_hidden = arrow_labels_hidden
+
+        for bid, item in self._box_items.items():
+            if bid in hidden:
+                item.setVisible(False)
+                item._label.setVisible(False)
+                # Clear any stale tile/shell state: a box subsumed by an outer
+                # tile must not keep reporting as a tile (it would linger as a
+                # read-only lock and leave its move flag disabled).
+                item.set_lod_tile(None)
+                item.set_lod_simplified(False)
+                continue
+            item.setVisible(True)
+            is_shell = bid in shells
+            is_tile = bid in tiles
+            item.set_lod_simplified(is_shell)
+            item.set_lod_tile(model.summary(bid) if is_tile else None)
+            # The tile paints its own counter-scaled headline; a shell shows
+            # nothing — so the normal label item is hidden in both cases.
+            item._label.setVisible(not is_shell and not is_tile)
+
+        for nid, nitem in self._note_items.items():
+            hidden = nid in hidden_notes
+            nitem.setVisible(not hidden)
+            nitem.set_lod_text_marker(not hidden and nid in note_shells)
+        for iid, iitem in self._image_items.items():
+            iitem.setVisible(iid not in hidden_images)
+
+        self._apply_lod_hulls(clusters)
+        self._lod_simplified = shells
+        self._lod_collapsed = collapsed
+        self._lod_hidden_notes = hidden_notes
+        self._lod_note_shells = note_shells
+        if routing_changed:
+            # Hidden endpoints re-route to their tile/hull; illegible labels
+            # drop out and their lines redraw unbroken.
+            self._redraw_arrows()
+
+    def _cluster_compact(self, comp) -> bool:
+        """A component is compact when no non-member box centre falls inside its
+        bounding box — so a hull won't visually swallow unrelated nodes."""
+        boxes = [self._box_items[m].box for m in comp if m in self._box_items]
+        if not boxes:
+            return False
+        x0 = min(b.x for b in boxes); y0 = min(b.y for b in boxes)
+        x1 = max(b.x + b.w for b in boxes); y1 = max(b.y + b.h for b in boxes)
+        member = set(comp)
+        for bid, item in self._box_items.items():
+            if bid in member:
+                continue
+            b = item.box
+            cx, cy = b.x + b.w / 2, b.y + b.h / 2
+            if x0 <= cx <= x1 and y0 <= cy <= y1:
+                return False
+        return True
+
+    def _apply_lod_hulls(self, clusters: dict[tuple, list]):
+        """Create / update / remove cluster hull items to match `clusters`."""
+        model = self._lod
+        # Drop hulls that are no longer active.
+        for key in list(self._lod_hulls):
+            if key not in clusters:
+                self._scene.removeItem(self._lod_hulls.pop(key))
+        # Add hulls that became active.
+        for key, comp in clusters.items():
+            if key in self._lod_hulls:
+                continue
+            rects = {m: (self._box_items[m].box.x, self._box_items[m].box.y,
+                         self._box_items[m].box.w, self._box_items[m].box.h)
+                     for m in comp if m in self._box_items}
+            hub = model.component_hub(comp)
+            color = self._cluster_color(comp)
+            hull = ClusterHullItem(rects, model.component_edges(comp),
+                                   model.cluster_pad(comp), model.label_of(hub),
+                                   len(comp), color)
+            self._scene.addItem(hull)
+            self._lod_hulls[key] = hull
+        # Rebuild the member -> hull lookup used for arrow re-anchoring.
+        self._lod_hull_member = {}
+        for key, comp in clusters.items():
+            hull = self._lod_hulls[key]
+            for m in comp:
+                self._lod_hull_member[m] = hull
+
+    def _lod_reroute(self, elem_id: str) -> str:
+        """Map an arrow endpoint to its visible tile if it sits in a collapsed
+        container; otherwise return it unchanged."""
+        if self._lod is None or not self._lod_collapsed:
+            return elem_id
+        return self._lod.resolve_visible(elem_id, self._lod_collapsed)
+
+    def _cluster_color(self, comp) -> str:
+        """Hull colour: the members' shared colour, or a neutral grey when they
+        disagree — an honest 'this is a heterogeneous group' instead of picking
+        one member's colour and misrepresenting the rest."""
+        from grafli.items import _resolve_color
+        hexes = set()
+        for m in comp:
+            it = self._box_items.get(m)
+            if it is not None:
+                hexes.add(_resolve_color(it.box.color))
+        hexes.discard(None)
+        return hexes.pop() if len(hexes) == 1 else self.LOD_NEUTRAL
+
+    def _selection_has_locked(self) -> bool:
+        """True if the selection includes a LoD-collapsed tile — a read-only
+        aggregate that stands in for hidden content (you edit at full detail)."""
+        if not self._lod_enabled:
+            return False
+        return any(isinstance(it, BoxItem) and it._lod_tile is not None
+                   for it in self._scene.selectedItems())
+
+    def _refuse_locked_edit(self) -> bool:
+        """Block a mutation on a collapsed aggregate, nudging toward full detail."""
+        if self._selection_has_locked():
+            self.toast("Zoom in or ⇧D to edit a collapsed group", "info")
+            return True
+        return False
+
+    def _toggle_lod(self):
+        self._lod_enabled = not self._lod_enabled
+        self._refresh_lod()
+        self._record_shortcut(
+            "level-of-detail ON" if self._lod_enabled else "level-of-detail OFF")
 
     def _on_selection_changed(self):
         self._clear_box_mode()
@@ -3883,6 +4219,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     # zoom-in is a fixed cap (so a few glyphs can't fill the screen).
     MIN_ZOOM_ABS = 0.02
     MAX_ZOOM = 5.0
+    # Muted grey for a LoD aggregate whose members don't share a colour.
+    LOD_NEUTRAL = "#8E9299"
 
     def _fit_zoom(self):
         """Scale at which the whole board (plus margin) just fits the viewport,
@@ -4285,6 +4623,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             item = item._box_item
         elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), BoxItem):
             item = item.parentItem()
+
+        # Double-click a collapsed aggregate to fly into it (the folder *feel*
+        # as pure navigation — no persistent state). Editing is blocked until
+        # the group is at full detail anyway.
+        if isinstance(item, ClusterHullItem) or (
+                isinstance(item, BoxItem) and item._lod_tile is not None):
+            self._animate_to_rect(
+                item.sceneBoundingRect().adjusted(-60, -60, 60, 60))
+            event.accept()
+            return
 
         if isinstance(item, BoxItem):
             self._start_editing(item)
@@ -4693,6 +5041,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Vim-like box modes — SELECT mode with selection
         if self._mode == Mode.SELECT and has_selection:
+            # A collapsed aggregate is read-only: block move / style / resize
+            # here (navigation keys live outside this block).
+            if self._refuse_locked_edit():
+                event.accept()
+                return
             shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
             only_shift = shift and not (mods & ~Qt.KeyboardModifier.ShiftModifier & _SIGNIFICANT_MODS)
 
@@ -4946,6 +5299,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # M — toggle minimap
         if event.key() == Qt.Key.Key_M and no_mod:
             self._toggle_minimap()
+            event.accept()
+            return
+
+        # Shift+D — toggle Level-of-Detail (semantic zoom) on/off
+        if event.key() == Qt.Key.Key_D and shift_only:
+            self._toggle_lod()
             event.accept()
             return
 
@@ -7778,6 +8137,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ("View", [
                 ("#", "Toggle grid"),
                 ("M", "Toggle minimap"),
+                ("⇧D", "Toggle level-of-detail (semantic zoom)"),
+                ("Dbl-click tile", "Fly into a collapsed group"),
                 ("\\", "Toggle tools panel"),
             ]),
             ("Bookmarks & Flows", [

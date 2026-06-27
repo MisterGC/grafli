@@ -265,6 +265,72 @@ def test_notes_and_images_follow_lod():
     assert all(i.isVisible() for i in view._image_items.values())
 
 
+def test_same_depth_containers_collapse_together():
+    # Two top-level (depth-1) containers with different child sizes. Per-child
+    # they'd collapse at different zooms; depth-leveling holds the small one
+    # until the larger is ready, so siblings fold together.
+    board = parse(
+        "@ box small \"Small\" 0,0 260x220 !flat\n"
+        "@ box s1 \"S1\" 30,80 100x60 >small\n"
+        "@ box s2 \"S2\" 30,150 100x60 >small\n"
+        "@ box big \"Big\" 500,0 520x420 !flat\n"
+        "@ box b1 \"B1\" 540,90 200x120 >big\n"
+        "@ box b2 \"B2\" 540,250 200x120 >big\n"
+    )
+    view = _view(board)
+    # Just above the (shared) collapse point: NEITHER collapses — the small one
+    # is held back in step with the big one rather than folding on its own.
+    _set_zoom(view, 0.5)
+    assert "small" not in view._lod_collapsed
+    assert "big" not in view._lod_collapsed
+    # Past it: both fold together.
+    _set_zoom(view, 0.3)
+    assert "small" in view._lod_collapsed
+    assert "big" in view._lod_collapsed
+
+
+def test_leaf_shell_paints_skeleton_bars():
+    # A shelled leaf keeps its fill and reports as simplified; its paint path
+    # (bars) must run without error at a tiny on-screen size.
+    from PySide6.QtGui import QPixmap, QPainter
+    board = parse("@ box a \"A label\" 0,0 220x90\n")
+    view = _view(board)
+    _set_zoom(view, 0.1)
+    item = view._box_items["a"]
+    assert item._lod_simplified and item._lod_tile is None
+    pm = QPixmap(64, 64)
+    p = QPainter(pm)
+    item.paint(p, None)          # exercises _paint_lod_shell_bars
+    p.end()
+
+
+def test_loose_cluster_hull_syncs_to_depth1_collapse():
+    # A compact 3-node loose mesh next to a flat depth-1 container with large
+    # children. The mesh is illegible (shells) before the container collapses,
+    # but the hull must wait for the depth-1 trigger, then form with it.
+    board = parse(
+        "@ box host \"Host\" 0,0 560x320 !flat\n"
+        "@ box h1 \"H1\" 40,90 240x150 >host\n"
+        "@ box m1 \"M1\" 900,0 120x40\n"
+        "@ box m2 \"M2\" 1080,0 120x40\n"
+        "@ box m3 \"M3\" 990,180 120x40\n"
+        "@ arrow m1 -- m2\n"
+        "@ arrow m2 -- m3\n"
+        "@ arrow m3 -- m1\n"
+    )
+    view = _view(board)
+    # Mesh text is illegible here, but the depth-1 container hasn't collapsed
+    # yet -> no hull (the loose group peels with depth-1, not on its own).
+    _set_zoom(view, 0.45)
+    assert "host" not in view._lod_collapsed
+    assert not view._lod_hulls
+    assert view._box_items["m1"]._lod_simplified   # shown as a bar shell instead
+    # Zoom past the depth-1 trigger: container tiles AND the mesh hulls together.
+    _set_zoom(view, 0.25)
+    assert "host" in view._lod_collapsed
+    assert len(view._lod_hulls) == 1
+
+
 def test_notes_only_container_collapses_to_tile():
     # A legend-style container holding only notes must aggregate into a tile
     # like any box container — not just have its notes vanish.

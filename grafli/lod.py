@@ -174,6 +174,39 @@ class LodModel:
     def children_of(self, elem_id: str) -> list[str]:
         return list(self._children.get(elem_id, ()))
 
+    def depth(self, elem_id: str) -> int:
+        """Nesting depth of a container: 1 for a top-level container, 2 for one
+        nested inside it, and so on. Every ancestor of a container is itself a
+        container (it has a child), so the parent-chain length is the depth."""
+        return 1 + len(self.ancestors(elem_id))
+
+    def level_extents(self) -> dict[int, float]:
+        """Shared collapse extent per nesting depth, so all containers at a
+        level collapse together (the tiers reveal the structure on zoom-out).
+
+        Each level takes its *largest* member's child extent (so nothing folds
+        while still readable), then the value is propagated deepest->shallowest
+        so a shallower level is never smaller than a deeper one. That keeps the
+        peel order correct: the deepest level always collapses first, which also
+        honours the cascade (a parent can't fold before the containers inside
+        it). ``inf`` for a level with no sized members (never collapses).
+        """
+        own: dict[int, float] = {}
+        max_d = 0
+        for cid in self.containers:
+            ext = self.child_extent(cid)
+            if ext == float("inf"):
+                continue
+            d = self.depth(cid)
+            max_d = max(max_d, d)
+            own[d] = max(own.get(d, 0.0), ext)
+        out: dict[int, float] = {}
+        carry = 0.0
+        for d in range(max_d, 0, -1):
+            carry = max(carry, own.get(d, 0.0))
+            out[d] = carry if carry > 0 else float("inf")
+        return out
+
     def ancestors(self, elem_id: str) -> list[str]:
         """Parent chain, immediate parent first up to the root."""
         chain: list[str] = []

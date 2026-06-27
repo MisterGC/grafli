@@ -3925,13 +3925,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         scale = self._current_zoom()
         model = self._lod
         collapsed: set[str] = set()
+        levels: dict[int, float] = {}
         if self._lod_enabled and model is not None:
             prev_c = self._lod_collapsed
+            # Collapse is keyed to nesting depth: every container at a level
+            # shares one extent, so siblings-by-depth fold together and the
+            # tiers reveal the structure as you zoom out (deepest peels first).
+            levels = model.level_extents()
             for cid in model.containers:
                 if cid not in self._box_items:
                     continue
-                child_px = model.child_extent(cid) * scale
-                if should_collapse_container(child_px, cid in prev_c):
+                ext = levels.get(model.depth(cid), float("inf"))
+                if ext == float("inf"):
+                    continue
+                if should_collapse_container(ext * scale, cid in prev_c):
                     collapsed.add(cid)
 
         # Outermost collapsed containers become tiles; anything with a collapsed
@@ -3956,14 +3963,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 if should_collapse(label_px, bid in self._lod_simplified):
                     shells.add(bid)
 
-        # Loose clusters: a component is hulled (members hidden) when all of its
-        # members are illegible and it is spatially compact. Members move out of
-        # `shells` (they no longer draw individually) and into `hidden`.
+        # Loose clusters: a component is hulled (members hidden) when it is
+        # spatially compact, has >=3 members, and the *depth-1 level* collapses
+        # — a loose top-level group is a top-level aggregate, so it peels in
+        # step with the depth-1 container tiles instead of on its own legibility.
+        # (Falls back to members-illegible when the board has no containers.)
         clusters: dict[tuple, list] = {}
         if self._lod_enabled and model is not None:
+            ext1 = levels.get(1, float("inf"))
+            if ext1 == float("inf"):
+                depth1_collapses = True   # no depth-1 level to sync to
+            else:
+                depth1_collapses = should_collapse_container(
+                    ext1 * scale, bool(self._lod_hulls))
             for comp in model.components:
                 if (len(comp) >= 3 and all(m in shells for m in comp)
-                        and self._cluster_compact(comp)):
+                        and depth1_collapses and self._cluster_compact(comp)):
                     clusters[tuple(sorted(comp))] = comp
                     shells.difference_update(comp)
                     hidden.update(comp)

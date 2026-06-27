@@ -1155,8 +1155,9 @@ class BoxItem(QGraphicsRectItem):
 
         if self._lod_tile is not None:
             self._paint_lod_tile(painter)
-        elif (not self._lod_simplified
-                and self.box.icon and iconset.has_icon(self.box.icon)):
+        elif self._lod_simplified:
+            self._paint_lod_shell_bars(painter)
+        elif self.box.icon and iconset.has_icon(self.box.icon):
             self._paint_icon(painter)
 
         if self.box.url:
@@ -1173,6 +1174,32 @@ class BoxItem(QGraphicsRectItem):
             sel_color.setAlphaF(0.85)
             painter.setPen(QPen(sel_color, 4, Qt.PenStyle.SolidLine))
             painter.drawRoundedRect(sel_rect, radius, radius)
+
+    def _paint_lod_shell_bars(self, painter: QPainter):
+        """LoD shell: when its label is too small to read, a leaf box keeps its
+        fill colour (colour carries meaning) and shows skeleton bars where the
+        label was — the same 'there is text here' language as a note marker, so
+        every simplified node reads alike."""
+        r = self.rect()
+        fill = self.brush().color()
+        lum = 0.299 * fill.red() + 0.587 * fill.green() + 0.114 * fill.blue()
+        ink = QColor("#2D2D2D" if lum > 140 else "#F2F0EB")
+        ink.setAlphaF(0.45)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(ink))
+        pad = 12.0
+        avail_w = r.width() - 2 * pad
+        if avail_w <= 6 or r.height() < 24:
+            return
+        bar_h, gap = 7.0, 7.0
+        n = 2 if r.height() >= 70 else 1   # box labels are short: 1-2 bars
+        widths = (0.7, 0.45)
+        total_h = n * bar_h + (n - 1) * gap
+        y = r.center().y() - total_h / 2
+        for i in range(n):
+            painter.drawRoundedRect(
+                QRectF(r.left() + pad, y, avail_w * widths[i], bar_h), 2.0, 2.0)
+            y += bar_h + gap
 
     def _paint_lod_stack(self, painter: QPainter):
         """Mark a tile as a LoD summary by stacking it like a few thin notebooks:

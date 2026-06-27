@@ -146,6 +146,25 @@ def test_child_extent_drives_innermost_first_collapse():
     assert m.child_extent("api_gw") == float("inf")
 
 
+def test_depth_counts_nesting_levels():
+    m = _model()
+    assert m.depth("backend") == 1     # top-level
+    assert m.depth("api") == 2          # inside backend
+    assert m.depth("storage") == 1
+
+
+def test_level_extents_sync_by_depth_and_stay_monotonic():
+    m = _model()
+    levels = m.level_extents()
+    # backend (depth 1) wraps the big api sub-container -> depth-1 extent is at
+    # least depth-2's, so a shallower level never collapses before a deeper one
+    # (deepest peels first; cascade preserved).
+    assert levels[1] >= levels[2]
+    # every depth-1 container shares one extent, so siblings fold together:
+    assert m.child_extent("backend") <= levels[1]
+    assert m.child_extent("storage") <= levels[1]
+
+
 def test_should_collapse_container_is_hysteretic():
     assert should_collapse_container(CHILD_COLLAPSE_PX - 1, False)
     assert not should_collapse_container(CHILD_EXPAND_PX + 1, True)

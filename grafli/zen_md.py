@@ -26,6 +26,7 @@ from PySide6.QtGui import (
     QKeyEvent,
     QPainter,
     QTextBlockFormat,
+    QTextCharFormat,
     QTextCursor,
 )
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
@@ -37,10 +38,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from grafli import md_comments
 from grafli.constants import (
     FONT_FAMILY,
     ZEN_MD_BG,
     ZEN_MD_CANVAS_DIM_COLOR,
+    ZEN_MD_COMMENT_HL,
     ZEN_MD_CARD_H_RATIO,
     ZEN_MD_CARD_INNER_PAD_H,
     ZEN_MD_CARD_INNER_PAD_V,
@@ -403,7 +406,7 @@ class ZenMarkdownEditor(QWidget):
         self._rendered_mode = not self._rendered_mode
         if self._rendered_mode:
             self._rendered.setFont(QFont(FONT_FAMILY, self._font_size))
-            self._rendered.document().setMarkdown(self._editor.toPlainText())
+            self._render_markdown(self._editor.toPlainText())
             self._editor.setVisible(False)
             self._rendered.setVisible(True)
             self._rendered.setFocus()
@@ -412,6 +415,55 @@ class ZenMarkdownEditor(QWidget):
             self._editor.setVisible(True)
             self._editor.setFocus()
         self.update()
+
+    def _render_markdown(self, source: str):
+        """Render ``source`` into the read view, with inline comments stripped
+        and their spans highlighted. The comment bodies stay hidden — they are
+        revealed only on demand (cursor-driven, added in a later phase)."""
+        md, comments = md_comments.to_sentineled(source)
+        doc = self._rendered.document()
+        doc.setMarkdown(md)
+        self._highlight_comment_spans(doc, comments)
+
+    def _highlight_comment_spans(self, doc, comments):
+        """Find each sentinel-wrapped span in the rendered document, paint the
+        subtle comment highlight over it, and delete the sentinel markers.
+
+        Located via ``QTextDocument.find`` (not raw string indexing) so the
+        positions stay correct even when the render inserts position-bearing
+        objects (images, rules) ahead of a span.
+        """
+        if not comments:
+            return
+        fmt = QTextCharFormat()
+        fmt.setBackground(QBrush(ZEN_MD_COMMENT_HL))
+        # Collect (span_start, span_end, end_sentinel_end) per comment, in order.
+        spans = []
+        pos = 0
+        for _ in comments:
+            start = doc.find(md_comments.SENTINEL_START, pos)
+            if start.isNull():
+                break
+            end = doc.find(md_comments.SENTINEL_END, start.selectionEnd())
+            if end.isNull():
+                break
+            spans.append((start.selectionStart(), start.selectionEnd(),
+                          end.selectionStart(), end.selectionEnd()))
+            pos = end.selectionEnd()
+        # Apply last-to-first so deletions don't shift not-yet-processed offsets.
+        edit = QTextCursor(doc)
+        edit.beginEditBlock()
+        for s0, s1, e0, e1 in reversed(spans):
+            edit.setPosition(s1)
+            edit.setPosition(e0, QTextCursor.MoveMode.KeepAnchor)
+            edit.mergeCharFormat(fmt)           # highlight the span text
+            edit.setPosition(e0)
+            edit.setPosition(e1, QTextCursor.MoveMode.KeepAnchor)
+            edit.removeSelectedText()           # drop END sentinel
+            edit.setPosition(s0)
+            edit.setPosition(s1, QTextCursor.MoveMode.KeepAnchor)
+            edit.removeSelectedText()           # drop START sentinel
+        edit.endEditBlock()
 
     # ── Modal card geometry ──
 

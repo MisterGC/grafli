@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-28
+
 ### Added
-- **READ / WRITE mode flash.** Toggling the zen editor's rendered view
-  (<kbd>⌘R</kbd>) briefly flashes a big, blocky **READ** or **WRITE** in the
-  centre and fades it out — anchoring the change without needing a permanent
-  mode indicator (the state is also legible from the styling).
+- **`textli` — standalone markdown editor.** Launch grafli's focused Zen
+  editor on any file without the diagram app: `textli notes.md`. It's the same
+  editor grafli uses for notes — vim-navigable, with the rendered reading view
+  (⌘R) — now usable on its own. Autosaves while you edit (and creates the file
+  on first save if it doesn't exist yet), so important states are captured via
+  git/SCM rather than a manual save action.
 - **Inline comments in the reading view.** The zen editor's rendered view
   (<kbd>⌘R</kbd>) is now caret-based and vim-navigable, and you can comment on a
   span of text: select it in **visual mode** (<kbd>v</kbd> + motions), press
@@ -24,16 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (while editing, <kbd>Enter</kbd> saves, <kbd>⇧Enter</kbd> is a line break,
   <kbd>Esc</kbd> cancels), <kbd>⇧D</kbd> deletes it. You never type the markup by
   hand.
-- **`textli` — standalone markdown editor.** Launch grafli's focused Zen
-  editor on any file without the diagram app: `textli notes.md`. It's the same
-  editor grafli uses for notes — vim-navigable, with the rendered reading view
-  (⌘R) — now usable on its own. Autosaves while you edit (and creates the file
-  on first save if it doesn't exist yet), so important states are captured via
-  git/SCM rather than a manual save action.
-
-## [0.4.0] - 2026-06-27
-
-### Added
+- **READ / WRITE mode flash.** Toggling the zen editor's rendered view
+  (<kbd>⌘R</kbd>) briefly flashes a big, blocky **READ** or **WRITE** in the
+  centre and fades it out — anchoring the change without needing a permanent
+  mode indicator (the state is also legible from the styling).
 - **Level-of-Detail / semantic zoom.** Zooming far out now simplifies the
   canvas instead of shrinking everything into unreadable mush:
   - **Containers collapse by their own size, smallest first** — like a map where

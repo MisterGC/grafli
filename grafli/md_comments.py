@@ -64,6 +64,37 @@ def strip(source: str) -> str:
     return _RE_COMMENT.sub(lambda m: m.group("span"), source)
 
 
+def render_comment(span: str, body: str) -> str:
+    """The inline form for a span comment: ``{==span==}{>>body<<}``."""
+    return f"{{=={span}==}}{{>>{body}<<}}"
+
+
+def set_body(source: str, comment: Comment, body: str) -> str:
+    """Return ``source`` with ``comment``'s body replaced, span unchanged."""
+    return (
+        source[:comment.full_start]
+        + render_comment(comment.span, body)
+        + source[comment.full_end:]
+    )
+
+
+def remove(source: str, comment: Comment) -> str:
+    """Return ``source`` with ``comment`` unwrapped to its plain span text —
+    the highlight and the comment body are both dropped."""
+    return source[:comment.full_start] + comment.span + source[comment.full_end:]
+
+
+def wrap(source: str, span_start: int, span_end: int, body: str) -> str:
+    """Return ``source`` with the slice ``[span_start, span_end)`` wrapped as a
+    span comment carrying ``body``. The wrapped text becomes the highlight span."""
+    span = source[span_start:span_end]
+    return (
+        source[:span_start]
+        + render_comment(span, body)
+        + source[span_end:]
+    )
+
+
 def to_sentineled(
     source: str,
     start: str = SENTINEL_START,

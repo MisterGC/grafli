@@ -60,6 +60,43 @@ def test_multiline_span_and_body():
     assert c.body == "a\nb"
 
 
+def test_set_body_replaces_only_the_body():
+    src = "a {==b==}{>>old<<} c"
+    (c,) = mc.parse(src)
+    assert mc.set_body(src, c, "new") == "a {==b==}{>>new<<} c"
+    (c2,) = mc.parse(mc.set_body(src, c, "new"))
+    assert c2.span == "b" and c2.body == "new"
+
+
+def test_set_body_targets_the_right_comment():
+    src = "{==one==}{>>a<<} {==two==}{>>b<<}"
+    first, second = mc.parse(src)
+    assert mc.set_body(src, second, "B") == "{==one==}{>>a<<} {==two==}{>>B<<}"
+    assert mc.set_body(src, first, "A") == "{==one==}{>>A<<} {==two==}{>>b<<}"
+
+
+def test_remove_unwraps_to_span():
+    src = "a {==b==}{>>note<<} c"
+    (c,) = mc.parse(src)
+    assert mc.remove(src, c) == "a b c"
+
+
+def test_remove_leaves_other_comments():
+    src = "{==one==}{>>a<<} and {==two==}{>>b<<}"
+    first, _second = mc.parse(src)
+    assert mc.remove(src, first) == "one and {==two==}{>>b<<}"
+
+
+def test_wrap_creates_a_comment_over_a_slice():
+    src = "the quick brown fox"
+    start = src.index("quick")
+    end = start + len("quick")
+    out = mc.wrap(src, start, end, "why quick?")
+    assert out == "the {==quick==}{>>why quick?<<} brown fox"
+    (c,) = mc.parse(out)
+    assert c.span == "quick" and c.body == "why quick?"
+
+
 def test_real_sentinels_are_private_use():
     # default sentinels must be the private-use code points the read view scans
     assert mc.SENTINEL_START == "\uE000"

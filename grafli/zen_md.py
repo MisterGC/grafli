@@ -28,6 +28,7 @@ from PySide6.QtGui import (
     QTextBlockFormat,
     QTextCharFormat,
     QTextCursor,
+    QTextFormat,
 )
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
@@ -59,6 +60,11 @@ from grafli.constants import (
 from grafli.zen_md_highlight import MarkdownHighlighter, compute_focus_range
 from grafli.zen_md_jump import WordJumpOverlay
 from grafli.zen_md_vim import VimKeyHandler, VimMode
+
+# Custom char-format property tagging a rendered span with its comment index,
+# so the reveal/navigate loop can map a highlighted span back to its source
+# comment even when inline formatting splits the span into fragments.
+_COMMENT_IDX_PROP = QTextFormat.Property.UserProperty + 7
 
 
 class ZenMarkdownEditor(QWidget):
@@ -126,6 +132,15 @@ class ZenMarkdownEditor(QWidget):
     def _build_ui(self, title: str, text: str):
         self._full_width = False      # ⌘↵ expands the card to the window
         self._rendered_mode = False   # ⌘R shows a read-only rendered view
+        # Read-view comment interaction state — initialized before any child
+        # widget is built, since installing event filters can fire eventFilter
+        # (which references these) during construction. _rendered_comments maps
+        # each highlighted span to its source Comment; _active_comment is the
+        # one ]c / [c stepped onto; _comment_field is the inline reveal editor.
+        self._rendered_comments: list = []
+        self._active_comment = -1
+        self._comment_field: QPlainTextEdit | None = None
+        self._rendered_pending_bracket = ""
         layout = QVBoxLayout(self)
         self._apply_card_margins(layout)
         layout.setSpacing(0)
@@ -405,12 +420,15 @@ class ZenMarkdownEditor(QWidget):
         Markdown view — a quick read perspective <-> edit perspective."""
         self._rendered_mode = not self._rendered_mode
         if self._rendered_mode:
+            self._active_comment = -1
+            self._rendered_pending_bracket = ""
             self._rendered.setFont(QFont(FONT_FAMILY, self._font_size))
             self._render_markdown(self._editor.toPlainText())
             self._editor.setVisible(False)
             self._rendered.setVisible(True)
             self._rendered.setFocus()
         else:
+            self._hide_comment_field()
             self._rendered.setVisible(False)
             self._editor.setVisible(True)
             self._editor.setFocus()
@@ -427,17 +445,18 @@ class ZenMarkdownEditor(QWidget):
 
     def _highlight_comment_spans(self, doc, comments):
         """Find each sentinel-wrapped span in the rendered document, paint the
-        subtle comment highlight over it, and delete the sentinel markers.
+        subtle comment highlight over it, tag it with its comment index, and
+        delete the sentinel markers. Builds ``self._rendered_comments`` — the
+        rendered-range → source-``Comment`` map the reveal/navigate loop uses.
 
         Located via ``QTextDocument.find`` (not raw string indexing) so the
         positions stay correct even when the render inserts position-bearing
         objects (images, rules) ahead of a span.
         """
+        self._rendered_comments = []
         if not comments:
             return
-        fmt = QTextCharFormat()
-        fmt.setBackground(QBrush(ZEN_MD_COMMENT_HL))
-        # Collect (span_start, span_end, end_sentinel_end) per comment, in order.
+        # Collect each span's sentinel bounds, in document order.
         spans = []
         pos = 0
         for _ in comments:
@@ -453,17 +472,44 @@ class ZenMarkdownEditor(QWidget):
         # Apply last-to-first so deletions don't shift not-yet-processed offsets.
         edit = QTextCursor(doc)
         edit.beginEditBlock()
-        for s0, s1, e0, e1 in reversed(spans):
+        for i in range(len(spans) - 1, -1, -1):
+            s0, s1, e0, e1 = spans[i]
+            fmt = QTextCharFormat()
+            fmt.setBackground(QBrush(ZEN_MD_COMMENT_HL))
+            fmt.setProperty(_COMMENT_IDX_PROP, i)   # tag span -> comment index
             edit.setPosition(s1)
             edit.setPosition(e0, QTextCursor.MoveMode.KeepAnchor)
-            edit.mergeCharFormat(fmt)           # highlight the span text
+            edit.mergeCharFormat(fmt)               # highlight the span text
             edit.setPosition(e0)
             edit.setPosition(e1, QTextCursor.MoveMode.KeepAnchor)
-            edit.removeSelectedText()           # drop END sentinel
+            edit.removeSelectedText()               # drop END sentinel
             edit.setPosition(s0)
             edit.setPosition(s1, QTextCursor.MoveMode.KeepAnchor)
-            edit.removeSelectedText()           # drop START sentinel
+            edit.removeSelectedText()               # drop START sentinel
         edit.endEditBlock()
+        self._rendered_comments = self._collect_rendered_comments(doc, comments)
+
+    def _collect_rendered_comments(self, doc, comments):
+        """Walk the rendered document's fragments and, for each comment index
+        tagged on a span, recover its [start, end) range — robust to the span
+        being split into several fragments by inline formatting."""
+        bounds: dict[int, tuple[int, int]] = {}
+        block = doc.begin()
+        while block.isValid():
+            it = block.begin()
+            while not it.atEnd():
+                frag = it.fragment()
+                cf = frag.charFormat()
+                if cf.hasProperty(_COMMENT_IDX_PROP):
+                    idx = cf.intProperty(_COMMENT_IDX_PROP)
+                    a = frag.position()
+                    b = a + frag.length()
+                    lo, hi = bounds.get(idx, (a, b))
+                    bounds[idx] = (min(lo, a), max(hi, b))
+                it += 1
+            block = block.next()
+        return [(bounds[i][0], bounds[i][1], comments[i])
+                for i in sorted(bounds)]
 
     # ── Modal card geometry ──
 
@@ -611,9 +657,30 @@ class ZenMarkdownEditor(QWidget):
         if obj == self.parentWidget() and event.type() == QEvent.Type.Resize:
             self.resize(obj.size())
             return False
+        if (obj is self._comment_field
+                and event.type() == QEvent.Type.KeyPress):
+            return self._handle_comment_field_key(event)
         if (obj in (self._editor, self._rendered)
                 and event.type() == QEvent.Type.KeyPress):
             return self._handle_key(event)
+        return False
+
+    def _handle_comment_field_key(self, event: QKeyEvent) -> bool:
+        """Keys while the inline comment editor is open: Esc commits and returns
+        to undisturbed reading; ⇧Esc cancels the edit; ⌃↵ also commits. Plain
+        Enter inserts a newline in the comment as usual."""
+        key = event.key()
+        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        if key == Qt.Key.Key_Escape:
+            if shift:
+                self._hide_comment_field()      # ⇧Esc — discard the edit
+            else:
+                self._commit_comment_field()    # Esc — save and back to reading
+            return True
+        if (key in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                and event.modifiers() & _CTRL_MOD):
+            self._commit_comment_field()
+            return True
         return False
 
     # ── Key handling ──
@@ -687,6 +754,28 @@ class ZenMarkdownEditor(QWidget):
         line = max(sb.singleStep(), int(QFontMetricsF(
             self._rendered.font()).height()))
 
+        # ]c / [c — step to the next / previous comment (two-key, vim diff-style).
+        if self._rendered_pending_bracket:
+            pending = self._rendered_pending_bracket
+            self._rendered_pending_bracket = ""
+            if key == Qt.Key.Key_C:
+                self._goto_comment(1 if pending == "]" else -1)
+                return True
+        if key == Qt.Key.Key_BracketRight and not shift:
+            self._rendered_pending_bracket = "]"
+            return True
+        if key == Qt.Key.Key_BracketLeft and not shift:
+            self._rendered_pending_bracket = "["
+            return True
+
+        # Enter — reveal/edit the active comment inline. ⇧D — delete it.
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not ctrl:
+            self._reveal_active_comment()
+            return True
+        if key == Qt.Key.Key_D and shift:
+            self._delete_active_comment()
+            return True
+
         # `gg` — two-key jump to top.
         if key == Qt.Key.Key_G and not shift:
             if getattr(self, "_rendered_pending_g", False):
@@ -723,6 +812,119 @@ class ZenMarkdownEditor(QWidget):
             sb.setValue(sb.value() - page)
             return True
         return False
+
+    # ── Read-view comment interaction ──
+
+    def _goto_comment(self, direction: int):
+        """Step the active comment forward (+1) or back (-1), wrapping, and
+        scroll it into view. From no active comment, land on the first / last."""
+        comments = self._rendered_comments
+        if not comments:
+            return
+        n = len(comments)
+        if self._active_comment < 0:
+            idx = 0 if direction > 0 else n - 1
+        else:
+            idx = (self._active_comment + direction) % n
+        self._set_active_comment(idx)
+
+    def _set_active_comment(self, idx: int):
+        """Mark comment ``idx`` active: select its span (the native selection
+        marks it atop the amber highlight) and scroll it into view."""
+        self._active_comment = idx
+        start, end, _comment = self._rendered_comments[idx]
+        cur = self._rendered.textCursor()
+        cur.setPosition(start)
+        cur.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        self._rendered.setTextCursor(cur)
+        self._rendered.ensureCursorVisible()
+
+    def _reveal_active_comment(self):
+        """Show the inline editable field for the active comment (Enter). With
+        no active comment yet, land on the first one and reveal it."""
+        if not self._rendered_comments:
+            return
+        if self._active_comment < 0:
+            self._set_active_comment(0)
+        _start, end, comment = self._rendered_comments[self._active_comment]
+        self._show_comment_field(end, comment.body)
+
+    def _show_comment_field(self, end_pos: int, body: str):
+        """Place the inline comment editor just below the active span."""
+        field = self._comment_field
+        if field is None:
+            field = QPlainTextEdit(self._rendered.viewport())
+            field.setFont(QFont(
+                FONT_FAMILY, max(ZEN_MD_FONT_SIZE_MIN, self._font_size - 2)))
+            field.setStyleSheet(
+                f"QPlainTextEdit {{"
+                f" background: #FBF7EC; color: {ZEN_TEXT_COLOR.name()};"
+                f" border: 1px solid #C9A227; border-radius: 6px;"
+                f" padding: 6px;"
+                f" selection-background-color: #B8D4E8;"
+                f"}}"
+            )
+            field.installEventFilter(self)
+            self._comment_field = field
+        field.setPlainText(body)
+        cur = self._rendered.textCursor()
+        cur.setPosition(end_pos)
+        rect = self._rendered.cursorRect(cur)
+        vp = self._rendered.viewport()
+        w = min(380, vp.width() - 24)
+        field.setFixedWidth(w)
+        field.setFixedHeight(84)
+        x = max(8, min(rect.left(), vp.width() - w - 8))
+        y = min(rect.bottom() + 4, vp.height() - field.height() - 8)
+        field.move(x, max(8, y))
+        field.show()
+        field.setFocus()
+        field.moveCursor(QTextCursor.MoveOperation.End)
+
+    def _hide_comment_field(self):
+        if self._comment_field is not None:
+            self._comment_field.hide()
+        self._rendered.setFocus()
+
+    def _commit_comment_field(self):
+        """Write the field's text back into the source comment body, then
+        re-render. Clearing the body deletes the comment."""
+        if self._comment_field is None or self._active_comment < 0:
+            return
+        new_body = self._comment_field.toPlainText().strip()
+        _s, _e, comment = self._rendered_comments[self._active_comment]
+        src = self._editor.toPlainText()
+        if new_body:
+            src = md_comments.set_body(src, comment, new_body)
+        else:
+            src = md_comments.remove(src, comment)   # emptied → delete
+        idx = self._active_comment
+        self._hide_comment_field()
+        self._set_source_text(src)
+        self._render_markdown(src)
+        if self._rendered_comments:
+            self._set_active_comment(min(idx, len(self._rendered_comments) - 1))
+        else:
+            self._active_comment = -1
+
+    def _delete_active_comment(self):
+        """⇧D — unwrap the active comment (highlight + body gone), re-render."""
+        if not (0 <= self._active_comment < len(self._rendered_comments)):
+            return
+        _s, _e, comment = self._rendered_comments[self._active_comment]
+        idx = self._active_comment
+        src = md_comments.remove(self._editor.toPlainText(), comment)
+        self._hide_comment_field()
+        self._set_source_text(src)
+        self._render_markdown(src)
+        if self._rendered_comments:
+            self._set_active_comment(min(idx, len(self._rendered_comments) - 1))
+        else:
+            self._active_comment = -1
+
+    def _set_source_text(self, src: str):
+        """Replace the source buffer (fires heading layout + autosave)."""
+        self._editor.setPlainText(src)
 
     def _change_font_size(self, delta: int):
         """Change font size. delta=0 resets to default."""

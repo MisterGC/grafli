@@ -201,6 +201,20 @@ def _view_scale(item) -> float:
     return 1.0
 
 
+def _aggregate_ideal_px(w_screen: float, h_screen: float) -> float:
+    """Most-readable headline size (on-screen px) for an aggregate of the given
+    on-screen footprint, shared by collapsed tiles and cluster hulls.
+
+    Driven by the footprint's *area* (geometric mean of the sides), not its
+    shorter side: a wide-but-flat tile then still earns a prominent headline
+    instead of being throttled by its short dimension. Floored so a headline
+    stays scannable as the tile keeps shrinking on zoom-out (it may overflow the
+    footprint — the caption painter treats that as an acceptable last resort),
+    and capped so a huge tile doesn't shout.
+    """
+    return max(9.0, min(22.0, (w_screen * h_screen) ** 0.5 * 0.32))
+
+
 def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
                             ideal_px):
     """Draw a centered '<label> / N nodes' caption for a collapsed tile or hull.
@@ -1297,7 +1311,7 @@ class BoxItem(QGraphicsRectItem):
             return
         w_screen = rect.width() * scale
         h_screen = rect.height() * scale
-        ideal = max(7.0, min(16.0, min(w_screen, h_screen) * 0.32))
+        ideal = _aggregate_ideal_px(w_screen, h_screen)
 
         painter.save()
         painter.translate(rect.center())
@@ -1413,7 +1427,7 @@ class ClusterHullItem(QGraphicsPathItem):
         bounds = self.path().boundingRect()
         w_screen = bounds.width() * scale
         h_screen = bounds.height() * scale
-        ideal = max(7.0, min(16.0, min(w_screen, h_screen) * 0.32))
+        ideal = _aggregate_ideal_px(w_screen, h_screen)
         painter.save()
         painter.translate(self._centroid)
         painter.scale(1.0 / scale, 1.0 / scale)

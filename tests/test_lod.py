@@ -153,16 +153,25 @@ def test_depth_counts_nesting_levels():
     assert m.depth("storage") == 1
 
 
-def test_level_extents_sync_by_depth_and_stay_monotonic():
+def test_collapse_extents_are_per_container_with_cascade_guard():
     m = _model()
-    levels = m.level_extents()
-    # backend (depth 1) wraps the big api sub-container -> depth-1 extent is at
-    # least depth-2's, so a shallower level never collapses before a deeper one
-    # (deepest peels first; cascade preserved).
-    assert levels[1] >= levels[2]
-    # every depth-1 container shares one extent, so siblings fold together:
-    assert m.child_extent("backend") <= levels[1]
-    assert m.child_extent("storage") <= levels[1]
+    ext = m.collapse_extents()
+    # Size-driven per container: each keeps its own child extent (not pinned to a
+    # larger same-level sibling), so a small container folds before a big one.
+    assert ext["api"] == m.child_extent("api")          # 70 (its own leaves)
+    assert ext["storage"] == m.child_extent("storage")  # own size, not backend's
+    assert ext["api"] < ext["backend"]                  # api folds before backend
+    # Cascade guard: a parent is never smaller than a container nested inside it,
+    # so it never folds before a tile it would subsume.
+    assert ext["backend"] >= ext["api"]
+
+
+def test_coarsest_collapse_extent_is_the_largest_top_level():
+    m = _model()
+    ext = m.collapse_extents()
+    # Top-level containers are backend and storage (api is nested); the coarsest
+    # (last to fold on zoom-out) is the larger of the two.
+    assert m.coarsest_collapse_extent() == max(ext["backend"], ext["storage"])
 
 
 def test_should_collapse_container_is_hysteretic():

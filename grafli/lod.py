@@ -32,9 +32,13 @@ EXPAND_PX = 10.0
 
 # A container collapses to a single tile once its children render smaller than
 # this on-screen (the largest child's shorter side, in pixels). Smaller, deeper
-# children cross the floor first, so nesting collapses innermost-first.
-CHILD_COLLAPSE_PX = 50.0
-CHILD_EXPAND_PX = 64.0
+# children cross the floor first, so nesting collapses innermost-first. The
+# threshold sits well above the bare label-legibility floor on purpose: a tile
+# is most useful while it's still large enough for its headline to read at a
+# comfortable size, so we fold a shade early rather than wait until the interior
+# is already a thumbnail.
+CHILD_COLLAPSE_PX = 64.0
+CHILD_EXPAND_PX = 80.0
 
 Rect = tuple[float, float, float, float]  # x, y, w, h
 
@@ -180,32 +184,46 @@ class LodModel:
         container (it has a child), so the parent-chain length is the depth."""
         return 1 + len(self.ancestors(elem_id))
 
-    def level_extents(self) -> dict[int, float]:
-        """Shared collapse extent per nesting depth, so all containers at a
-        level collapse together (the tiers reveal the structure on zoom-out).
+    def collapse_extents(self) -> dict[str, float]:
+        """Per-container collapse extent (scene units), size-driven: each
+        container folds when *its own* children get too small on screen, like a
+        map where a small town's label vanishes before a city's.
 
-        Each level takes its *largest* member's child extent (so nothing folds
-        while still readable), then the value is propagated deepest->shallowest
-        so a shallower level is never smaller than a deeper one. That keeps the
-        peel order correct: the deepest level always collapses first, which also
-        honours the cascade (a parent can't fold before the containers inside
-        it). ``inf`` for a level with no sized members (never collapses).
+        Each container takes its own largest child (:meth:`child_extent`), then
+        is raised to never fall below any container nested inside it. That
+        cascade guarantee keeps the peel order correct — the innermost
+        containers always fold first, and a parent never folds before a tile it
+        would subsume — without forcing wildly-different-sized siblings to fold
+        at the same zoom (which left small containers showing illegible children
+        while pinned to a large sibling). ``inf`` for a container with no sized
+        child (never folds on size alone).
         """
-        own: dict[int, float] = {}
-        max_d = 0
-        for cid in self.containers:
-            ext = self.child_extent(cid)
-            if ext == float("inf"):
-                continue
-            d = self.depth(cid)
-            max_d = max(max_d, d)
-            own[d] = max(own.get(d, 0.0), ext)
-        out: dict[int, float] = {}
-        carry = 0.0
-        for d in range(max_d, 0, -1):
-            carry = max(carry, own.get(d, 0.0))
-            out[d] = carry if carry > 0 else float("inf")
+        out: dict[str, float] = {}
+        # Deepest first, so a child's extent is known before its parent's.
+        for cid in sorted(self.containers, key=self.depth, reverse=True):
+            own = self.child_extent(cid)
+            best = 0.0 if own == float("inf") else own
+            for child in self._children.get(cid, ()):
+                sub = out.get(child)
+                if sub is not None and sub != float("inf"):
+                    best = max(best, sub)
+            out[cid] = best if best > 0 else float("inf")
         return out
+
+    def coarsest_collapse_extent(self) -> float:
+        """Largest collapse extent among *top-level* containers — the last thing
+        to fold on zoom-out. The view uses it to keep the coarsest tile within
+        reach of the zoom-out floor. ``0.0`` when there are no top-level
+        containers with a sized child."""
+        ext = self.collapse_extents()
+        best = 0.0
+        for cid in self.containers:
+            if self._parent.get(cid):
+                continue  # nested, not top-level
+            e = ext.get(cid, float("inf"))
+            if e != float("inf"):
+                best = max(best, e)
+        return best
 
     def ancestors(self, elem_id: str) -> list[str]:
         """Parent chain, immediate parent first up to the root."""

@@ -12,14 +12,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Level-of-Detail / semantic zoom.** Zooming far out now simplifies the
   canvas instead of shrinking everything into unreadable mush:
-  - **Containers collapse by nesting depth.** Each level folds together at one
-    zoom, **deepest first**, so the tiers themselves reveal the structure as you
-    pull back: detail → innermost tiles → … → top-level tiles. A collapsed
-    container becomes a single tile — its counter-scaled headline (kept legible
-    like a place name on a map, **wrapping across lines** and shrinking its font
-    only if it would still overflow the tile) plus a child-count badge — and its
-    children hide. Boundary-crossing arrows re-route to the tile; internal edges
-    vanish.
+  - **Containers collapse by their own size, smallest first** — like a map where
+    a small town's label vanishes before a city's. Each container folds when
+    *its own* children get too small to read on screen, so a small group doesn't
+    wait on a large same-level sibling; a **cascade guarantee** still folds the
+    innermost containers first and never folds a parent before a tile it would
+    subsume. Folding triggers **a shade early** — while a fresh tile is still
+    large enough to read at a comfortable size rather than only once its interior
+    is already a thumbnail — and a container is **always fully detailed at 100%
+    zoom** (aggregation is a zoom-*out* affordance). The zoom-out floor also
+    **drops far enough to reach the coarsest top-level tile**, so the whole-board
+    overview is always attainable. A collapsed container becomes a single tile —
+    its counter-scaled headline (kept legible like a place name on a map, sized
+    from the tile's **area** so a wide-flat tile still reads boldly, **wrapping
+    across lines** and shrinking its font only if it would still overflow the
+    tile) plus a child-count badge — and its children hide. Boundary-crossing
+    arrows re-route to the tile; internal edges vanish.
   - **Every simplified node speaks one "there's content here" language.** A leaf
     whose label is too small keeps its colour and shows **skeleton bars** where
     the label was; a connector **label** hides once it drops below the same
@@ -35,8 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     nodes) collapses behind a concave **"bubble" hull** — a tight organic
     outline (Qt path unions, padding adapted to node size) labelled by its hub
     node and count, with outside arrows re-attaching to the outline. The hull
-    peels **in step with the top-level (depth-1) tiles**, so the whole top level
-    aggregates together.
+    peels on its **own legibility** (once every member's label is too small to
+    read), the leaf-level twin of a container folding when its children shrink —
+    including a cluster sitting **among already-collapsed peers** (boxes subsumed
+    by a neighbouring tile no longer block it).
   - A hysteresis band keeps threshold crossings from flickering while you scrub
     the zoom.
   - Aggregated nodes (tiles and hulls) are **read-only** — you edit at full

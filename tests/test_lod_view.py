@@ -135,6 +135,51 @@ def test_non_compact_cluster_falls_back_to_shells():
     assert {"a", "b", "c"} <= view._lod_simplified   # bare shells instead
 
 
+def test_cluster_ignores_intruder_subsumed_by_a_collapsed_tile():
+    # The gap intruder sits inside the mesh bbox (so it would block compactness),
+    # but it's a child of a container that collapses at this zoom — so it's
+    # hidden behind that tile and must NOT block the loose cluster from hulling.
+    board = parse(
+        MESH
+        + '@ box host "Host" 150,15 200x300 !flat\n'
+        + '@ box intruder "X" 185,15 40x40 >host\n'
+    )
+    view = _view(board)
+    _set_zoom(view, 0.05)
+    assert "host" in view._lod_collapsed             # intruder is subsumed/hidden
+    assert not view._box_items["intruder"].isVisible()
+    assert sorted(view._lod_hull_member) == ["a", "b", "c"]   # cluster still forms
+    assert len(view._lod_hulls) == 1
+
+
+def test_aggregate_headline_size_is_area_driven_floored_and_capped():
+    from grafli.items import _aggregate_ideal_px
+    # Area (geometric mean), not the shorter side: a wide-flat tile still earns a
+    # prominent headline instead of being throttled by its short dimension.
+    flat = _aggregate_ideal_px(800.0, 80.0)        # short side 80
+    square = _aggregate_ideal_px(253.0, 253.0)     # same area, square
+    assert abs(flat - square) < 0.5                # driven by area, not min side
+    # Floored so a shrinking tile stays scannable; capped so a huge tile is calm.
+    assert _aggregate_ideal_px(10.0, 10.0) == 9.0
+    assert _aggregate_ideal_px(5000.0, 5000.0) == 22.0
+
+
+def test_full_zoom_always_detail_even_for_small_children():
+    # LoD aggregation is a zoom-OUT affordance: at 100% the board is at authored
+    # size, so a container is fully detailed even when its children are small
+    # enough that the collapse threshold would otherwise fold them.
+    board = parse(
+        "@ box mini \"Mini\" 0,0 200x200 !flat\n"
+        "@ box m1 \"M1\" 30,60 60x60 >mini\n"
+        "@ box m2 \"M2\" 110,60 60x60 >mini\n"
+    )
+    view = _view(board)
+    _set_zoom(view, 1.0)
+    assert "mini" not in view._lod_collapsed         # authored detail at 100%
+    _set_zoom(view, 0.5)
+    assert "mini" in view._lod_collapsed             # aggregates once zoomed out
+
+
 def test_collapsed_tile_renders_above_arrows():
     # An arrow crossing a collapsed tile must pass behind it so the tile's
     # headline stays readable.
@@ -227,7 +272,7 @@ def test_deep_nesting_collapses_innermost_first_with_no_stale_state():
 
     # Further out: the middle (P) becomes the one tile; C is subsumed/hidden and
     # must NOT keep a stale tile flag (would linger as a read-only lock).
-    _set_zoom(view, 0.1)
+    _set_zoom(view, 0.13)
     tiles, hidden = state()
     assert tiles == {"p"}
     assert "c" in hidden and not (tiles & hidden)
@@ -265,25 +310,29 @@ def test_notes_and_images_follow_lod():
     assert all(i.isVisible() for i in view._image_items.values())
 
 
-def test_same_depth_containers_collapse_together():
-    # Two top-level (depth-1) containers with different child sizes. Per-child
-    # they'd collapse at different zooms; depth-leveling holds the small one
-    # until the larger is ready, so siblings fold together.
+def test_smaller_container_folds_before_a_larger_sibling():
+    # Per-container, size-driven: a small container folds at a higher zoom than a
+    # large same-level sibling — no level-sync pinning the small one to the big
+    # one (which left it showing illegible children until the big one was ready).
     board = parse(
-        "@ box small \"Small\" 0,0 260x220 !flat\n"
-        "@ box s1 \"S1\" 30,80 100x60 >small\n"
-        "@ box s2 \"S2\" 30,150 100x60 >small\n"
-        "@ box big \"Big\" 500,0 520x420 !flat\n"
-        "@ box b1 \"B1\" 540,90 200x120 >big\n"
-        "@ box b2 \"B2\" 540,250 200x120 >big\n"
+        "@ box small \"Small\" 0,0 220x320 !flat\n"
+        "@ box s1 \"S1\" 30,80 120x90 >small\n"
+        "@ box s2 \"S2\" 30,200 120x90 >small\n"
+        "@ box big \"Big\" 500,0 340x520 !flat\n"
+        "@ box b1 \"B1\" 540,90 220x150 >big\n"
+        "@ box b2 \"B2\" 540,320 220x150 >big\n"
     )
     view = _view(board)
-    # Just above the (shared) collapse point: NEITHER collapses — the small one
-    # is held back in step with the big one rather than folding on its own.
-    _set_zoom(view, 0.5)
+    # Zoom monotonically out (so hysteresis flows cleanly). Just under 100%:
+    # neither folds — both sets of children are still big enough.
+    _set_zoom(view, 0.8)
     assert "small" not in view._lod_collapsed
     assert "big" not in view._lod_collapsed
-    # Past it: both fold together.
+    # The small one's children cross the floor first: it folds, the big one not.
+    _set_zoom(view, 0.5)
+    assert "small" in view._lod_collapsed
+    assert "big" not in view._lod_collapsed
+    # Far enough out, the big one folds too.
     _set_zoom(view, 0.3)
     assert "small" in view._lod_collapsed
     assert "big" in view._lod_collapsed
@@ -329,10 +378,10 @@ def test_leaf_shell_paints_skeleton_bars():
     p.end()
 
 
-def test_loose_cluster_hull_syncs_to_depth1_collapse():
-    # A compact 3-node loose mesh next to a flat depth-1 container with large
-    # children. The mesh is illegible (shells) before the container collapses,
-    # but the hull must wait for the depth-1 trigger, then form with it.
+def test_loose_cluster_hulls_on_its_own_legibility():
+    # A compact 3-node loose mesh hulls as soon as its own members' labels are
+    # illegible (all shells) — independent of a neighbouring container's state,
+    # the leaf-level equivalent of a container folding when its children shrink.
     board = parse(
         "@ box host \"Host\" 0,0 560x320 !flat\n"
         "@ box h1 \"H1\" 40,90 240x150 >host\n"
@@ -344,16 +393,18 @@ def test_loose_cluster_hull_syncs_to_depth1_collapse():
         "@ arrow m3 -- m1\n"
     )
     view = _view(board)
-    # Mesh text is illegible here, but the depth-1 container hasn't collapsed
-    # yet -> no hull (the loose group peels with depth-1, not on its own).
+    # Mesh labels are illegible here while the (larger-childed) host has NOT yet
+    # folded — the mesh still hulls on its own legibility, no longer waiting.
     _set_zoom(view, 0.45)
     assert "host" not in view._lod_collapsed
-    assert not view._lod_hulls
-    assert view._box_items["m1"]._lod_simplified   # shown as a bar shell instead
-    # Zoom past the depth-1 trigger: container tiles AND the mesh hulls together.
-    _set_zoom(view, 0.25)
-    assert "host" in view._lod_collapsed
     assert len(view._lod_hulls) == 1
+    for m in ("m1", "m2", "m3"):
+        assert not view._box_items[m].isVisible()   # hidden behind the hull
+    # Back to detail: the hull clears and members reappear.
+    _set_zoom(view, 1.0)
+    assert not view._lod_hulls
+    for m in ("m1", "m2", "m3"):
+        assert view._box_items[m].isVisible()
 
 
 def test_long_tile_headline_wraps_without_error():

@@ -115,7 +115,7 @@ from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.iconset import ICON_NAMES, icon_pixmap
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ClusterHullItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
-from grafli.lod import LodModel, should_collapse, should_collapse_container
+from grafli.lod import CHILD_COLLAPSE_PX, LodModel, should_collapse, should_collapse_container
 from grafli.md_note import note_is_md, toggle_task
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
@@ -3931,18 +3931,26 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         """
         scale = self._current_zoom()
         model = self._lod
+        # Container aggregation is a zoom-OUT affordance: at 100%+ the board is
+        # at (or above) authored size, so everything stays fully detailed. This
+        # also guarantees a small-child container (a notes legend, tiny boxes)
+        # can always reach detail — the collapse threshold sits above such
+        # children's on-screen size, so without this floor the hysteresis would
+        # keep them tiled even at full zoom.
+        may_collapse = scale < 1.0
         collapsed: set[str] = set()
-        levels: dict[int, float] = {}
-        if self._lod_enabled and model is not None:
+        if self._lod_enabled and may_collapse and model is not None:
             prev_c = self._lod_collapsed
-            # Collapse is keyed to nesting depth: every container at a level
-            # shares one extent, so siblings-by-depth fold together and the
-            # tiers reveal the structure as you zoom out (deepest peels first).
-            levels = model.level_extents()
+            # Size-driven, per container: each folds when its own children get
+            # too small on screen (a small container no longer waits for a large
+            # same-level sibling). A cascade guarantee inside collapse_extents
+            # still folds the innermost containers first and never folds a parent
+            # before a tile it would subsume.
+            extents = model.collapse_extents()
             for cid in model.containers:
                 if cid not in self._box_items:
                     continue
-                ext = levels.get(model.depth(cid), float("inf"))
+                ext = extents.get(cid, float("inf"))
                 if ext == float("inf"):
                     continue
                 if should_collapse_container(ext * scale, cid in prev_c):
@@ -3970,22 +3978,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 if should_collapse(label_px, bid in self._lod_simplified):
                     shells.add(bid)
 
-        # Loose clusters: a component is hulled (members hidden) when it is
-        # spatially compact, has >=3 members, and the *depth-1 level* collapses
-        # — a loose top-level group is a top-level aggregate, so it peels in
-        # step with the depth-1 container tiles instead of on its own legibility.
-        # (Falls back to members-illegible when the board has no containers.)
+        # Loose clusters: a parent-less component is hulled (members hidden) once
+        # it is spatially compact, has >=3 members, and every member's own label
+        # has dropped below the legibility floor (all shells) — the leaf-level
+        # equivalent of a container folding when its children get too small to
+        # read. Compactness ignores boxes already subsumed by a collapsed tile.
         clusters: dict[tuple, list] = {}
-        if self._lod_enabled and model is not None:
-            ext1 = levels.get(1, float("inf"))
-            if ext1 == float("inf"):
-                depth1_collapses = True   # no depth-1 level to sync to
-            else:
-                depth1_collapses = should_collapse_container(
-                    ext1 * scale, bool(self._lod_hulls))
+        if self._lod_enabled and may_collapse and model is not None:
             for comp in model.components:
                 if (len(comp) >= 3 and all(m in shells for m in comp)
-                        and depth1_collapses and self._cluster_compact(comp)):
+                        and self._cluster_compact(comp, hidden)):
                     clusters[tuple(sorted(comp))] = comp
                     shells.difference_update(comp)
                     hidden.update(comp)
@@ -4074,9 +4076,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             # drop out and their lines redraw unbroken.
             self._redraw_arrows()
 
-    def _cluster_compact(self, comp) -> bool:
-        """A component is compact when no non-member box centre falls inside its
-        bounding box — so a hull won't visually swallow unrelated nodes."""
+    def _cluster_compact(self, comp, hidden=frozenset()) -> bool:
+        """A component is compact when no *visible* non-member box centre falls
+        inside its bounding box — so a hull won't visually swallow unrelated
+        nodes. Boxes already subsumed by a collapsed container tile (``hidden``)
+        are invisible and must not block the hull: otherwise a loose cluster
+        sitting among already-aggregated peers would never get to aggregate
+        itself."""
         boxes = [self._box_items[m].box for m in comp if m in self._box_items]
         if not boxes:
             return False
@@ -4084,7 +4090,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         x1 = max(b.x + b.w for b in boxes); y1 = max(b.y + b.h for b in boxes)
         member = set(comp)
         for bid, item in self._box_items.items():
-            if bid in member:
+            if bid in member or bid in hidden:
                 continue
             b = item.box
             cx, cy = b.x + b.w / 2, b.y + b.h / 2
@@ -4237,10 +4243,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     def _zoom_bounds(self) -> tuple[float, float]:
         """(min, max) zoom. Min lets you zoom out until the board fills ~30%
         of the viewport — never forced above 100% — so small boards can't
-        shrink to a dot; max is the fixed in-cap."""
+        shrink to a dot; max is the fixed in-cap.
+
+        When LoD is on, the floor is dropped just past the coarsest top-level
+        tile's collapse point if that sits below the 30%-fit floor — otherwise
+        you could never zoom out far enough to reach the top-level aggregation.
+        The raw board gets small there, but the tiles are counter-scaled, so
+        their headlines stay readable: that small overview is what they're for.
+        """
         fit = self._fit_zoom()
         lo = (self.MIN_ZOOM_ABS if fit is None
               else min(1.0, max(self.MIN_ZOOM_ABS, fit * 0.3)))
+        if self._lod_enabled and self._lod is not None:
+            ext = self._lod.coarsest_collapse_extent()
+            if ext > 0:
+                reach = CHILD_COLLAPSE_PX / ext * 0.9
+                lo = max(self.MIN_ZOOM_ABS, min(lo, reach))
         return lo, self.MAX_ZOOM
 
     def _clamp_zoom_factor(self, factor: float) -> tuple[float, bool]:

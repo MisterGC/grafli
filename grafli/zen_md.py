@@ -890,13 +890,26 @@ class ZenMarkdownEditor(QWidget):
         self._rendered.setTextCursor(cur)
 
     def _comment_selection(self):
-        """c — comment the current visual selection."""
+        """c — comment the visual selection; or, with no selection, reveal/edit
+        the comment the caret is sitting on (so you can jump straight to editing
+        an existing comment without `]c` or visual mode)."""
         cur = self._rendered.textCursor()
-        if not cur.hasSelection():
+        if cur.hasSelection():
+            r0, r1 = cur.selectionStart(), cur.selectionEnd()
+            self._set_visual(False)
+            self._begin_comment_for_span(r0, r1)
             return
-        r0, r1 = cur.selectionStart(), cur.selectionEnd()
-        self._set_visual(False)
-        self._begin_comment_for_span(r0, r1)
+        idx = self._comment_at_position(cur.position())
+        if idx >= 0:
+            self._set_active_comment(idx)
+            self._reveal_active_comment()
+
+    def _comment_at_position(self, pos: int) -> int:
+        """Index of the rendered comment whose span contains ``pos``, else -1."""
+        for i, (start, end, _c) in enumerate(self._rendered_comments):
+            if start <= pos <= end:
+                return i
+        return -1
 
     # ── Read-view comment interaction ──
 

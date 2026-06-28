@@ -122,6 +122,28 @@ def test_shift_d_deletes_active_comment():
     assert md_comments.parse(src)[0].span == "caching layer"
 
 
+def test_c_on_existing_comment_reveals_it_without_visual():
+    ed = _reading_editor()
+    start, _end, comment = ed._rendered_comments[0]
+    cur = ed._rendered.textCursor()
+    cur.setPosition(start + 1)            # caret inside the span, no selection
+    ed._rendered.setTextCursor(cur)
+    assert _key(ed, Qt.Key.Key_C, text="c") is True
+    assert ed._active_comment == 0
+    assert ed._comment_field is not None and not ed._comment_field.isHidden()
+    assert ed._comment_field.toPlainText() == comment.body
+
+
+def test_c_off_any_comment_does_nothing():
+    ed = _reading_editor()
+    cur = ed._rendered.textCursor()
+    cur.setPosition(0)                    # on the heading, not a comment
+    ed._rendered.setTextCursor(cur)
+    _key(ed, Qt.Key.Key_C, text="c")
+    assert ed._active_comment == -1
+    assert ed._comment_field is None
+
+
 def test_no_comments_navigation_is_noop():
     ed = _reading_editor("# Plain\n\nno comments here\n")
     assert ed._rendered_comments == []

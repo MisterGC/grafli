@@ -38,6 +38,16 @@ def test_rendered_toggle_swaps_editor_for_rendered_view():
     assert not ed._editor.isHidden() and ed._rendered.isHidden()
 
 
+def test_mode_flash_on_toggle():
+    ed = _editor()
+    ed._toggle_rendered()
+    assert ed._mode_flash is not None
+    assert ed._mode_flash.text() == "READ"
+    assert not ed._mode_flash.isHidden()
+    ed._toggle_rendered()
+    assert ed._mode_flash.text() == "WRITE"
+
+
 def test_full_width_toggle_grows_the_card():
     ed = _editor()
     column_w = ed._card_rect().width()

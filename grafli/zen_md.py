@@ -33,6 +33,7 @@ from PySide6.QtGui import (
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QGraphicsOpacityEffect,
+    QLabel,
     QPlainTextEdit,
     QTextBrowser,
     QVBoxLayout,
@@ -144,6 +145,8 @@ class ZenMarkdownEditor(QWidget):
         # Authoring: vim visual mode in the read view selects the span to comment.
         self._visual = False
         self._authoring_span: tuple | None = None
+        # Transient READ/WRITE flash shown when toggling the rendered view.
+        self._mode_flash: QLabel | None = None
         layout = QVBoxLayout(self)
         self._apply_card_margins(layout)
         layout.setSpacing(0)
@@ -442,12 +445,46 @@ class ZenMarkdownEditor(QWidget):
             cur = self._rendered.textCursor()    # caret at top for vim motions
             cur.setPosition(0)
             self._rendered.setTextCursor(cur)
+            self._flash_mode("READ")
         else:
             self._hide_comment_field()
             self._rendered.setVisible(False)
             self._editor.setVisible(True)
             self._editor.setFocus()
+            self._flash_mode("WRITE")
         self.update()
+
+    def _flash_mode(self, text: str):
+        """Briefly flash a big, blocky word ('READ' / 'WRITE') in the centre to
+        anchor a mode change, then fade it out — so the current state needn't be
+        shown permanently (it's also legible from the styling)."""
+        if self._mode_flash is None:
+            lbl = QLabel(self)
+            lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            font = QFont(FONT_FAMILY, 96, QFont.Weight.Bold)
+            font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 10)
+            lbl.setFont(font)
+            lbl.setStyleSheet(
+                f"color: rgba({ZEN_TEXT_COLOR.red()}, {ZEN_TEXT_COLOR.green()},"
+                f" {ZEN_TEXT_COLOR.blue()}, 200); background: transparent;"
+            )
+            self._mode_flash = lbl
+            self._mode_flash_effect = QGraphicsOpacityEffect(lbl)
+            lbl.setGraphicsEffect(self._mode_flash_effect)
+        lbl = self._mode_flash
+        lbl.setText(text)
+        lbl.setGeometry(self.rect())
+        lbl.show()
+        lbl.raise_()
+        anim = QPropertyAnimation(self._mode_flash_effect, b"opacity", self)
+        anim.setDuration(650)
+        anim.setStartValue(1.0)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.finished.connect(lbl.hide)
+        anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+        self._mode_flash_anim = anim   # hold a ref so it isn't GC'd mid-run
 
     def _render_markdown(self, source: str):
         """Render ``source`` into the read view, with inline comments stripped

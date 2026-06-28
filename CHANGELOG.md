@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **READ / WRITE mode flash.** Toggling the zen editor's rendered view
+  (<kbd>⌘R</kbd>) briefly flashes a big, blocky **READ** or **WRITE** in the
+  centre and fades it out — anchoring the change without needing a permanent
+  mode indicator (the state is also legible from the styling).
 - **Inline comments in the reading view.** The zen editor's rendered view
   (<kbd>⌘R</kbd>) is now caret-based and vim-navigable, and you can comment on a
   span of text: select it in **visual mode** (<kbd>v</kbd> + motions), press

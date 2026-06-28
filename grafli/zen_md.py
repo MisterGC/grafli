@@ -141,6 +141,10 @@ class ZenMarkdownEditor(QWidget):
         self._active_comment = -1
         self._comment_field: QPlainTextEdit | None = None
         self._rendered_pending_bracket = ""
+        # Authoring (word-jump two-point span selection) state.
+        self._comment_jump: WordJumpOverlay | None = None
+        self._author_pick_start: int | None = None
+        self._authoring_span: tuple | None = None
         layout = QVBoxLayout(self)
         self._apply_card_margins(layout)
         layout.setSpacing(0)
@@ -422,6 +426,8 @@ class ZenMarkdownEditor(QWidget):
         if self._rendered_mode:
             self._active_comment = -1
             self._rendered_pending_bracket = ""
+            self._author_pick_start = None
+            self._authoring_span = None
             self._rendered.setFont(QFont(FONT_FAMILY, self._font_size))
             self._render_markdown(self._editor.toPlainText())
             self._editor.setVisible(False)
@@ -657,7 +663,8 @@ class ZenMarkdownEditor(QWidget):
         if obj == self.parentWidget() and event.type() == QEvent.Type.Resize:
             self.resize(obj.size())
             return False
-        if (obj is self._comment_field
+        if (getattr(self, "_comment_field", None) is not None
+                and obj is self._comment_field
                 and event.type() == QEvent.Type.KeyPress):
             return self._handle_comment_field_key(event)
         if (obj in (self._editor, self._rendered)
@@ -766,6 +773,11 @@ class ZenMarkdownEditor(QWidget):
             return True
         if key == Qt.Key.Key_BracketLeft and not shift:
             self._rendered_pending_bracket = "["
+            return True
+
+        # c — author a new comment: word-jump to the span's start, then its end.
+        if key == Qt.Key.Key_C and not ctrl and not shift:
+            self._start_comment_authoring()
             return True
 
         # Enter — reveal/edit the active comment inline. ⇧D — delete it.
@@ -887,15 +899,21 @@ class ZenMarkdownEditor(QWidget):
         self._rendered.setFocus()
 
     def _commit_comment_field(self):
-        """Write the field's text back into the source comment body, then
-        re-render. Clearing the body deletes the comment."""
-        if self._comment_field is None or self._active_comment < 0:
+        """Commit the field. For a new comment (authoring), wrap the picked span;
+        for an existing one, write the edited body back. An emptied body abandons
+        a new comment / deletes an edited one. Then re-render, back to reading."""
+        if self._comment_field is None:
             return
-        new_body = self._comment_field.toPlainText().strip()
+        body = self._comment_field.toPlainText().strip()
+        if self._authoring_span is not None:
+            self._commit_new_comment(body)
+            return
+        if self._active_comment < 0:
+            return
         _s, _e, comment = self._rendered_comments[self._active_comment]
         src = self._editor.toPlainText()
-        if new_body:
-            src = md_comments.set_body(src, comment, new_body)
+        if body:
+            src = md_comments.set_body(src, comment, body)
         else:
             src = md_comments.remove(src, comment)   # emptied → delete
         idx = self._active_comment
@@ -906,6 +924,103 @@ class ZenMarkdownEditor(QWidget):
             self._set_active_comment(min(idx, len(self._rendered_comments) - 1))
         else:
             self._active_comment = -1
+
+    # ── Authoring: pick a span by word-jump, then comment it ──
+
+    def _start_comment_authoring(self):
+        """c — begin authoring: word-jump to the span's first word, then its
+        last word; the range between becomes the commented span."""
+        if not self._rendered_mode:
+            return
+        if self._comment_jump is None:
+            self._comment_jump = WordJumpOverlay(self._rendered, self)
+        self._author_pick_start = None
+        self._authoring_span = None
+        self._comment_jump.activate(on_pick=self._on_author_pick)
+
+    def _on_author_pick(self, pos: int):
+        """First word-jump pick anchors the span start; the second closes it."""
+        if self._author_pick_start is None:
+            self._author_pick_start = pos
+            self._comment_jump.activate(on_pick=self._on_author_pick)
+            return
+        start = self._author_pick_start
+        self._author_pick_start = None
+        r0 = min(start, pos)
+        r1 = self._word_end(max(start, pos))
+        self._rendered.setFocus()
+        self._begin_comment_for_span(r0, r1)
+
+    def _word_end(self, pos: int) -> int:
+        """End position of the word at ``pos`` in the rendered document."""
+        cur = QTextCursor(self._rendered.document())
+        cur.setPosition(pos)
+        cur.movePosition(QTextCursor.MoveOperation.EndOfWord)
+        return cur.position()
+
+    def _begin_comment_for_span(self, r0: int, r1: int):
+        """Map the rendered span back to source; if it maps, open an empty field
+        to type the comment; if not, fall back to the source editor."""
+        rendered = self._rendered.document().toPlainText()
+        src = self._editor.toPlainText()
+        mapped = md_comments.map_rendered_span(rendered, src, r0, r1)
+        if mapped is None:
+            self._fallback_to_source(None)
+            return
+        s0, s1 = mapped
+        self._authoring_span = (s0, s1, rendered[r0:r1])
+        cur = self._rendered.textCursor()
+        cur.setPosition(r0)
+        cur.setPosition(r1, QTextCursor.MoveMode.KeepAnchor)
+        self._rendered.setTextCursor(cur)        # show what will be commented
+        self._show_comment_field(r1, "")
+
+    def _commit_new_comment(self, body: str):
+        """Wrap the authored span in CriticMarkup. Validate by re-rendering and
+        confirming a comment now highlights the same visible text; if the mapping
+        was off, revert and fall back to the source pane."""
+        s0, s1, sel = self._authoring_span
+        self._authoring_span = None
+        self._hide_comment_field()
+        if not body:
+            return                               # abandoned — no comment created
+        src = self._editor.toPlainText()
+        new_src = md_comments.wrap(src, s0, s1, body)
+        self._set_source_text(new_src)
+        self._render_markdown(new_src)
+        idx = self._find_rendered_comment(sel, body)
+        if idx is None:                          # mapping was wrong — undo
+            self._set_source_text(src)
+            self._render_markdown(src)
+            self._fallback_to_source((s0, s1))
+            return
+        self._set_active_comment(idx)
+
+    def _find_rendered_comment(self, span_text: str, body: str):
+        """Index of the rendered comment whose span renders as ``span_text`` and
+        whose body is ``body`` — used to confirm a freshly authored comment."""
+        for i, (start, end, comment) in enumerate(self._rendered_comments):
+            if comment.body != body:
+                continue
+            cur = self._rendered.textCursor()
+            cur.setPosition(start)
+            cur.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            if cur.selectedText() == span_text:
+                return i
+        return None
+
+    def _fallback_to_source(self, slice_):
+        """Couldn't map a rendered selection — drop to the source editor so the
+        span can be marked precisely there. Pre-select ``slice_`` when known."""
+        self._authoring_span = None
+        if self._rendered_mode:
+            self._toggle_rendered()
+        if slice_ is not None:
+            s0, s1 = slice_
+            cur = self._editor.textCursor()
+            cur.setPosition(s0)
+            cur.setPosition(s1, QTextCursor.MoveMode.KeepAnchor)
+            self._editor.setTextCursor(cur)
 
     def _delete_active_comment(self):
         """⇧D — unwrap the active comment (highlight + body gone), re-render."""

@@ -97,6 +97,63 @@ def test_wrap_creates_a_comment_over_a_slice():
     assert c.span == "quick" and c.body == "why quick?"
 
 
+def _map(rendered, source, sub):
+    """Map the first occurrence of ``sub`` in ``rendered`` back to source."""
+    r0 = rendered.index(sub)
+    r1 = r0 + len(sub)
+    return mc.map_rendered_span(rendered, source, r0, r1)
+
+
+def test_map_plain_prose_is_exact():
+    src = ren = "the quick brown fox"
+    assert _map(ren, src, "brown") == (src.index("brown"), src.index("brown") + 5)
+
+
+def test_map_skips_heading_marker():
+    src = "# Title\n\nthe quick fox"
+    ren = "Title\nthe quick fox"           # '# ' consumed by the renderer
+    s0, s1 = _map(ren, src, "quick")
+    assert src[s0:s1] == "quick"
+
+
+def test_map_excludes_trailing_bold_markers():
+    src = "a **bold** b"
+    ren = "a bold b"
+    s0, s1 = _map(ren, src, "bold")
+    assert src[s0:s1] == "bold"            # not "bold**"
+
+
+def test_map_span_keeps_inline_markup_inside():
+    src = "quick **brown** fox"
+    ren = "quick brown fox"
+    s0, s1 = _map(ren, src, "quick brown fox")
+    assert src[s0:s1] == "quick **brown** fox"
+    # wrapping it round-trips: the rendered span text equals the selection
+    wrapped = mc.wrap(src, s0, s1, "c")
+    (cmt,) = mc.parse(wrapped)
+    assert cmt.span == "quick **brown** fox"
+
+
+def test_map_ignores_existing_comment_body_as_noise():
+    # the body 'note' contains letters that also start later words; the strip
+    # step removes it so the alignment can't drift into it.
+    src = "x {==hi==}{>>note<<} the fox"
+    ren = "x hi the fox"
+    s0, s1 = _map(ren, src, "fox")
+    assert src[s0:s1] == "fox"
+
+
+def test_map_through_link_text():
+    src = "see [docs](http://x) now"
+    ren = "see docs now"
+    s0, s1 = _map(ren, src, "docs")
+    assert src[s0:s1] == "docs"
+
+
+def test_map_empty_selection_is_none():
+    assert mc.map_rendered_span("abc", "abc", 2, 2) is None
+
+
 def test_real_sentinels_are_private_use():
     # default sentinels must be the private-use code points the read view scans
     assert mc.SENTINEL_START == "\uE000"

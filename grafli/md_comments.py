@@ -95,6 +95,80 @@ def wrap(source: str, span_start: int, span_end: int, body: str) -> str:
     )
 
 
+def _strip_with_map(source: str) -> tuple[str, list[int]]:
+    """Return ``(clean, clean2src)``: the source with comment markup removed
+    (span text kept, markers + bodies dropped) and, for each character of
+    ``clean``, the index it came from in ``source``. Used to map a rendered-view
+    position back to an exact source offset without comment-body noise."""
+    chars: list[str] = []
+    src_idx: list[int] = []
+    i = 0
+    for m in _RE_COMMENT.finditer(source):
+        for k in range(i, m.start()):
+            chars.append(source[k])
+            src_idx.append(k)
+        for k in range(m.start("span"), m.end("span")):
+            chars.append(source[k])
+            src_idx.append(k)
+        i = m.end()
+    for k in range(i, len(source)):
+        chars.append(source[k])
+        src_idx.append(k)
+    return "".join(chars), src_idx
+
+
+def _align(rendered: str, clean: str, max_gap: int = 800) -> list[int]:
+    """Greedy char alignment of ``rendered`` (Qt's Markdown render output) onto
+    ``clean`` (source minus comment markup). Markdown drops syntax characters, so
+    most ``clean`` characters survive verbatim in ``rendered`` and in order: for
+    each rendered char we take the next matching ``clean`` char, skipping the
+    syntax in between. Returns, per rendered index, the matched ``clean`` index
+    (plus a trailing entry for the end position)."""
+    out: list[int] = []
+    j = 0
+    n = len(clean)
+    for ch in rendered:
+        k = clean.find(ch, j)
+        if k != -1 and (max_gap <= 0 or k - j <= max_gap):
+            out.append(k)
+            j = k + 1
+        else:
+            # rendered-only char (e.g. an inserted list bullet) — no clean match
+            out.append(min(j, max(n - 1, 0)))
+    out.append(j)
+    return out
+
+
+def map_rendered_span(
+    rendered: str, source: str, r0: int, r1: int
+) -> tuple[int, int] | None:
+    """Map a rendered-view selection ``[r0, r1)`` (indices into the rendered
+    plain text) to a source slice ``[s0, s1)`` suitable for :func:`wrap`.
+
+    Returns ``None`` when the selection can't be mapped (empty, or an index that
+    falls in rendered-inserted content) — the caller should fall back rather than
+    wrap the wrong text. Anchors on the *last selected* rendered char (not the
+    one after it) so trailing markup like a closing ``**`` is never swallowed.
+    """
+    if r1 <= r0:
+        return None
+    clean, clean2src = _strip_with_map(source)
+    if not clean2src:
+        return None
+    r2c = _align(rendered, clean)
+    if r1 - 1 >= len(r2c) or r0 >= len(r2c):
+        return None
+    c0 = r2c[r0]
+    c_last = r2c[r1 - 1]
+    if c0 >= len(clean2src) or c_last >= len(clean2src):
+        return None
+    s0 = clean2src[c0]
+    s1 = clean2src[c_last] + 1
+    if s1 <= s0:
+        return None
+    return s0, s1
+
+
 def to_sentineled(
     source: str,
     start: str = SENTINEL_START,

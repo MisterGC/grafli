@@ -8,7 +8,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QTextCursor
 from PySide6.QtWidgets import QPlainTextEdit, QWidget
 
-from grafli.constants import FONT_FAMILY, ZEN_MD_BG, ZEN_TITLE_COLOR
+from grafli.constants import FONT_FAMILY
 
 _JUMP_KEYS = "asdfjklghqweruioptyzxcvbnm"
 _RE_WORD = re.compile(r"\b\w")
@@ -29,12 +29,16 @@ class WordJumpOverlay(QWidget):
         self._label_rects: list[tuple[str, QRectF]] = []
         self._typed = ""
         self._active = False
+        self._on_pick = None   # if set, picking calls it instead of moving caret
 
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-    def activate(self):
-        """Show overlay with jump labels on visible words."""
+    def activate(self, on_pick=None):
+        """Show overlay with jump labels on visible words. When ``on_pick`` is
+        given, selecting a label calls ``on_pick(position)`` and dismisses,
+        instead of moving the editor's caret — used to pick span endpoints."""
+        self._on_pick = on_pick
         self._typed = ""
         self._targets = self._find_visible_words()
         if not self._targets:
@@ -60,21 +64,33 @@ class WordJumpOverlay(QWidget):
         self.hide()
 
     def _find_visible_words(self) -> list[tuple[str, int]]:
-        """Scan visible blocks for word-start positions, assign labels."""
+        """Scan visible words for their start positions, assign labels.
+
+        Uses per-word ``cursorRect`` visibility rather than ``firstVisibleBlock``
+        so the overlay works on both the source ``QPlainTextEdit`` and the
+        rendered ``QTextBrowser`` (``QTextEdit``, which has no block geometry)."""
         editor = self._editor
-        block = editor.firstVisibleBlock()
-        vp_rect = editor.viewport().rect()
+        doc = editor.document()
+        vp_h = editor.viewport().height()
         positions: list[int] = []
 
+        block = doc.begin()
         while block.isValid():
-            geo = editor.blockBoundingGeometry(block)
-            top = geo.translated(editor.contentOffset()).top()
-            if top > vp_rect.bottom():
-                break
             text = block.text()
             block_pos = block.position()
+            below = False
             for m in _RE_WORD.finditer(text):
-                positions.append(block_pos + m.start())
+                pos = block_pos + m.start()
+                c = QTextCursor(doc)
+                c.setPosition(pos)
+                r = editor.cursorRect(c)
+                if r.top() > vp_h:        # this and later blocks are below view
+                    below = True
+                    break
+                if r.bottom() >= 0:       # skip words scrolled above the view
+                    positions.append(pos)
+            if below:
+                break
             block = block.next()
 
         # Assign labels
@@ -155,6 +171,11 @@ class WordJumpOverlay(QWidget):
         ]
         if matches:
             _, pos = matches[0]
+            if self._on_pick is not None:
+                cb = self._on_pick
+                self._dismiss()
+                cb(pos)             # caller manages focus / next step
+                return
             c = self._editor.textCursor()
             c.setPosition(pos)
             self._editor.setTextCursor(c)

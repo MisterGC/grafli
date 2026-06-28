@@ -460,7 +460,10 @@ class ZenMarkdownEditor(QWidget):
         shown permanently (it's also legible from the styling)."""
         if self._mode_flash is None:
             lbl = QLabel(self)
+            # Non-interactive: never takes focus or swallows mouse/keyboard, so
+            # you can read/type while it fades.
             lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            lbl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             font = QFont(FONT_FAMILY, 96, QFont.Weight.Bold)
             font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 10)
@@ -482,10 +485,10 @@ class ZenMarkdownEditor(QWidget):
         # a calm flash rather than a blink. Linear timing keeps the hold exact;
         # the extra key points give the fade a soft tail.
         anim = QPropertyAnimation(self._mode_flash_effect, b"opacity", self)
-        anim.setDuration(1300)
+        anim.setDuration(2000)
         anim.setKeyValueAt(0.0, 1.0)
-        anim.setKeyValueAt(0.30, 1.0)    # hold at full
-        anim.setKeyValueAt(0.65, 0.55)   # soft tail on the fade
+        anim.setKeyValueAt(0.22, 1.0)    # hold at full briefly
+        anim.setKeyValueAt(0.60, 0.5)    # then a long, soft fade
         anim.setKeyValueAt(1.0, 0.0)
         anim.finished.connect(lbl.hide)
         anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)

@@ -968,6 +968,15 @@ class ZenMarkdownEditor(QWidget):
             self._fallback_to_source(None)
             return
         s0, s1 = mapped
+        # Overlap-aware (no nesting): inside an existing comment → edit it;
+        # straddling one → refuse quietly rather than corrupt the markup.
+        overlap = md_comments.classify_overlap(src, s0, s1)
+        if overlap is not None:
+            kind, idx = overlap
+            if kind == "inside" and idx < len(self._rendered_comments):
+                self._set_active_comment(idx)
+                self._reveal_active_comment()
+            return
         self._authoring_span = (s0, s1, rendered[r0:r1])
         cur = self._rendered.textCursor()
         cur.setPosition(r0)

@@ -154,6 +154,29 @@ def test_map_empty_selection_is_none():
     assert mc.map_rendered_span("abc", "abc", 2, 2) is None
 
 
+def test_overlap_inside_existing_span():
+    src = "a {==bcd==}{>>note<<} e"
+    bs = src.index("bcd")
+    assert mc.classify_overlap(src, bs, bs + 2) == ("inside", 0)   # 'bc' within span
+
+
+def test_overlap_partial_straddle_refused():
+    src = "a {==bcd==}{>>note<<} e"
+    bs = src.index("bcd")
+    # starts before the construct, ends inside the span → straddles the markup
+    assert mc.classify_overlap(src, 0, bs + 1) == ("partial", 0)
+
+
+def test_overlap_clear_selection_is_none():
+    src = "a {==bcd==}{>>note<<} eee"
+    es = src.index("eee")
+    assert mc.classify_overlap(src, es, es + 3) is None
+
+
+def test_overlap_none_without_comments():
+    assert mc.classify_overlap("plain text here", 0, 5) is None
+
+
 def test_real_sentinels_are_private_use():
     # default sentinels must be the private-use code points the read view scans
     assert mc.SENTINEL_START == "\uE000"

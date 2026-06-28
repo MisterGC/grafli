@@ -95,6 +95,32 @@ def test_c_key_starts_authoring():
     assert len(started) == 1 and started[0] == ed._on_author_pick
 
 
+def test_authoring_inside_existing_comment_edits_it():
+    # selecting within an existing comment's span reveals/edits it, no nesting
+    ed = _reading_editor("# N\n\nthe {==quick brown==}{>>why?<<} fox\n")
+    rendered = ed._rendered.document().toPlainText()
+    r0 = rendered.index("quick")
+    r1 = r0 + len("quick")              # inside the existing 'quick brown' span
+    ed._begin_comment_for_span(r0, r1)
+    assert ed._authoring_span is None   # did NOT start a new comment
+    assert ed._active_comment == 0      # the existing one is active...
+    assert ed._comment_field is not None and not ed._comment_field.isHidden()
+    assert ed._comment_field.toPlainText() == "why?"   # ...and revealed for edit
+
+
+def test_authoring_clear_of_comments_creates_new():
+    ed = _reading_editor("# N\n\nthe {==quick==}{>>why?<<} brown fox here\n")
+    rendered = ed._rendered.document().toPlainText()
+    r0 = rendered.index("brown fox")
+    r1 = r0 + len("brown fox")
+    ed._begin_comment_for_span(r0, r1)
+    assert ed._authoring_span is not None   # clear of the existing one → new
+    ed._comment_field.setPlainText("zoom?")
+    ed._commit_comment_field()
+    spans = [(c.span, c.body) for c in md_comments.parse(ed._editor.toPlainText())]
+    assert ("brown fox", "zoom?") in spans and ("quick", "why?") in spans
+
+
 def test_unmappable_selection_falls_back_to_source():
     ed = _reading_editor()
     assert ed._rendered_mode is True

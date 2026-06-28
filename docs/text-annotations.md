@@ -191,6 +191,31 @@ Two ways to edit a note's text:
 Both open in INSERT mode; <kbd>Esc</kbd> drops to NORMAL, a second
 <kbd>Esc</kbd> commits, <kbd>Shift</kbd>+<kbd>Esc</kbd> discards.
 
+## Reading & commenting
+
+In the full-window zen editor, <kbd>⌘</kbd>+<kbd>R</kbd> toggles a **rendered
+reading view** — a clean read of the Markdown, vim-navigable
+(<kbd>j</kbd>/<kbd>k</kbd>, <kbd>Ctrl</kbd>+<kbd>d</kbd>/<kbd>u</kbd>,
+<kbd>gg</kbd>/<kbd>G</kbd>).
+
+You can **comment on a span of text while reading**. Comments live inline in
+the Markdown itself (as [CriticMarkup](http://criticmarkup.com/) —
+`{==span==}{>>your comment<<}`), so they travel with the file and diff in git
+— no sidecar. In the reading view the comment body is **hidden** and the
+commented span wears a **subtle highlight**; the text stays the focus, and a
+comment only surfaces when you ask for it.
+
+| Key | Action |
+|-----|--------|
+| <kbd>c</kbd> | Add a comment — word-jump to the span's **first** word, then its **last**, then type the comment (<kbd>Esc</kbd> to save). You never type the markup yourself |
+| <kbd>]</kbd><kbd>c</kbd> / <kbd>[</kbd><kbd>c</kbd> | Step to the next / previous comment |
+| <kbd>Enter</kbd> | Reveal & edit the active comment inline; <kbd>Esc</kbd> returns to undisturbed reading |
+| <kbd>Shift</kbd>+<kbd>D</kbd> | Delete the active comment (the highlight and body are removed) |
+
+Clearing a comment's text and committing also deletes it. Because comments are
+plain CriticMarkup, you (or a collaborator, or an AI) can also read and edit
+them directly in the source.
+
 ## Markdown resources
 
 Boxes and images can link to a separate markdown file. Open (or create)

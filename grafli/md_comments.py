@@ -64,6 +64,23 @@ def strip(source: str) -> str:
     return _RE_COMMENT.sub(lambda m: m.group("span"), source)
 
 
+def classify_overlap(source: str, s0: int, s1: int):
+    """Decide how a would-be new comment over ``[s0, s1)`` relates to existing
+    comments — the overlap-aware, no-nesting policy.
+
+    Returns ``("inside", idx)`` when the selection sits wholly within an existing
+    comment's span (the caller should edit that comment instead of nesting),
+    ``("partial", idx)`` when it straddles an existing comment's markup (refuse),
+    or ``None`` when it is clear to wrap.
+    """
+    for i, c in enumerate(parse(source)):
+        if c.span_start <= s0 and s1 <= c.span_end:
+            return ("inside", i)
+        if not (s1 <= c.full_start or s0 >= c.full_end):
+            return ("partial", i)
+    return None
+
+
 def render_comment(span: str, body: str) -> str:
     """The inline form for a span comment: ``{==span==}{>>body<<}``."""
     return f"{{=={span}==}}{{>>{body}<<}}"

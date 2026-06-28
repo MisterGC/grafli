@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Inline comments in the reading view.** In the zen editor's rendered view
+  (<kbd>⌘R</kbd>) you can comment on a span of text: press <kbd>c</kbd>, word-jump
+  to the span's first and last word, and type the comment. Comments are stored
+  inline in the Markdown as [CriticMarkup](http://criticmarkup.com/)
+  (`{==span==}{>>comment<<}`) — they travel with the file and diff in git, no
+  sidecar. The reading view keeps the prose the focus: the comment body is
+  hidden and the span wears a subtle highlight; a comment surfaces only when you
+  ask for it. Step between comments with <kbd>]c</kbd>/<kbd>[c</kbd>,
+  <kbd>Enter</kbd> reveals & edits one inline (<kbd>Esc</kbd> back to reading),
+  <kbd>⇧D</kbd> deletes it. You never type the markup by hand.
 - **`textli` — standalone markdown editor.** Launch grafli's focused Zen
   editor on any file without the diagram app: `textli notes.md`. It's the same
   editor grafli uses for notes — vim-navigable, with the rendered reading view

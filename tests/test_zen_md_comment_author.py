@@ -92,6 +92,22 @@ def test_c_comments_the_visual_selection():
     assert ed._active_comment == 0
 
 
+def test_commit_authoring_stays_in_reading_view():
+    # regression: committing a new comment used to validation-fail and toggle
+    # back to the source editor ("exit rendering mode") on Esc.
+    ed = _reading_editor()
+    r0, r1 = _rspan(ed, "quick brown fox")     # multi-word span
+    ed._begin_comment_for_span(r0, r1)
+    ed._comment_field.setPlainText("note")
+    esc = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                    Qt.KeyboardModifier.NoModifier)
+    assert ed._handle_comment_field_key(esc) is True
+    assert ed._rendered_mode is True           # stayed in the reading view
+    comments = md_comments.parse(ed._editor.toPlainText())
+    assert [(c.span, c.body) for c in comments] == [("quick brown fox", "note")]
+    assert ed._active_comment == 0
+
+
 def test_c_without_selection_is_noop():
     ed = _reading_editor()
     cur = ed._rendered.textCursor()

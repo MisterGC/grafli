@@ -1020,7 +1020,7 @@ class ZenMarkdownEditor(QWidget):
         src = self._editor.toPlainText()
         mapped = md_comments.map_rendered_span(rendered, src, r0, r1)
         if mapped is None:
-            self._fallback_to_source(None)
+            self._fallback_to_source()
             return
         s0, s1 = mapped
         # Overlap-aware (no nesting): inside an existing comment → edit it;
@@ -1040,51 +1040,35 @@ class ZenMarkdownEditor(QWidget):
         self._show_comment_field(r1, "")
 
     def _commit_new_comment(self, body: str):
-        """Wrap the authored span in CriticMarkup. Validate by re-rendering and
-        confirming a comment now highlights the same visible text; if the mapping
-        was off, revert and fall back to the source pane."""
-        s0, s1, sel = self._authoring_span
+        """Wrap the authored span in CriticMarkup and re-render, staying in the
+        reading view with the new comment active. An empty body abandons it."""
+        s0, _s1, _sel = self._authoring_span
         self._authoring_span = None
         self._hide_comment_field()
         if not body:
             return                               # abandoned — no comment created
-        src = self._editor.toPlainText()
-        new_src = md_comments.wrap(src, s0, s1, body)
+        new_src = md_comments.wrap(self._editor.toPlainText(), s0, _s1, body)
         self._set_source_text(new_src)
         self._render_markdown(new_src)
-        idx = self._find_rendered_comment(sel, body)
-        if idx is None:                          # mapping was wrong — undo
-            self._set_source_text(src)
-            self._render_markdown(src)
-            self._fallback_to_source((s0, s1))
-            return
-        self._set_active_comment(idx)
+        idx = self._rendered_index_for_source_start(s0)
+        if idx is not None:
+            self._set_active_comment(idx)
 
-    def _find_rendered_comment(self, span_text: str, body: str):
-        """Index of the rendered comment whose span renders as ``span_text`` and
-        whose body is ``body`` — used to confirm a freshly authored comment."""
-        for i, (start, end, comment) in enumerate(self._rendered_comments):
-            if comment.body != body:
-                continue
-            cur = self._rendered.textCursor()
-            cur.setPosition(start)
-            cur.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
-            if cur.selectedText() == span_text:
+    def _rendered_index_for_source_start(self, full_start: int):
+        """Index of the rendered comment whose source construct begins at
+        ``full_start`` — i.e. the one just wrapped at that offset."""
+        for i, (_s, _e, comment) in enumerate(self._rendered_comments):
+            if comment.full_start == full_start:
                 return i
         return None
 
-    def _fallback_to_source(self, slice_):
-        """Couldn't map a rendered selection — drop to the source editor so the
-        span can be marked precisely there. Pre-select ``slice_`` when known."""
+    def _fallback_to_source(self):
+        """Safety net for a rendered selection that can't be mapped to source
+        (degenerate/empty): drop to the source editor so it can be marked there.
+        Effectively unreachable from a real visual selection."""
         self._authoring_span = None
         if self._rendered_mode:
             self._toggle_rendered()
-        if slice_ is not None:
-            s0, s1 = slice_
-            cur = self._editor.textCursor()
-            cur.setPosition(s0)
-            cur.setPosition(s1, QTextCursor.MoveMode.KeepAnchor)
-            self._editor.setTextCursor(cur)
 
     def _delete_active_comment(self):
         """⇧D — unwrap the active comment (highlight + body gone), re-render."""

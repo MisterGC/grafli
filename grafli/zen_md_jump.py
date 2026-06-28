@@ -29,16 +29,12 @@ class WordJumpOverlay(QWidget):
         self._label_rects: list[tuple[str, QRectF]] = []
         self._typed = ""
         self._active = False
-        self._on_pick = None   # if set, picking calls it instead of moving caret
 
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-    def activate(self, on_pick=None):
-        """Show overlay with jump labels on visible words. When ``on_pick`` is
-        given, selecting a label calls ``on_pick(position)`` and dismisses,
-        instead of moving the editor's caret — used to pick span endpoints."""
-        self._on_pick = on_pick
+    def activate(self):
+        """Show overlay with jump labels on visible words."""
         self._typed = ""
         self._targets = self._find_visible_words()
         if not self._targets:
@@ -171,11 +167,6 @@ class WordJumpOverlay(QWidget):
         ]
         if matches:
             _, pos = matches[0]
-            if self._on_pick is not None:
-                cb = self._on_pick
-                self._dismiss()
-                cb(pos)             # caller manages focus / next step
-                return
             c = self._editor.textCursor()
             c.setPosition(pos)
             self._editor.setTextCursor(c)

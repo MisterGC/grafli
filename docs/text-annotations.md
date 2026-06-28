@@ -205,9 +205,15 @@ the Markdown itself (as [CriticMarkup](http://criticmarkup.com/) —
 commented span wears a **subtle highlight**; the text stays the focus, and a
 comment only surfaces when you ask for it.
 
+The reading view is **caret-based and vim-navigable** —
+<kbd>h</kbd>/<kbd>j</kbd>/<kbd>k</kbd>/<kbd>l</kbd>, <kbd>w</kbd>/<kbd>b</kbd>/<kbd>e</kbd>,
+<kbd>0</kbd>/<kbd>$</kbd>, <kbd>gg</kbd>/<kbd>G</kbd>, and half/full-page jumps move a
+caret through the rendered text.
+
 | Key | Action |
 |-----|--------|
-| <kbd>c</kbd> | Add a comment — word-jump to the span's **first** word, then its **last**, then type the comment (<kbd>Esc</kbd> to save). You never type the markup yourself |
+| <kbd>v</kbd> | Enter **visual mode** — extend a selection with the motions above (you can see the text the whole time, no label clutter) |
+| <kbd>c</kbd> | Comment the visual selection — type the comment (<kbd>Esc</kbd> to save). You never type the markup yourself |
 | <kbd>]</kbd><kbd>c</kbd> / <kbd>[</kbd><kbd>c</kbd> | Step to the next / previous comment |
 | <kbd>Enter</kbd> | Reveal & edit the active comment inline; <kbd>Esc</kbd> returns to undisturbed reading |
 | <kbd>Shift</kbd>+<kbd>D</kbd> | Delete the active comment (the highlight and body are removed) |

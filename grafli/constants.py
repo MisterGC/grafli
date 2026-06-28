@@ -193,9 +193,10 @@ ZEN_MD_CARD_H_RATIO = 0.85
 ZEN_MD_CARD_RADIUS = 12
 ZEN_MD_DIM_COLOR = QColor(0, 0, 0, 115)         # chrome — full wash
 ZEN_MD_CANVAS_DIM_COLOR = QColor(0, 0, 0, 165)  # canvas — strong step-back
-# Subtle amber highlighter behind a commented span in the rendered read view —
-# translucent so it composites over the warm paper without shouting.
-ZEN_MD_COMMENT_HL = QColor(226, 184, 74, 90)
+# Light, muted-red marker behind a commented span in the rendered read view —
+# translucent so it composites over the warm paper as a soft highlighter wash
+# that accompanies the zen style without shouting.
+ZEN_MD_COMMENT_HL = QColor(199, 92, 78, 72)
 
 # ── Side panel ───────────────────────────────────────────────────
 SIDE_PANEL_WIDTH = 180

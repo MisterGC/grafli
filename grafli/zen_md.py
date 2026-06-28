@@ -141,9 +141,8 @@ class ZenMarkdownEditor(QWidget):
         self._active_comment = -1
         self._comment_field: QPlainTextEdit | None = None
         self._rendered_pending_bracket = ""
-        # Authoring (word-jump two-point span selection) state.
-        self._comment_jump: WordJumpOverlay | None = None
-        self._author_pick_start: int | None = None
+        # Authoring: vim visual mode in the read view selects the span to comment.
+        self._visual = False
         self._authoring_span: tuple | None = None
         layout = QVBoxLayout(self)
         self._apply_card_margins(layout)
@@ -177,6 +176,13 @@ class ZenMarkdownEditor(QWidget):
             f" border: none; padding: 0px;"
             f" selection-background-color: #B8D4E8;"
             f"}}"
+        )
+        # Keyboard-selectable so the read view has a movable caret for vim
+        # motions and visual-mode span selection (it stays read-only).
+        self._rendered.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            | Qt.TextInteractionFlag.LinksAccessibleByMouse
         )
         self._rendered.setVisible(False)
         self._rendered.installEventFilter(self)
@@ -426,13 +432,16 @@ class ZenMarkdownEditor(QWidget):
         if self._rendered_mode:
             self._active_comment = -1
             self._rendered_pending_bracket = ""
-            self._author_pick_start = None
+            self._visual = False
             self._authoring_span = None
             self._rendered.setFont(QFont(FONT_FAMILY, self._font_size))
             self._render_markdown(self._editor.toPlainText())
             self._editor.setVisible(False)
             self._rendered.setVisible(True)
             self._rendered.setFocus()
+            cur = self._rendered.textCursor()    # caret at top for vim motions
+            cur.setPosition(0)
+            self._rendered.setTextCursor(cur)
         else:
             self._hide_comment_field()
             self._rendered.setVisible(False)
@@ -749,17 +758,16 @@ class ZenMarkdownEditor(QWidget):
         return self._vim.handle_key(event)
 
     def _handle_rendered_key(self, event: QKeyEvent) -> bool:
-        """Vim-style normal-mode navigation for the read-only rendered view:
-        j/k line, Ctrl-d/u half-page, Ctrl-f/b/Space page, gg/G top/bottom,
-        Esc saves & closes (⇧Esc cancels)."""
+        """Vim-style read view. Motions move a caret (h/l/j/k, w/b/e, 0/$, gg/G,
+        Ctrl-d/u half-page, Ctrl-f/b/Space page). `v` enters visual mode so the
+        same motions extend a selection; `c` comments the selection. `]c`/`[c`
+        step between comments, Enter reveals/edits one, ⇧D deletes. Esc leaves
+        visual mode, or — when not selecting — saves & closes (⇧Esc cancels)."""
         key = event.key()
         mods = event.modifiers()
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
         ctrl = bool(mods & _CTRL_MOD)
-        sb = self._rendered.verticalScrollBar()
-        page = self._rendered.viewport().height()
-        line = max(sb.singleStep(), int(QFontMetricsF(
-            self._rendered.font()).height()))
+        MO = QTextCursor.MoveOperation
 
         # ]c / [c — step to the next / previous comment (two-key, vim diff-style).
         if self._rendered_pending_bracket:
@@ -775,9 +783,22 @@ class ZenMarkdownEditor(QWidget):
             self._rendered_pending_bracket = "["
             return True
 
-        # c — author a new comment: word-jump to the span's start, then its end.
+        # `gg` — two-key jump to top.
+        if key == Qt.Key.Key_G and not shift:
+            if getattr(self, "_rendered_pending_g", False):
+                self._rendered_pending_g = False
+                self._caret_move(MO.Start)
+            else:
+                self._rendered_pending_g = True
+            return True
+        self._rendered_pending_g = False
+
+        # v — toggle visual (selection) mode. c — comment the selection.
+        if key == Qt.Key.Key_V and not ctrl:
+            self._set_visual(not self._visual)
+            return True
         if key == Qt.Key.Key_C and not ctrl and not shift:
-            self._start_comment_authoring()
+            self._comment_selection()
             return True
 
         # Enter — reveal/edit the active comment inline. ⇧D — delete it.
@@ -788,42 +809,94 @@ class ZenMarkdownEditor(QWidget):
             self._delete_active_comment()
             return True
 
-        # `gg` — two-key jump to top.
-        if key == Qt.Key.Key_G and not shift:
-            if getattr(self, "_rendered_pending_g", False):
-                self._rendered_pending_g = False
-                sb.setValue(sb.minimum())
-            else:
-                self._rendered_pending_g = True
-            return True
-        self._rendered_pending_g = False
-
+        # Esc — leave visual mode if selecting; otherwise save & close.
         if key == Qt.Key.Key_Escape:
-            self._close_cancel() if shift else self._close_save()
+            if self._visual:
+                self._set_visual(False)
+            else:
+                self._close_cancel() if shift else self._close_save()
             return True
+
+        # Caret motions — extend the selection when in visual mode.
         if key == Qt.Key.Key_G and shift:                 # G — bottom
-            sb.setValue(sb.maximum())
+            self._caret_move(MO.End)
             return True
-        if key == Qt.Key.Key_J or key == Qt.Key.Key_Down:
-            sb.setValue(sb.value() + line)
+        if key in (Qt.Key.Key_H, Qt.Key.Key_Left):
+            self._caret_move(MO.Left)
             return True
-        if key == Qt.Key.Key_K or key == Qt.Key.Key_Up:
-            sb.setValue(sb.value() - line)
+        if key in (Qt.Key.Key_L, Qt.Key.Key_Right):
+            self._caret_move(MO.Right)
+            return True
+        if key in (Qt.Key.Key_J, Qt.Key.Key_Down):
+            self._caret_move(MO.Down)
+            return True
+        if key in (Qt.Key.Key_K, Qt.Key.Key_Up):
+            self._caret_move(MO.Up)
+            return True
+        if key == Qt.Key.Key_W and not ctrl:
+            self._caret_move(MO.NextWord)
+            return True
+        if key == Qt.Key.Key_B and not ctrl:
+            self._caret_move(MO.PreviousWord)
+            return True
+        if key == Qt.Key.Key_E and not ctrl:
+            self._caret_move(MO.EndOfWord)
+            return True
+        if key == Qt.Key.Key_0 and not ctrl:
+            self._caret_move(MO.StartOfLine)
+            return True
+        if key == Qt.Key.Key_Dollar:
+            self._caret_move(MO.EndOfLine)
             return True
         if ctrl and key == Qt.Key.Key_D:
-            sb.setValue(sb.value() + page // 2)
+            self._caret_move(MO.Down, self._page_lines(0.5))
             return True
         if ctrl and key == Qt.Key.Key_U:
-            sb.setValue(sb.value() - page // 2)
+            self._caret_move(MO.Up, self._page_lines(0.5))
             return True
         if key in (Qt.Key.Key_Space, Qt.Key.Key_PageDown) or (
                 ctrl and key == Qt.Key.Key_F):
-            sb.setValue(sb.value() + page)
+            self._caret_move(MO.Down, self._page_lines(1.0))
             return True
         if key == Qt.Key.Key_PageUp or (ctrl and key == Qt.Key.Key_B):
-            sb.setValue(sb.value() - page)
+            self._caret_move(MO.Up, self._page_lines(1.0))
             return True
         return False
+
+    def _caret_move(self, op, count: int = 1):
+        """Move the read-view caret by ``op`` × ``count``; in visual mode keep
+        the anchor so the selection extends."""
+        mode = (QTextCursor.MoveMode.KeepAnchor if self._visual
+                else QTextCursor.MoveMode.MoveAnchor)
+        cur = self._rendered.textCursor()
+        cur.movePosition(op, mode, count)
+        self._rendered.setTextCursor(cur)
+        self._rendered.ensureCursorVisible()
+
+    def _page_lines(self, frac: float) -> int:
+        """Number of text lines in ``frac`` of the viewport (for page motions)."""
+        line_h = max(1, int(QFontMetricsF(self._rendered.font()).height()))
+        return max(1, int(self._rendered.viewport().height() * frac / line_h))
+
+    def _set_visual(self, on: bool):
+        """Enter/leave visual mode. Entering anchors the selection at the caret;
+        leaving collapses any selection back to undisturbed reading."""
+        self._visual = on
+        cur = self._rendered.textCursor()
+        if on:
+            cur.setPosition(cur.position())   # collapse → anchor at caret
+        else:
+            cur.clearSelection()
+        self._rendered.setTextCursor(cur)
+
+    def _comment_selection(self):
+        """c — comment the current visual selection."""
+        cur = self._rendered.textCursor()
+        if not cur.hasSelection():
+            return
+        r0, r1 = cur.selectionStart(), cur.selectionEnd()
+        self._set_visual(False)
+        self._begin_comment_for_span(r0, r1)
 
     # ── Read-view comment interaction ──
 
@@ -925,38 +998,7 @@ class ZenMarkdownEditor(QWidget):
         else:
             self._active_comment = -1
 
-    # ── Authoring: pick a span by word-jump, then comment it ──
-
-    def _start_comment_authoring(self):
-        """c — begin authoring: word-jump to the span's first word, then its
-        last word; the range between becomes the commented span."""
-        if not self._rendered_mode:
-            return
-        if self._comment_jump is None:
-            self._comment_jump = WordJumpOverlay(self._rendered, self)
-        self._author_pick_start = None
-        self._authoring_span = None
-        self._comment_jump.activate(on_pick=self._on_author_pick)
-
-    def _on_author_pick(self, pos: int):
-        """First word-jump pick anchors the span start; the second closes it."""
-        if self._author_pick_start is None:
-            self._author_pick_start = pos
-            self._comment_jump.activate(on_pick=self._on_author_pick)
-            return
-        start = self._author_pick_start
-        self._author_pick_start = None
-        r0 = min(start, pos)
-        r1 = self._word_end(max(start, pos))
-        self._rendered.setFocus()
-        self._begin_comment_for_span(r0, r1)
-
-    def _word_end(self, pos: int) -> int:
-        """End position of the word at ``pos`` in the rendered document."""
-        cur = QTextCursor(self._rendered.document())
-        cur.setPosition(pos)
-        cur.movePosition(QTextCursor.MoveOperation.EndOfWord)
-        return cur.position()
+    # ── Authoring: comment the visual selection ──
 
     def _begin_comment_for_span(self, r0: int, r1: int):
         """Map the rendered span back to source; if it maps, open an empty field

@@ -1,6 +1,6 @@
-"""Zen reading view: author a new comment by word-jump (pick the span's first
-word, then its last) and type the body — the comment tool wraps it in
-CriticMarkup; you never type the syntax by hand."""
+"""Zen reading view: author a comment by selecting the span in vim visual mode
+(v + motions), then typing the body — the comment tool wraps it in CriticMarkup;
+you never type the syntax by hand."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QEvent, Qt  # noqa: E402
-from PySide6.QtGui import QKeyEvent  # noqa: E402
+from PySide6.QtGui import QKeyEvent, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from grafli import md_comments  # noqa: E402
@@ -28,84 +28,116 @@ def _reading_editor(text: str = MD) -> ZenMarkdownEditor:
     return ed
 
 
+def _key(ed, key, *, shift=False, ctrl=False, text=""):
+    mods = Qt.KeyboardModifier.NoModifier
+    if shift:
+        mods |= Qt.KeyboardModifier.ShiftModifier
+    if ctrl:
+        mods |= Qt.KeyboardModifier.ControlModifier
+    ev = QKeyEvent(QEvent.Type.KeyPress, key, mods, text, False, 1)
+    return ed._handle_rendered_key(ev)
+
+
 def _rspan(ed, sub):
     rendered = ed._rendered.document().toPlainText()
     r0 = rendered.index(sub)
     return r0, r0 + len(sub)
 
 
+def _select(ed, sub):
+    r0, r1 = _rspan(ed, sub)
+    cur = ed._rendered.textCursor()
+    cur.setPosition(r0)
+    cur.setPosition(r1, QTextCursor.MoveMode.KeepAnchor)
+    ed._rendered.setTextCursor(cur)
+    return r0, r1
+
+
+# ── visual mode ──
+
+def test_v_enters_visual_and_motions_extend_selection():
+    ed = _reading_editor()
+    r0, _ = _rspan(ed, "quick")
+    cur = ed._rendered.textCursor()
+    cur.setPosition(r0)
+    ed._rendered.setTextCursor(cur)
+    assert _key(ed, Qt.Key.Key_V, text="v") is True
+    assert ed._visual is True
+    _key(ed, Qt.Key.Key_W)            # extend by a word
+    _key(ed, Qt.Key.Key_W)
+    sel = ed._rendered.textCursor()
+    assert sel.hasSelection()
+    assert sel.selectionStart() == r0
+
+
+def test_esc_leaves_visual_without_closing():
+    ed = _reading_editor()
+    ed._set_visual(True)
+    assert _key(ed, Qt.Key.Key_Escape) is True
+    assert ed._visual is False
+    assert not ed._rendered.textCursor().hasSelection()
+
+
+def test_c_comments_the_visual_selection():
+    ed = _reading_editor()
+    _select(ed, "quick brown")
+    ed._visual = True
+    assert _key(ed, Qt.Key.Key_C, text="c") is True
+    assert ed._visual is False             # leaving visual on comment
+    assert ed._authoring_span is not None
+    ed._comment_field.setPlainText("why quick brown?")
+    ed._commit_comment_field()
+    spans = [(c.span, c.body) for c in md_comments.parse(ed._editor.toPlainText())]
+    assert spans == [("quick brown", "why quick brown?")]
+    assert ed._active_comment == 0
+
+
+def test_c_without_selection_is_noop():
+    ed = _reading_editor()
+    cur = ed._rendered.textCursor()
+    cur.clearSelection()
+    ed._rendered.setTextCursor(cur)
+    assert _key(ed, Qt.Key.Key_C, text="c") is True
+    assert ed._authoring_span is None
+    assert md_comments.parse(ed._editor.toPlainText()) == []
+
+
+# ── span → source mapping (via _begin_comment_for_span) ──
+
 def test_author_wraps_selected_span():
     ed = _reading_editor()
     r0, r1 = _rspan(ed, "quick brown")
     ed._begin_comment_for_span(r0, r1)
     assert ed._authoring_span is not None
-    assert ed._comment_field.toPlainText() == ""        # starts empty
+    assert ed._comment_field.toPlainText() == ""
     ed._comment_field.setPlainText("why quick brown?")
     ed._commit_comment_field()
     comments = md_comments.parse(ed._editor.toPlainText())
     assert [(c.span, c.body) for c in comments] == [("quick brown", "why quick brown?")]
-    assert ed._authoring_span is None                   # cleared
-    assert ed._active_comment == 0                       # new comment is active
+    assert ed._authoring_span is None
+    assert ed._active_comment == 0
 
 
 def test_author_empty_body_creates_nothing():
     ed = _reading_editor()
     r0, r1 = _rspan(ed, "fox")
     ed._begin_comment_for_span(r0, r1)
-    ed._comment_field.setPlainText("   ")               # nothing typed
+    ed._comment_field.setPlainText("   ")
     ed._commit_comment_field()
     assert md_comments.parse(ed._editor.toPlainText()) == []
     assert ed._authoring_span is None
 
 
-def test_two_pick_state_machine():
-    ed = _reading_editor()
-    rendered = ed._rendered.document().toPlainText()
-    activations = []
-
-    class _StubJump:
-        def activate(self, on_pick=None):
-            activations.append(on_pick)
-
-    ed._comment_jump = _StubJump()
-    ed._author_pick_start = None
-    ed._authoring_span = None
-    ed._on_author_pick(rendered.index("quick"))         # first pick
-    assert ed._author_pick_start is not None
-    assert len(activations) == 1                         # re-armed for 2nd pick
-    ed._on_author_pick(rendered.index("brown"))         # second pick closes span
-    assert ed._author_pick_start is None
-    assert ed._authoring_span is not None
-    s0, s1, sel = ed._authoring_span
-    assert ed._editor.toPlainText()[s0:s1] == "quick brown"
-
-
-def test_c_key_starts_authoring():
-    ed = _reading_editor()
-    started = []
-
-    class _StubJump:
-        def activate(self, on_pick=None):
-            started.append(on_pick)
-
-    ed._comment_jump = _StubJump()        # pre-seed so no live overlay is shown
-    ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_C,
-                   Qt.KeyboardModifier.NoModifier, "c", False, 1)
-    assert ed._handle_rendered_key(ev) is True
-    assert len(started) == 1 and started[0] == ed._on_author_pick
-
-
 def test_authoring_inside_existing_comment_edits_it():
-    # selecting within an existing comment's span reveals/edits it, no nesting
     ed = _reading_editor("# N\n\nthe {==quick brown==}{>>why?<<} fox\n")
     rendered = ed._rendered.document().toPlainText()
     r0 = rendered.index("quick")
-    r1 = r0 + len("quick")              # inside the existing 'quick brown' span
+    r1 = r0 + len("quick")              # inside the existing span
     ed._begin_comment_for_span(r0, r1)
     assert ed._authoring_span is None   # did NOT start a new comment
-    assert ed._active_comment == 0      # the existing one is active...
+    assert ed._active_comment == 0
     assert ed._comment_field is not None and not ed._comment_field.isHidden()
-    assert ed._comment_field.toPlainText() == "why?"   # ...and revealed for edit
+    assert ed._comment_field.toPlainText() == "why?"
 
 
 def test_authoring_clear_of_comments_creates_new():
@@ -114,7 +146,7 @@ def test_authoring_clear_of_comments_creates_new():
     r0 = rendered.index("brown fox")
     r1 = r0 + len("brown fox")
     ed._begin_comment_for_span(r0, r1)
-    assert ed._authoring_span is not None   # clear of the existing one → new
+    assert ed._authoring_span is not None
     ed._comment_field.setPlainText("zoom?")
     ed._commit_comment_field()
     spans = [(c.span, c.body) for c in md_comments.parse(ed._editor.toPlainText())]

@@ -73,16 +73,21 @@ def _press(ed, key, mod=Qt.KeyboardModifier.NoModifier):
 
 
 def test_rendered_view_supports_vim_navigation():
+    # The read view is caret-based: motions move a text caret (visual-mode span
+    # selection rides on the same caret). Use document-order motions that don't
+    # depend on a laid-out viewport.
     ed = _editor()
     ed._toggle_rendered()
-    sb = ed._rendered.verticalScrollBar()
-    # Drive the scrollbar via a fixed range (no real window layout in the test).
-    sb.setRange(0, 1000)
-    sb.setValue(0)
-    assert _press(ed, Qt.Key.Key_J) and sb.value() > 0      # j scrolls down
-    assert _press(ed, Qt.Key.Key_K) and sb.value() == 0     # k scrolls up
+
+    def caret():
+        return ed._rendered.textCursor().position()
+
+    assert caret() == 0
+    assert _press(ed, Qt.Key.Key_L) and caret() == 1         # l -> char right
+    assert _press(ed, Qt.Key.Key_W) and caret() > 1          # w -> next word
+    mid = caret()
     assert _press(ed, Qt.Key.Key_G, Qt.KeyboardModifier.ShiftModifier)
-    assert sb.value() == sb.maximum()                        # G -> bottom
+    assert caret() > mid                                      # G -> document end
     _press(ed, Qt.Key.Key_G)
     _press(ed, Qt.Key.Key_G)
-    assert sb.value() == 0                                    # gg -> top
+    assert caret() == 0                                       # gg -> top

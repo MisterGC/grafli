@@ -38,6 +38,7 @@ docs = [
 
 [project.scripts]
 grafli = "grafli.app:main"
+textli = "grafli.textli:main"
 
 [project.urls]
 Documentation = "https://grafli.mistergc.dev"

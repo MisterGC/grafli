@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`textli` — standalone markdown editor.** Launch grafli's focused Zen
+  editor on any file without the diagram app: `textli notes.md`. It's the same
+  editor grafli uses for notes — vim-navigable, with the rendered reading view
+  (⌘R) — now usable on its own. Autosaves while you edit (and creates the file
+  on first save if it doesn't exist yet), so important states are captured via
+  git/SCM rather than a manual save action.
+
 ## [0.4.0] - 2026-06-27
 
 ### Added

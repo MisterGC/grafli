@@ -11,7 +11,6 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QSettings, QTimer
 from PySide6.QtGui import (
     QAction,
-    QFontDatabase,
     QKeySequence,
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
@@ -27,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from grafli.buffers import BufferManager, BufferState, ViewState
 from grafli.constants import Mode
+from grafli.fonts import register_bundled_fonts as _register_bundled_fonts
 from grafli.filewatcher import JsonSafeWatcher, MultiFileWatcher
 from grafli.format import Board, parse, serialize
 from grafli.sync import Conflict, atomic_write, merge_boards
@@ -1139,15 +1139,6 @@ def _load_vault(path: Path, board: Board) -> list[str]:
     from grafli.resources import classify_attachments, load_docs
     classify_attachments(path, board)
     return load_docs(path, board)
-
-
-def _register_bundled_fonts():
-    fonts_dir = Path(__file__).parent / "fonts"
-    for name in ("PatrickHand-Regular.ttf", "JetBrainsMonoNerdFont-Regular.ttf",
-                 "JetBrainsMonoNerdFont-Bold.ttf"):
-        path = fonts_dir / name
-        if path.exists():
-            QFontDatabase.addApplicationFont(str(path))
 
 
 def _try_send_to_existing(file_path: str | None) -> bool:

@@ -99,13 +99,39 @@ def test_commit_authoring_stays_in_reading_view():
     r0, r1 = _rspan(ed, "quick brown fox")     # multi-word span
     ed._begin_comment_for_span(r0, r1)
     ed._comment_field.setPlainText("note")
-    esc = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
-                    Qt.KeyboardModifier.NoModifier)
-    assert ed._handle_comment_field_key(esc) is True
+    enter = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return,
+                      Qt.KeyboardModifier.NoModifier)
+    assert ed._handle_comment_field_key(enter) is True   # Enter saves
     assert ed._rendered_mode is True           # stayed in the reading view
     comments = md_comments.parse(ed._editor.toPlainText())
     assert [(c.span, c.body) for c in comments] == [("quick brown fox", "note")]
     assert ed._active_comment == 0
+
+
+def test_shift_enter_inserts_newline_not_commit():
+    ed = _reading_editor()
+    r0, r1 = _rspan(ed, "quick")
+    ed._begin_comment_for_span(r0, r1)
+    ed._comment_field.setPlainText("line one")
+    ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return,
+                   Qt.KeyboardModifier.ShiftModifier)
+    assert ed._handle_comment_field_key(ev) is True
+    assert "\n" in ed._comment_field.toPlainText()        # line break inserted
+    assert not ed._comment_field.isHidden()               # still editing
+    assert md_comments.parse(ed._editor.toPlainText()) == []  # nothing saved yet
+
+
+def test_esc_cancels_new_comment():
+    ed = _reading_editor()
+    r0, r1 = _rspan(ed, "quick")
+    ed._begin_comment_for_span(r0, r1)
+    ed._comment_field.setPlainText("discard me")
+    ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                   Qt.KeyboardModifier.NoModifier)
+    assert ed._handle_comment_field_key(ev) is True
+    assert md_comments.parse(ed._editor.toPlainText()) == []   # not created
+    assert ed._authoring_span is None
+    assert ed._comment_field.isHidden()
 
 
 def test_c_without_selection_is_noop():

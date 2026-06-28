@@ -682,22 +682,26 @@ class ZenMarkdownEditor(QWidget):
         return False
 
     def _handle_comment_field_key(self, event: QKeyEvent) -> bool:
-        """Keys while the inline comment editor is open: Esc commits and returns
-        to undisturbed reading; ⇧Esc cancels the edit; ⌃↵ also commits. Plain
-        Enter inserts a newline in the comment as usual."""
+        """Keys while the inline comment editor is open: Enter saves and returns
+        to undisturbed reading; ⇧Enter inserts a line break; Esc cancels."""
         key = event.key()
         shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-        if key == Qt.Key.Key_Escape:
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if shift:
-                self._hide_comment_field()      # ⇧Esc — discard the edit
+                self._comment_field.insertPlainText("\n")   # ⇧↵ — line break
             else:
-                self._commit_comment_field()    # Esc — save and back to reading
+                self._commit_comment_field()                # ↵ — save & back
             return True
-        if (key in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
-                and event.modifiers() & _CTRL_MOD):
-            self._commit_comment_field()
+        if key == Qt.Key.Key_Escape:
+            self._cancel_comment_field()                    # Esc — discard
             return True
         return False
+
+    def _cancel_comment_field(self):
+        """Discard the open comment editor without writing changes (abandons a
+        new comment; leaves an edited one untouched)."""
+        self._authoring_span = None
+        self._hide_comment_field()
 
     # ── Key handling ──
 

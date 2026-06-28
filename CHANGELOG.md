@@ -17,8 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   prose the focus: the comment body is hidden and the span wears a subtle
   highlight; a comment surfaces only when you ask for it. Step between comments
   with <kbd>]c</kbd>/<kbd>[c</kbd>, <kbd>Enter</kbd> reveals & edits one inline
-  (<kbd>Esc</kbd> back to reading), <kbd>⇧D</kbd> deletes it. You never type the
-  markup by hand.
+  (while editing, <kbd>Enter</kbd> saves, <kbd>⇧Enter</kbd> is a line break,
+  <kbd>Esc</kbd> cancels), <kbd>⇧D</kbd> deletes it. You never type the markup by
+  hand.
 - **`textli` — standalone markdown editor.** Launch grafli's focused Zen
   editor on any file without the diagram app: `textli notes.md`. It's the same
   editor grafli uses for notes — vim-navigable, with the rendered reading view

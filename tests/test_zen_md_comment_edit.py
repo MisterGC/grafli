@@ -122,6 +122,26 @@ def test_shift_d_deletes_active_comment():
     assert md_comments.parse(src)[0].span == "caching layer"
 
 
+def test_enter_saves_edit_esc_cancels():
+    ed = _reading_editor()
+    ed._goto_comment(1)                  # active 0
+    ed._reveal_active_comment()
+    ed._comment_field.setPlainText("EDITED")
+    # Enter saves
+    enter = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return,
+                      Qt.KeyboardModifier.NoModifier)
+    assert ed._handle_comment_field_key(enter) is True
+    assert md_comments.parse(ed._editor.toPlainText())[0].body == "EDITED"
+    # now edit again but Esc to cancel — body stays "EDITED"
+    ed._reveal_active_comment()
+    ed._comment_field.setPlainText("throwaway")
+    esc = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                    Qt.KeyboardModifier.NoModifier)
+    assert ed._handle_comment_field_key(esc) is True
+    assert md_comments.parse(ed._editor.toPlainText())[0].body == "EDITED"
+    assert ed._comment_field.isHidden()
+
+
 def test_c_on_existing_comment_reveals_it_without_visual():
     ed = _reading_editor()
     start, _end, comment = ed._rendered_comments[0]

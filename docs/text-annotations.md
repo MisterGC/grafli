@@ -213,10 +213,14 @@ caret through the rendered text.
 | Key | Action |
 |-----|--------|
 | <kbd>v</kbd> | Enter **visual mode** — extend a selection with the motions above (you can see the text the whole time, no label clutter) |
-| <kbd>c</kbd> | Comment the visual selection — or, with the caret already on an existing comment, reveal & edit it directly. Type the comment (<kbd>Esc</kbd> to save). You never type the markup yourself |
+| <kbd>c</kbd> | Comment the visual selection — or, with the caret already on an existing comment, reveal & edit it directly. You never type the markup yourself |
 | <kbd>]</kbd><kbd>c</kbd> / <kbd>[</kbd><kbd>c</kbd> | Step to the next / previous comment |
-| <kbd>Enter</kbd> | Reveal & edit the active comment inline; <kbd>Esc</kbd> returns to undisturbed reading |
+| <kbd>Enter</kbd> | Reveal & edit the active comment inline |
 | <kbd>Shift</kbd>+<kbd>D</kbd> | Delete the active comment (the highlight and body are removed) |
+
+While editing a comment: <kbd>Enter</kbd> saves and returns to undisturbed
+reading, <kbd>Shift</kbd>+<kbd>Enter</kbd> inserts a line break, <kbd>Esc</kbd>
+cancels. Clearing the text and saving deletes the comment.
 
 Clearing a comment's text and committing also deletes it. Because comments are
 plain CriticMarkup, you (or a collaborator, or an AI) can also read and edit

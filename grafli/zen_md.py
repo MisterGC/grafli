@@ -445,14 +445,14 @@ class ZenMarkdownEditor(QWidget):
             cur = self._rendered.textCursor()    # caret at top for vim motions
             cur.setPosition(0)
             self._rendered.setTextCursor(cur)
-            self._flash_mode("READ")
         else:
             self._hide_comment_field()
             self._rendered.setVisible(False)
             self._editor.setVisible(True)
             self._editor.setFocus()
-            self._flash_mode("WRITE")
         self.update()
+        # Flash last, after the view swap + repaint, so it sits clearly on top.
+        self._flash_mode("READ" if self._rendered_mode else "WRITE")
 
     def _flash_mode(self, text: str):
         """Briefly flash a big, blocky word ('READ' / 'WRITE') in the centre to
@@ -475,13 +475,18 @@ class ZenMarkdownEditor(QWidget):
         lbl = self._mode_flash
         lbl.setText(text)
         lbl.setGeometry(self.rect())
+        self._mode_flash_effect.setOpacity(1.0)
         lbl.show()
         lbl.raise_()
+        # Appear instantly, hold at full briefly, then ease out — so it reads as
+        # a calm flash rather than a blink. Linear timing keeps the hold exact;
+        # the extra key points give the fade a soft tail.
         anim = QPropertyAnimation(self._mode_flash_effect, b"opacity", self)
-        anim.setDuration(650)
-        anim.setStartValue(1.0)
-        anim.setEndValue(0.0)
-        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.setDuration(1300)
+        anim.setKeyValueAt(0.0, 1.0)
+        anim.setKeyValueAt(0.30, 1.0)    # hold at full
+        anim.setKeyValueAt(0.65, 0.55)   # soft tail on the fade
+        anim.setKeyValueAt(1.0, 0.0)
         anim.finished.connect(lbl.hide)
         anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
         self._mode_flash_anim = anim   # hold a ref so it isn't GC'd mid-run

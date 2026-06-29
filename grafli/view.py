@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re as _re
+import time
 import shlex
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ from PySide6.QtCore import (
     QBuffer,
     QByteArray,
     QEasingCurve,
+    QEvent,
     QIODevice,
     QPoint,
     QPointF,
@@ -23,6 +25,7 @@ from PySide6.QtCore import (
     QTimeLine,
     QTimer,
     QStringListModel,
+    QVariantAnimation,
     QUrl,
     Signal,
 )
@@ -32,6 +35,7 @@ from PySide6.QtGui import (
     QCursor,
     QDesktopServices,
     QFont,
+    QFontMetricsF,
     QImage,
     QPainter,
     QPen,
@@ -50,6 +54,7 @@ from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsPolygonItem,
+    QGraphicsProxyWidget,
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsSimpleTextItem,
@@ -69,16 +74,22 @@ from grafli.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_po
 from grafli.buffers import ViewState
 from grafli.commands import CommandsMixin
 from grafli.complexity import ComplexityMixin
+from grafli.editor import InlineVimEditor
 from grafli.constants import (
     ANNOTATION_ARROW_COLOR,
     ANNOTATION_ARROW_WIDTH,
     ARROW_COLOR,
     ARROW_LABEL_FONT_SIZES,
     ARROW_WIDTH,
+    ARROWHEAD_SIZE,
     BOX_BORDER,
     BOX_FILL,
     BOX_FONT_SIZES,
+    resolve_textsize_px,
     COLOR_PALETTE,
+    CONNECTOR_REF_SIZE,
+    CONNECTOR_WIDTH_MAX,
+    CONNECTOR_WIDTH_MIN,
     CONTENT_BORDER_COLOR,
     DEFAULT_BOX_H,
     DEFAULT_BOX_W,
@@ -88,6 +99,7 @@ from grafli.constants import (
     MINIMAP_MARGIN,
     HEATMAP_CONTENT_BORDER,
     HEATMAP_GRID_COLOR,
+    LAYOUT_PADDING,
     MIN_BOX_SIZE,
     SCENE_BG,
     Mode,
@@ -98,9 +110,13 @@ from grafli.constants import (
     _resolve_color,
 )
 from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
-from grafli.format import Arrow, Board, Box, Image, Note, parse, serialize
+from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, emphasis_from_flags, parse, serialize
+from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
-from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ImageItem, LabelItem, NoteItem, ResizeHandle
+from grafli.iconset import ICON_NAMES, icon_pixmap
+from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ClusterHullItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
+from grafli.lod import CHILD_COLLAPSE_PX, LodModel, should_collapse, should_collapse_container
+from grafli.md_note import note_is_md, toggle_task
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
 from grafli.zen_md import ZenMarkdownEditor
@@ -161,6 +177,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     arrow_update_needed = Signal()
     mode_changed = Signal(Mode)
     selection_changed_for_panel = Signal(bool)
+    flows_changed = Signal()
+    playback_ended = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -168,13 +186,28 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._scene.setBackgroundBrush(QBrush(SCENE_BG))
         self.setScene(self._scene)
 
+        # TextAntialiasing sharpens the Nerd Font glyphs / labels; SmoothPixmap
+        # keeps scaled images and the minimap crisp instead of jagged.
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
+        # Infinite canvas — pan via drag / trackpad / keyboard / minimap, not
+        # scrollbars. Hiding them also keeps `fitInView` deterministic (a
+        # scrollbar toggling mid-fit otherwise shrinks the viewport and the
+        # fit comes out slightly off — a cause of flaky zoom-to-fit on load).
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # No context menu — the right button is used for panning.
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
 
-        self._grid_visible: bool = True
+        # Grid mode: "off" (no dots, free move), "visual" (dots, free move),
+        # "snap" (dots + snapping). Remembered across restarts via QSettings.
+        mode = QSettings("Grafli", "Grafli").value("grid/mode", "snap", type=str)
+        self._grid_mode: str = mode if mode in self._GRID_CYCLE else "snap"
         self.GRID_SPACING = 20
 
         self._board: Board | None = None
@@ -183,6 +216,31 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._note_items: dict[str, NoteItem] = {}
         self._image_items: dict[str, ImageItem] = {}
         self._dirty = False
+
+        # Level-of-Detail (semantic zoom). _lod holds the derived structural
+        # model; _lod_simplified is the set of box ids currently rendered as
+        # bare shells at the current zoom; _lod_enabled is the opt-out toggle.
+        self._lod: LodModel | None = None
+        self._lod_simplified: set[str] = set()   # boxes drawn as bare shells
+        self._lod_collapsed: set[str] = set()    # containers collapsed to tiles
+        self._lod_hidden_notes: set[str] = set() # notes hidden under LoD
+        self._lod_note_shells: set[str] = set()  # notes drawn as text markers
+        self._lod_arrow_labels_hidden: set = set()  # illegible connector labels
+        self._lod_hulls: dict[tuple, object] = {}        # cluster key -> hull item
+        self._lod_hull_member: dict[str, object] = {}    # member id -> hull item
+        self._lod_state = None                   # change-detection snapshot
+        self._lod_enabled = True
+
+        # _lod_dirty: the structural model may be stale after an edit; it is
+        # consumed (rebuilt) lazily at the top of _refresh_lod. _lod_refresh_timer
+        # coalesces a burst of edits (a whole drag) into one rebuild + re-eval
+        # once edits settle — the same debounce shape as autosave, so the O(V+E)
+        # graph rebuild never lands on the per-frame path.
+        self._lod_dirty = False
+        self._lod_refresh_timer = QTimer(self)
+        self._lod_refresh_timer.setSingleShot(True)
+        self._lod_refresh_timer.setInterval(60)
+        self._lod_refresh_timer.timeout.connect(self._refresh_lod)
 
         # Pan state (middle-click always works)
         self._panning = False
@@ -207,6 +265,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Inline text editor
         self._editor: QGraphicsTextItem | None = None
         self._edit_target: BoxItem | NoteItem | None = None
+        # Notes use a vim-capable widget hosted in a proxy (boxes/arrows
+        # keep the plain QGraphicsTextItem above).
+        self._note_proxy: QGraphicsProxyWidget | None = None
+        self._note_widget: InlineVimEditor | None = None
 
         # Zen annotation editor
         self._zen_editor: ZenOverlay | None = None
@@ -230,10 +292,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._clipboard_notes: list[Note] = []
         self._clipboard_arrows: list[Arrow] = []
         self._clipboard_images: list[Image] = []
+        # Fingerprint of the system-clipboard image/text at the last internal
+        # copy, so paste can tell whether they were copied *after* it (and should
+        # win) or were already there (internal copy wins) — latest copy wins.
+        self._copy_clip_img_fp: tuple | None = None
+        self._copy_clip_text: str = ""
 
-        # Reparenting drag highlight
-        self._highlight_parent: BoxItem | None = None
-        self._highlight_orig_pen: QPen | None = None
+        # Reparenting drag highlight: a dashed rectangle previewing the target
+        # parent's auto-grown bounds (or None when the drop would detach).
+        self._grow_preview: QGraphicsRectItem | None = None
+
+        # Resize/scale foreshadow overlay (target frame + content area).
+        self._resize_foreshadow = None
 
         # Jump-to mode state
         self._jump_active = False
@@ -252,10 +322,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._label_drag_start: QPointF | None = None
         self._label_drag_orig_offset: tuple[float, float] = (0.0, 0.0)
 
+        # Item drag state: distinguishes a real move (which may reparent) from
+        # a plain/shift click that only changes the selection.
+        self._mouse_press_pos: QPointF | None = None
+        self._drag_moved: bool = False
+
         # Sticky style defaults for new boxes / notes
         self._last_box_color: str = ""
         self._last_box_textsize: str = ""
         self._last_note_textsize: str = ""
+        # Sticky connector kind: once you promote a note/image connector to a
+        # graph edge, subsequent note/image connectors default to graph too.
+        self._last_connector_kind: str = ""
 
         # g-prefix two-key sequences
         self._g_pending: bool = False
@@ -263,6 +341,28 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Vim-like box mode (style / dimension)
         self._box_mode: str = ""          # "", "style", "dimension"
         self._arrow_mode: str = ""        # "", "style"
+        # Colour-grid picker (style mode -> c): live-preview palette overlay.
+        # Boxes pick a palette colour; notes pick a background plate (two
+        # options: beige plate / none), so the picker has a small mode flag.
+        self._color_picker_active: bool = False
+        self._color_picker_index: int = 0
+        self._color_picker_original: dict = {}
+        self._color_picker_mode: str = "box"   # "box" | "note-bg"
+        # Icon-grid picker (style mode -> i): live-preview glyph vocabulary.
+        # Tab toggles placement (fill <-> lead). Originals are (name, placement).
+        self._icon_picker_active: bool = False
+        self._icon_picker_index: int = 0
+        self._icon_picker_placement: str = ""
+        self._icon_picker_original: dict[str, tuple[str, str]] = {}
+        # Type grid (style mode -> s): size rows x emphasis columns, live.
+        self._type_picker_active: bool = False
+        self._type_picker_size_idx: int = 1   # "" (medium)
+        self._type_picker_emph_idx: int = 0
+        self._type_picker_font: str = ""      # "" hand / "mono" — notes only
+        self._type_picker_outline: bool = False   # display styles — notes only
+        self._type_picker_shadow: bool = False
+        # id -> (textsize, emphasis, note_style|None); style restored for notes.
+        self._type_picker_original: dict[str, tuple] = {}
         self._mode_badge: QGraphicsTextItem | None = None
         self._mode_badge_bg: QGraphicsRectItem | None = None
 
@@ -282,6 +382,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._anim_end_center: QPointF = QPointF()
         self._anim_start_zoom: float = 1.0
         self._anim_end_zoom: float = 1.0
+        # Zoom-limit feedback: a rubber-band bounce + throttled toast when the
+        # user tries to zoom past the min/max bounds.
+        self._bounce_timeline: QTimeLine | None = None
+        self._bounce_active: bool = False
+        self._bounce_dir: float = 1.0
+        self._bounce_last_s: float = 1.0
+        self._bounce_base: QTransform = QTransform()
+        self._bounce_prev_anchor = QGraphicsView.ViewportAnchor.AnchorUnderMouse
+        self._zoom_limit_toast_at: float = 0.0
 
 
         # Hide-notes toggle (Shift+N) — focus on the graph
@@ -296,6 +405,30 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._nav_index: int = -1
         self._NAV_STACK_CAP = 50
 
+        # Focus-zoom toggle (gz): the viewport to fly back to, and the items we
+        # focused on (so re-pressing after changing the selection re-focuses).
+        self._focus_return: QRectF | None = None
+        self._focus_target_ids: set[str] = set()
+
+        # Bookmarks & flows
+        self._flow_player: FlowPlayer | None = None
+        self._recording_flow: Flow | None = None
+        self._flow_overlay: dict | None = None
+        # Flows-panel edit target: a captured bookmark is inserted after the
+        # selected step of this flow (instead of just creating a loose one).
+        self._active_flow: Flow | None = None
+        self._active_step_index: int = -1
+        # Transient confirmation overlays (bookmark goto, snap lock-in pulse,
+        # delete pop) — each a dict {rect, color, mode, p} eased 0->1 then
+        # dropped. Drawn in scene coords so they hug the items.
+        self._flashes: list[dict] = []
+        # Live smart-alignment guides while dragging a single element. Refs are
+        # the peer anchor rects gathered once at drag start; guides are the
+        # lines to draw this frame.
+        self._drag_guides: list[dict] = []
+        self._drag_guide_refs: list[dict] | None = None
+        self._drag_lead_item = None
+
         # Graph navigation (Alt held)
         self._graph_nav_active = False
         self._graph_nav_labels: list[QGraphicsRectItem | QGraphicsSimpleTextItem] = []
@@ -306,6 +439,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._debug_overlay: bool = False
         self._debug_last_shortcut: str = ""
         self._debug_fade_timer: QTimer | None = None
+
+        # Toast — a transient HUD pill (bottom-center) confirming user actions.
+        # Info/warn auto-fade; errors stick until the next toast so they can't be
+        # missed.
+        self._toast_text: str = ""
+        self._toast_kind: str = "info"   # "info" | "warn" | "error"
+        self._toast_timer: QTimer | None = None
+
+        # Live fade animations (kept referenced so they aren't GC'd mid-run).
+        self._fade_anims: set = set()
 
         # Complexity heatmap state
         self._complexity_active: bool = False
@@ -326,6 +469,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Search state
         self._search_active = False
+        self._search_badge_opacity = 0.0   # 0..1 — fades the input badge in/out
         self._search_text = ""
         self._search_matches: list[BoxItem | NoteItem] = []
         self._search_index = 0
@@ -339,18 +483,31 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         super().drawBackground(painter, rect)
         grid_color = HEATMAP_GRID_COLOR if self._complexity_active else GRID_COLOR
         border_color = HEATMAP_CONTENT_BORDER if self._complexity_active else CONTENT_BORDER_COLOR
-        if self._grid_visible:
+        if self._grid_shown:
             spacing = self.GRID_SPACING
-            left = int(rect.left()) - (int(rect.left()) % spacing)
-            top = int(rect.top()) - (int(rect.top()) % spacing)
-            painter.setPen(QPen(grid_color, 2.0))
-            x = left
-            while x <= rect.right():
-                y = top
-                while y <= rect.bottom():
-                    painter.drawPoint(int(x), int(y))
-                    y += spacing
-                x += spacing
+            # Skip the grid when zoomed out far enough that it would be a dense
+            # smear anyway — drawing a point per cell across a huge visible area
+            # is O(area) and makes panning crawl.
+            cols = (rect.width() / spacing) + 1
+            rows = (rect.height() / spacing) + 1
+            if cols * rows <= 20000:
+                left = int(rect.left()) - (int(rect.left()) % spacing)
+                top = int(rect.top()) - (int(rect.top()) % spacing)
+                # Snap mode draws small crosses (snap targets) so it reads
+                # distinctly from the plain dots of visual-only mode.
+                snap = self._grid_snap
+                painter.setPen(QPen(grid_color, 2.0))
+                x = left
+                while x <= rect.right():
+                    y = top
+                    while y <= rect.bottom():
+                        if snap:
+                            painter.drawLine(int(x) - 2, int(y), int(x) + 2, int(y))
+                            painter.drawLine(int(x), int(y) - 2, int(x), int(y) + 2)
+                        else:
+                            painter.drawPoint(int(x), int(y))
+                        y += spacing
+                    x += spacing
 
         # Content-area border — always drawn as an orientation aid
         items_rect = self._scene.itemsBoundingRect()
@@ -363,13 +520,39 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
+        # Scene-coord overlays first (the painter is still in scene space here);
+        # the viewport-space HUD below resets the transform.
+        self._draw_drag_guides(painter)
+        self._draw_flashes(painter)
         self._draw_complexity_legend(painter)
         self._draw_minimap(painter)
         self._draw_search_badge(painter)
+        self._draw_flow_overlay(painter)
         self._draw_debug_overlay(painter)
+        self._draw_color_picker(painter)
+        self._draw_icon_picker(painter)
+        self._draw_type_picker(painter)
+        self._draw_toast(painter)
+
+    # Grid mode cycle order for the # key / "grid" action.
+    _GRID_CYCLE = ("off", "visual", "snap")
+    _GRID_LABELS = {"off": "off", "visual": "grid", "snap": "grid + snap"}
+
+    @property
+    def _grid_shown(self) -> bool:
+        """Whether the grid dots are drawn."""
+        return self._grid_mode in ("visual", "snap")
+
+    @property
+    def _grid_snap(self) -> bool:
+        """Whether movement snaps to the grid."""
+        return self._grid_mode == "snap"
 
     def toggle_grid(self):
-        self._grid_visible = not self._grid_visible
+        """Cycle the grid mode (off -> visual -> snap) and remember it."""
+        idx = self._GRID_CYCLE.index(self._grid_mode)
+        self._grid_mode = self._GRID_CYCLE[(idx + 1) % len(self._GRID_CYCLE)]
+        QSettings("Grafli", "Grafli").setValue("grid/mode", self._grid_mode)
         self.viewport().update()
 
     @property
@@ -529,6 +712,26 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return (r.x(), r.y(), r.width(), r.height())
         return (elem.x, elem.y, 40, 20)
 
+    def _elem_min_dim(self, elem) -> float:
+        """Smaller side of an element — its visual 'weight' for connectors."""
+        if isinstance(elem, (Box, Image)):
+            return min(elem.w, elem.h)
+        note_item = self._note_items.get(elem.id)
+        if note_item:
+            r = note_item.sceneBoundingRect()
+            return min(r.width(), r.height())
+        return CONNECTOR_REF_SIZE
+
+    def _connector_width(self, from_elem, to_elem) -> float:
+        """Graph-arrow thickness, scaled to the size of the nodes it links.
+
+        Referenced to a default-sized box and capped by the *smaller* endpoint,
+        so a connector is never heavier than the lightest node it touches.
+        """
+        conn = min(self._elem_min_dim(from_elem), self._elem_min_dim(to_elem))
+        width = ARROW_WIDTH * (conn / CONNECTOR_REF_SIZE) ** 0.5
+        return max(CONNECTOR_WIDTH_MIN, min(CONNECTOR_WIDTH_MAX, width))
+
     @property
     def board(self) -> Board | None:
         return self._board
@@ -545,6 +748,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 window.setWindowTitle(window._title_for_path(window._file_path, dirty=True))
             window._schedule_autosave()
         self._update_scene_rect()
+        self._invalidate_lod()
 
     def mark_clean(self):
         self._dirty = False
@@ -562,9 +766,67 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     def _invalidate_graph_stats(self):
         self._graph_stats = {}
 
+    def _invalidate_lod(self) -> None:
+        """Mark the structural LoD model stale and schedule a coalesced refresh.
+
+        Hung off mark_dirty (the universal edit funnel) so every present and
+        future mutation path keeps LoD in sync without per-call-site wiring.
+        Per-frame cost is one bool + a timer restart; the O(V+E) rebuild runs
+        once after edits settle (or on the next zoom), in _refresh_lod.
+        """
+        self._lod_dirty = True
+        timer = getattr(self, "_lod_refresh_timer", None)
+        if timer is not None:
+            timer.start()  # restart: a continuous drag keeps deferring
+
+    def _rebuild_lod_model(self) -> None:
+        """Re-derive the structural model from the live board (cheap, O(V+E)).
+
+        Deliberately non-incremental: a full from_board on any edit, bounded by
+        grafli's scale (sub-graflis handle larger systems). Matches the
+        derive-from-truth style used across the codebase and has no delta
+        surface to go stale. See mgc/groundwork/lod-stale-model-2026-06-29.md.
+        """
+        if self._board is None:
+            self._lod = None
+            self._lod_dirty = False
+            return
+        self._lod = LodModel.from_board(self._board)
+        self._feed_lod_note_extents()
+        self._lod_dirty = False
+
+    def _feed_lod_note_extents(self) -> None:
+        """Replace notes' placeholder extents with their rendered footprints so
+        a notes-only container collapses on size like any box container."""
+        if self._lod is None:
+            return
+        self._lod.set_note_extents({
+            nid: (it.boundingRect().width(), it.boundingRect().height())
+            for nid, it in self._note_items.items()
+        })
+
     def load_board(self, board: Board):
         self._board = board
+        self._lod = LodModel.from_board(board)
+        self._lod_simplified = set()
+        self._lod_collapsed = set()
+        self._lod_hidden_notes = set()
+        self._lod_note_shells = set()
+        self._lod_arrow_labels_hidden = set()
+        self._lod_hulls = {}          # items live in the about-to-be-rebuilt scene
+        self._lod_hull_member = {}
+        self._lod_state = None
+        # A fresh board invalidates any in-flight flow recording/playback.
+        self._recording_flow = None
+        if self._flow_player is not None:
+            self._flow_player.stop()
         self._rebuild_scene()
+        # Feed real note footprints to the model now the items exist, so a
+        # notes-only container can collapse on size like any box container.
+        self._feed_lod_note_extents()
+        self._lod_dirty = False  # fresh model; ignore any mark_dirty during load
+        self._refresh_lod()
+        self.flows_changed.emit()
 
     def snapshot_state(self) -> ViewState:
         """Capture view state for buffer switching."""
@@ -611,15 +873,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._arrow_items.clear()
         self._note_items.clear()
         self._image_items.clear()
+        # The scene clear above deleted any LoD hull/overlay items; drop the now
+        # dangling references and force the next _refresh_lod to fully reapply
+        # (mirrors load_board). Otherwise a scene rebuild while zoomed into a
+        # hull — undo/redo, paste, layout — would reroute arrows onto a deleted
+        # ClusterHullItem in the _redraw_arrows below.
+        self._lod_hulls = {}
+        self._lod_hull_member = {}
+        self._lod_state = None
         self._editor = None
         self._edit_target = None
+        self._note_proxy = None
+        self._note_widget = None
         self._rect_preview = None
         self._connect_line = None
         self._connect_source = None
         self._selected_arrow = None
         self._selected_arrow_items.clear()
-        self._highlight_parent = None
-        self._highlight_orig_pen = None
+        self._grow_preview = None
         self._mode_badge = None
         self._mode_badge_bg = None
         self._box_mode = ""
@@ -737,12 +1008,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ))
 
         for from_id, to_id, draw_head_to, draw_head_from, fwd, rev in render_list:
+            # Level-of-Detail: an endpoint inside a collapsed container re-routes
+            # to that container's tile; an edge that becomes internal to a single
+            # tile (both ends resolve to it) is dropped.
+            from_id = self._lod_reroute(from_id)
+            to_id = self._lod_reroute(to_id)
+            if from_id == to_id:
+                continue
+            from_hull = self._lod_hull_member.get(from_id)
+            to_hull = self._lod_hull_member.get(to_id)
+            if from_hull is not None and from_hull is to_hull:
+                continue  # internal to one cluster — drop it
             from_elem = self._board.box_by_id(from_id) or self._board.note_by_id(from_id)
             to_elem = self._board.box_by_id(to_id) or self._board.note_by_id(to_id)
             if not from_elem or not to_elem:
                 continue
 
-            is_annotation = isinstance(from_elem, Note) or isinstance(to_elem, Note)
+            # Kind drives styling now, not endpoint type: a note joined by a
+            # graph edge renders as a normal directional arrow.
+            is_annotation = self._is_annotation_link(fwd)
             both_boxes = isinstance(from_elem, Box) and isinstance(to_elem, Box)
 
             if is_annotation:
@@ -755,7 +1039,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 if not edge_kind and rev:
                     edge_kind = parse_edge_label(rev.label).kind
                 arrow_color = EDGE_KIND_COLORS.get(edge_kind, ARROW_COLOR)
-                arrow_width = ARROW_WIDTH
+                # Thickness tracks the size of the linked nodes (visual hierarchy).
+                arrow_width = self._connector_width(from_elem, to_elem)
+
+            # Arrowheads grow with the line, but gently, so they stay tasteful.
+            head_size = ARROWHEAD_SIZE * (arrow_width / ARROW_WIDTH) ** 0.6
 
             pen = QPen(arrow_color, arrow_width)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -788,13 +1076,21 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 start = _rect_edge_point(*from_r, to_center)
                 end = _rect_edge_point(*to_r, from_center)
 
+            # An endpoint hidden inside a cluster re-attaches to its hull outline.
+            if from_hull is not None or to_hull is not None:
+                ref_start, ref_end = QPointF(start), QPointF(end)
+                if from_hull is not None:
+                    start = from_hull.boundary_point(ref_end)
+                if to_hull is not None:
+                    end = to_hull.boundary_point(ref_start)
+
             dx = end.x() - start.x()
             dy = end.y() - start.y()
 
             # Forward arrowhead (at to_id end)
             if draw_head_to:
                 angle = math.atan2(dy, dx)
-                head = QGraphicsPolygonItem(_arrowhead_polygon(end, angle))
+                head = QGraphicsPolygonItem(_arrowhead_polygon(end, angle, head_size))
                 head.setPen(QPen(arrow_color, 1))
                 head.setBrush(QBrush(arrow_color))
                 head.setData(0, fwd)
@@ -805,7 +1101,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if draw_head_from:
                 back_angle = math.atan2(-dy, -dx)
                 back_head = QGraphicsPolygonItem(
-                    _arrowhead_polygon(start, back_angle)
+                    _arrowhead_polygon(start, back_angle, head_size)
                 )
                 back_head.setPen(QPen(arrow_color, 1))
                 back_head.setBrush(QBrush(arrow_color))
@@ -826,8 +1122,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 label_tooltips.append(rev.url)
 
             total_len = math.hypot(dx, dy)
+            # Drop the connector label when either end is a LoD-collapsed node
+            # (tile or hull) — its authored size would render as illegible
+            # clutter on a rerouted edge.
+            endpoint_collapsed = (
+                from_hull is not None or to_hull is not None
+                or from_id in self._lod_collapsed or to_id in self._lod_collapsed)
+            # Illegible at this zoom (set by _refresh_lod): the label is kept in
+            # the scene (hidden) so it's still tracked, but the line draws
+            # unbroken — no leftover gap where the caption sat.
+            label_too_small = (fwd.from_id, fwd.to_id) in self._lod_arrow_labels_hidden
             has_label = False
-            if label_texts and total_len > 0:
+            if label_texts and total_len > 0 and not endpoint_collapsed:
                 mid_x = (start.x() + end.x()) / 2
                 mid_y = (start.y() + end.y()) / 2
 
@@ -849,9 +1155,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 )
 
                 label.setPos(label_x, label_y)
+                label.setVisible(not label_too_small)
                 self._scene.addItem(label)
                 self._arrow_items.append(label)
-                has_label = True
+                has_label = not label_too_small
 
             # Draw line (split around label gap if needed)
             if has_label:
@@ -1124,13 +1431,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._create_preview.setPos(scene_pos)
 
     def _update_note_selection_highlight(self):
-        """Dim unrelated items when a single connected note is selected.
+        """Dim unrelated items when a single connected annotation is selected.
 
-        A note is treated as an annotation of the elements it connects to via
-        arrows. When exactly one NoteItem is selected and it has at least one
-        arrow connection, all other items are dimmed so the annotation target
-        becomes visually obvious. Skipped when another opacity-owning mode is
-        active (focus filter, complexity heatmap, manual arrow dim).
+        A note or image is treated as an annotation of the elements it connects
+        to via arrows. When exactly one such item is selected and it has at
+        least one arrow connection, all other items are dimmed so the annotation
+        target becomes visually obvious. Skipped when another opacity-owning
+        mode is active (focus filter, complexity heatmap, manual arrow dim).
         """
         if self._focus_active or self._complexity_active or self._arrows_dimmed:
             if self._note_highlight_active:
@@ -1138,17 +1445,33 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         selected = self._scene.selectedItems()
-        if not (len(selected) == 1 and isinstance(selected[0], NoteItem) and self._board):
+        if not (len(selected) == 1
+                and isinstance(selected[0], (NoteItem, ImageItem))
+                and self._board):
             if self._note_highlight_active:
                 self._clear_note_selection_highlight()
             return
 
-        note_id = selected[0].note.id
+        anchor_id = self._item_id(selected[0])
+        # Node-ness wins: an annotation that participates in ANY graph edge is a
+        # real node, so it never gets the annotation spotlight — even if it also
+        # has annotation links.
+        touching = [a for a in self._board.arrows
+                    if a.from_id == anchor_id or a.to_id == anchor_id]
+        if any(self._is_graph_edge(a) for a in touching):
+            if self._note_highlight_active:
+                self._clear_note_selection_highlight()
+            return
+
+        # Otherwise it's a pure annotation: its annotation-link targets become
+        # the spotlight.
         connected: set[str] = set()
-        for arrow in self._board.arrows:
-            if arrow.from_id == note_id:
+        for arrow in touching:
+            if not self._is_annotation_link(arrow):
+                continue
+            if arrow.from_id == anchor_id:
                 connected.add(arrow.to_id)
-            elif arrow.to_id == note_id:
+            elif arrow.to_id == anchor_id:
                 connected.add(arrow.from_id)
 
         if not connected:
@@ -1156,7 +1479,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self._clear_note_selection_highlight()
             return
 
-        keep = connected | {note_id}
+        keep = connected | {anchor_id}
         dim = 0.25
 
         for box_id, item in self._box_items.items():
@@ -1172,8 +1495,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if not isinstance(arrow, Arrow):
                 gfx.setOpacity(dim)
                 continue
-            touches_note = arrow.from_id == note_id or arrow.to_id == note_id
-            gfx.setOpacity(1.0 if touches_note else dim)
+            touches_anchor = ((arrow.from_id == anchor_id
+                               or arrow.to_id == anchor_id)
+                              and self._is_annotation_link(arrow))
+            gfx.setOpacity(1.0 if touches_anchor else dim)
 
         self._note_highlight_active = True
 
@@ -1228,6 +1553,84 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 result.append(item)
         return result
 
+    def _descendant_ids(self, box_id: str) -> list[str]:
+        """Ids of all boxes/notes/images nested under ``box_id`` (recursive)."""
+        out: list[str] = []
+        if not self._board:
+            return out
+        for b in self._board.boxes:
+            if b.parent == box_id:
+                out.append(b.id)
+                out.extend(self._descendant_ids(b.id))
+        for n in self._board.notes:
+            if n.parent == box_id:
+                out.append(n.id)
+        for img in self._board.images:
+            if img.parent == box_id:
+                out.append(img.id)
+        return out
+
+    def _expand_focus_to_subtrees(self, ids: list[str]) -> list[str]:
+        """Add every parent's descendants to a focus list (order-preserving).
+
+        Isolating a parent box on its own would hide its children and show an
+        empty container; including the subtree keeps the contents visible.
+        Shared by manual scoped capture and the auto-flow generator.
+        """
+        seen: set[str] = set()
+        out: list[str] = []
+        for fid in ids:
+            if fid not in seen:
+                seen.add(fid)
+                out.append(fid)
+            if self._board and self._board.box_by_id(fid) and self._has_children(fid):
+                for d in self._descendant_ids(fid):
+                    if d not in seen:
+                        seen.add(d)
+                        out.append(d)
+        return out
+
+    def _snap_selection_to_slide_ratio(self):
+        """Reshape the selected box(es) to the PDF slide content ratio.
+
+        A slide-frame container should match the exported slide's aspect ratio
+        so an auto-flow export fills the page without letterboxing. This holds
+        each box's width and top-left and sets its height = width / ratio — a
+        purely geometric snap: content that no longer fits spills past the box
+        (the visible overload cue) rather than the box growing to absorb it.
+        Idempotent, so it doubles as the "fix it back" after a drag distorted a
+        frame; applies to every selected box for batch reshaping.
+        """
+        from grafli.pdfexport import slide_content_ratio
+
+        boxes = [i for i in self._scene.selectedItems()
+                 if isinstance(i, BoxItem)]
+        if not boxes:
+            self._record_shortcut("slide-ratio: select a container box first")
+            return
+        ratio = slide_content_ratio(self._board)
+        targets = []
+        for item in boxes:
+            new_h = max(MIN_BOX_SIZE, round(item.box.w / ratio))
+            if abs(new_h - item.box.h) >= 1:
+                targets.append((item, new_h))
+        if not targets:
+            self._record_shortcut(f"already at slide ratio {ratio:.2f}")
+            return
+        self._push_undo()
+        for item, new_h in targets:
+            w = item.box.w
+            item.box.h = new_h
+            item.setRect(0, 0, w, new_h)
+            item._label.setTextWidth(w - 16)
+            item._position_label()
+            item._update_handles()
+        self._update_mode_badge_pos()
+        self.arrow_update_needed.emit()
+        self.mark_dirty()
+        self._record_shortcut(
+            f"snapped {len(targets)} box(es) to slide ratio {ratio:.2f}")
+
     def _box_depth(self, box_id: str) -> int:
         depth = 0
         current = box_id
@@ -1258,7 +1661,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         box_label_z = max_depth + 4
         for box_id, item in self._box_items.items():
             d = self._box_depth(box_id)
-            if self._has_children(box_id):
+            # A container normally sits behind arrows (it's a backdrop for its
+            # children). But a LoD-collapsed container is a solid tile, so it
+            # rises above arrows like a leaf — an arrow crossing it passes behind,
+            # keeping the tile's headline readable.
+            if self._has_children(box_id) and box_id not in self._lod_collapsed:
                 item.setZValue(d)
             else:
                 item.setZValue(leaf_z + d)
@@ -1269,22 +1676,150 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 note_item.setZValue(max(pd, note_z))
             else:
                 note_item.setZValue(note_z)
+        for img_item in self._image_items.values():
+            if img_item.image.parent:
+                pd = self._box_depth(img_item.image.parent) + 1
+                img_item.setZValue(max(pd, note_z))
+            else:
+                img_item.setZValue(note_z)
         for item in self._arrow_items:
             if isinstance(item, LabelItem):
                 item.setZValue(note_z)
             else:
                 item.setZValue(arrow_line_z)
 
+    # ── Encapsulate: wrap the selection in a new parent box ──
+
+    def _encapsulate_selection(self):
+        """Wrap the selected element(s) in a new parent box that contains them.
+
+        The new box is sized to enclose the selection (with room for a title),
+        becomes the parent of the selection's top-level items (inner parent →
+        child nesting is preserved), inherits the selection's common parent if
+        they all share one, and is selected with its label editor opened.
+        """
+        if not self._board:
+            return
+        selected = [i for i in self._scene.selectedItems()
+                    if isinstance(i, (BoxItem, NoteItem, ImageItem))]
+        if not selected:
+            return
+
+        def model_of(item):
+            if isinstance(item, BoxItem):
+                return item.box
+            if isinstance(item, ImageItem):
+                return item.image
+            return item.note
+
+        def model_rect(item) -> QRectF:
+            if isinstance(item, NoteItem):
+                r = item.sceneBoundingRect()
+                return QRectF(r.x(), r.y(), r.width(), r.height())
+            m = model_of(item)
+            return QRectF(m.x, m.y, m.w, m.h)
+
+        selected_ids = {self._item_id(i) for i in selected}
+
+        # Bounding box over the selection and everything nested inside it.
+        bbox = None
+        stack, seen = list(selected), set()
+        while stack:
+            it = stack.pop()
+            iid = self._item_id(it)
+            if iid in seen:
+                continue
+            seen.add(iid)
+            r = model_rect(it)
+            bbox = r if bbox is None else bbox.united(r)
+            if isinstance(it, BoxItem):
+                stack.extend(self._descendants(iid))
+        if bbox is None:
+            return
+
+        # Reparent only the selection's top-level items; keep inner nesting.
+        top_level = [i for i in selected
+                     if model_of(i).parent not in selected_ids]
+        parents = {model_of(i).parent for i in top_level}
+        new_parent = parents.pop() if len(parents) == 1 else ""
+
+        self._push_undo()
+
+        pad_x, pad_top, pad_bottom = 24, 44, 24
+        box_id = self._board.next_box_id()
+        box = Box(
+            id=box_id, label="Group",
+            x=bbox.left() - pad_x, y=bbox.top() - pad_top,
+            w=bbox.width() + 2 * pad_x,
+            h=bbox.height() + pad_top + pad_bottom,
+            color=self._last_box_color, textsize=self._last_box_textsize,
+            parent=new_parent,
+        )
+        self._board.add_box(box)
+        item = BoxItem(box)
+        self._scene.addItem(item)
+        self._scene.addItem(item._label)
+        self._box_items[box_id] = item
+
+        for i in top_level:
+            model_of(i).parent = box_id
+
+        # Refresh container styling + stacking now the hierarchy changed.
+        for bid, bitem in self._box_items.items():
+            is_parent = self._has_children(bid)
+            if bitem._is_parent != is_parent:
+                bitem._is_parent = is_parent
+                bitem._apply_color()
+        self._update_z_values()
+        item.refresh_auto_layout()
+        self._redraw_arrows()
+        self._update_scene_rect()
+        self._invalidate_graph_stats()
+        self.mark_dirty()
+
+        self._scene.clearSelection()
+        item.setSelected(True)
+        self._start_editing(item)
+
     def _refresh_auto_layout(self, box_id: str):
         """Refresh auto-layout for a box when its children change."""
         if box_id in self._box_items:
             self._box_items[box_id].refresh_auto_layout()
 
+    def _keep_explicit_parent(self, item_id: str, parent_id: str) -> bool:
+        """Whether an authored ``>parent`` should be preserved on load.
+
+        Keep it when it names an existing box and does not form a cycle. This
+        respects intent for children that overflow their box (a note wider than
+        its container is still authored into it) instead of geometric reparenting
+        yanking them up to a grandparent that happens to enclose their bounds.
+        """
+        if not parent_id or parent_id not in self._box_items:
+            return False
+        cur, seen = parent_id, set()
+        while cur and cur not in seen:
+            if cur == item_id:
+                return False                # cycle: don't keep
+            seen.add(cur)
+            cur = self._box_items[cur].box.parent if cur in self._box_items else ""
+        return True
+
     def _auto_parent_all(self):
-        """Assign parent to every box/note fully contained in another box."""
+        """Assign a parent to every box/note geometrically contained in a box.
+
+        An explicit authored ``>parent`` wins — only items with no (or a
+        dangling) parent are nested by geometry, so overflowing children keep
+        the container they were authored into.
+        """
         boxes = list(self._box_items.values())
+        # Drop self-references up front so the descendant walk can't recurse.
+        for item in boxes:
+            if item.box.parent == item.box.id:
+                item.box.parent = ""
         for item in boxes:
             b = item.box
+            if self._keep_explicit_parent(b.id, b.parent):
+                continue
             item_rect = QRectF(b.x, b.y, b.w, b.h)
             desc_ids = {
                 d.box.id
@@ -1303,6 +1838,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             b.parent = best
         for nitem in self._note_items.values():
             n = nitem.note
+            if self._keep_explicit_parent(n.id, n.parent):
+                continue
             sr = nitem.sceneBoundingRect()
             item_rect = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
             best, best_area = "", float("inf")
@@ -1314,23 +1851,47 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                         best, best_area = oid, a
             n.parent = best
 
-    def _check_nesting(self, item: BoxItem | NoteItem):
-        """Update parent of a box or note after it has been moved or resized."""
+    @staticmethod
+    def _item_elem(item: BoxItem | NoteItem | ImageItem):
+        """The underlying dataclass (Box/Note/Image) carried by a scene item."""
+        if isinstance(item, BoxItem):
+            return item.box
+        if isinstance(item, NoteItem):
+            return item.note
+        return item.image
+
+    def _item_fit_rect(self, item) -> QRectF:
+        """Scene rect used for containment fitting, matching ``_fit_parent_rect``.
+
+        Boxes use their exact geometry; notes/images use their scene bounds.
+        """
+        if isinstance(item, BoxItem):
+            b = item.box
+            return QRectF(b.x, b.y, b.w, b.h)
+        sr = item.sceneBoundingRect()
+        return QRectF(sr.x(), sr.y(), sr.width(), sr.height())
+
+    def _check_nesting(self, item: BoxItem | NoteItem | ImageItem, cursor_scene: QPointF | None = None):
+        """Update parent of a box, note or image after it has been moved.
+
+        Nesting follows the mouse cursor: the dragged item becomes a child of
+        the smallest box the cursor is over, and detaches when the cursor is
+        over no box. Falls back to the item's centre if no cursor is given.
+        """
         if not self._board:
             return
 
-        is_box = isinstance(item, BoxItem)
-        if is_box:
-            box = item.box
-            item_rect = QRectF(box.x, box.y, box.w, box.h)
-            item_id = box.id
-            desc_ids = {d.box.id for d in self._descendants(box.id) if isinstance(d, BoxItem)}
+        elem = self._item_elem(item)
+        item_id = elem.id
+        if isinstance(item, BoxItem):
+            desc_ids = {d.box.id for d in self._descendants(item_id) if isinstance(d, BoxItem)}
         else:
-            note = item.note
-            sr = item.sceneBoundingRect()
-            item_rect = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
-            item_id = note.id
             desc_ids = set()
+
+        if cursor_scene is not None:
+            point = cursor_scene
+        else:
+            point = item.sceneBoundingRect().center()
 
         best_parent = None
         best_area = float('inf')
@@ -1339,27 +1900,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 continue
             other = other_item.box
             other_rect = QRectF(other.x, other.y, other.w, other.h)
-            if other_rect.contains(item_rect):
+            if other_rect.contains(point):
                 area = other.w * other.h
                 if area < best_area:
                     best_area = area
                     best_parent = other_id
 
-        elem = item.box if is_box else item.note
         old_parent = elem.parent
-        if best_parent:
-            elem.parent = best_parent
-        elif elem.parent:
-            parent_box = self._board.box_by_id(elem.parent)
-            if parent_box:
-                parent_rect = QRectF(
-                    parent_box.x, parent_box.y,
-                    parent_box.w, parent_box.h,
-                )
-                if not parent_rect.contains(item_rect):
-                    elem.parent = ""
-            else:
-                elem.parent = ""
+        elem.parent = best_parent or ""
 
         if elem.parent != old_parent:
             self._update_z_values()
@@ -1369,6 +1917,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 old_item._is_parent = self._has_children(old_parent)
                 if old_item._is_parent != was_parent:
                     old_item._apply_color()
+                    if not old_item._is_parent:
+                        old_item._fit_to_label()
                 self._refresh_auto_layout(old_parent)
             if elem.parent and elem.parent in self._box_items:
                 new_item = self._box_items[elem.parent]
@@ -1379,81 +1929,277 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self._refresh_auto_layout(elem.parent)
             self.mark_dirty()
 
-    def _update_reparent_highlight(self):
-        """Highlight potential parent box during drag."""
-        selected = [i for i in self._scene.selectedItems() if isinstance(i, (BoxItem, NoteItem))]
-        if len(selected) != 1:
+        # Keep the (possibly unchanged) parent large enough to contain the
+        # item, even when it was moved/resized within its existing parent.
+        if elem.parent and elem.parent in self._box_items:
+            self._grow_parent_to_fit_children(elem.parent)
+
+    def _fit_parent_rect(self, parent_id: str, extra_rect: QRectF | None = None) -> QRectF | None:
+        """Outer rect a parent must occupy to contain its children (grow-only).
+
+        Unions the parent's direct children (boxes/notes/images) with an
+        optional ``extra_rect`` (e.g. a child being dragged but not yet
+        reparented), padded, and with the headline band reserved at the top.
+        Never shrinks below the parent's current bounds. Returns None when
+        there is nothing to fit. Shared by the on-release grow and the live
+        drag preview so the two can never drift.
+        """
+        if not self._board or parent_id not in self._box_items:
+            return None
+        parent_item = self._box_items[parent_id]
+        parent = parent_item.box
+
+        child_rect: QRectF | None = None if extra_rect is None else QRectF(extra_rect)
+        for b in self._board.boxes:
+            if b.parent == parent_id:
+                r = QRectF(b.x, b.y, b.w, b.h)
+                child_rect = r if child_rect is None else child_rect.united(r)
+        for nitem in self._note_items.values():
+            if nitem.note.parent == parent_id:
+                child_rect = self._unite_scene_rect(child_rect, nitem)
+        for iitem in self._image_items.values():
+            if iitem.image.parent == parent_id:
+                child_rect = self._unite_scene_rect(child_rect, iitem)
+        if child_rect is None:
+            return None
+
+        pad = LAYOUT_PADDING
+        # Reserve the headline band at the top so children clear the label.
+        # Parents default to a top headline unless an explicit anchor says otherwise.
+        top_reserve = pad
+        top_anchored = (
+            parent.anchor in ("topleft", "topcenter")
+            or (not parent.anchor and (self._has_children(parent_id) or extra_rect is not None))
+        )
+        if top_anchored:
+            top_reserve = parent_item._label.boundingRect().height() + 16
+        left = min(parent.x, child_rect.left() - pad)
+        top = min(parent.y, child_rect.top() - top_reserve)
+        right = max(parent.x + parent.w, child_rect.right() + pad)
+        bottom = max(parent.y + parent.h, child_rect.bottom() + pad)
+        return QRectF(left, top, right - left, bottom - top)
+
+    def _grow_parent_to_fit_children(self, parent_id: str):
+        """Grow a parent box so it contains all its direct children, plus padding.
+
+        Used after an interactive drop, where a node may be nested while still
+        sticking out of the parent. Only grows — never shrinks — so existing
+        layout is left undisturbed.
+        """
+        target = self._fit_parent_rect(parent_id)
+        if target is None:
+            return
+        parent = self._box_items[parent_id].box
+        if (target.x(), target.y(), target.right(), target.bottom()) != (
+            parent.x, parent.y, parent.x + parent.w, parent.y + parent.h
+        ):
+            self._box_items[parent_id].set_geometry(
+                target.x(), target.y(), target.width(), target.height()
+            )
+
+    @staticmethod
+    def _unite_scene_rect(child_rect: QRectF | None, item) -> QRectF:
+        sr = item.sceneBoundingRect()
+        r = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
+        return r if child_rect is None else child_rect.united(r)
+
+    # ── Scale a selection (corner-drag, about a shared pivot) ──
+
+    def _scale_members(self, members, fx: float, fy: float,
+                       font_factor: float, pivot: QPointF) -> None:
+        """Scale each (item, start_rect, start_px) about ``pivot``.
+
+        Positions and sizes use the per-axis factors; fonts use ``font_factor``
+        (uniform). Child-move propagation is suppressed so a parent and its
+        children in the same selection don't get moved twice.
+        """
+        if not members:
+            return
+        self._propagating_move = True
+        self._suppress_child_updates = True
+        try:
+            for item, start_rect, start_px in members:
+                self._scale_member(item, start_rect, start_px,
+                                   fx, fy, font_factor, pivot)
+        finally:
+            self._suppress_child_updates = False
+            self._propagating_move = False
+        self.arrow_update_needed.emit()
+        self.mark_dirty()
+
+    def _scale_member(self, item, start_rect: QRectF, start_px,
+                      fx: float, fy: float, font_factor: float,
+                      pivot: QPointF) -> None:
+        px, py = pivot.x(), pivot.y()
+        nx = px + (start_rect.x() - px) * fx
+        ny = py + (start_rect.y() - py) * fy
+        if isinstance(item, BoxItem):
+            nw = max(MIN_BOX_SIZE, start_rect.width() * fx)
+            nh = max(MIN_BOX_SIZE, start_rect.height() * fy)
+            if start_px is not None:
+                item.box.textsize = str(
+                    int(max(MIN_SCALE_FONT_PT, round(start_px * font_factor))))
+                item._label.setFont(item._box_font())
+            item.set_geometry(nx, ny, nw, nh)
+        elif isinstance(item, NoteItem):
+            if start_px is not None:
+                item.set_textsize(str(
+                    int(max(MIN_SCALE_FONT_PT, round(start_px * font_factor)))))
+            item.setPos(nx, ny)
+        elif isinstance(item, ImageItem):
+            im = item.image
+            im.x, im.y = nx, ny
+            im.w = max(item._MIN_SIZE, start_rect.width() * fx)
+            im.h = max(item._MIN_SIZE, start_rect.height() * fy)
+            item.setPos(nx, ny)
+            item.prepareGeometryChange()
+            item._update_handles()
+            item.update()
+
+    def _update_reparent_highlight(self, cursor_scene: QPointF | None = None):
+        """Preview the auto-grow of the box under the cursor during a drag.
+
+        Draws a dashed rectangle at the target parent's projected grown bounds
+        (children plus the dragged item, with padding and headline reserve). No
+        rectangle means the drop would detach the item to top level.
+        """
+        selected = [i for i in self._scene.selectedItems() if isinstance(i, (BoxItem, NoteItem, ImageItem))]
+        if len(selected) != 1 or cursor_scene is None:
             self._clear_reparent_highlight()
             return
 
         item = selected[0]
+        item_id = self._item_elem(item).id
         if isinstance(item, BoxItem):
-            item_rect = QRectF(item.box.x, item.box.y, item.box.w, item.box.h)
-            item_id = item.box.id
-            desc_ids = {d.box.id for d in self._descendants(item.box.id) if isinstance(d, BoxItem)}
+            desc_ids = {d.box.id for d in self._descendants(item_id) if isinstance(d, BoxItem)}
         else:
-            sr = item.sceneBoundingRect()
-            item_rect = QRectF(sr.x(), sr.y(), sr.width(), sr.height())
-            item_id = item.note.id
             desc_ids = set()
 
-        best_parent = None
+        best_parent_id = None
         best_area = float('inf')
         for other_id, other_item in self._box_items.items():
             if other_id == item_id or other_id in desc_ids:
                 continue
             other = other_item.box
             other_rect = QRectF(other.x, other.y, other.w, other.h)
-            if other_rect.contains(item_rect):
+            if other_rect.contains(cursor_scene):
                 area = other.w * other.h
                 if area < best_area:
                     best_area = area
-                    best_parent = other_item
+                    best_parent_id = other_id
 
-        if best_parent is self._highlight_parent:
+        if not best_parent_id:
+            self._clear_reparent_highlight()
             return
 
-        self._clear_reparent_highlight()
-        if best_parent:
-            self._highlight_orig_pen = best_parent.pen()
+        target = self._fit_parent_rect(best_parent_id, self._item_fit_rect(item))
+        if target is None:
+            self._clear_reparent_highlight()
+            return
+        self._show_grow_preview(target)
+
+    def _show_grow_preview(self, rect: QRectF):
+        if self._grow_preview is None or self._grow_preview.scene() is None:
             pen = QPen(QColor("#2F5D5C"), 3, Qt.PenStyle.DashLine)
-            best_parent.setPen(pen)
-            self._highlight_parent = best_parent
+            self._grow_preview = self._scene.addRect(rect, pen)
+            self._grow_preview.setZValue(10000)
+        else:
+            self._grow_preview.setRect(rect)
 
     def _clear_reparent_highlight(self):
-        if self._highlight_parent and self._highlight_orig_pen is not None:
+        if self._grow_preview is not None:
             try:
-                self._highlight_parent.setPen(self._highlight_orig_pen)
+                if self._grow_preview.scene() is not None:
+                    self._scene.removeItem(self._grow_preview)
             except RuntimeError:
                 pass  # C++ object already deleted (scene rebuild)
-        self._highlight_parent = None
-        self._highlight_orig_pen = None
+        self._grow_preview = None
+
+    def _show_resize_foreshadow(self, frame: QRectF, content=None,
+                                locked: bool = False):
+        """Preview a resize/scale: target frame + content-occupied area."""
+        if self._resize_foreshadow is None or self._resize_foreshadow.scene() is None:
+            self._resize_foreshadow = ResizeForeshadow()
+            self._scene.addItem(self._resize_foreshadow)
+        self._resize_foreshadow.set_preview(frame, content, locked)
+
+    def _clear_resize_foreshadow(self):
+        if self._resize_foreshadow is not None:
+            try:
+                if self._resize_foreshadow.scene() is not None:
+                    self._scene.removeItem(self._resize_foreshadow)
+            except RuntimeError:
+                pass  # C++ object already deleted (scene rebuild)
+        self._resize_foreshadow = None
 
     # ── Box mode (vim-like style / dimension) ──
 
-    def _clear_mode_badge(self):
-        """Remove the floating mode badge.
+    def _clear_mode_badge(self, fade: bool = False):
+        """Remove the floating mode badge (optionally fading it out first).
 
         Defensive against scene rebuilds: if the scene was reloaded (e.g.
         on file open) the badge's C++ object has already been deleted
         even though the Python reference survives, so ``removeItem``
         would raise. Suppress that case and just drop the references.
+
+        ``fade`` detaches the live references immediately (so a follow-up
+        ``_set_*_mode`` creates fresh items without interference) and eases the
+        captured items out before removing them — used on genuine mode exit.
         """
-        for ref in ("_mode_badge_bg", "_mode_badge"):
-            item = getattr(self, ref, None)
-            if item is None:
-                continue
-            try:
-                self._scene.removeItem(item)
-            except RuntimeError:
-                pass  # C++ object already deleted (scene rebuild)
-            setattr(self, ref, None)
+        items = [self._mode_badge_bg, self._mode_badge]
+        self._mode_badge_bg = None
+        self._mode_badge = None
+        items = [it for it in items if it is not None]
+        if not items:
+            return
+
+        def _remove():
+            for it in items:
+                try:
+                    self._scene.removeItem(it)
+                except RuntimeError:
+                    pass  # C++ object already deleted (scene rebuild)
+
+        if not fade:
+            _remove()
+            return
+
+        def _set_op(v):
+            for it in items:
+                try:
+                    it.setOpacity(v)
+                except RuntimeError:
+                    pass
+        try:
+            start = items[0].opacity()
+        except RuntimeError:
+            return
+        self._animate_fade(start, 0.0, _set_op, on_finished=_remove)
+
+    def _fade_in_mode_badge(self):
+        items = [it for it in (self._mode_badge_bg, self._mode_badge)
+                 if it is not None]
+        if not items:
+            return
+        for it in items:
+            it.setOpacity(0.0)
+
+        def _set_op(v):
+            for it in items:
+                try:
+                    it.setOpacity(v)
+                except RuntimeError:
+                    pass
+        self._animate_fade(0.0, 1.0, _set_op)
+        # Stance-change 'pop' on entry — reads as a deliberate mode switch.
+        self._animate_scale(items, 0.86, 1.0)
 
     def _set_box_mode(self, mode: str):
         self._box_mode = mode
-        self._clear_mode_badge()
         if not mode:
+            self._clear_mode_badge(fade=True)
             return
+        self._clear_mode_badge()
         # Create badge above the first selected box
         target = None
         for item in self._scene.selectedItems():
@@ -1481,6 +2227,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._scene.addItem(badge)
         self._mode_badge = badge
         self._update_mode_badge_pos()
+        self._fade_in_mode_badge()
 
     def _update_mode_badge_pos(self):
         if not self._mode_badge:
@@ -1508,28 +2255,729 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     def _clear_box_mode(self):
         self._set_box_mode("")
 
+    # ── Colour-grid picker (style mode -> c) ──
+
+    _COLOR_GRID_COLS = 5
+    # Note background plate options shown when the colour picker targets a
+    # note: a beige plate (default) or none (text on the canvas).
+    _NOTE_BG_OPTIONS = (("Plate", False), ("None", True))
+
+    def _color_picker_boxes(self):
+        return [it for it in self._scene.selectedItems()
+                if isinstance(it, BoxItem)]
+
+    def _color_picker_notes(self):
+        return [it for it in self._scene.selectedItems()
+                if isinstance(it, NoteItem)]
+
+    def _open_color_picker(self):
+        boxes = self._color_picker_boxes()
+        if boxes:
+            self._color_picker_mode = "box"
+            self._color_picker_original = {it.box.id: it.box.color
+                                           for it in boxes}
+            values = [v for _, v in COLOR_PALETTE]
+            cur = boxes[0].box.color
+            self._color_picker_index = values.index(cur) if cur in values else 0
+            self._color_picker_active = True
+            self.viewport().update()
+            return
+        notes = self._color_picker_notes()
+        if notes:
+            self._color_picker_mode = "note-bg"
+            self._color_picker_original = {it.note.id: it.note.flat
+                                           for it in notes}
+            self._color_picker_index = 1 if notes[0].note.flat else 0
+            self._color_picker_active = True
+            self.viewport().update()
+            return
+        self.toast("Select a box or note", kind="warn")
+
+    def _apply_color_picker_live(self):
+        """Preview the highlighted choice on the selection (no undo/dirty)."""
+        if self._color_picker_mode == "note-bg":
+            flat = self._NOTE_BG_OPTIONS[self._color_picker_index][1]
+            for it in self._color_picker_notes():
+                it.set_flat(flat)
+            return
+        value = COLOR_PALETTE[self._color_picker_index][1]
+        for it in self._color_picker_boxes():
+            it.set_color(value)
+
+    def _color_picker_move(self, dcol: int, drow: int):
+        if self._color_picker_mode == "note-bg":
+            n = len(self._NOTE_BG_OPTIONS)
+            idx = max(0, min(n - 1, self._color_picker_index + dcol))
+            if idx != self._color_picker_index:
+                self._color_picker_index = idx
+                self._apply_color_picker_live()
+            self.viewport().update()
+            return
+        cols = self._COLOR_GRID_COLS
+        n = len(COLOR_PALETTE)
+        rows = (n + cols - 1) // cols
+        col = self._color_picker_index % cols
+        row = self._color_picker_index // cols
+        col = max(0, min(cols - 1, col + dcol))
+        row = max(0, min(rows - 1, row + drow))
+        idx = min(row * cols + col, n - 1)
+        if idx != self._color_picker_index:
+            self._color_picker_index = idx
+            self._apply_color_picker_live()
+        self.viewport().update()
+
+    def _handle_color_picker_key(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self._cancel_color_picker()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._commit_color_picker()
+        elif key == Qt.Key.Key_H:
+            self._color_picker_move(-1, 0)
+        elif key == Qt.Key.Key_L:
+            self._color_picker_move(1, 0)
+        elif key == Qt.Key.Key_K:
+            self._color_picker_move(0, -1)
+        elif key == Qt.Key.Key_J:
+            self._color_picker_move(0, 1)
+
+    def _commit_color_picker(self):
+        if self._color_picker_mode == "note-bg":
+            notes = self._color_picker_notes()
+            flat = self._NOTE_BG_OPTIONS[self._color_picker_index][1]
+            for it in notes:
+                it.set_flat(self._color_picker_original.get(it.note.id,
+                                                            it.note.flat))
+            self._push_undo()
+            for it in notes:
+                it.set_flat(flat)
+            self.mark_dirty()
+            self._close_color_picker()
+            return
+        boxes = self._color_picker_boxes()
+        value = COLOR_PALETTE[self._color_picker_index][1]
+        # Restore the pre-picker colours so the undo snapshot captures the
+        # original state, then apply the chosen colour as one undoable step.
+        for it in boxes:
+            it.set_color(self._color_picker_original.get(it.box.id, it.box.color))
+        self._push_undo()
+        for it in boxes:
+            it.set_color(value)
+        self._last_box_color = value
+        self.mark_dirty()
+        self._close_color_picker()
+
+    def _cancel_color_picker(self):
+        if self._color_picker_mode == "note-bg":
+            for it in self._color_picker_notes():
+                if it.note.id in self._color_picker_original:
+                    it.set_flat(self._color_picker_original[it.note.id])
+            self._close_color_picker()
+            return
+        for it in self._color_picker_boxes():
+            if it.box.id in self._color_picker_original:
+                it.set_color(self._color_picker_original[it.box.id])
+        self._close_color_picker()
+
+    def _close_color_picker(self):
+        self._color_picker_active = False
+        self._color_picker_original = {}
+        self.viewport().update()
+
+    def _draw_color_picker(self, painter: QPainter):
+        """A small palette grid anchored beside the selection, with the live
+        choice ringed in cyan. Static (no animation), viewport coords."""
+        if not self._color_picker_active:
+            return
+        if self._color_picker_mode == "note-bg":
+            self._draw_note_bg_picker(painter)
+            return
+        boxes = self._color_picker_boxes()
+        if not boxes:
+            return
+        scene_rect = boxes[0].sceneBoundingRect()
+        for it in boxes[1:]:
+            scene_rect = scene_rect.united(it.sceneBoundingRect())
+        anchor = self.mapFromScene(scene_rect).boundingRect()
+
+        cols = self._COLOR_GRID_COLS
+        rows = (len(COLOR_PALETTE) + cols - 1) // cols
+        sw, gap, pad, label_h = 26, 6, 10, 18
+        grid_w = cols * sw + (cols - 1) * gap
+        grid_h = rows * sw + (rows - 1) * gap
+        panel_w = grid_w + pad * 2
+        panel_h = grid_h + pad * 2 + label_h
+        margin = 14
+        vw, vh = self.viewport().width(), self.viewport().height()
+        px = anchor.right() + margin
+        if px + panel_w > vw - 4:
+            px = anchor.left() - margin - panel_w   # flip to the other side
+        px = max(4, min(px, vw - panel_w - 4))
+        py = anchor.center().y() - panel_h / 2
+        py = max(4, min(py, vh - panel_h - 4))
+
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.96)
+        painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
+
+        gx0, gy0 = px + pad, py + pad
+        cyan = QColor(0, 209, 224)
+        for i, (_name, value) in enumerate(COLOR_PALETTE):
+            sx = gx0 + (i % cols) * (sw + gap)
+            sy = gy0 + (i // cols) * (sw + gap)
+            cell = QRectF(sx, sy, sw, sw)
+            hexv = _resolve_color(value)
+            painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
+            painter.setBrush(QBrush(QColor(hexv) if hexv else QColor("#E8E4DD")))
+            painter.drawRoundedRect(cell, 4, 4)
+            if not hexv:
+                # "Default" / auto swatch: a diagonal slash marks "no colour".
+                painter.setPen(QPen(QColor(150, 60, 60), 1.5))
+                painter.drawLine(QPointF(cell.left() + 4, cell.bottom() - 4),
+                                 QPointF(cell.right() - 4, cell.top() + 4))
+            if i == self._color_picker_index:
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(cyan, 2))
+                painter.drawRoundedRect(cell.adjusted(-2, -2, 2, 2), 5, 5)
+
+        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setFont(QFont(FONT_FAMILY, 9))
+        painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
+                         Qt.AlignmentFlag.AlignCenter,
+                         COLOR_PALETTE[self._color_picker_index][0])
+        painter.restore()
+
+    def _draw_note_bg_picker(self, painter: QPainter):
+        """Two-option background chooser for a note selection — beige plate or
+        none (text on the canvas), the live choice ringed in cyan."""
+        notes = self._color_picker_notes()
+        if not notes:
+            return
+        scene_rect = notes[0].sceneBoundingRect()
+        for it in notes[1:]:
+            scene_rect = scene_rect.united(it.sceneBoundingRect())
+        anchor = self.mapFromScene(scene_rect).boundingRect()
+
+        opts = self._NOTE_BG_OPTIONS
+        sw, gap, pad, label_h = 30, 8, 10, 18
+        grid_w = len(opts) * sw + (len(opts) - 1) * gap
+        panel_w = grid_w + pad * 2
+        panel_h = sw + pad * 2 + label_h
+        margin = 14
+        vw, vh = self.viewport().width(), self.viewport().height()
+        px = anchor.right() + margin
+        if px + panel_w > vw - 4:
+            px = anchor.left() - margin - panel_w
+        px = max(4, min(px, vw - panel_w - 4))
+        py = anchor.center().y() - panel_h / 2
+        py = max(4, min(py, vh - panel_h - 4))
+
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.96)
+        painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
+
+        gx0, gy0 = px + pad, py + pad
+        cyan = QColor(0, 209, 224)
+        for i, (_name, flat) in enumerate(opts):
+            cell = QRectF(gx0 + i * (sw + gap), gy0, sw, sw)
+            painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
+            if flat:
+                # "None": canvas-coloured swatch with a diagonal slash.
+                painter.setBrush(QBrush(QColor("#E8E4DD")))
+                painter.drawRoundedRect(cell, 4, 4)
+                painter.setPen(QPen(QColor(150, 60, 60), 1.5))
+                painter.drawLine(QPointF(cell.left() + 5, cell.bottom() - 5),
+                                 QPointF(cell.right() - 5, cell.top() + 5))
+            else:
+                # "Plate": the beige note plate.
+                painter.setBrush(QBrush(QColor("#F2F0EB")))
+                painter.drawRoundedRect(cell, 4, 4)
+            if i == self._color_picker_index:
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(cyan, 2))
+                painter.drawRoundedRect(cell.adjusted(-2, -2, 2, 2), 5, 5)
+
+        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setFont(QFont(FONT_FAMILY, 9))
+        painter.drawText(QRectF(px, gy0 + sw + 4, panel_w, label_h),
+                         Qt.AlignmentFlag.AlignCenter,
+                         opts[self._color_picker_index][0])
+        painter.restore()
+
+    # ── Icon-grid picker (style mode -> i), boxes and notes ──
+
+    _ICON_GRID_COLS = 6
+    _ICON_ENTRIES = [""] + ICON_NAMES   # "" = clear/none
+
+    def _icon_picker_targets(self):
+        return [it for it in self._scene.selectedItems()
+                if isinstance(it, (BoxItem, NoteItem))]
+
+    @staticmethod
+    def _el_icon(item) -> str:
+        return item.box.icon if isinstance(item, BoxItem) else item.note.icon
+
+    @staticmethod
+    def _el_placement(item) -> str:
+        return (item.box.icon_placement if isinstance(item, BoxItem)
+                else item.note.icon_placement)
+
+    @staticmethod
+    def _el_id(item) -> str:
+        return item.box.id if isinstance(item, BoxItem) else item.note.id
+
+    def _open_icon_picker(self):
+        targets = self._icon_picker_targets()
+        if not targets:
+            self.toast("Select a box or note to add an icon", kind="warn")
+            return
+        self._icon_picker_original = {
+            self._el_id(it): (self._el_icon(it), self._el_placement(it))
+            for it in targets}
+        cur = self._el_icon(targets[0])
+        self._icon_picker_index = (self._ICON_ENTRIES.index(cur)
+                                   if cur in self._ICON_ENTRIES else 0)
+        self._icon_picker_placement = self._el_placement(targets[0])
+        self._icon_picker_active = True
+        self.viewport().update()
+
+    def _apply_icon_picker_live(self):
+        name = self._ICON_ENTRIES[self._icon_picker_index]
+        for it in self._icon_picker_targets():
+            it.set_icon(name, self._icon_picker_placement)
+
+    def _icon_picker_move(self, dcol: int, drow: int):
+        cols = self._ICON_GRID_COLS
+        n = len(self._ICON_ENTRIES)
+        rows = (n + cols - 1) // cols
+        col = self._icon_picker_index % cols
+        row = self._icon_picker_index // cols
+        col = max(0, min(cols - 1, col + dcol))
+        row = max(0, min(rows - 1, row + drow))
+        idx = min(row * cols + col, n - 1)
+        if idx != self._icon_picker_index:
+            self._icon_picker_index = idx
+            self._apply_icon_picker_live()
+        self.viewport().update()
+
+    def _toggle_icon_placement(self):
+        # fill ("") <-> lead; live-preview the change.
+        self._icon_picker_placement = (
+            "lead" if self._icon_picker_placement == "" else "")
+        self._apply_icon_picker_live()
+        self.viewport().update()
+
+    def _handle_icon_picker_key(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self._cancel_icon_picker()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._commit_icon_picker()
+        elif key == Qt.Key.Key_Tab:
+            self._toggle_icon_placement()
+        elif key == Qt.Key.Key_H:
+            self._icon_picker_move(-1, 0)
+        elif key == Qt.Key.Key_L:
+            self._icon_picker_move(1, 0)
+        elif key == Qt.Key.Key_K:
+            self._icon_picker_move(0, -1)
+        elif key == Qt.Key.Key_J:
+            self._icon_picker_move(0, 1)
+
+    def _commit_icon_picker(self):
+        targets = self._icon_picker_targets()
+        name = self._ICON_ENTRIES[self._icon_picker_index]
+        place = self._icon_picker_placement
+        for it in targets:
+            on, op = self._icon_picker_original.get(self._el_id(it), ("", ""))
+            it.set_icon(on, op)
+        self._push_undo()
+        for it in targets:
+            it.set_icon(name, place)
+        self.mark_dirty()
+        self._close_icon_picker()
+
+    def _cancel_icon_picker(self):
+        for it in self._icon_picker_targets():
+            tid = self._el_id(it)
+            if tid in self._icon_picker_original:
+                it.set_icon(*self._icon_picker_original[tid])
+        self._close_icon_picker()
+
+    def _close_icon_picker(self):
+        self._icon_picker_active = False
+        self._icon_picker_original = {}
+        self.viewport().update()
+
+    def _draw_icon_picker(self, painter: QPainter):
+        """An icon grid anchored beside the selection, with the live choice
+        ringed in cyan. Static (no animation), viewport coords."""
+        if not self._icon_picker_active:
+            return
+        targets = self._icon_picker_targets()
+        if not targets:
+            return
+        scene_rect = targets[0].sceneBoundingRect()
+        for it in targets[1:]:
+            scene_rect = scene_rect.united(it.sceneBoundingRect())
+        anchor = self.mapFromScene(scene_rect).boundingRect()
+
+        cols = self._ICON_GRID_COLS
+        n = len(self._ICON_ENTRIES)
+        rows = (n + cols - 1) // cols
+        sw, gap, pad, label_h = 30, 6, 10, 18
+        grid_w = cols * sw + (cols - 1) * gap
+        grid_h = rows * sw + (rows - 1) * gap
+        panel_w = grid_w + pad * 2
+        panel_h = grid_h + pad * 2 + label_h
+        margin = 14
+        vw, vh = self.viewport().width(), self.viewport().height()
+        px = anchor.right() + margin
+        if px + panel_w > vw - 4:
+            px = anchor.left() - margin - panel_w
+        px = max(4, min(px, vw - panel_w - 4))
+        py = anchor.center().y() - panel_h / 2
+        py = max(4, min(py, vh - panel_h - 4))
+
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.96)
+        painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
+
+        gx0, gy0 = px + pad, py + pad
+        cyan = QColor(0, 209, 224)
+        ink = QColor(220, 220, 216)
+        dpr = self.devicePixelRatioF() or 1.0
+        for i, name in enumerate(self._ICON_ENTRIES):
+            sx = gx0 + (i % cols) * (sw + gap)
+            sy = gy0 + (i // cols) * (sw + gap)
+            cell = QRectF(sx, sy, sw, sw)
+            if name:
+                pm = icon_pixmap(name, ink, sw - 8, dpr)
+                if pm is not None:
+                    painter.drawPixmap(QPointF(sx + 4, sy + 4), pm)
+            else:
+                # "none" cell: a slash marks "no icon".
+                painter.setPen(QPen(QColor(150, 60, 60), 1.5))
+                painter.drawLine(QPointF(sx + 7, sy + sw - 7),
+                                 QPointF(sx + sw - 7, sy + 7))
+            if i == self._icon_picker_index:
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.setPen(QPen(cyan, 2))
+                painter.drawRoundedRect(cell.adjusted(-1, -1, 1, 1), 5, 5)
+
+        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setFont(QFont(FONT_FAMILY, 9))
+        name = self._ICON_ENTRIES[self._icon_picker_index]
+        if name:
+            place = self._icon_picker_placement or "fill"
+            cur = f"{name} · {place}   ⇥ placement"
+        else:
+            cur = "none"
+        painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
+                         Qt.AlignmentFlag.AlignCenter, cur)
+        painter.restore()
+
+    # ── Type grid (style mode -> s): size rows x emphasis columns ──
+
+    _TYPE_SIZES = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge", "4xl"]
+    _TYPE_SIZE_LABELS = {"small": "S", "": "M", "large": "L",
+                         "xlarge": "XL", "xxlarge": "2XL", "xxxlarge": "3XL",
+                         "4xl": "4XL"}
+    # Map alias tokens to the grid's canonical size strings (so opening the
+    # grid on a hand-written ``~2xl`` / ``~xxxxlarge`` lands on the right row).
+    _TYPE_SIZE_NORMALIZE = {"2xl": "xxlarge", "3xl": "xxxlarge",
+                            "xxxxlarge": "4xl"}
+    _TYPE_EMPH = ["", "bold", "italic", "bold italic"]
+    _TYPE_EMPH_LABELS = ["regular", "bold", "italic", "bold italic"]
+
+    def _type_picker_targets(self):
+        return [it for it in self._scene.selectedItems()
+                if isinstance(it, (BoxItem, NoteItem))]
+
+    @staticmethod
+    def _el_textsize(item) -> str:
+        return (item.box.textsize if isinstance(item, BoxItem)
+                else item.note.textsize)
+
+    @staticmethod
+    def _el_emphasis(item) -> str:
+        return (item.box.emphasis if isinstance(item, BoxItem)
+                else item.note.emphasis)
+
+    def _open_type_picker(self):
+        targets = self._type_picker_targets()
+        if not targets:
+            self.toast("Select a box or note", kind="warn")
+            return
+        self._type_picker_original = {
+            self._el_id(it): (
+                self._el_textsize(it), self._el_emphasis(it),
+                it.note.style if isinstance(it, NoteItem) else None)
+            for it in targets}
+        size = self._el_textsize(targets[0])
+        size = self._TYPE_SIZE_NORMALIZE.get(size, size)
+        self._type_picker_size_idx = (self._TYPE_SIZES.index(size)
+                                      if size in self._TYPE_SIZES else 1)
+        # Emphasis splits into the grid's bold/italic axis plus the
+        # independent display toggles (outline / shadow, notes only).
+        toks = self._el_emphasis(targets[0]).split()
+        base = emphasis_from_flags({t for t in toks if t in ("bold", "italic")})
+        self._type_picker_emph_idx = (self._TYPE_EMPH.index(base)
+                                      if base in self._TYPE_EMPH else 0)
+        notes = [it for it in targets if isinstance(it, NoteItem)]
+        self._type_picker_font = notes[0].note.style if notes else ""
+        first_emph = notes[0].note.emphasis if notes else ""
+        self._type_picker_outline = "outline" in first_emph
+        self._type_picker_shadow = "shadow" in first_emph
+        self._type_picker_active = True
+        self.viewport().update()
+
+    def _type_picker_has_note(self) -> bool:
+        return any(isinstance(it, NoteItem)
+                   for it in self._type_picker_targets())
+
+    def _compose_note_emphasis(self, base: str) -> str:
+        """Combine the grid's bold/italic ``base`` with the note-only display
+        toggles (outline / shadow), in canonical order."""
+        flags = set(base.split())
+        if self._type_picker_outline:
+            flags.add("outline")
+        if self._type_picker_shadow:
+            flags.add("shadow")
+        return emphasis_from_flags(flags)
+
+    def _apply_type_picker_live(self):
+        size = self._TYPE_SIZES[self._type_picker_size_idx]
+        emph = self._TYPE_EMPH[self._type_picker_emph_idx]
+        for it in self._type_picker_targets():
+            it.set_textsize(size)
+            if isinstance(it, NoteItem):
+                it.set_emphasis(self._compose_note_emphasis(emph))
+                it.set_text_mono(self._type_picker_font == "mono")
+            else:
+                it.set_emphasis(emph)
+
+    def _type_picker_move(self, dcol: int, drow: int):
+        self._type_picker_emph_idx = max(
+            0, min(len(self._TYPE_EMPH) - 1, self._type_picker_emph_idx + dcol))
+        self._type_picker_size_idx = max(
+            0, min(len(self._TYPE_SIZES) - 1, self._type_picker_size_idx + drow))
+        self._apply_type_picker_live()
+        self.viewport().update()
+
+    def _toggle_type_font(self):
+        # hand ("") <-> mono; only meaningful for notes.
+        self._type_picker_font = "mono" if self._type_picker_font == "" else ""
+        self._apply_type_picker_live()
+        self.viewport().update()
+
+    def _toggle_type_outline(self):
+        # Hollow display letters — notes only, like the font toggle.
+        if not self._type_picker_has_note():
+            return
+        self._type_picker_outline = not self._type_picker_outline
+        self._apply_type_picker_live()
+        self.viewport().update()
+
+    def _toggle_type_shadow(self):
+        # Drop-shadow depth — notes only.
+        if not self._type_picker_has_note():
+            return
+        self._type_picker_shadow = not self._type_picker_shadow
+        self._apply_type_picker_live()
+        self.viewport().update()
+
+    def _handle_type_picker_key(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self._cancel_type_picker()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._commit_type_picker()
+        elif key == Qt.Key.Key_Tab:
+            self._toggle_type_font()
+        elif key == Qt.Key.Key_O:
+            self._toggle_type_outline()
+        elif key == Qt.Key.Key_S:
+            self._toggle_type_shadow()
+        elif key == Qt.Key.Key_H:
+            self._type_picker_move(-1, 0)
+        elif key == Qt.Key.Key_L:
+            self._type_picker_move(1, 0)
+        elif key == Qt.Key.Key_K:
+            self._type_picker_move(0, -1)
+        elif key == Qt.Key.Key_J:
+            self._type_picker_move(0, 1)
+
+    def _restore_type_original(self, it):
+        orig = self._type_picker_original.get(self._el_id(it))
+        if orig is None:
+            return
+        it.set_textsize(orig[0])
+        it.set_emphasis(orig[1])
+        if isinstance(it, NoteItem) and orig[2] is not None:
+            it.set_text_mono(orig[2] == "mono")
+
+    def _commit_type_picker(self):
+        targets = self._type_picker_targets()
+        size = self._TYPE_SIZES[self._type_picker_size_idx]
+        emph = self._TYPE_EMPH[self._type_picker_emph_idx]
+        for it in targets:
+            self._restore_type_original(it)
+        self._push_undo()
+        for it in targets:
+            it.set_textsize(size)
+            if isinstance(it, NoteItem):
+                it.set_emphasis(self._compose_note_emphasis(emph))
+                it.set_text_mono(self._type_picker_font == "mono")
+            else:
+                it.set_emphasis(emph)
+        self.mark_dirty()
+        self._close_type_picker()
+
+    def _cancel_type_picker(self):
+        for it in self._type_picker_targets():
+            self._restore_type_original(it)
+        self._close_type_picker()
+
+    def _close_type_picker(self):
+        self._type_picker_active = False
+        self._type_picker_original = {}
+        self.viewport().update()
+
+    def _draw_type_picker(self, painter: QPainter):
+        """Size (rows) x emphasis (columns) grid; each cell previews 'Ag' at
+        that size (capped) and weight. Live preview on the element."""
+        if not self._type_picker_active:
+            return
+        targets = self._type_picker_targets()
+        if not targets:
+            return
+        scene_rect = targets[0].sceneBoundingRect()
+        for it in targets[1:]:
+            scene_rect = scene_rect.united(it.sceneBoundingRect())
+        anchor = self.mapFromScene(scene_rect).boundingRect()
+
+        has_note = self._type_picker_has_note()
+        rows, cols = len(self._TYPE_SIZES), len(self._TYPE_EMPH)
+        cell_w, cell_h, rowlab_w, pad, label_h = 52, 38, 30, 10, 18
+        grid_w = rowlab_w + cols * cell_w
+        grid_h = rows * cell_h
+        panel_w = grid_w + pad * 2
+        # Notes get a second line for the outline / shadow / font toggle hints.
+        panel_h = grid_h + pad * 2 + label_h + (label_h if has_note else 0)
+        margin = 14
+        vw, vh = self.viewport().width(), self.viewport().height()
+        px = anchor.right() + margin
+        if px + panel_w > vw - 4:
+            px = anchor.left() - margin - panel_w
+        px = max(4, min(px, vw - panel_w - 4))
+        py = anchor.center().y() - panel_h / 2
+        py = max(4, min(py, vh - panel_h - 4))
+
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.96)
+        painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
+
+        gx0, gy0 = px + pad, py + pad
+        cyan = QColor(0, 209, 224)
+        ink = QColor(225, 225, 221)
+        for r, size in enumerate(self._TYPE_SIZES):
+            cy = gy0 + r * cell_h
+            painter.setPen(QPen(QColor(150, 150, 146)))
+            painter.setFont(QFont(FONT_FAMILY, 8))
+            painter.drawText(QRectF(gx0, cy, rowlab_w - 4, cell_h),
+                             Qt.AlignmentFlag.AlignVCenter
+                             | Qt.AlignmentFlag.AlignRight,
+                             self._TYPE_SIZE_LABELS[size])
+            prev_px = min(resolve_textsize_px(size, ""), 24)
+            for c, emph in enumerate(self._TYPE_EMPH):
+                cx = gx0 + rowlab_w + c * cell_w
+                cell = QRectF(cx, cy, cell_w, cell_h)
+                f = QFont(FONT_FAMILY, prev_px)
+                f.setBold("bold" in emph)
+                f.setItalic("italic" in emph)
+                painter.setFont(f)
+                painter.setPen(QPen(ink))
+                painter.drawText(cell, Qt.AlignmentFlag.AlignCenter, "Ag")
+                if (r == self._type_picker_size_idx
+                        and c == self._type_picker_emph_idx):
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.setPen(QPen(cyan, 2))
+                    painter.drawRoundedRect(cell.adjusted(1, 1, -1, -1), 5, 5)
+
+        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setFont(QFont(FONT_FAMILY, 9))
+        sl = self._TYPE_SIZE_LABELS[self._TYPE_SIZES[self._type_picker_size_idx]]
+        el = self._TYPE_EMPH_LABELS[self._type_picker_emph_idx]
+        status = f"{sl} · {el}"
+        status_y = gy0 + grid_h + 4
+        if has_note:
+            font = "mono" if self._type_picker_font == "mono" else "hand"
+            status += f" · {font}"
+            for name, on in (("outline", self._type_picker_outline),
+                             ("shadow", self._type_picker_shadow)):
+                if on:
+                    status += f" · {name}"
+        painter.drawText(QRectF(px, status_y, panel_w, label_h),
+                         Qt.AlignmentFlag.AlignCenter, status)
+        if has_note:
+            painter.setPen(QPen(QColor(150, 150, 146)))
+            painter.setFont(QFont(FONT_FAMILY, 8))
+            painter.drawText(QRectF(px, status_y + label_h, panel_w, label_h),
+                             Qt.AlignmentFlag.AlignCenter,
+                             "⇥ font   o outline   s shadow")
+        painter.restore()
+
     # ── Arrow mode (vim-like style) ──
 
     def _arrow_label_midpoint(self) -> QPointF | None:
-        """Return scene midpoint of the selected arrow's line."""
+        """Return scene midpoint of the selected arrow's line.
+
+        Resolves any endpoint type (box, note, image) via its graphics item, so
+        the style-mode badge appears on note/image connectors too.
+        """
         arrow = self._selected_arrow
         if not arrow or not self._board:
             return None
-        fb = self._board.box_by_id(arrow.from_id)
-        tb = self._board.box_by_id(arrow.to_id)
-        if not fb or not tb:
+        fi = (self._box_items.get(arrow.from_id)
+              or self._note_items.get(arrow.from_id)
+              or self._image_items.get(arrow.from_id))
+        ti = (self._box_items.get(arrow.to_id)
+              or self._note_items.get(arrow.to_id)
+              or self._image_items.get(arrow.to_id))
+        if fi is None or ti is None:
             return None
-        sx = fb.x + fb.w / 2
-        sy = fb.y + fb.h / 2
-        ex = tb.x + tb.w / 2
-        ey = tb.y + tb.h / 2
-        return QPointF((sx + ex) / 2, (sy + ey) / 2)
+        sc = fi.sceneBoundingRect().center()
+        ec = ti.sceneBoundingRect().center()
+        return QPointF((sc.x() + ec.x()) / 2, (sc.y() + ec.y()) / 2)
 
     def _set_arrow_mode(self, mode: str):
         self._arrow_mode = mode
-        self._clear_mode_badge()
         if not mode:
+            self._clear_mode_badge(fade=True)
             return
+        self._clear_mode_badge()
         mid = self._arrow_label_midpoint()
         if not mid:
             return
@@ -1551,6 +2999,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._scene.addItem(badge)
         self._mode_badge = badge
         self._update_arrow_mode_badge_pos()
+        self._fade_in_mode_badge()
 
     def _update_arrow_mode_badge_pos(self):
         if not self._mode_badge or not self._arrow_mode:
@@ -1645,61 +3094,105 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         ok = dlg.exec() == QDialog.DialogCode.Accepted
         return line.text().strip(), ok
 
+    @staticmethod
+    def _attach_display(el) -> str:
+        """The editable text form of an element's attachment (dialog prefill)."""
+        if el.attach_kind in ("doc", "graph"):
+            return (f"{el.attach_kind}:{el.url}" if el.url
+                    else el.attach_kind)
+        return el.url
+
+    def _assign_attachment(self, item, el, raw: str):
+        """Apply a typed-or-plain attachment string from the url dialog.
+
+        ``doc:<name>`` / ``graph:<name>`` / bare ``doc`` set vault kinds;
+        anything else is a link. Pointing a note at an existing doc adopts
+        the file's body (the vault is authoritative); pointing it at a new
+        name keeps the current text as the seed — the next save writes it.
+        """
+        from grafli.format import doc_name, split_attach
+        from grafli.resources import doc_path
+        raw = raw.strip()
+        kind, value = split_attach(raw) if raw else ("", "")
+        if kind == "" and value:
+            kind = "link"
+        self._push_undo()
+        el.attach_kind, el.url = kind, value
+        if kind == "doc" and isinstance(item, NoteItem):
+            window = self.window()
+            grafli_path = getattr(window, "_file_path", None)
+            if grafli_path:
+                p = doc_path(Path(grafli_path), doc_name(el))
+                if p.exists():
+                    el.text = p.read_text(encoding="utf-8")
+        item._update_url_indicator()
+        item.update()
+        self.mark_dirty()
+
     def _set_url(self):
-        """Set/edit URL on the first selected box, note, or image."""
+        """Set/edit the attachment on the first selected box, note, or image."""
         for item in self._scene.selectedItems():
-            if isinstance(item, BoxItem):
-                url, ok = self._url_dialog(item.box.url)
-                if ok:
-                    self._push_undo()
-                    item.box.url = url
-                    item._update_url_indicator()
-                    self.mark_dirty()
-                return
-            if isinstance(item, NoteItem):
-                url, ok = self._url_dialog(item.note.url)
-                if ok:
-                    self._push_undo()
-                    item.note.url = url
-                    item._update_url_indicator()
-                    self.mark_dirty()
-                return
-            if isinstance(item, ImageItem):
-                url, ok = self._url_dialog(item.image.url)
-                if ok:
-                    self._push_undo()
-                    item.image.url = url
-                    item._update_url_indicator()
-                    self.mark_dirty()
-                return
+            el = (item.box if isinstance(item, BoxItem)
+                  else item.note if isinstance(item, NoteItem)
+                  else item.image if isinstance(item, ImageItem) else None)
+            if el is None:
+                continue
+            raw, ok = self._url_dialog(self._attach_display(el))
+            if ok:
+                self._assign_attachment(item, el, raw)
+            return
 
     # ── Resource handling ────────────────────────────────────────
+
+    @staticmethod
+    def _has_attachment(el) -> bool:
+        # A doc-bodied note may carry the bare ``&doc`` form (empty url).
+        return bool(el.url) or el.attach_kind == "doc"
+
+    def _open_attachment(self, el):
+        """Open an element's attachment by its kind: a vault doc in the zen
+        editor, a vault sub-board in the app, anything else (links, legacy
+        untyped urls) through the url path."""
+        window = self.window()
+        grafli_path = getattr(window, "_file_path", None)
+        if el.attach_kind == "doc" and grafli_path:
+            from grafli.format import doc_name
+            from grafli.resources import doc_path
+            self._open_md_zen(doc_path(Path(grafli_path), doc_name(el)))
+            return
+        if el.attach_kind == "graph" and grafli_path:
+            from grafli.resources import graph_path
+            if hasattr(window, "_open_file"):
+                window._open_file(graph_path(Path(grafli_path), el.url))
+            return
+        if el.url:
+            self._open_url_string(el.url)
 
     def _open_resource(self):
         """Open resource for the selected element, or show picker if none."""
         if self._selected_arrow:
             arrow = self._selected_arrow
-            if arrow.url:
-                self._open_url_string(arrow.url)
+            if self._has_attachment(arrow):
+                self._open_attachment(arrow)
             else:
                 self._open_resource_picker_for_arrow(arrow)
             return
         for item in self._scene.selectedItems():
             if isinstance(item, BoxItem):
-                if item.box.url:
-                    self._open_url_string(item.box.url)
+                if self._has_attachment(item.box):
+                    self._open_attachment(item.box)
                 else:
                     self._open_resource_picker(item, item.box.id)
                 return
             if isinstance(item, NoteItem):
-                if item.note.url:
-                    self._open_url_string(item.note.url)
+                if self._has_attachment(item.note):
+                    self._open_attachment(item.note)
                 else:
                     self._open_resource_picker(item, item.note.id)
                 return
             if isinstance(item, ImageItem):
-                if item.image.url:
-                    self._open_url_string(item.image.url)
+                if self._has_attachment(item.image):
+                    self._open_attachment(item.image)
                 else:
                     self._open_resource_picker(item, item.image.id)
                 return
@@ -1816,7 +3309,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         picker.show()
 
     def _create_resource(self, item, element_id: str, kind: str):
-        """Create a resource for a node and set its url."""
+        """Create a vault attachment for a node and set its typed reference."""
+        from grafli.md_note import is_md_note, md_body
         from grafli.resources import ensure_res_dir
         window = self.window()
         grafli_path = window._file_path
@@ -1824,11 +3318,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         if kind == "markdown":
             md_path = rd / f"{element_id}.md"
-            if not md_path.exists():
-                label = self._element_label(item)
-                md_path.write_text(f"# {label}\n\n", encoding="utf-8")
-            rel = f"{rd.name}/{md_path.name}"
-            self._set_element_url(item, rel)
+            if isinstance(item, NoteItem):
+                # On a note, "attach markdown" means: become doc-bodied — the
+                # doc IS the body, seeded with the note's current text.
+                note = item.note
+                if not md_path.exists():
+                    body = md_body(note.text) if is_md_note(note.text) \
+                        else note.text
+                    md_path.write_text(body, encoding="utf-8")
+                self._push_undo()
+                note.text = md_path.read_text(encoding="utf-8")
+                note.attach_kind, note.url = "doc", ""
+                item._update_url_indicator()
+                item.update()
+                self.mark_dirty()
+            else:
+                if not md_path.exists():
+                    label = self._element_label(item)
+                    md_path.write_text(f"# {label}\n\n", encoding="utf-8")
+                self._set_element_attachment(item, "doc", element_id)
             self._open_md_zen(md_path)
         elif kind == "grafli":
             sub_path = rd / f"{element_id}.grafli"
@@ -1837,14 +3345,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 sub_path.write_text(
                     f"#!grafli v1\n# {label}\n", encoding="utf-8",
                 )
-            rel = f"{rd.name}/{sub_path.name}"
-            self._set_element_url(item, rel)
+            self._set_element_attachment(item, "graph", element_id)
             window._open_file(sub_path)
         elif kind == "file":
             self._set_url()
 
     def _create_arrow_resource(self, arrow, aid: str, kind: str):
-        """Create a resource for an arrow and set its url."""
+        """Create a vault attachment for an arrow and set its typed reference."""
         from grafli.resources import ensure_res_dir
         window = self.window()
         grafli_path = window._file_path
@@ -1855,9 +3362,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if not md_path.exists():
                 title = arrow.label or f"{arrow.from_id} \u2192 {arrow.to_id}"
                 md_path.write_text(f"# {title}\n\n", encoding="utf-8")
-            rel = f"{rd.name}/{md_path.name}"
             self._push_undo()
-            arrow.url = rel
+            arrow.attach_kind, arrow.url = "doc", aid
             self._redraw_arrows()
             self.mark_dirty()
             self._open_md_zen(md_path)
@@ -1868,9 +3374,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 sub_path.write_text(
                     f"#!grafli v1\n# {title}\n", encoding="utf-8",
                 )
-            rel = f"{rd.name}/{sub_path.name}"
             self._push_undo()
-            arrow.url = rel
+            arrow.attach_kind, arrow.url = "graph", aid
             self._redraw_arrows()
             self.mark_dirty()
             window._open_file(sub_path)
@@ -1887,18 +3392,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return item.image.id
         return ""
 
-    def _set_element_url(self, item, url: str):
-        """Set url on a graphics item, push undo, and refresh indicator."""
+    def _set_element_attachment(self, item, kind: str, value: str):
+        """Set a typed attachment on a graphics item, push undo, refresh."""
+        el = (item.box if isinstance(item, BoxItem)
+              else item.note if isinstance(item, NoteItem)
+              else item.image if isinstance(item, ImageItem) else None)
+        if el is None:
+            return
         self._push_undo()
-        if isinstance(item, BoxItem):
-            item.box.url = url
-            item._update_url_indicator()
-        elif isinstance(item, NoteItem):
-            item.note.url = url
-            item._update_url_indicator()
-        elif isinstance(item, ImageItem):
-            item.image.url = url
-            item._update_url_indicator()
+        el.attach_kind, el.url = kind, value
+        item._update_url_indicator()
         item.update()
         self.mark_dirty()
 
@@ -1906,6 +3409,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         """Quick-create/open markdown resource for the selected element."""
         if self._zen_editor:
             return
+
+        # A note is its own text — edit it in the zen editor in memory.
+        # This works even on an unsaved diagram (no resource file needed),
+        # so it runs before the grafli-file guard below.
+        if not self._selected_arrow:
+            for item in self._scene.selectedItems():
+                if isinstance(item, NoteItem):
+                    self._zen_edit_note(item)
+                    return
+
         window = self.window()
         if not hasattr(window, '_file_path') or not window._file_path:
             return
@@ -1933,15 +3446,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         for item in self._scene.selectedItems():
-            if isinstance(item, (BoxItem, NoteItem, ImageItem)):
+            if isinstance(item, (BoxItem, ImageItem)):
                 url = ""
                 element_id = ""
                 if isinstance(item, BoxItem):
                     url = item.box.url
                     element_id = item.box.id
-                elif isinstance(item, NoteItem):
-                    url = item.note.url
-                    element_id = item.note.id
                 elif isinstance(item, ImageItem):
                     url = item.image.url
                     element_id = item.image.id
@@ -2006,9 +3516,38 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         text = path.read_text(encoding="utf-8")
         self._zen_editor = ZenMarkdownEditor(
             parent=self.window(), text=text, title=path.name,
-            file_path=path, anchor=anchor,
+            file_path=path, anchor=anchor, canvas=self,
         )
         self._zen_editor.cancelled.connect(self._cancel_zen_edit)
+
+    def _zen_edit_note(self, item: NoteItem):
+        """Edit a note's own text in the full-window zen editor.
+
+        Unlike boxes/images, a note *is* its text — so the zen experience
+        edits the note in memory rather than spawning an attached markdown
+        file. Saved text is written straight back to the note.
+        """
+        if self._zen_editor:
+            return
+        self._zen_target = item
+        self._zen_editor = ZenMarkdownEditor(
+            parent=self.window(), text=item.note.text, title=item.note.id,
+            file_path=None, canvas=self,
+        )
+        self._zen_editor.finished.connect(self._commit_zen_note)
+        self._zen_editor.cancelled.connect(self._cancel_zen_edit)
+
+    def _commit_zen_note(self, text: str):
+        item = self._zen_target
+        self._zen_editor = None
+        self._zen_target = None
+        if not isinstance(item, NoteItem):
+            return
+        new_text = text.strip()
+        if new_text and new_text != item.note.text:
+            self._push_undo()
+            item.update_text(new_text)
+            self.mark_dirty()
 
     def _edit_selected(self):
         for item in self._scene.selectedItems():
@@ -2020,45 +3559,59 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._minimap_visible = not self._minimap_visible
         self.viewport().update()
 
+    def _minimap_selected_ids(self) -> set[str]:
+        """Ids of the currently selected boxes, notes and images — the set
+        the minimap rings with a glow."""
+        ids = {bid for bid, it in self._box_items.items() if it.isSelected()}
+        ids |= {nid for nid, it in self._note_items.items() if it.isSelected()}
+        ids |= {iid for iid, it in self._image_items.items() if it.isSelected()}
+        return ids
+
+    def _refresh_minimap(self):
+        """Repaint just the minimap panel (e.g. after a selection change) so
+        its highlight updates without redrawing the whole board."""
+        if not self._minimap_visible:
+            return
+        r = self._minimap_panel_rect
+        if r is not None and not r.isNull():
+            self.viewport().update(r.toRect().adjusted(-2, -2, 2, 2))
+        else:
+            self.viewport().update()
+
     def _start_editing(self, target: BoxItem | NoteItem):
         self._commit_editor()
         self._edit_target = target
 
-        if isinstance(target, BoxItem):
-            text = target.box.label
-            pos = target.scenePos()
-            rect = target.rect()
-            font = target._box_font()
-            target._label.setVisible(False)
-        else:
-            text = target.note.text
-            font = target._note_font()
-            target.setVisible(False)
+        if isinstance(target, NoteItem):
+            self._start_note_editing(target)
+            return
+
+        text = target.box.label
+        pos = target.scenePos()
+        rect = target.rect()
+        font = target._box_font()
+        target._label.setVisible(False)
 
         editor = QGraphicsTextItem(text)
         editor.setFont(font)
         editor.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         editor.setDefaultTextColor(QColor("#2F3437"))
-        if isinstance(target, BoxItem):
-            editor.setTextWidth(rect.width() - 16)
+        editor.setTextWidth(rect.width() - 16)
         br = editor.boundingRect()
 
-        if isinstance(target, BoxItem):
-            anchor = target._get_effective_anchor()
-            if anchor == "topleft":
-                editor.setPos(pos.x() + 8, pos.y() + 8)
-            elif anchor == "topcenter":
-                editor.setPos(
-                    pos.x() + (rect.width() - br.width()) / 2,
-                    pos.y() + 8,
-                )
-            else:
-                editor.setPos(
-                    pos.x() + rect.width() / 2 - br.width() / 2,
-                    pos.y() + rect.height() / 2 - br.height() / 2,
-                )
+        anchor = target._get_effective_anchor()
+        if anchor == "topleft":
+            editor.setPos(pos.x() + 8, pos.y() + 8)
+        elif anchor == "topcenter":
+            editor.setPos(
+                pos.x() + (rect.width() - br.width()) / 2,
+                pos.y() + 8,
+            )
         else:
-            editor.setPos(target.scenePos())
+            editor.setPos(
+                pos.x() + rect.width() / 2 - br.width() / 2,
+                pos.y() + rect.height() / 2 - br.height() / 2,
+            )
 
         self._scene.addItem(editor)
         editor.setZValue(1000)
@@ -2067,6 +3620,100 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         cursor.select(QTextCursor.SelectionType.Document)
         editor.setTextCursor(cursor)
         self._editor = editor
+
+    def _start_note_editing(self, target: NoteItem):
+        """Edit a note in place with the vim-capable inline editor.
+
+        The editor is a plain `QPlainTextEdit` (vim keys, no grafli
+        coupling) hosted in a proxy so it scales/pans with the canvas. It
+        opens in INSERT mode; Esc drops to NORMAL, a second Esc commits,
+        Shift+Esc discards. Markdown notes get syntax highlighting.
+        """
+        text = target.note.text
+        font = target._note_font()
+
+        widget = InlineVimEditor(text, markdown=note_is_md(target.note),
+                                 font=font)
+        widget.setStyleSheet(
+            "QPlainTextEdit {"
+            " background: #FBFAF7; color: #2F3437;"
+            " border: 1px solid #2F5D5C; border-radius: 4px; padding: 4px;"
+            " selection-background-color: #B8D4E8;"
+            "}"
+        )
+
+        # Width tracks the widest line (bounded by the wrap budget); the
+        # widget grows its own height to fit the text as you type.
+        fm = QFontMetricsF(font)
+        pad = 14
+        lines = text.split("\n") or [""]
+        content_w = max((fm.horizontalAdvance(ln) for ln in lines), default=0)
+        width_px = int(min(
+            max(content_w + 2 * pad + 16, 140),
+            target._wrap_width_px(font) + 2 * pad,
+        ))
+
+        proxy = QGraphicsProxyWidget()
+        proxy.setWidget(widget)
+        proxy.setZValue(1000)
+        proxy.setPos(target.scenePos())
+        self._scene.addItem(proxy)
+        target.setVisible(False)
+
+        widget.fit_to_width(width_px)
+
+        widget.committed.connect(self._commit_note_editor)
+        widget.cancelled.connect(self._cancel_note_editor)
+        self._note_proxy = proxy
+        self._note_widget = widget
+
+        # The view must hold Qt focus and route to the proxy as the scene's
+        # focus item; the proxy then forwards focus to the embedded editor.
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+        proxy.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _commit_note_editor(self, text: str):
+        target = self._edit_target
+        if not isinstance(target, NoteItem):
+            return
+        new_text = text.strip()
+        if new_text and new_text != target.note.text:
+            self._push_undo()
+            target.update_text(new_text)
+            self.mark_dirty()
+        self._teardown_note_editor()
+
+    def _toggle_md_task(self, item, idx: int):
+        """Flip the *idx*-th task checkbox in a markdown note and persist —
+        a one-character source edit, one undo step, no editor."""
+        new_text, changed = toggle_task(item.note.text, idx)
+        if not changed:
+            return
+        self._push_undo()
+        item.update_text(new_text)
+        self.mark_dirty()
+
+    def _cancel_note_editor(self):
+        self._teardown_note_editor()
+
+    def _teardown_note_editor(self):
+        target = self._edit_target
+        proxy = self._note_proxy
+        self._note_proxy = None
+        self._note_widget = None
+        self._edit_target = None
+        if isinstance(target, NoteItem):
+            target.setVisible(True)
+        if proxy is not None:
+            # We may be inside the widget's own key handler (Esc commits),
+            # so defer removal — destroying the widget synchronously under
+            # its running event handler would crash.
+            proxy.setVisible(False)
+            QTimer.singleShot(0, lambda p=proxy: self._safe_remove_item(p))
+
+    def _safe_remove_item(self, item):
+        if item.scene() is self._scene:
+            self._scene.removeItem(item)
 
     def _start_editing_arrow(self, arrow: Arrow):
         self._commit_editor()
@@ -2102,6 +3749,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._editor = editor
 
     def _commit_editor(self):
+        if self._note_widget is not None:
+            self._commit_note_editor(self._note_widget.toPlainText())
+            return
         if not self._editor or not self._edit_target:
             return
         self._push_undo()
@@ -2116,7 +3766,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._redraw_arrows()
             self._select_arrow(arrow)
             return
-        if text:
+        # Empty commits are normally ignored (guards against a stray edit
+        # wiping a label), but a glyph element may legitimately want no
+        # caption so the icon fills the node — allow clearing then.
+        target = self._edit_target
+        has_icon = ((isinstance(target, BoxItem) and target.box.icon)
+                    or (isinstance(target, NoteItem) and target.note.icon))
+        if text or has_icon:
             if isinstance(self._edit_target, BoxItem):
                 self._edit_target.update_label(text)
             elif isinstance(self._edit_target, NoteItem):
@@ -2131,6 +3787,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._edit_target = None
 
     def _cancel_editor(self):
+        if self._note_widget is not None:
+            self._cancel_note_editor()
+            return
         if self._editor:
             if isinstance(self._edit_target, Arrow):
                 self._scene.removeItem(self._editor)
@@ -2150,15 +3809,36 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     # ── Delete selected ──
 
-    def _delete_selected(self):
+    def _delete_selected(self, with_docs: bool = False):
+        """Delete the selected elements. Vault docs survive by default (an
+        unreferenced doc is a legitimate state); ``with_docs`` — the explicit
+        Shift+Delete command — removes a deleted element's doc too, unless
+        another element still references it. Undo restores the element with
+        its body (snapshots embed it), and the next autosave lazily recreates
+        the file — so doc deletion is undoable without stashing files."""
         if not self._board:
+            return
+        if self._refuse_locked_edit():   # can't delete a collapsed aggregate
             return
         self._push_undo()
         deleted = False
         former_parents: set[str] = set()
+        doc_names: set[str] = set()
+        # Capture rects before removal so the 'pop' overlay marks where each
+        # element was.
+        pop_rects = [self._align_rect_for(it)
+                     for it in self._scene.selectedItems()
+                     if isinstance(it, (BoxItem, NoteItem, ImageItem))]
+
+        def _track_doc(el):
+            if el.attach_kind == "doc":
+                from grafli.format import doc_name
+                doc_names.add(doc_name(el))
+
         for item in list(self._scene.selectedItems()):
             if isinstance(item, BoxItem):
                 box_id = item.box.id
+                _track_doc(item.box)
                 # Unparent direct children and track former parent
                 for other in self._board.boxes:
                     if other.parent == box_id:
@@ -2179,6 +3859,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 deleted = True
             elif isinstance(item, NoteItem):
                 note_id = item.note.id
+                _track_doc(item.note)
                 if item.note.parent:
                     former_parents.add(item.note.parent)
                 # Remove connected arrows
@@ -2191,6 +3872,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 deleted = True
             elif isinstance(item, ImageItem):
                 img_id = item.image.id
+                _track_doc(item.image)
                 if item.image.parent:
                     former_parents.add(item.image.parent)
                 for arrow in list(self._board.arrows):
@@ -2211,7 +3893,50 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     if p_item._is_parent != was_parent:
                         p_item._apply_color()
                 self._refresh_auto_layout(pid)
+            self._handle_deleted_docs(doc_names, with_docs)
+            for r in pop_rects:
+                self._spawn_flash(r, color=self._FLASH_RED, mode="shrink",
+                                  dur=160)
             self.mark_dirty()
+
+    def _handle_deleted_docs(self, names: set[str], with_docs: bool) -> None:
+        """After deleting doc-attached elements: keep their vault docs by
+        default (with a hint), or — explicitly — delete the files of docs no
+        remaining element references."""
+        window = self.window()
+        grafli_path = getattr(window, "_file_path", None)
+        if not names or not grafli_path or not self._board:
+            return
+        from grafli.format import doc_name
+        from grafli.resources import doc_path
+        still = {doc_name(el)
+                 for el in (*self._board.boxes, *self._board.notes,
+                            *self._board.images, *self._board.arrows)
+                 if el.attach_kind == "doc"}
+        orphaned = sorted(n for n in names if n not in still)
+        if not with_docs:
+            if orphaned:
+                self.toast("Kept in vault: "
+                           + ", ".join(f"{n}.md" for n in orphaned)
+                           + "  (Shift+Del deletes the doc too)")
+            return
+        removed, shared = [], sorted(n for n in names if n in still)
+        for n in orphaned:
+            try:
+                doc_path(Path(grafli_path), n).unlink(missing_ok=True)
+                removed.append(n)
+            except OSError:
+                pass
+        if removed and hasattr(window, "_watch_docs"):
+            window._watch_docs()   # re-baseline so the unlink doesn't echo back
+        msg = ""
+        if removed:
+            msg = "Deleted from vault: " + ", ".join(f"{n}.md" for n in removed)
+        if shared:
+            msg += (" · " if msg else "") + "kept (still referenced): " \
+                + ", ".join(f"{n}.md" for n in shared)
+        if msg:
+            self.toast(msg, "warn" if shared else "info")
 
     # ── Status bar helpers ──
 
@@ -2223,6 +3948,286 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if hasattr(window, '_status_zoom'):
             pct = round(self._current_zoom() * 100)
             window._status_zoom.setText(f"{pct}%")
+        self._refresh_lod()
+        self._update_status_lod()
+
+    def _update_status_lod(self):
+        """Reflect the LoD state in the status bar: off / actively summarizing /
+        (blank when on but showing everything at full detail)."""
+        window = self.window()
+        if not hasattr(window, '_status_lod'):
+            return
+        aggregating = bool(self._lod_collapsed or self._lod_hulls
+                           or self._lod_simplified or self._lod_hidden_notes)
+        if not self._lod_enabled:
+            window._status_lod.setText("LoD off")
+            window._status_lod.setStyleSheet("color: #999999;")
+        elif aggregating:
+            window._status_lod.setText("◧ LoD")
+            window._status_lod.setStyleSheet("color: #C77A52; font-weight: bold;")
+        else:
+            window._status_lod.setText("")
+
+    def _refresh_lod(self):
+        """Recompute the Level-of-Detail state at the current zoom.
+
+        The "zoom clock": cheap, reads the live scale and resolves each box into
+        one of these states with hysteresis (so scrubbing the zoom doesn't
+        flicker):
+
+        * **tile** — a collapsed container with no collapsed ancestor: its
+          headline + child-count badge stand in for the whole group.
+        * **hidden** — a box inside a collapsed container (subsumed by the tile).
+        * **shell** — a leaf whose own label is illegible: a bare coloured box.
+        * **cluster** — a parent-less connected component (>=3) whose members are
+          all illegible and spatially compact: hidden behind a concave hull.
+        * **detailed** — shown as authored.
+
+        Disabled (everything detailed) when LoD is toggled off. Re-routes arrows
+        to the surviving tiles / hulls only when the routing actually changes.
+        """
+        # Consume a pending edit: the structural model is rebuilt here (lazily,
+        # at most once per settled gesture or zoom tick) rather than on every
+        # mutation, so the graph rebuild stays off the per-frame path.
+        if self._lod_dirty:
+            self._rebuild_lod_model()
+        scale = self._current_zoom()
+        model = self._lod
+        # Container aggregation is a zoom-OUT affordance: at 100%+ the board is
+        # at (or above) authored size, so everything stays fully detailed. This
+        # also guarantees a small-child container (a notes legend, tiny boxes)
+        # can always reach detail — the collapse threshold sits above such
+        # children's on-screen size, so without this floor the hysteresis would
+        # keep them tiled even at full zoom.
+        may_collapse = scale < 1.0
+        collapsed: set[str] = set()
+        if self._lod_enabled and may_collapse and model is not None:
+            prev_c = self._lod_collapsed
+            # Size-driven, per container: each folds when its own children get
+            # too small on screen (a small container no longer waits for a large
+            # same-level sibling). A cascade guarantee inside collapse_extents
+            # still folds the innermost containers first and never folds a parent
+            # before a tile it would subsume.
+            extents = model.collapse_extents()
+            for cid in model.containers:
+                if cid not in self._box_items:
+                    continue
+                ext = extents.get(cid, float("inf"))
+                if ext == float("inf"):
+                    continue
+                if should_collapse_container(ext * scale, cid in prev_c):
+                    collapsed.add(cid)
+
+        # Outermost collapsed containers become tiles; anything with a collapsed
+        # ancestor is hidden inside one.
+        tiles: set[str] = set()
+        hidden: set[str] = set()
+        if model is not None:
+            for bid in self._box_items:
+                ancestors = model.ancestors(bid)
+                if any(a in collapsed for a in ancestors):
+                    hidden.add(bid)
+                elif bid in collapsed:
+                    tiles.add(bid)
+
+        # Leaf shells: visible, non-container leaves whose own label is illegible.
+        shells: set[str] = set()
+        if self._lod_enabled:
+            for bid, item in self._box_items.items():
+                if bid in hidden or bid in tiles or item._is_parent:
+                    continue
+                label_px = resolve_textsize_px(item.box.textsize, "") * scale
+                if should_collapse(label_px, bid in self._lod_simplified):
+                    shells.add(bid)
+
+        # Loose clusters: a parent-less component is hulled (members hidden) once
+        # it is spatially compact, has >=3 members, and every member's own label
+        # has dropped below the legibility floor (all shells) — the leaf-level
+        # equivalent of a container folding when its children get too small to
+        # read. Compactness ignores boxes already subsumed by a collapsed tile.
+        clusters: dict[tuple, list] = {}
+        if self._lod_enabled and may_collapse and model is not None:
+            for comp in model.components:
+                if (len(comp) >= 3 and all(m in shells for m in comp)
+                        and self._cluster_compact(comp, hidden)):
+                    clusters[tuple(sorted(comp))] = comp
+                    shells.difference_update(comp)
+                    hidden.update(comp)
+
+        # Notes & images: a note subsumed by a collapsed container is hidden
+        # (the tile stands in for it). A standalone note whose own text is
+        # illegible doesn't vanish — it paints a 'text here' marker (plate +
+        # skeleton bars + accent tick), so nothing is silently lost. Standalone
+        # images stay — a shrunk image is still a legible thumbnail.
+        hidden_notes: set[str] = set()
+        note_shells: set[str] = set()
+        for nid, nitem in self._note_items.items():
+            if model is not None and any(a in collapsed
+                                         for a in model.ancestors(nid)):
+                hidden_notes.add(nid)
+            elif self._lod_enabled:
+                px = resolve_textsize_px(nitem.note.textsize, "") * scale
+                if should_collapse(px, nid in self._lod_note_shells):
+                    note_shells.add(nid)
+        hidden_images: set[str] = set()
+        if model is not None:
+            for iid in self._image_items:
+                if any(a in collapsed for a in model.ancestors(iid)):
+                    hidden_images.add(iid)
+
+        # Arrow labels are text too: hide one once it's too small to read, the
+        # same legibility floor that shells a node label — otherwise a connector
+        # caption stays as unreadable specks over nodes already reduced to bars.
+        # When hidden the line is drawn unbroken (no leftover label gap), which
+        # _redraw_arrows handles off this set — so a crossing forces a redraw.
+        prev_labels_hidden = self._lod_arrow_labels_hidden
+        arrow_labels_hidden: set = set()
+        for it in self._arrow_items:
+            if not isinstance(it, LabelItem):
+                continue
+            a = it.data(0)
+            key = (a.from_id, a.to_id) if a is not None else id(it)
+            px = resolve_textsize_px(getattr(a, "textsize", ""), "") * scale
+            if self._lod_enabled and should_collapse(px, key in prev_labels_hidden):
+                arrow_labels_hidden.add(key)
+
+        state = (frozenset(collapsed), frozenset(shells), frozenset(clusters),
+                 frozenset(hidden_notes), frozenset(note_shells),
+                 frozenset(hidden_images), frozenset(arrow_labels_hidden))
+        if state == self._lod_state:
+            return
+        routing_changed = (collapsed != self._lod_collapsed
+                           or set(clusters) != set(self._lod_hulls)
+                           or arrow_labels_hidden != prev_labels_hidden)
+        self._lod_state = state
+        self._lod_arrow_labels_hidden = arrow_labels_hidden
+
+        for bid, item in self._box_items.items():
+            if bid in hidden:
+                item.setVisible(False)
+                item._label.setVisible(False)
+                # Clear any stale tile/shell state: a box subsumed by an outer
+                # tile must not keep reporting as a tile (it would linger as a
+                # read-only lock and leave its move flag disabled).
+                item.set_lod_tile(None)
+                item.set_lod_simplified(False)
+                continue
+            item.setVisible(True)
+            is_shell = bid in shells
+            is_tile = bid in tiles
+            item.set_lod_simplified(is_shell)
+            item.set_lod_tile(model.summary(bid) if is_tile else None)
+            # The tile paints its own counter-scaled headline; a shell shows
+            # nothing — so the normal label item is hidden in both cases.
+            item._label.setVisible(not is_shell and not is_tile)
+
+        for nid, nitem in self._note_items.items():
+            hidden = nid in hidden_notes
+            nitem.setVisible(not hidden)
+            nitem.set_lod_text_marker(not hidden and nid in note_shells)
+        for iid, iitem in self._image_items.items():
+            iitem.setVisible(iid not in hidden_images)
+
+        self._apply_lod_hulls(clusters)
+        self._lod_simplified = shells
+        self._lod_collapsed = collapsed
+        self._lod_hidden_notes = hidden_notes
+        self._lod_note_shells = note_shells
+        if routing_changed:
+            # Hidden endpoints re-route to their tile/hull; illegible labels
+            # drop out and their lines redraw unbroken.
+            self._redraw_arrows()
+
+    def _cluster_compact(self, comp, hidden=frozenset()) -> bool:
+        """A component is compact when no *visible* non-member box centre falls
+        inside its bounding box — so a hull won't visually swallow unrelated
+        nodes. Boxes already subsumed by a collapsed container tile (``hidden``)
+        are invisible and must not block the hull: otherwise a loose cluster
+        sitting among already-aggregated peers would never get to aggregate
+        itself."""
+        boxes = [self._box_items[m].box for m in comp if m in self._box_items]
+        if not boxes:
+            return False
+        x0 = min(b.x for b in boxes); y0 = min(b.y for b in boxes)
+        x1 = max(b.x + b.w for b in boxes); y1 = max(b.y + b.h for b in boxes)
+        member = set(comp)
+        for bid, item in self._box_items.items():
+            if bid in member or bid in hidden:
+                continue
+            b = item.box
+            cx, cy = b.x + b.w / 2, b.y + b.h / 2
+            if x0 <= cx <= x1 and y0 <= cy <= y1:
+                return False
+        return True
+
+    def _apply_lod_hulls(self, clusters: dict[tuple, list]):
+        """Create / update / remove cluster hull items to match `clusters`."""
+        model = self._lod
+        # Drop hulls that are no longer active.
+        for key in list(self._lod_hulls):
+            if key not in clusters:
+                self._scene.removeItem(self._lod_hulls.pop(key))
+        # Add hulls that became active.
+        for key, comp in clusters.items():
+            if key in self._lod_hulls:
+                continue
+            rects = {m: (self._box_items[m].box.x, self._box_items[m].box.y,
+                         self._box_items[m].box.w, self._box_items[m].box.h)
+                     for m in comp if m in self._box_items}
+            hub = model.component_hub(comp)
+            color = self._cluster_color(comp)
+            hull = ClusterHullItem(rects, model.component_edges(comp),
+                                   model.cluster_pad(comp), model.label_of(hub),
+                                   len(comp), color)
+            self._scene.addItem(hull)
+            self._lod_hulls[key] = hull
+        # Rebuild the member -> hull lookup used for arrow re-anchoring.
+        self._lod_hull_member = {}
+        for key, comp in clusters.items():
+            hull = self._lod_hulls[key]
+            for m in comp:
+                self._lod_hull_member[m] = hull
+
+    def _lod_reroute(self, elem_id: str) -> str:
+        """Map an arrow endpoint to its visible tile if it sits in a collapsed
+        container; otherwise return it unchanged."""
+        if self._lod is None or not self._lod_collapsed:
+            return elem_id
+        return self._lod.resolve_visible(elem_id, self._lod_collapsed)
+
+    def _cluster_color(self, comp) -> str:
+        """Hull colour: the members' shared colour, or a neutral grey when they
+        disagree — an honest 'this is a heterogeneous group' instead of picking
+        one member's colour and misrepresenting the rest."""
+        from grafli.items import _resolve_color
+        hexes = set()
+        for m in comp:
+            it = self._box_items.get(m)
+            if it is not None:
+                hexes.add(_resolve_color(it.box.color))
+        hexes.discard(None)
+        return hexes.pop() if len(hexes) == 1 else self.LOD_NEUTRAL
+
+    def _selection_has_locked(self) -> bool:
+        """True if the selection includes a LoD-collapsed tile — a read-only
+        aggregate that stands in for hidden content (you edit at full detail)."""
+        if not self._lod_enabled:
+            return False
+        return any(isinstance(it, BoxItem) and it._lod_tile is not None
+                   for it in self._scene.selectedItems())
+
+    def _refuse_locked_edit(self) -> bool:
+        """Block a mutation on a collapsed aggregate, nudging toward full detail."""
+        if self._selection_has_locked():
+            self.toast("Zoom in or ⇧D to edit a collapsed group", "info")
+            return True
+        return False
+
+    def _toggle_lod(self):
+        self._lod_enabled = not self._lod_enabled
+        self._refresh_lod()
+        self._record_shortcut(
+            "level-of-detail ON" if self._lod_enabled else "level-of-detail OFF")
 
     def _on_selection_changed(self):
         self._clear_box_mode()
@@ -2234,6 +4239,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             window._status_sel.setText(f"{count} selected" if count else "")
         self._update_breadcrumb()
         self._update_note_selection_highlight()
+        self._refresh_minimap()
         self.selection_changed_for_panel.emit(bool(self._scene.selectedItems()))
 
         # Recompute focus filter when selection changes
@@ -2277,14 +4283,221 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     # ── Pan / Zoom ──
 
+    # Zoom-out is content-aware (stop before the board becomes a speck);
+    # zoom-in is a fixed cap (so a few glyphs can't fill the screen).
+    MIN_ZOOM_ABS = 0.02
+    MAX_ZOOM = 5.0
+    # Muted grey for a LoD aggregate whose members don't share a colour.
+    LOD_NEUTRAL = "#8E9299"
+
+    def _fit_zoom(self):
+        """Scale at which the whole board (plus margin) just fits the viewport,
+        or None when there's nothing to fit."""
+        rect = self._scene.itemsBoundingRect()
+        if rect.isNull():
+            return None
+        rect = rect.adjusted(-40, -40, 40, 40)
+        vp = self.viewport().rect()
+        if rect.width() <= 0 or rect.height() <= 0 or vp.width() <= 0 or vp.height() <= 0:
+            return None
+        return min(vp.width() / rect.width(), vp.height() / rect.height())
+
+    def _zoom_bounds(self) -> tuple[float, float]:
+        """(min, max) zoom. Min lets you zoom out until the board fills ~30%
+        of the viewport — never forced above 100% — so small boards can't
+        shrink to a dot; max is the fixed in-cap.
+
+        When LoD is on, the floor is dropped just past the coarsest top-level
+        tile's collapse point if that sits below the 30%-fit floor — otherwise
+        you could never zoom out far enough to reach the top-level aggregation.
+        The raw board gets small there, but the tiles are counter-scaled, so
+        their headlines stay readable: that small overview is what they're for.
+        """
+        fit = self._fit_zoom()
+        lo = (self.MIN_ZOOM_ABS if fit is None
+              else min(1.0, max(self.MIN_ZOOM_ABS, fit * 0.3)))
+        if self._lod_enabled and self._lod is not None:
+            ext = self._lod.coarsest_collapse_extent()
+            if ext > 0:
+                reach = CHILD_COLLAPSE_PX / ext * 0.9
+                lo = max(self.MIN_ZOOM_ABS, min(lo, reach))
+        return lo, self.MAX_ZOOM
+
+    def _clamp_zoom_factor(self, factor: float) -> tuple[float, bool]:
+        """Adjust a relative zoom ``factor`` so the resulting scale stays in
+        bounds. Returns (effective_factor, hit_limit)."""
+        cur = self.transform().m11()
+        lo, hi = self._zoom_bounds()
+        target = max(lo, min(hi, cur * factor))
+        eff = target / cur if cur else 1.0
+        hit = abs(eff - 1.0) < 1e-9 and abs(factor - 1.0) > 1e-9
+        return eff, hit
+
+    def _zoom_limit_feedback(self, zooming_in: bool):
+        """A rubber-band bounce plus a throttled toast when a zoom is blocked
+        at the min/max bound."""
+        self._start_zoom_bounce(zooming_in)
+        now = time.monotonic()
+        if now - self._zoom_limit_toast_at > 1.2:
+            self._zoom_limit_toast_at = now
+            self.toast("Max zoom" if zooming_in
+                       else "Min zoom — ⇧Z to fit", kind="info")
+
+    def _start_zoom_bounce(self, zooming_in: bool):
+        """Spring the canvas ~4% past the limit and settle back. Input is
+        briefly consumed (see wheelEvent / _zoom_keyboard) so it can't fight
+        a new zoom mid-bounce."""
+        if self._bounce_active:
+            return
+        self._bounce_active = True
+        self._bounce_dir = 1.0 if zooming_in else -1.0
+        self._bounce_last_s = 1.0
+        self._bounce_base = QTransform(self.transform())
+        self._bounce_prev_anchor = self.transformationAnchor()
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        tl = QTimeLine(170, self)
+        tl.setUpdateInterval(16)
+        tl.valueChanged.connect(self._on_bounce_step)
+        tl.finished.connect(self._on_bounce_finished)
+        self._bounce_timeline = tl
+        tl.start()
+
+    def _on_bounce_step(self, v: float):
+        s = 1.0 + self._bounce_dir * 0.04 * math.sin(math.pi * v)
+        ratio = s / self._bounce_last_s
+        self._bounce_last_s = s
+        self.scale(ratio, ratio)
+
+    def _on_bounce_finished(self):
+        # Restore the exact pre-bounce transform (no float drift).
+        self.setTransform(self._bounce_base)
+        self.setTransformationAnchor(self._bounce_prev_anchor)
+        self._bounce_timeline = None
+        self._bounce_active = False
+        self._update_status_zoom()
+
+    def _wheel_action(self, pixel: QPoint, angle: QPoint, mods,
+                      is_trackpad: bool = False):
+        """Decide what a wheel/scroll event does.
+
+        A **trackpad** two-finger scroll (no zoom modifier) **pans**; anything
+        else — a mouse wheel, including a high-resolution / Bluetooth wheel that
+        also emits pixel deltas, or any scroll with Ctrl/⌘ held — **zooms**.
+
+        The trackpad vs. mouse distinction comes from the event source/phase
+        (passed in as ``is_trackpad``), *not* from whether ``pixelDelta`` is
+        present: high-res mice emit pixel deltas too, so keying on that routed
+        their wheel to pan by mistake.
+        Returns ``("pan", dx, dy)``, ``("zoom", factor)``, or ``None``.
+        """
+        ctrl = bool(mods & (Qt.KeyboardModifier.ControlModifier
+                            | Qt.KeyboardModifier.MetaModifier))
+        has_pixel = not pixel.isNull()
+        if is_trackpad and has_pixel and not ctrl:
+            return ("pan", pixel.x(), pixel.y())
+        d = pixel.y() if has_pixel else angle.y()
+        if d == 0:
+            return None
+        # Proportional zoom: one wheel notch (120 units) is a 1.15× step, and
+        # partial / multi-notch / pixel-precise deltas scale smoothly with it
+        # instead of jumping a fixed step.
+        return ("zoom", 1.15 ** (d / 120.0))
+
     def wheelEvent(self, event: QWheelEvent):
-        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+        if self._bounce_active:
+            event.accept()
+            return
+        # A trackpad gesture is synthesized by the system and/or carries a
+        # scroll phase; a mouse wheel (even a high-res one with pixel deltas)
+        # is neither. Only the former pans.
+        is_trackpad = (
+            event.source() == Qt.MouseEventSource.MouseEventSynthesizedBySystem
+            or event.phase() != Qt.ScrollPhase.NoScrollPhase
+        )
+        action = self._wheel_action(event.pixelDelta(), event.angleDelta(),
+                                    event.modifiers(), is_trackpad)
+        if action is None:
+            event.accept()
+            return
+        if action[0] == "pan":
+            _, dx, dy = action
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - dx)
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - dy)
+            event.accept()
+            return
+        factor = action[1]
+        eff, hit = self._clamp_zoom_factor(factor)
+        if hit:
+            self._zoom_limit_feedback(factor > 1.0)
+            event.accept()
+            return
+        self.scale(eff, eff)   # anchored under the cursor (global anchor)
+        self._update_status_zoom()
+        event.accept()
+
+    def event(self, e):
+        # Trackpad pinch-to-zoom arrives as a native gesture, not a wheel.
+        if e.type() == QEvent.Type.NativeGesture and self._handle_native_gesture(e):
+            return True
+        return super().event(e)
+
+    def _handle_native_gesture(self, e) -> bool:
+        if e.gestureType() != Qt.NativeGestureType.ZoomNativeGesture:
+            return False
+        if self._bounce_active:
+            return True
+        factor = 1.0 + e.value()
+        if abs(factor - 1.0) < 1e-6:
+            return True
+        eff, hit = self._clamp_zoom_factor(factor)
+        if hit:
+            self._zoom_limit_feedback(factor > 1.0)
+            return True
+        self.scale(eff, eff)   # under-cursor anchor (global)
+        self._update_status_zoom()
+        return True
+
+    def _zoom_keyboard(self, factor: float):
+        """Zoom for the +/- shortcuts, anchored on what the user cares about.
+
+        With a selection, the combined bounding-rect center of the selected
+        items is held fixed on screen; otherwise the viewport center is. Either
+        way the focal point stays put while the rest of the canvas scales around
+        it. (Wheel zoom keeps its own under-the-mouse anchor.)
+        """
+        if self._bounce_active:
+            return
+        eff, hit = self._clamp_zoom_factor(factor)
+        if hit:
+            self._zoom_limit_feedback(factor > 1.0)
+            return
+        factor = eff
+        items = self._scene.selectedItems()
+        if items:
+            rect = items[0].sceneBoundingRect()
+            for it in items[1:]:
+                rect = rect.united(it.sceneBoundingRect())
+            anchor_scene = rect.center()
+        else:
+            anchor_scene = self.mapToScene(self.viewport().rect().center())
+        prev_anchor = self.transformationAnchor()
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        before = self.mapFromScene(anchor_scene)
         self.scale(factor, factor)
+        delta = self.mapFromScene(anchor_scene) - before
+        self.horizontalScrollBar().setValue(
+            self.horizontalScrollBar().value() + delta.x())
+        self.verticalScrollBar().setValue(
+            self.verticalScrollBar().value() + delta.y())
+        self.setTransformationAnchor(prev_anchor)
         self._update_status_zoom()
 
     def mousePressEvent(self, event):
-        # Middle-click pan always works
-        if event.button() == Qt.MouseButton.MiddleButton:
+        # Middle- or right-click pans from anywhere.
+        if event.button() in (Qt.MouseButton.MiddleButton,
+                              Qt.MouseButton.RightButton):
             self._panning = True
             self._pan_start = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -2311,6 +4524,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if self._mode == Mode.SELECT:
             # Save snapshot before potential move
             self._save_pre_action_snapshot()
+            self._mouse_press_pos = event.position()
+            self._drag_moved = False
             self._press_select(event)
         elif self._mode == Mode.RECT:
             self._press_rect(event)
@@ -2362,6 +4577,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 )
                 event.accept()
                 return
+            if (event.buttons() & Qt.MouseButton.LeftButton
+                    and self._mouse_press_pos is not None
+                    and (event.position() - self._mouse_press_pos).manhattanLength()
+                        >= QApplication.startDragDistance()):
+                self._drag_moved = True
             selected = self._scene.selectedItems()
             if selected and not self._autoscroll_timer.isActive() and event.buttons() & Qt.MouseButton.LeftButton:
                 self._autoscroll_timer.start()
@@ -2373,7 +4593,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self.mark_dirty()
             else:
                 super().mouseMoveEvent(event)
-            self._update_reparent_highlight()
+            # Preview reparenting only while actually dragging a selection — not
+            # on plain hover, which would otherwise flash the grow outline when
+            # the cursor merely passes over a box (e.g. while shift-selecting).
+            if (event.buttons() & Qt.MouseButton.LeftButton) and self._drag_moved:
+                self._update_reparent_highlight(scene_pos)
+            else:
+                self._clear_reparent_highlight()
         elif self._mode == Mode.RECT:
             self._update_create_preview_pos(scene_pos)
             self._move_rect(event)
@@ -2391,7 +4617,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        if event.button() == Qt.MouseButton.MiddleButton:
+        if event.button() in (Qt.MouseButton.MiddleButton,
+                              Qt.MouseButton.RightButton):
             self._panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
             event.accept()
@@ -2415,7 +4642,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     item = item._box_item
                 elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem, ImageItem)):
                     item = item.parentItem()
-                if (isinstance(item, (BoxItem, NoteItem))
+                if (isinstance(item, (BoxItem, NoteItem, ImageItem))
                         and item is not self._connect_source
                         and self._board):
                     src_id = self._item_id(self._connect_source)
@@ -2425,7 +4652,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                         self._select_arrow(existing)
                     else:
                         self._push_undo()
-                        arrow = Arrow(from_id=src_id, to_id=tgt_id)
+                        arrow = self._make_connector(src_id, tgt_id)
                         self._board.add_arrow(arrow)
                         self._redraw_arrows()
                         self.mark_dirty()
@@ -2436,10 +4663,23 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._autoscroll_timer.stop()
             super().mouseReleaseEvent(event)
             if event.button() == Qt.MouseButton.LeftButton:
-                for item in self._scene.selectedItems():
-                    if isinstance(item, (BoxItem, NoteItem)):
-                        self._check_nesting(item)
+                # Only a real drag may reparent — a plain or shift+click just
+                # changes the selection and must not nest items under the cursor.
+                if self._drag_moved:
+                    cursor_scene = self.mapToScene(event.position().toPoint())
+                    selected = [
+                        i for i in self._scene.selectedItems()
+                        if isinstance(i, (BoxItem, NoteItem, ImageItem))
+                    ]
+                    # Reparent only when a single item is dragged — mirrors the
+                    # drag preview (_update_reparent_highlight, single-selection
+                    # only). Moving a multi-selection just relocates the items
+                    # together; nesting the whole group into whichever member
+                    # happens to sit under the cursor is never intended.
+                    if len(selected) == 1:
+                        self._check_nesting(selected[0], cursor_scene)
                 self._commit_pre_action_snapshot()
+                self._drag_moved = False
         elif self._mode == Mode.RECT:
             self._release_rect(event)
         elif self._mode == Mode.CONNECT:
@@ -2464,6 +4704,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), BoxItem):
             item = item.parentItem()
 
+        # Double-click a collapsed aggregate to fly into it (the folder *feel*
+        # as pure navigation — no persistent state). Editing is blocked until
+        # the group is at full detail anyway.
+        if isinstance(item, ClusterHullItem) or (
+                isinstance(item, BoxItem) and item._lod_tile is not None):
+            self._animate_to_rect(
+                item.sceneBoundingRect().adjusted(-60, -60, 60, 60))
+            event.accept()
+            return
+
         if isinstance(item, BoxItem):
             self._start_editing(item)
             event.accept()
@@ -2484,6 +4734,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if self._zen_editor:
             return
 
+        # Inline note editor: the view is the focused Qt widget, so forward
+        # keys down to the scene's focus item (the proxy → embedded editor)
+        # instead of running canvas shortcuts. Without super() the proxy
+        # would never receive any keystrokes.
+        if self._note_widget is not None:
+            super().keyPressEvent(event)
+            return
+
         # Editor key handling
         if self._editor:
             if event.key() == Qt.Key.Key_Escape:
@@ -2495,11 +4753,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 event.accept()
                 return
             if event.key() == Qt.Key.Key_G and event.modifiers() & _CTRL_MOD:
-                self._open_glyph_picker(mode="insert")
+                self._open_glyph_picker()
                 event.accept()
                 return
             # Let the editor handle the key
             super().keyPressEvent(event)
+            return
+
+        # Flow playback owns all input while active
+        if self._flow_player is not None and self._flow_player.active:
+            self._flow_player.handle_key(event)
+            event.accept()
             return
 
         # Graph nav mode handling (Alt held)
@@ -2517,6 +4781,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Jump mode handling
         if self._jump_active:
             self._handle_jump_key(event)
+            event.accept()
+            return
+
+        # Colour-grid picker owns all input while open
+        if self._color_picker_active:
+            self._handle_color_picker_key(event)
+            event.accept()
+            return
+
+        # Icon-grid picker owns all input while open
+        if self._icon_picker_active:
+            self._handle_icon_picker_key(event)
+            event.accept()
+            return
+
+        # Type grid owns all input while open
+        if self._type_picker_active:
+            self._handle_type_picker_key(event)
             event.accept()
             return
 
@@ -2561,7 +4843,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self.mark_dirty()
                 event.accept()
                 return
-            self._delete_selected()
+            self._delete_selected(
+                with_docs=bool(event.modifiers()
+                               & Qt.KeyboardModifier.ShiftModifier))
             event.accept()
             return
 
@@ -2598,6 +4882,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             # Style mode keys
             if self._arrow_mode == "style":
                 shift_only = (mods_a & _SIGNIFICANT_MODS) == Qt.KeyboardModifier.ShiftModifier
+                # a — toggle connector kind (graph edge ⇄ annotation)
+                if no_mod_a and key == Qt.Key.Key_A:
+                    self._push_undo()
+                    arrow = self._selected_arrow
+                    arrow.kind = ("graph" if self._is_annotation_link(arrow)
+                                  else "annotation")
+                    self._last_connector_kind = arrow.kind
+                    self._redraw_arrows()
+                    self._select_arrow(arrow, keep_mode=True)
+                    self._update_arrow_mode_badge_pos()
+                    self.mark_dirty()
+                    self._record_shortcut(
+                        "connector → graph edge" if arrow.kind == "graph"
+                        else "connector → annotation")
+                    event.accept()
+                    return
                 if (no_mod_a and key in (
                     Qt.Key.Key_H, Qt.Key.Key_L,
                     Qt.Key.Key_J, Qt.Key.Key_K,
@@ -2640,6 +4940,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if event.key() == Qt.Key.Key_P and no_mod:
                 self._record_shortcut("gp → parent")
                 self._select_parent_and_zoom()
+            elif event.key() == Qt.Key.Key_C and no_mod:
+                self._record_shortcut("gc → first child")
+                self._select_first_child()
+            elif event.key() == Qt.Key.Key_B and no_mod:
+                self._record_shortcut("gb → bookmark")
+                self.capture_bookmark("logical")
+            elif event.key() == Qt.Key.Key_B and shift_only:
+                self._record_shortcut("gB → viewport bookmark")
+                self.capture_bookmark("viewport")
+            elif event.key() == Qt.Key.Key_F and no_mod:
+                self._record_shortcut("gf → flow rec")
+                self.toggle_flow_recording()
+            elif event.key() == Qt.Key.Key_F and shift_only:
+                self._record_shortcut("gF → auto-flow")
+                self.new_auto_flow_from_selection()
+            elif event.key() == Qt.Key.Key_Z and no_mod:
+                self._record_shortcut("gz → focus zoom")
+                self._toggle_focus_zoom()
             event.accept()
             return
 
@@ -2725,14 +5043,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Zoom with + (Shift+= produces Key_Plus)
         if event.key() == Qt.Key.Key_Plus:
             self._record_shortcut("+ \u2192 zoom in")
-            self.scale(1.15, 1.15)
-            self._update_status_zoom()
+            self._zoom_keyboard(1.15)
             event.accept()
             return
         if event.key() == Qt.Key.Key_Minus:
             self._record_shortcut("- \u2192 zoom out")
-            self.scale(1 / 1.15, 1 / 1.15)
-            self._update_status_zoom()
+            self._zoom_keyboard(1 / 1.15)
             event.accept()
             return
 
@@ -2765,7 +5081,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # Alt — enter graph nav mode (single node selected)
         if event.key() == Qt.Key.Key_Alt:
             sel = self._scene.selectedItems()
-            if len(sel) == 1 and isinstance(sel[0], BoxItem):
+            if len(sel) == 1 and isinstance(sel[0], (BoxItem, NoteItem, ImageItem)):
                 self._enter_graph_nav(sel[0])
                 event.accept()
                 return
@@ -2796,18 +5112,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        # Ctrl+G — glyph picker (replace label in select mode)
+        # Ctrl+G — encapsulate the selection in a new parent box
         if event.key() == Qt.Key.Key_G and mods & _CTRL_MOD and has_selection:
-            self._open_glyph_picker(mode="replace")
+            self._record_shortcut("Ctrl+G → encapsulate")
+            self._encapsulate_selection()
             event.accept()
             return
 
         # Vim-like box modes — SELECT mode with selection
         if self._mode == Mode.SELECT and has_selection:
+            # A collapsed aggregate is read-only: block move / style / resize
+            # here (navigation keys live outside this block).
+            if self._refuse_locked_edit():
+                event.accept()
+                return
             shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
             only_shift = shift and not (mods & ~Qt.KeyboardModifier.ShiftModifier & _SIGNIFICANT_MODS)
 
-            if self._grid_visible:
+            if self._grid_snap:
                 step = self.GRID_SPACING
                 big_step = self.GRID_SPACING * 5
             else:
@@ -2852,14 +5174,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     event.accept()
                     return
 
-            # ── Style mode: hjkl cycles color/size ──
+            # ── Style mode: c opens the colour grid, j/k sizes ──
             elif self._box_mode == "style":
-                if event.key() == Qt.Key.Key_H and no_mod:
-                    self._cycle_color(-1)
+                if event.key() == Qt.Key.Key_C and no_mod:
+                    self._open_color_picker()
                     event.accept()
                     return
-                if event.key() == Qt.Key.Key_L and no_mod:
-                    self._cycle_color(1)
+                if event.key() == Qt.Key.Key_I and no_mod:
+                    self._open_icon_picker()
+                    event.accept()
+                    return
+                if event.key() == Qt.Key.Key_T and no_mod:
+                    self._open_type_picker()
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_J and no_mod:
@@ -2933,6 +5259,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     self.mark_dirty()
                     event.accept()
                     return
+                if event.key() == Qt.Key.Key_R and no_mod:
+                    self._snap_selection_to_slide_ratio()
+                    event.accept()
+                    return
                 if event.key() == Qt.Key.Key_S and no_mod:
                     self._set_box_mode("style")
                     event.accept()
@@ -2981,8 +5311,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # # — toggle grid
         if event.text() == "#":
-            self._record_shortcut("# \u2192 grid")
             self.toggle_grid()
+            self._record_shortcut(f"# \u2192 {self._GRID_LABELS[self._grid_mode]}")
             event.accept()
             return
 
@@ -3052,7 +5382,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        # Z — zoom to selection (no-op if nothing selected)
+        # Shift+D — toggle Level-of-Detail (semantic zoom) on/off
+        if event.key() == Qt.Key.Key_D and shift_only:
+            self._toggle_lod()
+            event.accept()
+            return
+
+        # Z — cycle zoom in (25 → 50 → 100 → 150 %, centered on the viewport)
         if event.key() == Qt.Key.Key_Z and no_mod:
             self._cycle_zoom_step()
             event.accept()
@@ -3076,9 +5412,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 event.accept()
                 return
 
-        # F — select first child of current box
+        # f — jump mode (alternative to Ctrl+J). First-child now lives on `gc`.
         if event.key() == Qt.Key.Key_F and no_mod:
-            self._select_first_child()
+            self._clear_box_mode()
+            self._start_jump_mode()
             event.accept()
             return
 
@@ -3172,12 +5509,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         resolved = item
         if isinstance(resolved, BoxLabelItem):
             resolved = resolved._box_item
-        elif isinstance(resolved, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(resolved.parentItem(), (BoxItem, NoteItem)):
+        elif isinstance(resolved, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(resolved.parentItem(), (BoxItem, NoteItem, ImageItem)):
             resolved = resolved.parentItem()
 
         # Shift+click toggles selection on individual items
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            if isinstance(resolved, (BoxItem, NoteItem)):
+            if isinstance(resolved, (BoxItem, NoteItem, ImageItem)):
+                # Shift on a resize handle of an already-selected item starts a
+                # ratio-locked scale, not a selection toggle — let the item's
+                # own mousePressEvent begin the drag.
+                if resolved.isSelected() and hasattr(resolved, "_handle_at"):
+                    local = resolved.mapFromScene(scene_pos)
+                    if resolved._handle_at(local) is not None:
+                        super().mousePressEvent(event)
+                        return
                 resolved.setSelected(not resolved.isSelected())
                 event.accept()
                 return
@@ -3185,8 +5530,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
-        # Alt+click on a BoxItem/NoteItem starts connector drag
-        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and isinstance(resolved, (BoxItem, NoteItem)):
+        # Alt+click on a node (box/note/image) starts connector drag
+        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and isinstance(resolved, (BoxItem, NoteItem, ImageItem)):
             self._connect_source = resolved
             center = self._item_center(resolved)
             pen = QPen(ARROW_COLOR, ARROW_WIDTH, Qt.PenStyle.DashLine)
@@ -3197,7 +5542,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         # Alt+click on empty space: paste clipboard at position
-        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and not isinstance(resolved, (BoxItem, NoteItem)):
+        if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and not isinstance(resolved, (BoxItem, NoteItem, ImageItem)):
             if self._clipboard_boxes or self._clipboard_notes:
                 self._paste_at(scene_pos)
                 event.accept()
@@ -3341,7 +5686,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem, ImageItem)):
             item = item.parentItem()
 
-        if not isinstance(item, (BoxItem, NoteItem)):
+        if not isinstance(item, (BoxItem, NoteItem, ImageItem)):
             # Restore preview line if we had one and missed a target
             if saved_line and self._connect_source:
                 self._connect_line = saved_line
@@ -3368,7 +5713,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     self._select_arrow(existing)
                 else:
                     self._push_undo()
-                    arrow = Arrow(from_id=src_id, to_id=tgt_id)
+                    arrow = self._make_connector(src_id, tgt_id)
                     self._board.add_arrow(arrow)
                     self._redraw_arrows()
                     self.mark_dirty()
@@ -3406,7 +5751,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         elif isinstance(item, (QGraphicsSimpleTextItem, QGraphicsTextItem, ResizeHandle)) and isinstance(item.parentItem(), (BoxItem, NoteItem, ImageItem)):
             item = item.parentItem()
 
-        if (isinstance(item, (BoxItem, NoteItem))
+        if (isinstance(item, (BoxItem, NoteItem, ImageItem))
                 and item is not self._connect_source
                 and self._board):
             src_id = self._item_id(self._connect_source)
@@ -3417,7 +5762,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 self._select_arrow(existing)
             else:
                 self._push_undo()
-                arrow = Arrow(from_id=src_id, to_id=tgt_id)
+                arrow = self._make_connector(src_id, tgt_id)
                 self._board.add_arrow(arrow)
                 self._redraw_arrows()
                 self.mark_dirty()
@@ -3526,7 +5871,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _render_jump_label(self, label_text, target, center, font, scene_size, base_size):
         """Render a single jump label on the canvas."""
-        if isinstance(target, (BoxItem, NoteItem)):
+        # Only boxes carry a fill brush; notes, images and arrows fall back to
+        # the default badge colour (calling .brush() on them would crash).
+        if isinstance(target, BoxItem):
             bg_color = target.brush().color()
             if bg_color.alphaF() < 0.1:
                 bg_color = QColor("#C1086D")
@@ -3567,7 +5914,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         """Return labels from top-level ancestor down to target."""
         if isinstance(target, Arrow):
             return [f"{target.from_id}\u2192{target.to_id}"]
-        elem = target.box if isinstance(target, BoxItem) else target.note
+        elem = self._item_elem(target)
         chain: list[str] = []
         current_id = elem.parent
         while current_id and self._board:
@@ -3579,8 +5926,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         chain.reverse()  # root-first
         if isinstance(target, BoxItem):
             chain.append(elem.label or elem.id)
-        else:
+        elif isinstance(target, NoteItem):
             chain.append(elem.text[:15])
+        else:  # ImageItem
+            chain.append(elem.image_path.rsplit("/", 1)[-1] or elem.id)
         return chain
 
     def _render_offscreen_badge(self, off_labels, offscreen, prefix_filter=""):
@@ -3785,7 +6134,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     if not viewport_rect.contains(mid):
                         off_labels.append(lbl)
                         off_targets.append((target, mid))
-            elif isinstance(target, (BoxItem, NoteItem)):
+            elif isinstance(target, (BoxItem, NoteItem, ImageItem)):
                 if not viewport_rect.intersects(target.sceneBoundingRect()):
                     center = target.sceneBoundingRect().center()
                     off_labels.append(lbl)
@@ -3817,6 +6166,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if self._arrows_dimmed:
             self._toggle_arrows_dimmed()
         self._search_active = True
+        self._animate_fade(self._search_badge_opacity, 1.0,
+                           self._set_search_badge_opacity)
         self._search_text = ""
         self._search_matches.clear()
         self._search_index = 0
@@ -3954,15 +6305,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._remove_search_badge()
         self._clear_search_filter()
 
+    def _set_search_badge_opacity(self, value: float):
+        self._search_badge_opacity = value
+        self.viewport().update()
+
     def _update_search_badge(self):
         # The badge is now a viewport overlay (see _draw_search_badge),
         # so updating it is just a viewport repaint.
         self.viewport().update()
 
     def _remove_search_badge(self):
-        # Kept for symmetry with the old API; the overlay is implicitly hidden
-        # whenever _search_active goes False.
-        self.viewport().update()
+        # Fade the overlay out (callers have already flipped _search_active off;
+        # the draw keeps painting while opacity > 0, then stops).
+        self._animate_fade(self._search_badge_opacity, 0.0,
+                           self._set_search_badge_opacity)
 
     def _draw_search_badge(self, painter: QPainter):
         """Top-center viewport overlay shown while the search input is open.
@@ -3970,7 +6326,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         Drawn in viewport coordinates so it doesn't pan/zoom with the scene
         like the previous QGraphicsTextItem implementation did.
         """
-        if not self._search_active:
+        o = max(0.0, min(1.0, self._search_badge_opacity))
+        if not self._search_active and o <= 0.0:
             return
 
         count = len(self._search_matches)
@@ -3985,6 +6342,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         painter.save()
         painter.resetTransform()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
         vp = self.viewport().rect()
         font = QFont(FONT_FAMILY, 12)
@@ -4007,20 +6365,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         panel_y = 10
 
         bg = QColor("#2F3437")
-        bg.setAlphaF(0.92)
-        painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
+        bg.setAlphaF(0.92 * o)
+        painter.setPen(QPen(QColor(255, 255, 255, int(40 * o)), 1))
         painter.setBrush(QBrush(bg))
         painter.drawRoundedRect(QRectF(panel_x, panel_y, panel_w, panel_h), 6, 6)
 
         painter.setFont(font)
-        painter.setPen(QPen(QColor(255, 255, 255)))
+        painter.setPen(QPen(QColor(255, 255, 255, int(255 * o))))
         painter.drawText(
             QPointF(panel_x + (panel_w - text_w) / 2,
                     panel_y + pad + fm.ascent()),
             display,
         )
         painter.setFont(hint_font)
-        painter.setPen(QPen(QColor(200, 200, 200, 180)))
+        painter.setPen(QPen(QColor(200, 200, 200, int(180 * o))))
         painter.drawText(
             QPointF(panel_x + (panel_w - hint_w) / 2,
                     panel_y + pad + text_h + gap + hfm.ascent()),
@@ -4149,8 +6507,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         target_zoom = min(vp.width() / max(target_rect.width(), 1),
                           vp.height() / max(target_rect.height(), 1))
-        # Clamp to reasonable bounds
-        target_zoom = max(0.05, min(target_zoom, 10.0))
+        # Clamp to reasonable bounds (same in-cap as interactive zoom).
+        target_zoom = max(self.MIN_ZOOM_ABS, min(target_zoom, self.MAX_ZOOM))
         end_center = target_rect.center()
 
         self._anim_start_zoom = start_zoom
@@ -4178,7 +6536,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         start_zoom = self.transform().m11()
         start_center = self.mapToScene(self.viewport().rect().center())
-        target_zoom = max(0.05, min(zoom, 10.0))
+        target_zoom = max(self.MIN_ZOOM_ABS, min(zoom, self.MAX_ZOOM))
 
         self._anim_start_zoom = start_zoom
         self._anim_end_zoom = target_zoom
@@ -4287,6 +6645,766 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if not items_rect.isNull():
             self._animate_to_rect(items_rect.adjusted(-40, -40, 40, 40))
 
+    # ── Bookmarks & flows ──
+
+    def goto_rect(self, rect: QRectF, animate: bool = True):
+        """Frame ``rect`` in the viewport, eased or as an instant cut."""
+        if rect.isNull():
+            return
+        if animate:
+            self._animate_to_rect(rect)
+            return
+        vp = self.viewport().rect()
+        zoom = min(vp.width() / max(rect.width(), 1),
+                   vp.height() / max(rect.height(), 1))
+        zoom = max(0.05, min(zoom, 10.0))
+        self.setTransform(QTransform().scale(zoom, zoom))
+        self.centerOn(rect.center())
+        self._update_status_zoom()
+
+    def goto_bookmark(self, bookmark_id: str, animate: bool = True):
+        """Fly the canvas to a bookmark's semantic anchor."""
+        if not self._board:
+            return
+        bm = self._board.bookmark_by_id(bookmark_id)
+        if bm is None:
+            return
+        from grafli.flows import bookmark_target_rect
+        target = bookmark_target_rect(self, bm)
+        self.goto_rect(target, animate=animate)
+        self.flash_anchor(target)
+
+    def play_flow(self, flow_id: str):
+        """Enter modal playback for a flow, starting at its first stop."""
+        if not self._board:
+            return
+        flow = self._board.flow_by_id(flow_id)
+        if flow is None or not flow.steps:
+            return
+        if self._flow_player is not None:
+            self._flow_player.stop()
+        self._flow_player = FlowPlayer(self, flow)
+        self._flow_player.start()
+        self.setFocus()
+
+    def export_flow(self, flow, fmt: str = "pdf"):
+        """Export a specific flow via the main window's save dialog. ``fmt`` is
+        'pdf' (default) or 'pptx'."""
+        window = self.window()
+        method = "_export_flow_pptx" if fmt == "pptx" else "_export_flow_pdf"
+        if window is not None and hasattr(window, method):
+            getattr(window, method)(flow)
+
+    def capture_bookmark(self, mode: str = "logical"):
+        """Snapshot the current view as a bookmark.
+
+        ``logical`` (gb): anchor to what's shown — the current selection, else
+        every item visible in the viewport — so the saved view re-fits as the
+        layout changes. If nothing is shown (empty space), it transparently
+        falls back to storing the exact viewport, so capture never fails.
+
+        ``viewport`` (gB): always store the exact current viewport, for a
+        hand-tuned framing you want reproduced pixel-faithfully.
+
+        Notes are valid anchors, so a note-only (node-less) bookmark works.
+        """
+        if not self._board:
+            return
+        vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
+        focus: list[str] = []
+        isolate = False
+        if mode == "logical":
+            focus = [bid for bid, it in self._box_items.items() if it.isSelected()]
+            focus += [nid for nid, it in self._note_items.items() if it.isSelected()]
+            focus += [iid for iid, it in self._image_items.items() if it.isSelected()]
+            # An explicit selection narrows the step's scope: render only these
+            # items in thumbnails/PDF. No selection falls back to the viewport.
+            isolate = bool(focus)
+            if focus:
+                # A selected parent brings its whole subtree, so isolating it
+                # shows the contents instead of an empty container.
+                focus = self._expand_focus_to_subtrees(focus)
+            if not focus:
+                for bid, it in self._box_items.items():
+                    if it.sceneBoundingRect().intersects(vp_scene):
+                        focus.append(bid)
+                for nid, it in self._note_items.items():
+                    if it.sceneBoundingRect().intersects(vp_scene):
+                        focus.append(nid)
+                for iid, it in self._image_items.items():
+                    if it.sceneBoundingRect().intersects(vp_scene):
+                        focus.append(iid)
+
+        view_rect = None if focus else (
+            vp_scene.x(), vp_scene.y(), vp_scene.width(), vp_scene.height()
+        )
+
+        label, ok = QInputDialog.getText(
+            self, "New bookmark", "Label (blank = graph-only slide):")
+        if not ok:
+            self._record_shortcut("bookmark cancelled — not created")
+            return
+        label = label.strip()
+        # A blank label means "let the graph speak" — no title/caption chrome,
+        # so we skip the description prompt too.
+        description = ""
+        if label:
+            desc, ok2 = QInputDialog.getMultiLineText(
+                self, "Bookmark", "Description (optional):", "")
+            if ok2:
+                description = desc.strip()
+        bm = Bookmark(
+            id=self._board.next_bookmark_id(),
+            label=label,
+            focus=focus,
+            description=description,
+            view=view_rect,
+            isolate=isolate,
+        )
+        self._board.add_bookmark(bm)
+        if self._recording_flow is not None:
+            # Recording is sequential — always append to the tour.
+            self._recording_flow.steps.append(FlowStep(ref=bm.id))
+            self._update_recording_status()
+        elif self._active_flow is not None:
+            # A flow is open in the panel — insert right after the selected
+            # step (or append), then advance the selection so the next
+            # capture continues the chain.
+            steps = self._active_flow.steps
+            idx = self._active_step_index
+            if 0 <= idx < len(steps):
+                steps.insert(idx + 1, FlowStep(ref=bm.id))
+                self._active_step_index = idx + 1
+            else:
+                steps.append(FlowStep(ref=bm.id))
+                self._active_step_index = len(steps) - 1
+        self.mark_dirty()
+        self.flows_changed.emit()
+        from grafli.flows import bookmark_target_rect, text_slide_note
+        if text_slide_note(self, bm) is not None:
+            kind = "text slide"
+        elif isolate:
+            kind = f"scoped: {len(focus)} item{'s' if len(focus) != 1 else ''}"
+        else:
+            kind = "viewport" if view_rect else "logical"
+        self._record_shortcut(f"bookmark “{bm.label}” ({kind})")
+        self.flash_anchor(bookmark_target_rect(self, bm))
+
+    def toggle_flow_recording(self):
+        """Start a new flow recording, or stop the active one.
+
+        While recording, each captured bookmark is also appended to the
+        active flow — so a tour accretes as you explore, no separate
+        compose step.
+        """
+        if not self._board:
+            return
+        if self._recording_flow is not None:
+            flow = self._recording_flow
+            self._recording_flow = None
+            if not flow.steps:
+                # An empty recording is noise — drop it.
+                self._board.remove_flow(flow)
+            self.mark_dirty()
+            self.flows_changed.emit()
+            self._update_recording_status()
+            self.viewport().update()
+            return
+        label, ok = QInputDialog.getText(self, "Record flow", "Flow name:")
+        if not ok or not label.strip():
+            return
+        flow = Flow(id=self._board.next_flow_id(), label=label.strip(), steps=[])
+        self._board.add_flow(flow)
+        self._recording_flow = flow
+        self.mark_dirty()
+        self.flows_changed.emit()
+        self._update_recording_status()
+        self.viewport().update()
+
+    def _update_recording_status(self):
+        if self._recording_flow is not None:
+            n = len(self._recording_flow.steps)
+            self._record_shortcut(
+                f"REC {self._recording_flow.label} · {n} stop(s) · gb to add"
+            )
+
+    # ── Flow / bookmark editing (driven by the Flows panel) ──
+
+    def set_flow_edit_target(self, flow, step_index: int = -1):
+        """Remember which flow/step the panel has selected, so a captured
+        bookmark is inserted after it."""
+        self._active_flow = flow
+        self._active_step_index = step_index
+
+    def _commit_flow_edit(self):
+        """Persist a flow/bookmark mutation and refresh the panel."""
+        self.mark_dirty()
+        self.flows_changed.emit()
+
+    def create_flow(self, label: str, description: str = ""):
+        if not self._board:
+            return None
+        flow = Flow(id=self._board.next_flow_id(), label=label,
+                    description=description)
+        self._board.add_flow(flow)
+        self._commit_flow_edit()
+        return flow
+
+    # ── Auto-generated flows (walk forward arrows from a start node) ──
+
+    def _is_annotation_link(self, arrow: Arrow) -> bool:
+        """Whether ``arrow`` is an annotation link (vs. a real graph edge).
+
+        ``arrow.kind`` overrides when set; otherwise the kind derives from the
+        endpoints — a note or image endpoint makes it an annotation, box↔box is
+        a graph edge. This resolver is the single source of truth for rendering,
+        the note/image-selection spotlight, auto-flow, and graph-nav.
+        """
+        if arrow.kind == "annotation":
+            return True
+        if arrow.kind == "graph":
+            return False
+        if not self._board:
+            return False
+        return self._involves_note_or_image(arrow.from_id, arrow.to_id)
+
+    def _involves_note_or_image(self, from_id: str, to_id: str) -> bool:
+        """Whether either endpoint is a note or image — the non-box elements
+        whose connectors default to (and remember) an annotation/graph kind."""
+        if not self._board:
+            return False
+        return bool(self._board.note_by_id(from_id)
+                    or self._board.note_by_id(to_id)
+                    or self._board.image_by_id(from_id)
+                    or self._board.image_by_id(to_id))
+
+    def _is_graph_edge(self, arrow: Arrow) -> bool:
+        """Whether ``arrow`` is a real graph edge (the auto-flow/graph-nav seam)."""
+        return self._board is not None and not self._is_annotation_link(arrow)
+
+    def _make_connector(self, from_id: str, to_id: str) -> Arrow:
+        """A new connector, applying the sticky connector kind when a note or
+        image is involved (so a run of connected notes/images inherits your last
+        choice)."""
+        arrow = Arrow(from_id=from_id, to_id=to_id)
+        if self._involves_note_or_image(from_id, to_id) and self._last_connector_kind:
+            arrow.kind = self._last_connector_kind
+        return arrow
+
+    def _strict_forward_target(self, arrow: Arrow, node_id: str) -> str | None:
+        """The node ``arrow`` leads to from ``node_id`` via a strict-forward
+        edge, else None. Strict = exactly one arrowhead, pointing away."""
+        if arrow.head_to == arrow.head_from:      # both/neither head → not strict
+            return None
+        if arrow.from_id == node_id and arrow.head_to:
+            return arrow.to_id
+        if arrow.to_id == node_id and arrow.head_from:
+            return arrow.from_id
+        return None
+
+    def _forward_targets(self, node_id: str) -> list[str]:
+        """Distinct nodes reachable from ``node_id`` by a strict-forward edge."""
+        out: list[str] = []
+        if not self._board:
+            return out
+        for arrow in self._board.arrows:
+            if not self._is_graph_edge(arrow):
+                continue
+            t = self._strict_forward_target(arrow, node_id)
+            if t is not None and t not in out:
+                out.append(t)
+        return out
+
+    def _auto_flow_path(self, start_id: str) -> tuple[list[str], str]:
+        """Walk strict-forward from ``start_id``: returns (node ids, stop reason).
+
+        Continues while a node has exactly one forward target; stop reason is
+        ``end`` (no forward), ``branch`` (several), or ``cycle`` (revisit).
+        """
+        path = [start_id]
+        visited = {start_id}
+        reason = "end"
+        current = start_id
+        while True:
+            targets = self._forward_targets(current)
+            if not targets:
+                reason = "end"
+                break
+            if len(targets) > 1:
+                reason = "branch"
+                break
+            nxt = targets[0]
+            if nxt in visited:
+                reason = "cycle"
+                break
+            path.append(nxt)
+            visited.add(nxt)
+            current = nxt
+        return path, reason
+
+    def _make_auto_bookmark(self, node_id: str) -> Bookmark:
+        """An isolated bookmark framing one node (a parent expands to its
+        subtree). A box keeps its label (titled slide); a note stays
+        label-less so it renders as a pure text slide."""
+        box = self._board.box_by_id(node_id)
+        label = box.label if box else ""
+        focus = self._expand_focus_to_subtrees([node_id])
+        bm = Bookmark(id=self._board.next_bookmark_id(), label=label,
+                      focus=focus, isolate=True)
+        self._board.add_bookmark(bm)
+        return bm
+
+    def _populate_auto_flow(self, flow: Flow) -> None:
+        path, reason = self._auto_flow_path(flow.auto_start)
+        flow.steps = [FlowStep(ref=self._make_auto_bookmark(nid).id)
+                      for nid in path]
+        n = len(path)
+        if reason == "branch":
+            box = self._board.box_by_id(path[-1])
+            where = (box.label.replace("\n", " ") if box and box.label
+                     else path[-1])
+            self._record_shortcut(
+                f"auto-flow: {n} step(s), stopped at branch '{where}'")
+        elif reason == "cycle":
+            self._record_shortcut(f"auto-flow: {n} step(s), stopped (cycle)")
+        else:
+            self._record_shortcut(f"auto-flow: {n} step(s)")
+
+    def _discard_auto_bookmarks(self, flow: Flow) -> None:
+        """Remove the bookmarks this flow's steps own (not used by any other
+        flow), so re-generating doesn't leave orphans behind."""
+        others: set[str] = set()
+        for f in self._board.flows:
+            if f is flow:
+                continue
+            others.update(s.ref for s in f.steps)
+        for step in list(flow.steps):
+            if step.ref not in others:
+                bm = self._board.bookmark_by_id(step.ref)
+                if bm is not None:
+                    self._board.remove_bookmark(bm)
+        flow.steps = []
+
+    def _node_exists(self, node_id: str) -> bool:
+        """True if ``node_id`` is a real graph node (box, note or image)."""
+        return bool(self._board and (self._board.box_by_id(node_id)
+                                     or self._board.note_by_id(node_id)
+                                     or self._board.image_by_id(node_id)))
+
+    def create_auto_flow(self, start_id: str, label: str):
+        """Create a flow by walking forward arrows from ``start_id``."""
+        if not self._node_exists(start_id):
+            self._record_shortcut("auto-flow needs a node")
+            return None
+        self._push_undo()
+        flow = Flow(id=self._board.next_flow_id(), label=label,
+                    auto_start=start_id)
+        self._board.add_flow(flow)
+        self._populate_auto_flow(flow)
+        self._commit_flow_edit()
+        return flow
+
+    def regenerate_auto_flow(self, flow):
+        """Re-walk from the flow's stored start node: rewrite the steps, keep
+        the title page (label/description)."""
+        if not self._board or flow is None or not flow.auto_start:
+            return
+        if not self._node_exists(flow.auto_start):
+            self._record_shortcut("auto-flow: start node is gone")
+            return
+        self._push_undo()
+        self._discard_auto_bookmarks(flow)
+        self._populate_auto_flow(flow)
+        self._commit_flow_edit()
+
+    def new_auto_flow_from_selection(self):
+        """gF/panel: auto-flow from the single selected node (box, note or image)."""
+        nodes = [i for i in self._scene.selectedItems()
+                 if isinstance(i, (BoxItem, NoteItem, ImageItem))]
+        if len(nodes) != 1:
+            self._record_shortcut("auto-flow: select exactly one node first")
+            return None
+        item = nodes[0]
+        if isinstance(item, BoxItem):
+            text = item.box.label
+        elif isinstance(item, NoteItem):
+            text = item.note.text
+        else:  # ImageItem has no text — name the flow after the image file
+            text = Path(item.image.image_path).stem
+        label = (text.replace("\n", " ").strip() or "Auto flow")[:60]
+        return self.create_auto_flow(self._item_id(item), label)
+
+    def delete_flow(self, flow):
+        if not self._board or flow is None:
+            return
+        if self._recording_flow is flow:
+            self._recording_flow = None
+        if self._active_flow is flow:
+            self._active_flow = None
+            self._active_step_index = -1
+        self._board.remove_flow(flow)
+        self._commit_flow_edit()
+
+    def delete_bookmark(self, bookmark):
+        """Delete a bookmark and prune any flow steps that referenced it, so
+        no flow is left pointing at a missing stop."""
+        if not self._board or bookmark is None:
+            return
+        for flow in self._board.flows:
+            flow.steps = [s for s in flow.steps if s.ref != bookmark.id]
+        self._board.remove_bookmark(bookmark)
+        self._commit_flow_edit()
+
+    def _set_flow_overlay(self, overlay: dict):
+        self._flow_overlay = overlay
+        self.viewport().update()
+
+    def _clear_flow_overlay(self):
+        self._flow_overlay = None
+        self.viewport().update()
+
+    # ── Transient confirmation overlays (flashes) ──
+
+    _FLASH_BLUE = (43, 108, 176)     # bookmark goto confirmation
+    _FLASH_RED = (199, 80, 80)       # delete pop
+
+    def _spawn_flash(self, rect: QRectF, *, color, mode: str = "pulse",
+                     dur: int = 200):
+        """Add a transient overlay easing 0->1 then dropping itself.
+
+        ``mode`` picks the look: ``hold`` (blue bookmark outline that holds
+        then fades), ``pulse`` (a quick expanding ring — snap lock-in), or
+        ``shrink`` (collapses toward its centre — delete pop).
+        """
+        if rect is None or rect.isNull():
+            return
+        entry = {"rect": QRectF(rect), "color": color, "mode": mode, "p": 0.0}
+        # Cheap runaway guard: keep the overlay list bounded.
+        self._flashes.append(entry)
+        if len(self._flashes) > 24:
+            del self._flashes[:-24]
+
+        def _set(v):
+            entry["p"] = v
+            self.viewport().update()
+
+        def _done():
+            try:
+                self._flashes.remove(entry)
+            except ValueError:
+                pass
+            self.viewport().update()
+
+        self._animate_fade(0.0, 1.0, _set, dur=dur, on_finished=_done)
+
+    def flash_anchor(self, rect: QRectF):
+        """Briefly outline a scene rect in blue, fading out — a confirmation
+        of what a bookmark frames.
+        """
+        self._spawn_flash(rect, color=self._FLASH_BLUE, mode="hold", dur=700)
+
+    def _draw_flashes(self, painter: QPainter):
+        """Drawn while the painter is still in scene coordinates."""
+        if not self._flashes:
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for f in self._flashes:
+            p = f["p"]
+            r, g, b = f["color"]
+            mode = f["mode"]
+            rect = f["rect"]
+            if mode == "hold":
+                # Hold full strength briefly, then fade across the back half.
+                op = 1.0 if p < 0.35 else max(0.0, 1.0 - (p - 0.35) / 0.65)
+                grow, radius = 0.0, 8
+            elif mode == "shrink":
+                op = max(0.0, 1.0 - p)
+                grow, radius = -min(rect.width(), rect.height()) * 0.18 * p, 6
+            else:   # pulse
+                op = max(0.0, 1.0 - p)
+                grow, radius = 4.0 * p, 6
+            if op <= 0.0:
+                continue
+            draw_rect = rect.adjusted(-grow, -grow, grow, grow)
+            pen = QPen(QColor(r, g, b, int(220 * op)), 0)
+            pen.setCosmetic(True)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.setBrush(QBrush(QColor(r, g, b, int(36 * op))))
+            painter.drawRoundedRect(draw_rect, radius, radius)
+        painter.restore()
+
+    # ── Smart alignment guides (live during a single-element drag) ──
+
+    _GUIDE_COLOR = (0, 209, 224)   # vivid cyan — reads as "alignment", not chrome
+
+    def _align_rect_for(self, item, top_left: QPointF | None = None) -> QRectF:
+        """The item's content rect in scene coords (excluding selection
+        chrome), optionally placed at a candidate top-left ``top_left``."""
+        if isinstance(item, BoxItem):
+            tl = top_left if top_left is not None else QPointF(
+                item.box.x, item.box.y)
+            return QRectF(tl.x(), tl.y(), item.box.w, item.box.h)
+        if isinstance(item, ImageItem):
+            tl = top_left if top_left is not None else QPointF(
+                item.image.x, item.image.y)
+            return QRectF(tl.x(), tl.y(), item.image.w, item.image.h)
+        # NoteItem (and any fallback): derive size from the live bounds and
+        # the pos->content offset, so a candidate pos maps to a content rect.
+        br = item.sceneBoundingRect()
+        if top_left is None:
+            return br
+        off = br.topLeft() - item.pos()
+        return QRectF(top_left + off, br.size())
+
+    def begin_drag_guides(self, item):
+        """Gather peer anchor rects once, at drag start (kept cheap by culling
+        to a margin around the viewport)."""
+        self._drag_lead_item = item
+        self._drag_guides = []
+        refs: list[dict] = []
+        exclude = {item}
+        if isinstance(item, BoxItem):
+            exclude |= set(self._descendants(item.box.id))
+        # Only align to elements actually on screen — no guides reaching out
+        # to peers the user can't see. (Small margin so an element flush with
+        # an edge still counts.)
+        vis = self.mapToScene(self.viewport().rect()).boundingRect()
+        vis = vis.adjusted(-8, -8, 8, 8)
+        for peer in (*self._box_items.values(), *self._note_items.values(),
+                     *self._image_items.values()):
+            if peer in exclude or not peer.isVisible():
+                continue
+            r = self._align_rect_for(peer)
+            if not vis.intersects(r):
+                continue
+            refs.append({
+                "rect": r,
+                "xs": (r.left(), r.center().x(), r.right()),
+                "ys": (r.top(), r.center().y(), r.bottom()),
+            })
+            if len(refs) >= 200:
+                break
+        self._drag_guide_refs = refs
+
+    def end_drag_guides(self):
+        if self._drag_guide_refs is None and not self._drag_guides:
+            return
+        self._drag_guide_refs = None
+        self._drag_lead_item = None
+        if self._drag_guides:
+            self._drag_guides = []
+            self.viewport().update()
+
+    def snap_drag_pos(self, item, proposed: QPointF) -> QPointF:
+        """Single hook for every dragged item: smart-alignment snap (the lead
+        item of a single-selection drag) with a grid-snap fallback. Returns the
+        position the item should take and records the guide lines to draw."""
+        # Child propagation / batch moves must follow the lead faithfully —
+        # no snapping of the carried-along items.
+        if (getattr(self, "_propagating_move", False)
+                or self._suppress_child_updates or self._batch_move_updates):
+            return proposed
+
+        sel = [i for i in self._scene.selectedItems()
+               if isinstance(i, (BoxItem, NoteItem, ImageItem))]
+        align_on = (self._drag_guide_refs and item is self._drag_lead_item
+                    and len(sel) <= 1)
+
+        nx, ny = proposed.x(), proposed.y()
+        ax_line = ay_line = None
+        guides: list[dict] = []
+        if align_on:
+            rect = self._align_rect_for(item, proposed)
+            thr = 6.0 / max(1e-6, abs(self.transform().m11()))
+            xs = (rect.left(), rect.center().x(), rect.right())
+            ys = (rect.top(), rect.center().y(), rect.bottom())
+            best_dx = best_dy = None
+            ref_x = ref_y = None
+            for ref in self._drag_guide_refs:
+                for a in xs:
+                    for line in ref["xs"]:
+                        d = line - a
+                        if abs(d) <= thr and (best_dx is None
+                                              or abs(d) < abs(best_dx)):
+                            best_dx, ax_line, ref_x = d, line, ref
+                for a in ys:
+                    for line in ref["ys"]:
+                        d = line - a
+                        if abs(d) <= thr and (best_dy is None
+                                              or abs(d) < abs(best_dy)):
+                            best_dy, ay_line, ref_y = d, line, ref
+            if best_dx is not None:
+                nx += best_dx
+            if best_dy is not None:
+                ny += best_dy
+            snapped = self._align_rect_for(item, QPointF(nx, ny))
+            if ax_line is not None:
+                r2 = ref_x["rect"]
+                guides.append({"orient": "v", "pos": ax_line,
+                               "a": min(snapped.top(), r2.top()),
+                               "b": max(snapped.bottom(), r2.bottom())})
+            if ay_line is not None:
+                r2 = ref_y["rect"]
+                guides.append({"orient": "h", "pos": ay_line,
+                               "a": min(snapped.left(), r2.left()),
+                               "b": max(snapped.right(), r2.right())})
+
+        # Grid fallback on any axis alignment didn't already pin.
+        if self._grid_snap:
+            spacing = self.GRID_SPACING
+            if ax_line is None:
+                nx = round(nx / spacing) * spacing
+            if ay_line is None:
+                ny = round(ny / spacing) * spacing
+
+        # The guide lines are the snap feedback; deliberately no timed pulse
+        # here — a per-frame animation racing Qt's own full-viewport drag
+        # repaints flickers the node it's meant to celebrate.
+        if guides != self._drag_guides:
+            self._drag_guides = guides
+            self.viewport().update()
+        return QPointF(nx, ny)
+
+    def _draw_drag_guides(self, painter: QPainter):
+        """Drawn while the painter is still in scene coordinates.
+
+        Neon-style: a soft glow halo under a crisp bright core, capped with
+        small diamond snap-markers at each end. Everything is static (no timed
+        animation) so it never races the drag's full-viewport repaints.
+        """
+        if not self._drag_guides:
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        zoom = max(1e-6, abs(self.transform().m11()))
+        cap = 4.0 / zoom   # marker half-size in scene units -> ~constant px
+        r, g, b = self._GUIDE_COLOR
+        halo = QPen(QColor(r, g, b, 70), 0)
+        halo.setCosmetic(True)
+        halo.setWidth(6)
+        halo.setCapStyle(Qt.PenCapStyle.RoundCap)
+        core = QPen(QColor(r, g, b, 245), 0)
+        core.setCosmetic(True)
+        core.setWidthF(1.6)
+        core.setCapStyle(Qt.PenCapStyle.RoundCap)
+        for guide in self._drag_guides:
+            pos, a, bb = guide["pos"], guide["a"], guide["b"]
+            if guide["orient"] == "v":
+                p1, p2 = QPointF(pos, a), QPointF(pos, bb)
+            else:
+                p1, p2 = QPointF(a, pos), QPointF(bb, pos)
+            painter.setPen(halo)
+            painter.drawLine(p1, p2)
+            painter.setPen(core)
+            painter.drawLine(p1, p2)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(r, g, b, 245)))
+            for p in (p1, p2):
+                painter.drawPolygon(QPolygonF([
+                    QPointF(p.x(), p.y() - cap), QPointF(p.x() + cap, p.y()),
+                    QPointF(p.x(), p.y() + cap), QPointF(p.x() - cap, p.y())]))
+        painter.restore()
+
+    def _draw_flow_overlay(self, painter: QPainter):
+        """Recording badge (top-right) and playback caption (bottom-center).
+
+        Drawn in viewport coordinates so it stays fixed while the scene
+        pans and zooms underneath.
+        """
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        vp = self.viewport().rect()
+
+        if self._recording_flow is not None:
+            n = len(self._recording_flow.steps)
+            text = f"● REC  {self._recording_flow.label}  ·  {n}"
+            font = QFont(FONT_FAMILY, 11)
+            painter.setFont(font)
+            fm = painter.fontMetrics()
+            pad = 8
+            w = fm.horizontalAdvance(text) + pad * 2
+            h = fm.height() + pad
+            x = vp.width() - w - 12
+            y = 12
+            bg = QColor("#7A1F1F")
+            bg.setAlphaF(0.92)
+            painter.setPen(QPen(QColor(255, 255, 255, 50), 1))
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(QRectF(x, y, w, h), 6, 6)
+            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.drawText(QPointF(x + pad, y + pad / 2 + fm.ascent()), text)
+
+        ov = self._flow_overlay
+        if ov is not None:
+            title = f"{ov['index'] + 1}/{ov['total']}"
+            if ov["label"]:
+                title += f"  ·  {ov['label']}"
+            transition = "smooth" if ov["smooth"] else "instant"
+            play = {"paused": "paused", "playing": "playing",
+                    "loop": "playing ⟳"}.get(ov.get("mode", "paused"), "paused")
+            hint = (f"Space/→ next · ← prev · "
+                    f"t:{transition} · p:{play} · Esc exit")
+
+            title_font = QFont(FONT_FAMILY, 14, QFont.Weight.Bold)
+            desc_font = QFont(FONT_FAMILY, 11)
+            hint_font = QFont(FONT_FAMILY, 9)
+
+            pad = 12
+            gap = 5
+            max_w = min(640, vp.width() - 40)
+
+            painter.setFont(title_font)
+            tfm = painter.fontMetrics()
+            title_disp = tfm.elidedText(title, Qt.TextElideMode.ElideRight, max_w)
+            title_w = tfm.horizontalAdvance(title_disp)
+            title_h = tfm.height()
+
+            painter.setFont(desc_font)
+            dfm = painter.fontMetrics()
+            desc = ov["description"] or ""
+            desc_disp = dfm.elidedText(desc, Qt.TextElideMode.ElideRight, max_w) if desc else ""
+            desc_w = dfm.horizontalAdvance(desc_disp) if desc_disp else 0
+            desc_h = dfm.height() if desc_disp else 0
+
+            painter.setFont(hint_font)
+            hfm = painter.fontMetrics()
+            hint_w = hfm.horizontalAdvance(hint)
+            hint_h = hfm.height()
+
+            content_w = max(title_w, desc_w, hint_w)
+            panel_w = content_w + pad * 2
+            panel_h = title_h + (gap + desc_h if desc_disp else 0) + gap + hint_h + pad * 2
+            panel_x = (vp.width() - panel_w) / 2
+            panel_y = vp.height() - panel_h - 20
+
+            bg = QColor("#2F3437")
+            bg.setAlphaF(0.94)
+            painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(QRectF(panel_x, panel_y, panel_w, panel_h), 8, 8)
+
+            cy = panel_y + pad
+            painter.setFont(title_font)
+            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.drawText(QPointF(panel_x + pad, cy + tfm.ascent()), title_disp)
+            cy += title_h
+            if desc_disp:
+                cy += gap
+                painter.setFont(desc_font)
+                painter.setPen(QPen(QColor(220, 220, 220)))
+                painter.drawText(QPointF(panel_x + pad, cy + dfm.ascent()), desc_disp)
+                cy += desc_h
+            cy += gap
+            painter.setFont(hint_font)
+            painter.setPen(QPen(QColor(150, 150, 150)))
+            painter.drawText(QPointF(panel_x + pad, cy + hfm.ascent()), hint)
+
+        painter.restore()
+
     # ── Navigation jumplist (Ctrl+O / Ctrl+I) ──
 
     def _push_nav_snapshot(self):
@@ -4329,6 +7447,53 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
         self._nav_index += 1
         self._animate_to_rect(self._nav_stack[self._nav_index])
+
+    def _selection_scene_rect(self) -> QRectF | None:
+        """Union of the scene rects of the selected boxes/notes/images, or None."""
+        rect: QRectF | None = None
+        for it in self._scene.selectedItems():
+            if isinstance(it, (BoxItem, NoteItem, ImageItem)):
+                r = it.sceneBoundingRect()
+                rect = QRectF(r) if rect is None else rect.united(r)
+        return rect
+
+    def _toggle_focus_zoom(self):
+        """gz: zoom the current selection to fill the viewport; press again to
+        fly back to the previous overview.
+
+        Re-pressing after changing the selection re-focuses on the new
+        selection while keeping the original return view, so a final press
+        always lands you back where you started.
+        """
+        if not self._board:
+            return
+        sel_ids = {self._item_id(i) for i in self._scene.selectedItems()
+                   if isinstance(i, (BoxItem, NoteItem, ImageItem))}
+
+        if self._focus_return is not None:
+            # Already focused: re-focus on a new selection, else return.
+            if sel_ids and sel_ids != self._focus_target_ids:
+                rect = self._selection_scene_rect()
+                if rect is not None:
+                    self._focus_target_ids = sel_ids
+                    pad = max(40.0, rect.width() * 0.08, rect.height() * 0.08)
+                    self._animate_to_rect(rect.adjusted(-pad, -pad, pad, pad))
+                    return
+            ret = self._focus_return
+            self._focus_return = None
+            self._focus_target_ids = set()
+            self._animate_to_rect(ret)
+            return
+
+        # Not focused: need a selection to zoom into.
+        rect = self._selection_scene_rect()
+        if rect is None:
+            self._record_shortcut("gz → select an element first")
+            return
+        self._focus_return = self.mapToScene(self.viewport().rect()).boundingRect()
+        self._focus_target_ids = sel_ids
+        pad = max(40.0, rect.width() * 0.08, rect.height() * 0.08)
+        self._animate_to_rect(rect.adjusted(-pad, -pad, pad, pad))
 
     def _select_parent_and_zoom(self):
         """P key: select parent box, zoom to it if not fully visible."""
@@ -4423,17 +7588,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     _GRAPH_NAV_KEYS = "hjkluiop"
 
-    def _enter_graph_nav(self, source_item: BoxItem):
-        """Show jump labels on connectors from the selected node."""
+    def _enter_graph_nav(self, source_item):
+        """Show jump labels on graph-edge connectors from the selected node.
+
+        Follows only graph edges (annotation links are skipped) and reaches any
+        graph node — boxes and note nodes alike.
+        """
         if not self._board:
             return
         self._exit_graph_nav()  # clean up any previous state
-        node_id = source_item.box.id
+        node_id = self._item_id(source_item)
+        src_center = source_item.sceneBoundingRect().center()
         viewport_rect = self.mapToScene(self.viewport().rect()).boundingRect()
 
-        # Find connectors to other nodes (not annotation notes)
+        # Find graph-edge connectors to other nodes (annotation links skipped)
         targets: list[tuple[str, Arrow]] = []  # (target_id, arrow)
         for arrow in self._board.arrows:
+            if not self._is_graph_edge(arrow):
+                continue
             target_id = None
             if arrow.from_id == node_id:
                 target_id = arrow.to_id
@@ -4441,20 +7613,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 target_id = arrow.from_id
             if target_id is None:
                 continue
-            # Skip annotation notes — only follow to boxes
-            if not self._board.box_by_id(target_id):
+            target_item = (self._box_items.get(target_id)
+                           or self._note_items.get(target_id)
+                           or self._image_items.get(target_id))
+            if target_item is None:
                 continue
-            # Only connectors visible in viewport
-            target_item = self._box_items.get(target_id)
-            if not target_item:
-                continue
-            # Check if the connector midpoint is in viewport
-            src_box = source_item.box
-            tgt_box = target_item.box
-            mid = QPointF(
-                (src_box.x + src_box.w / 2 + tgt_box.x + tgt_box.w / 2) / 2,
-                (src_box.y + src_box.h / 2 + tgt_box.y + tgt_box.h / 2) / 2,
-            )
+            # Only connectors whose midpoint is visible in the viewport
+            tgt_center = target_item.sceneBoundingRect().center()
+            mid = QPointF((src_center.x() + tgt_center.x()) / 2,
+                          (src_center.y() + tgt_center.y()) / 2)
             if viewport_rect.contains(mid):
                 targets.append((target_id, arrow))
 
@@ -4483,12 +7650,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._graph_nav_map[label_key] = target_id
 
             # Position label at connector midpoint
-            src_box = source_item.box
-            tgt_box = self._box_items[target_id].box
-            mid = QPointF(
-                (src_box.x + src_box.w / 2 + tgt_box.x + tgt_box.w / 2) / 2,
-                (src_box.y + src_box.h / 2 + tgt_box.y + tgt_box.h / 2) / 2,
-            )
+            tgt_item = (self._box_items.get(target_id)
+                        or self._note_items.get(target_id))
+            tgt_center = tgt_item.sceneBoundingRect().center()
+            mid = QPointF((src_center.x() + tgt_center.x()) / 2,
+                          (src_center.y() + tgt_center.y()) / 2)
 
             bg_color = QColor("#C1086D")
             text_item = QGraphicsSimpleTextItem(label_key)
@@ -4559,14 +7725,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         text = event.text().lower()
         if text in self._graph_nav_map:
             target_id = self._graph_nav_map[text]
-            target_item = self._box_items.get(target_id)
+            target_item = (self._box_items.get(target_id)
+                           or self._note_items.get(target_id))
             if target_item:
                 self._push_nav_snapshot()
                 self._scene.clearSelection()
                 target_item.setSelected(True)
                 # Zoom if target not fully visible
-                tgt = target_item.box
-                target_rect = QRectF(tgt.x, tgt.y, tgt.w, tgt.h)
+                target_rect = target_item.sceneBoundingRect()
                 vp_scene = self.mapToScene(self.viewport().rect()).boundingRect()
                 if not vp_scene.contains(target_rect):
                     padding = max(60, target_rect.width() * 0.15, target_rect.height() * 0.15)
@@ -4589,6 +7755,128 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         for item in self._graph_nav_warning:
             self._scene.removeItem(item)
         self._graph_nav_warning.clear()
+
+    # ── Toast (transient action feedback) ──
+
+    def toast(self, text: str, kind: str = "info"):
+        """Show a transient HUD pill confirming an action.
+
+        ``info``/``warn`` auto-clear after a couple of seconds; ``error`` sticks
+        until the next toast so a failure can't scroll past unseen.
+        """
+        self._toast_text = text
+        self._toast_kind = kind
+        if self._toast_timer is not None:
+            self._toast_timer.stop()
+            self._toast_timer = None
+        if kind != "error":
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(2400)
+            timer.timeout.connect(self._clear_toast)
+            timer.start()
+            self._toast_timer = timer
+        self.viewport().update()
+
+    def _clear_toast(self):
+        self._toast_text = ""
+        self._toast_timer = None
+        self.viewport().update()
+
+    # ── Fade helper (premium micro-motion for transient overlays) ──
+
+    def _animate_fade(self, start, end, setter, dur: int = 110,
+                      on_finished=None):
+        """Ease ``setter`` from ``start`` to ``end`` over ``dur`` ms (OutCubic).
+
+        The animation is held in ``_fade_anims`` so Qt doesn't garbage-collect it
+        mid-flight, and removed on completion.
+        """
+        anim = QVariantAnimation(self)
+        anim.setStartValue(float(start))
+        anim.setEndValue(float(end))
+        anim.setDuration(dur)
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.valueChanged.connect(lambda v: setter(float(v)))
+
+        def _done():
+            if on_finished is not None:
+                on_finished()
+            self._fade_anims.discard(anim)
+
+        anim.finished.connect(_done)
+        self._fade_anims.add(anim)
+        anim.start()
+        return anim
+
+    def _animate_scale(self, items, start, end, dur: int = 160):
+        """Ease ``setScale`` from ``start`` to ``end`` over ``dur`` ms with an
+        OutBack overshoot — a subtle 'pop' about each item's own centre."""
+        live = []
+        for it in items:
+            try:
+                it.setTransformOriginPoint(it.boundingRect().center())
+                it.setScale(start)
+                live.append(it)
+            except RuntimeError:
+                pass
+        if not live:
+            return
+
+        def _set(v):
+            for it in live:
+                try:
+                    it.setScale(v)
+                except RuntimeError:
+                    pass
+        anim = QVariantAnimation(self)
+        anim.setStartValue(float(start))
+        anim.setEndValue(float(end))
+        anim.setDuration(dur)
+        anim.setEasingCurve(QEasingCurve.Type.OutBack)
+        anim.valueChanged.connect(lambda v: _set(float(v)))
+        anim.finished.connect(lambda: self._fade_anims.discard(anim))
+        self._fade_anims.add(anim)
+        anim.start()
+        return anim
+
+    def _draw_toast(self, painter: QPainter):
+        if not self._toast_text:
+            return
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+        is_error = self._toast_kind == "error"
+        is_warn = self._toast_kind == "warn"
+        glyph = "⚠" if (is_error or is_warn) else "✓"  # ⚠ / ✓
+        text = f"{glyph}  {self._toast_text}"
+
+        font = QFont(FONT_FAMILY, 11)
+        painter.setFont(font)
+        fm = painter.fontMetrics()
+        pad_x, pad_y = 14, 8
+        tw = fm.horizontalAdvance(text)
+        th = fm.height()
+        rw = tw + pad_x * 2
+        rh = th + pad_y * 2
+        vp = self.viewport().rect()
+        rx = (vp.width() - rw) / 2
+        ry = vp.height() - rh - 24
+
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.94)
+        accent = QColor("#C75050") if is_error else (
+            QColor("#D4BA6A") if is_warn else QColor("#6BAA8A"))
+        painter.setPen(QPen(accent, 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(rx, ry, rw, rh), 8, 8)
+        # Border carries the status color; text stays near-white for readability.
+        painter.setPen(QPen(QColor(255, 255, 255, 235)))
+        painter.drawText(QRectF(rx, ry, rw, rh), Qt.AlignmentFlag.AlignCenter,
+                         text)
+        painter.restore()
 
     # ── Debug overlay ──
 
@@ -4640,7 +7928,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     # ── Glyph picker ──
 
-    def _open_glyph_picker(self, mode: str = "insert"):
+    def _open_glyph_picker(self):
         picker = GlyphPicker(self.viewport())
         vp = self.viewport().rect()
         pw = 420
@@ -4669,10 +7957,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         py = max(0, min(py, vp.height() - ph))
         picker.move(self.viewport().mapToGlobal(QPoint(int(px), int(py))))
 
-        if mode == "insert":
-            picker.glyph_selected.connect(self._insert_glyph)
-        else:
-            picker.glyph_selected.connect(self._replace_label_with_glyph)
+        picker.glyph_selected.connect(self._insert_glyph)
         picker.show()
 
     def _insert_glyph(self, char: str):
@@ -4682,16 +7967,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             cursor.insertText(char)
             self._editor.setTextCursor(cursor)
             self._editor.setFocus()
-
-    def _replace_label_with_glyph(self, char: str):
-        self._push_undo()
-        char = ensure_text_presentation(char)
-        for item in self._scene.selectedItems():
-            if isinstance(item, BoxItem):
-                item.update_label(char)
-            elif isinstance(item, NoteItem):
-                item.update_text(char)
-        self.mark_dirty()
 
     # ── Export (SVG file / PNG clipboard) ──
 
@@ -4801,6 +8076,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             image.fill(SCENE_BG)
             painter = QPainter(image)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
             # Always render against an explicit pixel target. Setting DPR
             # before render() with a null target makes Qt drop most of the
             # scene for certain aspect ratios (wide-and-short pipelines).
@@ -4832,9 +8109,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _yank_png_to_clipboard(self):
         """Copy the diagram as PNG to the system clipboard."""
-        image = self._render_png_image()
-        QApplication.clipboard().setImage(image)
-        self._record_shortcut("PNG copied")
+        try:
+            image = self._render_png_image()
+            QApplication.clipboard().setImage(image)
+        except Exception as exc:
+            self.toast(f"PNG copy failed: {exc}", "error")
+            return
+        self.toast("PNG copied to clipboard")
 
     def _export_svg_file(self):
         """Export the diagram as an SVG file."""
@@ -4849,10 +8130,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         )
         if not path:
             return
-        svg_bytes = self._render_svg_bytes()
-        with open(path, "wb") as f:
-            f.write(svg_bytes.data())
-        self._record_shortcut("SVG exported")
+        try:
+            svg_bytes = self._render_svg_bytes()
+            with open(path, "wb") as f:
+                f.write(svg_bytes.data())
+        except Exception as exc:
+            self.toast(f"SVG export failed: {exc}", "error")
+            return
+        self.toast(f"SVG exported · {Path(path).name}")
 
     # ── Cheatsheet (Shift+H) ──
 
@@ -4869,25 +8154,27 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("N", "Create node (\u21e7click stays in mode)"),
                 ("T", "Create note (\u21e7click stays in mode)"),
                 ("C", "Connect arrow (one-shot)"),
-                ("\u21e7N", "Dim notes \u2014 concentrate on the graph"),
             ]),
             ("Navigate", [
-                ("Arrow keys", "Pan viewport"),
-                ("Middle-drag", "Pan anywhere"),
+                ("Arrow keys", "Pan viewport (when nothing selected)"),
+                ("Middle/Right-drag", "Pan anywhere"),
+                ("Two-finger scroll", "Pan (trackpad)"),
+                ("Wheel / ⌃scroll / pinch", "Zoom in / out"),
                 ("+ / -", "Zoom in / out"),
                 ("z", "Zoom in: 25 → 50 → 100 → 150 % (cycle)"),
                 ("⇧Z", "Zoom to fit (whole graph)"),
+                ("gz", "Focus: zoom to selection ⇄ back"),
                 ("gp", "Select parent (zoom if needed)"),
-                ("F", "Select first child"),
+                ("gc", "Select first child"),
                 ("Tab / \u21e7Tab", "Cycle siblings (or search matches)"),
-                ("Ctrl+J", "Jump to any item (global)"),
+                ("f / Ctrl+J", "Jump to any item (global)"),
                 ("Ctrl+O / Ctrl+I", "Nav history back / forward"),
                 ("Alt (hold)", "Graph nav: follow connectors"),
                 ("/", "Search dim-filter \u2014 Tab/\u21e7Tab cycle, Esc clears"),
             ]),
             ("Edit", [
-                ("e / Dbl-click", "Edit selected element"),
-                ("E", "Edit annotation"),
+                ("e / Dbl-click", "Edit selected element (inline)"),
+                ("E", "Zen editor — note text / box-image markdown"),
                 ("W", "Set URL on selected item"),
                 ("Return", "Open URL in browser"),
                 ("Enter", "Accept edit"),
@@ -4895,12 +8182,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("u / \u2318Z", "Undo"),
                 ("Ctrl+R / \u2318\u21e7Z", "Redo"),
                 ("x / Delete", "Delete selected / arrow"),
-                ("\u2318G", "Insert glyph / replace label"),
+                ("Ctrl+G", "Insert glyph (while editing)"),
             ]),
             ("Create", [
                 ("o / O", "Create box below / above"),
                 ("Ctrl+Arrow", "Create adjacent box"),
-                ("Alt+Drag", "Connect boxes (from SELECT)"),
+                ("Ctrl+G", "Encapsulate selection in a new parent box"),
+                ("Alt+Drag", "Connect nodes — boxes, notes, images (from SELECT)"),
                 ("Alt+Click", "Paste at position"),
             ]),
             ("Notes", [
@@ -4908,15 +8196,20 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("Default wrap", "80 chars — set ~width=N for per-note override"),
             ]),
             ("Style", [
-                ("h / l", "Cycle color"),
-                ("j / k", "Cycle text size"),
-                ("s", "Enter style mode"),
-                ("d", "Enter dimension mode"),
+                ("s", "Style mode — then:"),
+                ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
+                ("  i", "Icon grid (visual vocab; ⇥ fill/lead)"),
+                ("  t", "Text grid: size × bold/italic (⇥ font, o outline, s shadow)"),
+                ("  j / k", "Nudge text size"),
+                ("  d", "Dimension mode (resize)"),
+                ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),
+                ("Drag corner", "Scale the selection (size + font); Shift keeps ratio"),
                 ("Shift+G", "Snap to grid"),
                 ("=", "Auto-layout selection (or all)"),
             ]),
             ("Focus & Analysis", [
                 (",", "Dim arrows"),
+                ("\u21e7N", "Dim notes \u2014 concentrate on the graph"),
                 ("A", "Complexity analysis heatmap"),
                 ("B", "Subgraph focus (cycle direction)"),
                 ("\u21e7B", "Toggle focus depth (full/1-hop)"),
@@ -4924,7 +8217,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             ("View", [
                 ("#", "Toggle grid"),
                 ("M", "Toggle minimap"),
+                ("⇧D", "Toggle level-of-detail (semantic zoom)"),
+                ("Dbl-click tile", "Fly into a collapsed group"),
                 ("\\", "Toggle tools panel"),
+            ]),
+            ("Bookmarks & Flows", [
+                ("gb", "Bookmark what's shown (logical)"),
+                ("Select + gb", "Scope step to selection"),
+                ("1 note + gb, no caption", "Text slide (clickable links)"),
+                ("gB", "Bookmark exact viewport"),
+                ("gf", "Start / stop flow recording"),
+                ("gF", "Auto-flow: walk forward arrows from selected node"),
+                ("Flows tab (\\)", "Edit flows: reorder, add/remove, dwell, re-generate (↻)"),
+                ("Select step + gb", "Insert new bookmark after it"),
+                ("Space / →", "Next stop (during playback)"),
+                ("←", "Previous stop"),
+                ("t", "Toggle smooth / instant"),
+                ("p", "Cycle paused / playing / loop"),
+                ("F5", "Present flow fullscreen"),
+                ("Esc", "Exit playback / present"),
             ]),
             ("Export", [
                 ("Y", "Yank diagram as PNG to clipboard"),
@@ -4936,6 +8247,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("h / l", "Toggle arrowheads"),
                 ("j / k", "Arrow label size"),
                 ("\u21e7J / \u21e7K", "Cycle arrow style"),
+                ("s then a", "Toggle connector kind: graph edge \u21c4 annotation"),
             ]),
             ("Buffers", [
                 ("Ctrl+K", "Open / switch buffer"),
@@ -4953,7 +8265,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         columns = [
             ["File", "Modes", "Navigate"],
-            ["Edit", "Create", "Focus & Analysis", "View"],
+            ["Edit", "Create", "Focus & Analysis", "View", "Bookmarks & Flows"],
             ["Style", "Arrow", "Export", "Buffers", "Other"],
         ]
         group_map = {name: entries for name, entries in groups}
@@ -5059,6 +8371,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         )
         notes_browser.setHtml(self._notes_help_html())
         tabs.addTab(notes_browser, "Text Annotations")
+
+        # ── Tab 3: markdown editor ──
+        md_browser = QTextBrowser(tabs)
+        md_browser.setOpenLinks(False)
+        md_browser.setFont(font)
+        md_browser.setStyleSheet(
+            "QTextBrowser { background: #2A2A2A; color: #E0E0E0; border: none;"
+            " padding: 8px; }"
+        )
+        md_browser.setHtml(self._md_editor_help_html())
+        tabs.addTab(md_browser, "Markdown Editor")
 
         btn = QPushButton("Close", dlg)
         btn.clicked.connect(dlg.accept)
@@ -5205,6 +8528,108 @@ return out  @parser.py:44</div>
         <p>Notes can use triple-quoted text in the file format when the text
         contains quotes or should stay readable across multiple lines. In the
         canvas this is still just an ordinary editable note.</p>
+        """
+
+    def _md_editor_help_html(self) -> str:
+        hdr = (
+            "color:#6A9FB5;font-weight:bold;"
+            "padding-top:10px;padding-bottom:4px"
+        )
+        kw = "color:#6A9FB5;font-weight:bold"
+        mono = "font-family:monospace"
+        cell = "padding:4px 8px;vertical-align:top"
+        key_cell = (
+            "padding:4px 8px;font-family:monospace;"
+            "white-space:nowrap;vertical-align:top"
+        )
+        return f"""
+        <p style='{hdr}'>MARKDOWN EDITOR (ZEN MODE)</p>
+        <p>Opens when you follow a link to a local <span style='{mono}'>.md</span>
+        file from a node URL, or when you edit an annotation. Pure text, no
+        chrome &mdash; the shortcuts below are the controls. The editor opens
+        ready to type (vim NORMAL mode); switch to a rendered reading view with
+        <b>Ctrl+R</b>.</p>
+
+        <p style='{kw}'>Session</p>
+        <table cellpadding='2' style='margin-left:8px'>
+          <tr><td style='{key_cell}'>Esc</td>
+              <td style='{cell}'>Save &amp; close
+                  (annotation mode emits the new text; file mode just
+                  closes &mdash; writes happen via autosave).</td></tr>
+          <tr><td style='{key_cell}'>Shift+Esc</td>
+              <td style='{cell}'>Cancel &mdash; discard pending changes
+                  in annotation mode.</td></tr>
+          <tr><td style='{key_cell}'>Ctrl+R</td>
+              <td style='{cell}'>Toggle a read-only <b>rendered</b> Markdown
+                  view (formatted headings, bold, lists, links) and back to
+                  the editor. Scroll it with vim keys
+                  (j/k, Ctrl+d/u, Ctrl+f/b, gg/G).</td></tr>
+          <tr><td style='{key_cell}'>Ctrl+Enter</td>
+              <td style='{cell}'>Toggle full-window width
+                  (focused column &harr; fills the window).</td></tr>
+          <tr><td style='{key_cell}'>Ctrl+.</td>
+              <td style='{cell}'>Toggle section focus &mdash; dim everything
+                  but the current paragraph (off by default).</td></tr>
+          <tr><td style='{key_cell}'>Ctrl+P</td>
+              <td style='{cell}'>Open the native print dialog.</td></tr>
+          <tr><td style='{key_cell}'>Ctrl++ / Ctrl+- / Ctrl+0</td>
+              <td style='{cell}'>Bigger / smaller / reset font size
+                  (persists across sessions).</td></tr>
+          <tr><td style='{key_cell}'>Ctrl+J</td>
+              <td style='{cell}'>Activate word-jump overlay
+                  (Easymotion-style two-key jump to any visible word).</td></tr>
+        </table>
+
+        <p style='{kw}'>Vim Motion (NORMAL mode)</p>
+        <table cellpadding='2' style='margin-left:8px'>
+          <tr><td style='{key_cell}'>h j k l</td>
+              <td style='{cell}'>Left / down / up / right.</td></tr>
+          <tr><td style='{key_cell}'>w / b / e</td>
+              <td style='{cell}'>Next word start / previous word /
+                  word end.</td></tr>
+          <tr><td style='{key_cell}'>0 / $</td>
+              <td style='{cell}'>Line start / line end.</td></tr>
+          <tr><td style='{key_cell}'>gg / G</td>
+              <td style='{cell}'>Document start / end.</td></tr>
+        </table>
+
+        <p style='{kw}'>Entering INSERT mode</p>
+        <table cellpadding='2' style='margin-left:8px'>
+          <tr><td style='{key_cell}'>i / a</td>
+              <td style='{cell}'>Insert before / after the cursor.</td></tr>
+          <tr><td style='{key_cell}'>I / A</td>
+              <td style='{cell}'>Insert at line start / line end.</td></tr>
+          <tr><td style='{key_cell}'>o / O</td>
+              <td style='{cell}'>Open new line below / above.</td></tr>
+          <tr><td style='{key_cell}'>Esc</td>
+              <td style='{cell}'>Back to NORMAL mode
+                  (cursor steps left, vim convention).</td></tr>
+        </table>
+
+        <p style='{kw}'>Edits (NORMAL mode)</p>
+        <table cellpadding='2' style='margin-left:8px'>
+          <tr><td style='{key_cell}'>x</td>
+              <td style='{cell}'>Delete character under cursor.</td></tr>
+          <tr><td style='{key_cell}'>dd</td>
+              <td style='{cell}'>Delete line.</td></tr>
+          <tr><td style='{key_cell}'>dw</td>
+              <td style='{cell}'>Delete to next word.</td></tr>
+        </table>
+
+        <p style='{kw}'>Display</p>
+        <p>iA Writer-inspired: the current paragraph stays at full opacity,
+        surrounding text is muted to keep focus on what you're writing.
+        Headings, lists, links, inline <span style='{mono}'>code</span>,
+        and code fences get light syntax highlighting; muted in read-only
+        mode (no focus paragraph) so the whole document reads as one piece.</p>
+
+        <p style='{kw}'>Layout</p>
+        <p>The editor opens as a centered modal card with a drop shadow.
+        The dim wash falls over grafli's chrome (toolbars, side panel,
+        minimap) but spares the graph canvas, so the diagram you're
+        annotating stays fully saturated behind the card. The card holds
+        just the text &mdash; no title, no hint bar, no badges. Card width
+        hugs the text column (max ≈700&nbsp;px).</p>
         """
 
     def _show_graph_stats_dialog(self):

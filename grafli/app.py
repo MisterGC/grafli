@@ -11,27 +11,53 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QSettings, QTimer
 from PySide6.QtGui import (
     QAction,
-    QFontDatabase,
     QKeySequence,
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
-    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
+    QSplitter,
     QWidget,
 )
 
 from grafli.buffers import BufferManager, BufferState, ViewState
 from grafli.constants import Mode
-from grafli.filewatcher import JsonSafeWatcher
+from grafli.fonts import register_bundled_fonts as _register_bundled_fonts
+from grafli.filewatcher import JsonSafeWatcher, MultiFileWatcher
 from grafli.format import Board, parse, serialize
+from grafli.sync import Conflict, atomic_write, merge_boards
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
 from grafli.sidepanel import PanelToggleButton, SidePanel
 from grafli.view import GrafliView
+
+
+def running_version() -> str:
+    """A label identifying the *running* code. For a packaged install that's
+    the version; for an editable/dev checkout the cached version goes stale, so
+    show the live git HEAD (branch@sha, ``*`` if dirty) — it changes every
+    commit, so a relaunch visibly reflects whether new code was picked up."""
+    import os
+    import subprocess
+    from grafli import __version__
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def _git(*a: str) -> str:
+        try:
+            return subprocess.run(("git", "-C", repo, *a), capture_output=True,
+                                  text=True, timeout=2).stdout.strip()
+        except Exception:
+            return ""
+
+    sha = _git("rev-parse", "--short", "HEAD")
+    if not sha:
+        return f"v{__version__}"
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD") or "?"
+    dirty = "*" if _git("status", "--porcelain") else ""
+    return f"{branch}@{sha}{dirty}"
 
 
 # ── Main window ─────────────────────────────────────────────────
@@ -50,22 +76,30 @@ class MainWindow(QMainWindow):
         self._side_panel = SidePanel(self)
         self._panel_toggle = PanelToggleButton(self._view.viewport())
 
-        container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-        layout.addWidget(self._side_panel)
-        layout.addWidget(self._view, stretch=1)
-        self.setCentralWidget(container)
+        # A splitter lets the user drag the panel/canvas boundary. The panel
+        # keeps a content-driven minimum width so nothing clips, and a single
+        # shared width is remembered across tabs and restarts.
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.setHandleWidth(4)
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.addWidget(self._side_panel)
+        self._splitter.addWidget(self._view)
+        self._splitter.setStretchFactor(0, 0)
+        self._splitter.setStretchFactor(1, 1)
+        self._splitter.splitterMoved.connect(self._on_splitter_moved)
+        self.setCentralWidget(self._splitter)
 
-        # Restore panel visibility from settings (hidden by default)
+        # Restore panel visibility + width from settings (hidden by default)
         settings = QSettings("Grafli", "Grafli")
         panel_visible = settings.value("sidepanel/visible", False, type=bool)
         self._side_panel.setVisible(panel_visible)
+        self._panel_width = settings.value(
+            "sidepanel/width", self._side_panel.preferred_width(), type=int)
         self._setup_panel()
 
         self._file_path: Path | None = None
         self._watcher: JsonSafeWatcher | None = None
+        self._docs_watcher: MultiFileWatcher | None = None
         self._buffers = BufferManager()
 
         self._autosave_timer = QTimer(self)
@@ -73,6 +107,10 @@ class MainWindow(QMainWindow):
         self._autosave_timer.setInterval(300)
         self._autosave_timer.timeout.connect(self._autosave)
         self._last_written = ""
+
+        self._presenting = False
+        self._present_panel_visible = True
+        self._view.playback_ended.connect(self._on_playback_ended)
 
         self._setup_shortcuts()
         self._setup_status_bar()
@@ -100,12 +138,27 @@ class MainWindow(QMainWindow):
     def showEvent(self, event):
         super().showEvent(event)
         self._panel_toggle.reposition()
+        self._apply_panel_width()
+
+    def _apply_panel_width(self):
+        """Size the splitter so the panel takes its remembered shared width."""
+        w = max(self._panel_width, self._side_panel.minimumWidth())
+        total = self._splitter.width() or (w + 800)
+        self._splitter.setSizes([w, max(1, total - w)])
+
+    def _on_splitter_moved(self, pos: int, index: int):
+        if self._side_panel.isVisible():
+            self._panel_width = self._splitter.sizes()[0]
+            QSettings("Grafli", "Grafli").setValue(
+                "sidepanel/width", self._panel_width)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        # A pending fit waits here for the viewport to reach its real size;
+        # _zoom_fit clears the flag once it actually fits (or re-arms if still
+        # too small), so a window-sizing race can't leave the board off-screen.
         if self._pending_zoom_fit and self.isVisible():
-            self._pending_zoom_fit = False
-            QTimer.singleShot(0, lambda: self._zoom_fit(animate=False))
+            self._zoom_fit(animate=False)
 
     def _title_for_path(self, path: Path | None, dirty: bool = False) -> str:
         if path is None:
@@ -126,10 +179,13 @@ class MainWindow(QMainWindow):
         self._view.selection_changed_for_panel.connect(
             self._side_panel.update_selection
         )
+        self._side_panel.attach_view(self._view)
 
     def _toggle_panel(self):
         visible = not self._side_panel.isVisible()
         self._side_panel.setVisible(visible)
+        if visible:
+            self._apply_panel_width()
         QSettings("Grafli", "Grafli").setValue("sidepanel/visible", visible)
         # Keep keyboard focus on the canvas — the panel is mouse-only.
         self._view.setFocus()
@@ -148,6 +204,7 @@ class MainWindow(QMainWindow):
             "undo":         self._view._undo,
             "redo":         self._view._redo,
             "layout":       self._view._layout_selected,
+            "slide_ratio":  self._view._snap_selection_to_slide_ratio,
             "search":       self._view._start_search,
             "grid":         self._view.toggle_grid,
             "minimap":      self._view._toggle_minimap,
@@ -157,9 +214,195 @@ class MainWindow(QMainWindow):
             "yank_png":     self._view._yank_png_to_clipboard,
             "export_svg":   self._view._export_svg_file,
         }
+        if action_id == "export_flow_pdf":
+            self._export_flow_pdf()
+            return
+        if action_id == "export_flow_pptx":
+            self._export_flow_pptx()
+            return
         handler = actions.get(action_id)
         if handler:
             handler()
+
+    # ── Present (fullscreen demo) mode ───────────────────────────
+
+    def _present_current(self):
+        """F5: present the selected/current flow fullscreen, chrome hidden.
+
+        Starts on the first stop, paused — drive it with Space/←/→ and cycle
+        play/loop with p; Esc exits back to the editor.
+        """
+        if self._presenting:
+            self._exit_present()
+            return
+        board = self.board
+        flow_id = None
+        if self._view._active_flow is not None:
+            flow_id = self._view._active_flow.id
+        elif board and board.flows:
+            flow_id = board.flows[0].id
+        if not flow_id:
+            self._view.toast("No flow to present", "warn")
+            return
+
+        self._present_panel_visible = self._side_panel.isVisible()
+        self._side_panel.hide()
+        self.statusBar().hide()
+        self._panel_toggle.hide()
+        self._presenting = True
+        self.showFullScreen()
+        self._view.setFocus()
+        self._view.play_flow(flow_id)
+
+    def _exit_present(self):
+        if not self._presenting:
+            return
+        self._presenting = False
+        if self._view._flow_player is not None:
+            self._view._flow_player.stop()
+        self.showNormal()
+        self._side_panel.setVisible(self._present_panel_visible)
+        self.statusBar().show()
+        self._panel_toggle.show()
+        self._panel_toggle.reposition()
+        self._view.setFocus()
+
+    def _on_playback_ended(self):
+        # Esc during a presentation stops playback — leave fullscreen too.
+        if self._presenting:
+            self._exit_present()
+
+    def _pick_flow(self, flow=None):
+        """Return ``flow`` or let the user pick one (auto when there's a single
+        flow). Returns None when there are no flows or the picker is cancelled."""
+        from PySide6.QtWidgets import QInputDialog
+        board = self._view.board
+        flows = board.flows if board else []
+        if not flows:
+            self._view.toast("No flows to export", "warn")
+            return None
+        if flow is not None:
+            return flow
+        if len(flows) == 1:
+            return flows[0]
+        labels = [f"{f.label}  ({f.id})" for f in flows]
+        choice, ok = QInputDialog.getItem(
+            self, "Export flow", "Flow:", labels, 0, False,
+        )
+        if not ok:
+            return None
+        return flows[labels.index(choice)]
+
+    def _export_flow_pdf(self, flow=None):
+        """Export ``flow`` to a PDF; when not given, pick one (auto if single)."""
+        from PySide6.QtWidgets import QFileDialog
+        flow = self._pick_flow(flow)
+        if flow is None:
+            return
+        default_name = ""
+        if self._file_path:
+            default_name = str(self._file_path.with_name(
+                f"{self._file_path.stem}-{flow.id}.pdf"))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export flow to PDF", default_name,
+            "PDF files (*.pdf);;All Files (*)",
+        )
+        if not path:
+            return
+        from grafli.pdfexport import export_flow_to_pdf
+        try:
+            slides, overloaded = export_flow_to_pdf(self._view, flow, path)
+        except Exception as exc:  # surface any render/IO failure
+            self._view.toast(f"PDF export failed: {exc}", "error")
+            return
+        msg = f"PDF exported · {slides} slides"
+        if overloaded:
+            msg += f" · {len(overloaded)} overloaded — trim or split"
+        self._view.toast(msg, "warn" if overloaded else "info")
+
+    def _export_flow_pptx(self, flow=None):
+        """Export ``flow`` to an editable PowerPoint; pick the flow (auto if
+        single), then a style: a grafli/blank preset, or an existing .pptx
+        template whose master, theme and layouts the export drops onto."""
+        from PySide6.QtWidgets import QFileDialog, QInputDialog
+        flow = self._pick_flow(flow)
+        if flow is None:
+            return
+        themes = ["grafli  (branded)", "blank  (neutral)",
+                  "Use a template…  (your .pptx master)"]
+        choice, ok = QInputDialog.getItem(
+            self, "Export flow to PPTX", "Style:", themes, 0, False,
+        )
+        if not ok:
+            return
+        theme, template, title_layout, content_layout = "grafli", None, None, None
+        if choice == themes[1]:
+            theme = "blank"
+        elif choice == themes[2]:
+            template, title_layout, content_layout = self._pick_pptx_template()
+            if template is None:
+                return
+        default_name = ""
+        if self._file_path:
+            default_name = str(self._file_path.with_name(
+                f"{self._file_path.stem}-{flow.id}.pptx"))
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export flow to PPTX", default_name,
+            "PowerPoint files (*.pptx);;All Files (*)",
+        )
+        if not path:
+            return
+        from grafli.pptxexport import export_flow_to_pptx
+        try:
+            slides, overloaded = export_flow_to_pptx(
+                self._view, flow, path, theme=theme, template=template,
+                title_layout=title_layout, content_layout=content_layout)
+        except Exception as exc:  # surface any render/IO failure
+            self._view.toast(f"PPTX export failed: {exc}", "error")
+            return
+        msg = f"PPTX exported · {slides} slides"
+        if overloaded:
+            msg += f" · {len(overloaded)} overloaded — trim or split"
+        self._view.toast(msg, "warn" if overloaded else "info")
+
+    def _pick_pptx_template(self):
+        """Choose a .pptx template and the layouts to use for the title and
+        content slides. Returns ``(path, title_layout, content_layout)`` with the
+        layout names heuristically pre-selected, or ``(None, None, None)`` if
+        cancelled."""
+        from PySide6.QtWidgets import QFileDialog, QInputDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose a .pptx template", "",
+            "PowerPoint templates (*.pptx);;All Files (*)",
+        )
+        if not path:
+            return None, None, None
+        try:
+            from pptx import Presentation
+            from grafli.pptxexport import _all_layouts, _resolve_layout
+            prs = Presentation(path)
+            names = [lo.name for lo in _all_layouts(prs)]
+            title_def = _resolve_layout(prs, None, "title").name
+            content_def = _resolve_layout(prs, None, "content").name
+        except Exception as exc:
+            self._view.toast(f"Can't read template: {exc}", "error")
+            return None, None, None
+        if not names:
+            self._view.toast("Template has no slide layouts", "error")
+            return None, None, None
+        title_layout, ok = QInputDialog.getItem(
+            self, "Template layout", "Title-slide layout:", names,
+            names.index(title_def), False,
+        )
+        if not ok:
+            return None, None, None
+        content_layout, ok = QInputDialog.getItem(
+            self, "Template layout", "Content-slide layout:", names,
+            names.index(content_def), False,
+        )
+        if not ok:
+            return None, None, None
+        return path, title_layout, content_layout
 
     def _setup_shortcuts(self):
         self._view.mode_changed.connect(self._on_mode_changed)
@@ -187,6 +430,11 @@ class MainWindow(QMainWindow):
         zoom_fit.triggered.connect(self._zoom_fit)
         self.addAction(zoom_fit)
 
+        present = QAction(self)
+        present.setShortcut(QKeySequence("F5"))
+        present.triggered.connect(self._present_current)
+        self.addAction(present)
+
         # Buffer shortcuts
         act_fuzzy_picker = QAction(self)
         act_fuzzy_picker.setShortcut(
@@ -209,14 +457,54 @@ class MainWindow(QMainWindow):
         self._view.scale(1 / 1.15, 1 / 1.15)
         self._view._update_status_zoom()
 
+    def _warn_parse_issues(self, board):
+        """Surface lines the parser couldn't read (and demoted to comments) on
+        open/reload — so an AI/hand-edit slip is visible, not silently lost."""
+        warnings = getattr(board, "parse_warnings", None)
+        if not warnings:
+            return
+        n = len(warnings)
+        # Distinguish "a board with a few bad lines" from "not a board at all"
+        # (e.g. a Markdown doc opened by mistake): if there's no `#!grafli`
+        # header and the file failed to parse far more lines than it
+        # recognized, don't cry "N broken lines" — say it isn't a grafli file.
+        recognized = (len(board.boxes) + len(board.arrows) + len(board.notes)
+                      + len(board.images) + len(board.bookmarks)
+                      + len(board.flows))
+        if not getattr(board, "had_header", False) and n >= max(5, 1.5 * recognized):
+            total = n + recognized
+            self._view.toast(
+                f"⚠ This doesn't look like a grafli file — {n} of {total} "
+                "lines aren't grafli directives. Opened as an empty board.",
+                "warn")
+            return
+        shown = ", ".join(str(w.line) for w in warnings[:6])
+        more = f" (+{len(warnings) - 6} more)" if len(warnings) > 6 else ""
+        self._view.toast(
+            f"⚠ {n} line{'s' if n != 1 else ''} couldn't be parsed "
+            f"({'lines' if n != 1 else 'line'} {shown}{more}) — kept as comments",
+            "warn")
+
     def _zoom_fit(self, animate: bool = True):
-        if self.board and (self.board.boxes or self.board.notes):
-            rect = self._view.scene().itemsBoundingRect().adjusted(-40, -40, 40, 40)
-            if animate:
-                self._view._animate_to_rect(rect)
-            else:
-                self._view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
-                self._view._update_status_zoom()
+        if not (self.board and (self.board.boxes or self.board.notes
+                                or self.board.images)):
+            return
+        vp = self._view.viewport()
+        if vp.width() < 50 or vp.height() < 50:
+            # Viewport not laid out yet — fitInView would land far off. Defer to
+            # the next resize, which fires when the canvas gets its real size.
+            self._pending_zoom_fit = True
+            return
+        rect = self._view.scene().itemsBoundingRect().adjusted(-40, -40, 40, 40)
+        if animate:
+            self._view._animate_to_rect(rect)
+        else:
+            self._view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+            self._view._update_status_zoom()
+        # Keep re-fitting on resize until the window reaches a real size, so a
+        # transient small layout during open doesn't leave the board tiny. Once
+        # the window is real-sized the fit is final (no more auto-refit).
+        self._pending_zoom_fit = vp.width() < 400 or vp.height() < 300
 
     def _setup_status_bar(self):
         self._status_mode = QLabel("SELECT")
@@ -229,18 +517,28 @@ class MainWindow(QMainWindow):
         self._status_focus = QLabel("")
         self._status_focus.setStyleSheet("color: #6A9FB5; font-weight: bold;")
 
+        self._status_lod = QLabel("")
+
         self._status_warn = QLabel("")
         self._status_warn.setStyleSheet("color: #e04040; font-weight: bold;")
 
         self._status_buf = QLabel("")
         self._status_buf.setStyleSheet("color: #6A9FB5;")
 
+        # Running-code identity (git branch@sha for dev checkouts) — so it's
+        # obvious at a glance whether a relaunch picked up new code.
+        self._status_version = QLabel(running_version())
+        self._status_version.setStyleSheet("color: #999999;")
+        self._status_version.setToolTip("Running grafli build")
+
+        self.statusBar().addPermanentWidget(self._status_version)
         self.statusBar().addWidget(self._status_mode)
         self.statusBar().addWidget(self._status_breadcrumb)
         self.statusBar().addWidget(self._status_focus)
         self.statusBar().addPermanentWidget(self._status_warn)
         self.statusBar().addPermanentWidget(self._status_buf)
         self.statusBar().addPermanentWidget(self._status_sel)
+        self.statusBar().addPermanentWidget(self._status_lod)
         self.statusBar().addPermanentWidget(self._status_pos)
         self.statusBar().addPermanentWidget(self._status_zoom)
 
@@ -273,11 +571,14 @@ class MainWindow(QMainWindow):
             self._open_file(Path(path))
 
     def _open_file(self, path: Path):
-        # If already open, just switch to it
+        # Already open — focus it and re-fit, since an explicit "open this
+        # file" (CLI, single-instance forward, file pick) means "show me this
+        # board," not "restore my last scroll position" (that's buffer
+        # switching via Ctrl+K, which keeps the saved view).
         existing = self._buffers.find_by_path(path)
         if existing >= 0:
             self._snapshot_current()
-            self._switch_buffer(existing)
+            self._switch_buffer(existing, zoom_fit=True)
             return
 
         if not path.exists():
@@ -294,6 +595,7 @@ class MainWindow(QMainWindow):
         if migrate_all(path, board):
             text = serialize(board)
             path.write_text(text, encoding="utf-8")
+        missing = _load_vault(path, board)
         mtime = self._get_mtime(path)
         vs = ViewState()
         buf = BufferState(
@@ -304,6 +606,12 @@ class MainWindow(QMainWindow):
         self._snapshot_current()
         idx = self._buffers.add(buf)
         self._switch_buffer(idx, zoom_fit=True)
+        self._warn_parse_issues(board)
+        if missing:
+            self._view.toast(
+                "Missing vault doc"
+                + ("s" if len(missing) > 1 else "")
+                + ": " + ", ".join(f"{m}.md" for m in missing), "warn")
 
     def _snapshot_current(self):
         """Snapshot the current buffer state before switching away."""
@@ -346,12 +654,20 @@ class MainWindow(QMainWindow):
                     buf.board = new_board
                     buf.last_written = text
                     buf.view_state.dirty = False
+                    self._warn_parse_issues(new_board)
                 buf.file_mtime = disk_mtime
 
-        # Apply buffer to view
+        # Set the path before loading so the scene rebuild can resolve image
+        # paths (relative to the file's directory) instead of falling back to
+        # grey placeholders.
+        self._file_path = buf.file_path
+        # Re-read vault doc bodies: they may have changed on disk while this
+        # buffer was inactive (the .grafli mtime check above can't see that).
+        # Safe — _snapshot_current flushed any pending autosave before leaving.
+        if buf.file_path is not None:
+            _load_vault(buf.file_path, buf.board)
         self._view.load_board(buf.board)
         self._view.restore_state(buf.view_state)
-        self._file_path = buf.file_path
         self._last_written = buf.last_written
         self._view.set_mode(Mode.SELECT)
 
@@ -361,8 +677,17 @@ class MainWindow(QMainWindow):
         )
         self._update_buf_status()
 
+        # An explicit open leaves the canvas focused so its shortcuts (M, ⇧Z,
+        # …) work immediately — without this the keys silently do nothing until
+        # the user clicks the canvas, which reads as a frozen app.
+        self._view.setFocus()
+
         if zoom_fit:
-            self._zoom_fit(animate=False)
+            # Arm a fit and try it now; if the viewport isn't laid out yet the
+            # attempt no-ops and re-arms, and resizeEvent completes it once the
+            # viewport has its real size (otherwise the board opens off-screen).
+            self._pending_zoom_fit = True
+            QTimer.singleShot(0, lambda: self._zoom_fit(animate=False))
 
     def close_buffer(self):
         """Close the active buffer (called from Q key or programmatically)."""
@@ -421,11 +746,14 @@ class MainWindow(QMainWindow):
                     buf.board = new_board
                     buf.last_written = text
                     buf.view_state.dirty = False
+                    self._warn_parse_issues(new_board)
                 buf.file_mtime = disk_mtime
 
+        # Set the path before loading so image paths resolve during the scene
+        # rebuild (see _switch_buffer).
+        self._file_path = buf.file_path
         self._view.load_board(buf.board)
         self._view.restore_state(buf.view_state)
-        self._file_path = buf.file_path
         self._last_written = buf.last_written
         self._view.set_mode(Mode.SELECT)
         self._start_watching()
@@ -563,12 +891,60 @@ class MainWindow(QMainWindow):
         if self.board and self._file_path:
             self._write_file()
 
-    def _write_file(self):
+    def _write_file(self) -> bool:
         if not self.board or not self._file_path:
-            return
+            return False
+        from grafli.resources import (classify_attachments, externalize_md_notes,
+                                      res_dir, save_docs)
+        # Conflict-check-on-save: if the file changed on disk since we last
+        # reconciled (an external/AI write the 500 ms watcher hasn't reloaded
+        # yet), merge it into the board *before* serializing — otherwise this
+        # save would silently clobber that write. Closes the autosave race.
+        try:
+            disk_text = self._file_path.read_text(encoding="utf-8")
+        except OSError:
+            disk_text = None
+        if disk_text is not None and disk_text != self._last_written:
+            try:
+                merged, conflicts = self._reconcile_external(disk_text)
+            except Exception:
+                # Disk holds something we can't parse yet (e.g. a mid-write
+                # from a non-atomic external editor). Skip this save and let
+                # the next tick retry against a complete file rather than
+                # overwrite an edit we couldn't read.
+                return False
+            _load_vault(self._file_path, merged)
+            self._view.load_board(merged)
+            if conflicts:
+                self._report_conflicts(conflicts)
+        # Save is the migration moment (opening never mutates the working
+        # tree): inline md: notes become doc-bodied, legacy &url attachments
+        # take their kind, and doc bodies land in the vault.
+        externalized = externalize_md_notes(self.board)
+        classify_attachments(self._file_path, self.board)
+        try:
+            save_docs(self._file_path, self.board)
+        except OSError as exc:
+            self._view.toast(f"Save failed: {exc}", "error")
+            return False
         text = serialize(self.board)
+        try:
+            atomic_write(self._file_path, text)
+        except OSError as exc:
+            # Autosave and manual save both land here — a sticky error toast so
+            # a failing write (read-only dir, full disk) can't pass unnoticed.
+            self._view.toast(f"Save failed: {exc}", "error")
+            return False
+        if externalized:
+            self._view.toast(
+                f"Externalized {externalized} note"
+                + ("s" if externalized != 1 else "")
+                + f" → {res_dir(self._file_path).name}/")
+        # Doc files just changed under our own hand — re-baseline the docs
+        # watcher (and pick up newly externalized docs) so the write doesn't
+        # echo back as an external change.
+        self._watch_docs()
         self._last_written = text
-        self._file_path.write_text(text, encoding="utf-8")
         self._view._dirty = False
         # Update mtime in active buffer
         buf = self._buffers.active
@@ -577,6 +953,7 @@ class MainWindow(QMainWindow):
             buf.last_written = text
         if self._file_path:
             self.setWindowTitle(self._title_for_path(self._file_path))
+        return True
 
     def _save_file(self):
         if not self.board:
@@ -594,7 +971,8 @@ class MainWindow(QMainWindow):
                 buf.file_path = self._file_path
             self._start_watching()
 
-        self._write_file()
+        if self._write_file():
+            self._view.toast(f"Saved {self._file_path.name}")
 
     def _start_watching(self):
         self._stop_watching()
@@ -603,11 +981,59 @@ class MainWindow(QMainWindow):
         self._watcher = JsonSafeWatcher(str(self._file_path))
         self._watcher.file_changed.connect(self._on_file_changed)
         self._watcher.start()
+        self._watch_docs()
+
+    def _watch_docs(self):
+        """(Re)start the consolidated poller over the board's vault docs, so
+        external edits to a doc-bodied note's .md reload live — one timer for
+        all docs, re-baselined after our own writes."""
+        if self._docs_watcher:
+            self._docs_watcher.stop()
+            self._docs_watcher = None
+        if not self._file_path or not self.board:
+            return
+        from grafli.format import doc_name
+        from grafli.resources import doc_path
+        paths = [str(doc_path(self._file_path, doc_name(n)))
+                 for n in self.board.notes if n.attach_kind == "doc"]
+        if not paths:
+            return
+        self._docs_watcher = MultiFileWatcher(paths)
+        self._docs_watcher.files_changed.connect(self._on_docs_changed)
+        self._docs_watcher.start()
+
+    def _on_docs_changed(self, _changed: list):
+        if not self.board or not self._file_path:
+            return
+        from grafli.resources import load_docs
+        load_docs(self._file_path, self.board)
+        self._view.load_board(self.board)
 
     def _stop_watching(self):
         if self._watcher:
             self._watcher.stop()
             self._watcher = None
+        if self._docs_watcher:
+            self._docs_watcher.stop()
+            self._docs_watcher = None
+
+    def _reconcile_external(self, disk_text: str) -> tuple[Board, list[Conflict]]:
+        """3-way merge an external on-disk edit into the in-memory board.
+
+        ``base`` is the disk content we last reconciled against
+        (``_last_written``), ``local`` the current in-memory board (the
+        human's unsaved edits), ``remote`` the new disk text (e.g. an AI
+        write). Returns the merged board and any conflicts. When there is
+        no in-memory board yet, the disk version is taken verbatim.
+        """
+        remote = parse(disk_text)
+        if not self.board:
+            return remote, []
+        try:
+            base = parse(self._last_written) if self._last_written else None
+        except Exception:
+            base = None
+        return merge_boards(base, self.board, remote)
 
     def _on_file_changed(self):
         if not self._file_path or not self._file_path.exists():
@@ -619,23 +1045,36 @@ class MainWindow(QMainWindow):
         if text == self._last_written:
             return
 
-        new_board = parse(text)
-
-        if self.board:
-            old_positions = {
-                b.id: (b.x, b.y) for b in self.board.boxes
-            }
-            for box in new_board.boxes:
-                if box.id in old_positions:
-                    box.x, box.y = old_positions[box.id]
-
-        self._view.load_board(new_board)
-        self._view.mark_clean()
+        merged, conflicts = self._reconcile_external(text)
+        _load_vault(self._file_path, merged)
+        self._view.load_board(merged)
+        self._watch_docs()
         self._last_written = text
+        # If the merge folded in local edits not yet on disk, the board is
+        # dirty and the next autosave converges the file to the merged
+        # result; otherwise it already matches disk and is clean.
+        if serialize(merged) != text:
+            self._view.mark_dirty()
+        else:
+            self._view.mark_clean()
         buf = self._buffers.active
         if buf:
             buf.file_mtime = self._get_mtime(self._file_path)
             buf.last_written = text
+        if conflicts:
+            self._report_conflicts(conflicts)
+
+    def _report_conflicts(self, conflicts: list[Conflict]) -> None:
+        """Surface merge conflicts so a concurrent edit clash is never
+        silent — the merge already resolved them deterministically; this
+        just tells the human which elements diverged."""
+        n = len(conflicts)
+        first = conflicts[0]
+        head = f"{first.kind} {first.key} ({first.detail})"
+        msg = (f"Merged {n} concurrent edit conflict"
+               + ("s" if n != 1 else "")
+               + f" — e.g. {head}" if n > 1 else f"Merged a concurrent edit: {head}")
+        self._view.toast(msg, "error")
 
     @staticmethod
     def _get_mtime(path: Path) -> float:
@@ -681,6 +1120,9 @@ class MainWindow(QMainWindow):
                 elif reply == QMessageBox.StandardButton.Cancel:
                     event.ignore()
                     return
+        QSettings("Grafli", "Grafli").setValue(
+            "window/geometry", self.saveGeometry(),
+        )
         self._stop_watching()
         super().closeEvent(event)
 
@@ -690,12 +1132,13 @@ class MainWindow(QMainWindow):
 _SERVER_NAME = "grafli-instance"
 
 
-def _register_bundled_fonts():
-    fonts_dir = Path(__file__).parent / "fonts"
-    for name in ("PatrickHand-Regular.ttf", "JetBrainsMonoNerdFont-Regular.ttf"):
-        path = fonts_dir / name
-        if path.exists():
-            QFontDatabase.addApplicationFont(str(path))
+def _load_vault(path: Path, board: Board) -> list[str]:
+    """Resolve a freshly parsed board against its vault: classify legacy
+    untyped attachments and read doc-bodied note texts from <stem>-res/.
+    In-memory only — never writes. Returns the names of missing docs."""
+    from grafli.resources import classify_attachments, load_docs
+    classify_attachments(path, board)
+    return load_docs(path, board)
 
 
 def _try_send_to_existing(file_path: str | None) -> bool:
@@ -715,14 +1158,25 @@ def _try_send_to_existing(file_path: str | None) -> bool:
 
 
 SKILL_DOCS = """\
-After extracting the skill, install it for your AI tool:
+Subcommands:
+  install   Install the bundled grafli skill for one or more AI tools.
+  check     Report install status per tool (and whether a newer version
+            is available).
+  uninstall Remove the installed grafli skill from one or more tools.
 
-  Claude Code   — copy / symlink to ~/.claude/skills/grafli/SKILL.md
-                  https://code.claude.com/docs/en/skills
-  OpenCode      — copy / symlink to ~/.config/opencode/skills/grafli/SKILL.md
-                  https://opencode.ai/docs/skills
-  Codex CLI     — append the body (frontmatter optional) to ~/.codex/AGENTS.md
-                  https://agents.md/
+Supported targets (user-level paths follow the agentskills.io convention):
+
+  claude    ~/.claude/skills/grafli/SKILL.md
+            https://code.claude.com/docs/en/skills
+  codex     ~/.agents/skills/grafli/SKILL.md
+            https://developers.openai.com/codex/skills
+  opencode  ~/.config/opencode/skills/grafli/SKILL.md
+            https://opencode.ai/docs/skills
+
+(OpenCode also reads from `~/.claude/skills/` and `~/.agents/skills/`, so
+installing for `claude` or `codex` is automatically picked up by OpenCode.)
+
+Without a subcommand, `grafli skill` prints the bundled SKILL.md to stdout.
 """
 
 
@@ -732,7 +1186,24 @@ def _skill_path() -> Path:
     return Path(str(files("grafli.skills.grafli") / "SKILL.md"))
 
 
+def _grafli_version() -> str:
+    from grafli._version import __version__
+    return __version__
+
+
 def _cmd_skill(argv: list[str]) -> int:
+    # Dispatch sub-subcommands (install / check / uninstall). The bare
+    # `grafli skill` form (print SKILL.md to stdout) and its existing
+    # flags (`-o`, `--where`) are preserved for backwards compatibility.
+    if argv and argv[0] in ("install", "check", "uninstall"):
+        sub = argv[0]
+        rest = argv[1:]
+        if sub == "install":
+            return _cmd_skill_install(rest)
+        if sub == "check":
+            return _cmd_skill_check(rest)
+        return _cmd_skill_uninstall(rest)
+
     parser = argparse.ArgumentParser(
         prog="grafli skill",
         description="Print the bundled grafli AI skill (SKILL.md).",
@@ -760,6 +1231,262 @@ def _cmd_skill(argv: list[str]) -> int:
         print(f"Wrote {args.output}", file=sys.stderr)
         return 0
     sys.stdout.write(text)
+    return 0
+
+
+# ── grafli skill install / check / uninstall ─────────────────────
+
+
+def _resolve_targets(positional: str | None) -> list[str]:
+    """Map a positional ('all', 'claude', 'codex', 'opencode', or None
+    when called from `check` where None means all) to a target list.
+    """
+    from grafli.skill_install import ALL_TARGETS
+    if positional is None or positional == "all":
+        return list(ALL_TARGETS)
+    if positional not in ALL_TARGETS:
+        raise SystemExit(
+            f"unknown target: {positional!r} "
+            f"(valid: all, {', '.join(ALL_TARGETS)})"
+        )
+    return [positional]
+
+
+def _prompt_yes_no(question: str, *, default_yes: bool) -> bool:
+    """Tiny y/n prompt. Default is signalled with capital letter."""
+    suffix = "[Y/n]" if default_yes else "[y/N]"
+    while True:
+        try:
+            ans = input(f"{question} {suffix} ").strip().lower()
+        except EOFError:
+            return default_yes
+        if not ans:
+            return default_yes
+        if ans in ("y", "yes"):
+            return True
+        if ans in ("n", "no"):
+            return False
+
+
+def _cmd_skill_install(argv: list[str]) -> int:
+    from grafli.skill_install import (
+        compute_status, write_skill, parent_dir_exists,
+        OK, STALE, MODIFIED, UNKNOWN, MISSING,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="grafli skill install",
+        description="Install the bundled grafli skill for one or more AI tools.",
+    )
+    parser.add_argument(
+        "target", nargs="?", default=None,
+        help="Target tool (all | claude | codex | opencode). "
+             "Omit to be prompted per target.",
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Skip all prompts; overwrite existing installs and create "
+             "missing parent directories without asking.",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Show planned actions without writing any files.",
+    )
+    args = parser.parse_args(argv)
+
+    if args.dry_run and args.force:
+        # Harmless combo, but explicit so users don't expect writes.
+        print("--dry-run set; --force has no effect on writes.", file=sys.stderr)
+
+    interactive_per_target = args.target is None
+    targets = _resolve_targets(args.target)
+
+    if not args.force and not args.dry_run and not sys.stdin.isatty():
+        print(
+            "grafli skill install: stdin is not a TTY; pass --force to "
+            "install non-interactively, or --dry-run to preview.",
+            file=sys.stderr,
+        )
+        return 2
+
+    packaged = _skill_path().read_text(encoding="utf-8")
+    version = _grafli_version()
+
+    any_drift = False
+    any_action = False
+
+    for t in targets:
+        st = compute_status(t, packaged, version)
+        # Show context line so the user always sees the destination.
+        if st.status == OK:
+            print(f"[ok]      {t}: already current at {st.path} (grafli {version})")
+            continue
+        if st.status == MISSING:
+            note = f"will install to {st.path} (grafli {version})"
+        elif st.status == STALE:
+            note = (
+                f"installed {st.installed_version} -> packaged {version}; "
+                f"will update {st.path}"
+            )
+        elif st.status == MODIFIED:
+            note = (
+                f"local changes detected at {st.path}; "
+                f"overwriting will discard them"
+            )
+        else:  # UNKNOWN
+            note = (
+                f"existing file at {st.path} was not installed by "
+                f"`grafli skill install`; cannot determine source"
+            )
+        print(f"[{st.status}] {t}: {note}")
+
+        if args.dry_run:
+            any_drift = any_drift or st.status != OK
+            continue
+
+        # Decide whether to write.
+        if args.force:
+            do_write = True
+        elif interactive_per_target or st.status != MISSING:
+            default_yes = st.status in (MISSING, STALE)
+            verb = "Install" if st.status == MISSING else "Overwrite"
+            do_write = _prompt_yes_no(f"  {verb}?", default_yes=default_yes)
+        else:
+            do_write = True
+
+        if not do_write:
+            print(f"  skipped {t}")
+            continue
+
+        # Parent dir check (skip when --force).
+        if not args.force and not parent_dir_exists(t):
+            print(
+                f"  note: parent directory {st.path.parent.parent} does "
+                f"not exist (the target tool may not be installed)."
+            )
+            if not _prompt_yes_no("  create and install anyway?", default_yes=False):
+                print(f"  skipped {t}")
+                continue
+
+        path = write_skill(t, packaged, version)
+        print(f"  wrote {path}")
+        any_action = True
+
+    if args.dry_run and any_drift:
+        return 1
+    return 0
+
+
+def _cmd_skill_check(argv: list[str]) -> int:
+    import json as _json
+    from grafli.skill_install import (
+        compute_status, DRIFT_STATES, OK, STALE, MODIFIED, UNKNOWN, MISSING,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="grafli skill check",
+        description="Report install status of the grafli skill per target.",
+    )
+    parser.add_argument(
+        "target", nargs="?", default="all",
+        help="Target tool (all | claude | codex | opencode). "
+             "Default: all targets.",
+    )
+    parser.add_argument(
+        "--json", action="store_true",
+        help="Emit machine-readable JSON instead of a human-readable table.",
+    )
+    args = parser.parse_args(argv)
+
+    targets = _resolve_targets(args.target)
+    packaged = _skill_path().read_text(encoding="utf-8")
+    version = _grafli_version()
+
+    statuses = [compute_status(t, packaged, version) for t in targets]
+
+    if args.json:
+        print(_json.dumps([s.to_dict() for s in statuses], indent=2))
+    else:
+        for s in statuses:
+            tag = f"[{s.status}]"
+            if s.status == OK:
+                extra = f"(grafli {s.packaged_version})"
+            elif s.status == STALE:
+                extra = (
+                    f"(installed {s.installed_version} -> "
+                    f"packaged {s.packaged_version})"
+                )
+            elif s.status == MODIFIED:
+                extra = f"(installed {s.installed_version}; locally modified)"
+            elif s.status == UNKNOWN:
+                extra = "(no version marker; unknown provenance)"
+            else:  # MISSING
+                extra = ""
+            print(f"{s.target:<9} {tag:<11} {s.path} {extra}".rstrip())
+
+    has_drift = any(s.status in DRIFT_STATES for s in statuses)
+    return 1 if has_drift else 0
+
+
+def _cmd_skill_uninstall(argv: list[str]) -> int:
+    from grafli.skill_install import remove_skill, compute_status, MISSING
+
+    parser = argparse.ArgumentParser(
+        prog="grafli skill uninstall",
+        description="Remove the installed grafli skill from one or more AI tools.",
+    )
+    parser.add_argument(
+        "target", nargs="?", default=None,
+        help="Target tool (all | claude | codex | opencode). "
+             "Omit to be prompted per target.",
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Skip all prompts.",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Show planned actions without removing any files.",
+    )
+    args = parser.parse_args(argv)
+
+    interactive_per_target = args.target is None
+    targets = _resolve_targets(args.target)
+
+    if not args.force and not args.dry_run and not sys.stdin.isatty():
+        print(
+            "grafli skill uninstall: stdin is not a TTY; pass --force to "
+            "uninstall non-interactively, or --dry-run to preview.",
+            file=sys.stderr,
+        )
+        return 2
+
+    packaged = _skill_path().read_text(encoding="utf-8")
+    version = _grafli_version()
+
+    for t in targets:
+        st = compute_status(t, packaged, version)
+        if st.status == MISSING:
+            print(f"[missing] {t}: nothing to remove at {st.path.parent}")
+            continue
+        print(f"[present] {t}: {st.path.parent} (status: {st.status})")
+
+        if args.dry_run:
+            continue
+
+        do_remove = (
+            args.force
+            or _prompt_yes_no(f"  remove?", default_yes=False)
+        )
+        if not do_remove:
+            print(f"  skipped {t}")
+            continue
+
+        removed = remove_skill(t)
+        if removed:
+            print(f"  removed {st.path.parent}")
+        else:
+            print(f"  nothing was removed (already gone)")
     return 0
 
 
@@ -817,18 +1544,309 @@ def _cmd_render(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_export(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="grafli export",
+        description="Export a flow as a slide-style presentation (PDF or PPTX).",
+    )
+    parser.add_argument("input", type=Path, help="Input .grafli file")
+    parser.add_argument("output", type=Path, help="Output .pdf or .pptx")
+    parser.add_argument(
+        "--flow", default=None,
+        help="Flow id to export (default: the only flow; required if several)",
+    )
+    parser.add_argument(
+        "--theme", default="grafli", choices=("grafli", "blank"),
+        help="PPTX theme: 'grafli' (default, branded) or 'blank' (neutral, "
+             "best base for applying a corporate template). Ignored for PDF and "
+             "when --template is given.",
+    )
+    parser.add_argument(
+        "--template", type=Path, default=None,
+        help="Export onto an existing .pptx template, keeping its master, theme "
+             "and slide size. PPTX only.",
+    )
+    parser.add_argument(
+        "--title-layout", default=None,
+        help="Name of the template layout for the title slide "
+             "(default: auto-detected). Only with --template.",
+    )
+    parser.add_argument(
+        "--content-layout", default=None,
+        help="Name of the template layout for content slides "
+             "(default: auto-detected). Only with --template.",
+    )
+    args = parser.parse_args(argv)
+    if args.template is not None and not args.template.exists():
+        print(f"Template not found: {args.template}", file=sys.stderr)
+        return 2
+
+    if not args.input.exists():
+        print(f"Input not found: {args.input}", file=sys.stderr)
+        return 2
+    suffix = args.output.suffix.lower()
+    if suffix not in (".pdf", ".pptx"):
+        print(f"Unsupported output format: {args.output.suffix} "
+              f"(expected .pdf or .pptx)", file=sys.stderr)
+        return 2
+
+    text = args.input.resolve().read_text(encoding="utf-8")
+    board = parse(text)
+    missing = _load_vault(args.input.resolve(), board)
+    for name in missing:
+        print(f"Warning: missing vault doc {name}.md", file=sys.stderr)
+    if not board.flows:
+        print("No flows in this file — nothing to export.", file=sys.stderr)
+        return 1
+    if args.flow:
+        flow = board.flow_by_id(args.flow)
+        if flow is None:
+            ids = ", ".join(f.id for f in board.flows)
+            print(f"Flow '{args.flow}' not found. Available: {ids}", file=sys.stderr)
+            return 2
+    elif len(board.flows) == 1:
+        flow = board.flows[0]
+    else:
+        ids = ", ".join(f.id for f in board.flows)
+        print(f"Multiple flows — pass --flow <id>. Available: {ids}",
+              file=sys.stderr)
+        return 2
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    from grafli.view import GrafliView
+    view = GrafliView()
+    view.load_board(board)
+    if suffix == ".pptx":
+        from grafli.pptxexport import export_flow_to_pptx
+        slides, overloaded = export_flow_to_pptx(
+            view, flow, args.output, theme=args.theme,
+            template=args.template,
+            title_layout=args.title_layout,
+            content_layout=args.content_layout)
+    else:
+        from grafli.pdfexport import export_flow_to_pdf
+        slides, overloaded = export_flow_to_pdf(view, flow, args.output)
+    print(f"Wrote {args.output} ({slides} slides)", file=sys.stderr)
+    if overloaded:
+        where = ", ".join(f"#{i + 1} {lbl}".strip() for i, lbl in overloaded)
+        print(f"Warning: {len(overloaded)} slide(s) overloaded — trim or "
+              f"split: {where}", file=sys.stderr)
+    del view
+    del app
+    return 0
+
+
+def _make_note_rect_provider():
+    """Return a callable that computes a note's rendered scene rect.
+
+    Initializes a headless Qt app and registers bundled fonts so
+    ``QFontMetrics`` returns accurate widths for Patrick Hand. The
+    provider mirrors what ``NoteItem.boundingRect()`` would produce
+    on screen, so geometric checks see the rect users actually see.
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    from grafli.items import NoteItem
+
+    def provider(note):
+        item = NoteItem(note)
+        br = item.boundingRect()
+        return (note.x, note.y, note.x + br.width(), note.y + br.height())
+
+    return provider
+
+
+def _make_arrow_label_size_provider():
+    """Return a callable that returns an arrow label's rendered size."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    from PySide6.QtGui import QFont, QFontMetricsF
+    from grafli.constants import ARROW_LABEL_FONT_SIZES, FONT_FAMILY
+
+    def provider(arrow):
+        font = QFont(
+            FONT_FAMILY,
+            ARROW_LABEL_FONT_SIZES.get(arrow.textsize, ARROW_LABEL_FONT_SIZES[""]),
+        )
+        fm = QFontMetricsF(font)
+        text = arrow.label or ""
+        if not text:
+            return (0.0, 0.0)
+        longest_w = max(fm.horizontalAdvance(line) for line in text.split("\n"))
+        height = fm.height() * max(1, len(text.split("\n")))
+        return (longest_w, height)
+
+    return provider
+
+
+def _cmd_diagnose(argv: list[str]) -> int:
+    import json as _json
+    from grafli.diagnostics import run_all
+
+    parser = argparse.ArgumentParser(
+        prog="grafli diagnose",
+        description=(
+            "Run static layout diagnostics on a .grafli file. "
+            "Surfaces children outside parents, sibling overlaps, cramped "
+            "containers, likely-truncated labels, and missing linked resources."
+        ),
+    )
+    parser.add_argument("input", type=Path, help="Input .grafli file")
+    parser.add_argument(
+        "--json", action="store_true",
+        help="Emit JSON instead of human-readable text",
+    )
+    args = parser.parse_args(argv)
+
+    if not args.input.exists():
+        print(f"Input not found: {args.input}", file=sys.stderr)
+        return 2
+
+    text = args.input.read_text(encoding="utf-8")
+    board = parse(text)
+    from grafli.diagnostics import Diagnostic
+    # Parse-level problems come first and as errors: a demoted line is lost data,
+    # the highest-severity thing a check can find.
+    parse_diags = [
+        Diagnostic(code="parse-error", severity="error",
+                   message=f"line {w.line}: {w.reason} — {w.text.strip()}",
+                   item_ids=[], fixable=False)
+        for w in getattr(board, "parse_warnings", [])
+    ]
+    note_rect = _make_note_rect_provider()
+    arrow_label_size = _make_arrow_label_size_provider()
+    diags = run_all(
+        board,
+        args.input.resolve().parent,
+        note_rect=note_rect,
+        arrow_label_size=arrow_label_size,
+    )
+    # Vault integrity: referenced docs whose file is gone (error — a doc-bodied
+    # note would render blank) and unreferenced docs (info — legitimate state).
+    from grafli.resources import classify_attachments, vault_docs
+    classify_attachments(args.input.resolve(), board)
+    inv = vault_docs(args.input.resolve(), board)
+    for name in inv["missing"]:
+        diags.append(Diagnostic(
+            code="missing-doc", severity="error",
+            message=f"vault doc {name}.md is referenced but missing",
+            item_ids=[name], fixable=False,
+        ))
+    for name in inv["unreferenced"]:
+        diags.append(Diagnostic(
+            code="unreferenced-doc", severity="info",
+            message=f"vault doc {name}.md is not referenced by any element "
+                    f"(grafli vault --clean removes it)",
+            item_ids=[name], fixable=False,
+        ))
+
+    diags = parse_diags + diags
+
+    if args.json:
+        print(_json.dumps([d.to_dict() for d in diags], indent=2))
+        return 0
+
+    if not diags:
+        print("No findings.")
+        return 0
+
+    for d in diags:
+        suffix = "" if d.fixable else "  (may be intentional)"
+        print(f"[{d.severity}] {d.code}: {d.message}{suffix}")
+    print(f"\n{len(diags)} finding(s).")
+    return 0
+
+
+def _cmd_vault(argv: list[str]) -> int:
+    """Inspect / clean a board's vault (<stem>-res/ markdown docs)."""
+    from grafli.resources import classify_attachments, doc_path, vault_docs
+
+    parser = argparse.ArgumentParser(
+        prog="grafli vault",
+        description=(
+            "List a board's vault docs (referenced / missing / unreferenced). "
+            "Unreferenced docs are a legitimate state; removing them is this "
+            "explicit command, never automatic."
+        ),
+    )
+    parser.add_argument("input", type=Path, help="Input .grafli file")
+    parser.add_argument(
+        "--clean", action="store_true",
+        help="Delete unreferenced vault docs (lists what it removes)",
+    )
+    parser.add_argument(
+        "--delete", metavar="NAME", default=None,
+        help="Delete one doc by name (refuses while still referenced)",
+    )
+    args = parser.parse_args(argv)
+
+    if not args.input.exists():
+        print(f"Input not found: {args.input}", file=sys.stderr)
+        return 2
+
+    path = args.input.resolve()
+    board = parse(path.read_text(encoding="utf-8"))
+    classify_attachments(path, board)
+    inv = vault_docs(path, board)
+
+    if args.delete is not None:
+        name = args.delete.removesuffix(".md")
+        if name in inv["referenced"] or name in inv["missing"]:
+            print(f"Refusing: {name}.md is still referenced.", file=sys.stderr)
+            return 1
+        p = doc_path(path, name)
+        if not p.exists():
+            print(f"No such doc: {name}.md", file=sys.stderr)
+            return 2
+        p.unlink()
+        print(f"Deleted {p}")
+        return 0
+
+    if args.clean:
+        for name in inv["unreferenced"]:
+            p = doc_path(path, name)
+            try:
+                p.unlink()
+                print(f"Deleted {p}")
+            except OSError as exc:
+                print(f"Could not delete {p}: {exc}", file=sys.stderr)
+        if not inv["unreferenced"]:
+            print("Nothing to clean.")
+        return 0
+
+    for key, label in (("referenced", "referenced"), ("missing", "MISSING"),
+                       ("unreferenced", "unreferenced")):
+        for name in inv[key]:
+            print(f"{label:>12}  {name}.md")
+    if not any(inv.values()):
+        print("No vault docs.")
+    return 0
+
+
 def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
-    if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render"):
+    if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
+                                              "export", "vault"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
         if sub == "skill":
             sys.exit(_cmd_skill(rest))
-        sys.exit(_cmd_render(rest))
+        if sub == "render":
+            sys.exit(_cmd_render(rest))
+        if sub == "export":
+            sys.exit(_cmd_export(rest))
+        if sub == "vault":
+            sys.exit(_cmd_vault(rest))
+        sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
-        description="Grafli whiteboard. Subcommands: skill, render.",
+        description="Grafli whiteboard. Subcommands: skill, render, diagnose, "
+                    "export, vault.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")
@@ -850,7 +1868,24 @@ def main():
     tick.timeout.connect(lambda: None)
 
     window = MainWindow(args.file, debug=args.debug)
-    window.showMaximized()
+    # Restore saved geometry if it lands on a currently-attached screen;
+    # otherwise fall back to maximized on the primary screen so a sleeping
+    # or disconnected external display can't swallow the window.
+    restored = False
+    saved_geom = QSettings("Grafli", "Grafli").value("window/geometry")
+    if saved_geom is not None and window.restoreGeometry(saved_geom):
+        frame = window.frameGeometry()
+        if any(
+            s.availableGeometry().intersects(frame) for s in app.screens()
+        ):
+            restored = True
+    if not restored:
+        primary = app.primaryScreen()
+        if primary is not None:
+            window.setGeometry(primary.availableGeometry())
+        window.showMaximized()
+    else:
+        window.show()
 
     # Single-instance server
     server = QLocalServer()

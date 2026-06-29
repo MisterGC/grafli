@@ -83,6 +83,10 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 - Jump labels and graph navigation — every visible element is one or two keys
   away; hold <kbd>Alt</kbd> to follow connectors edge by edge.
 - Sub-graflis — link any node to a deeper diagram in its own file.
+- Bookmarks & flows — save labeled viewpoints (semantic anchors, not pixel
+  coords) and string them into guided tours: step through, auto-play, present
+  fullscreen (<kbd>F5</kbd>), or export a slide PDF (`grafli export … --flow`).
+  Plain text, so an AI can author an explanatory tour through a big graph.
 - Markdown resources — attach a markdown note to any element and edit it in a
   full-window zen editor.
 - Auto-save and external file watching — open a `.grafli` next to your

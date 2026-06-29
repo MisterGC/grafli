@@ -6,16 +6,16 @@
 @ note title 350,-80 "How the grafli skill works" ~xxlarge
 
 # === Pipeline (left to right) ===
-@ box prompt  "User prompt"     20,80   220x80 %secondary
-@ box trigger "Skill triggers?" 280,80  220x80 %accent
-@ box plan    "Plan"            540,80  220x80 %accent
-@ box author  "Author + verify" 800,80  220x80 %accent
-@ box output  "Clean .grafli"   1060,80 220x80 %primary
+@ box prompt "User prompt" 20,80 220x80 %secondary
+@ box trigger "Skill triggers?" 280,80 220x80 %accent
+@ box plan "Plan" 540,80 220x80 %accent
+@ box author "Author + verify" 800,80 220x80 %accent
+@ box output "Clean .grafli" 1060,80 220x80 %primary
 
-@ arrow prompt  -> trigger
-@ arrow trigger -> plan    "yes"
-@ arrow plan    -> author
-@ arrow author  -> output
+@ arrow prompt -> trigger
+@ arrow trigger -> plan "yes"
+@ arrow plan -> author
+@ arrow author -> output
 
 # === Notes describing each step ===
 @ note prompt_text 20,200 """

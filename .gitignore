@@ -16,3 +16,13 @@ grafli/_version.py
 
 # mkdocs build output
 /site/
+
+# local agent settings / worktrees
+.claude/
+
+# personal scratch: grills, QA renders, comparison scripts
+mgc/
+
+# generated export artifacts / scratch examples
+examples/flows-demo-tour.pdf
+examples/test.grafli

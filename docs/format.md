@@ -24,7 +24,7 @@ its version. It is required.
 | Element | Purpose |
 |---------|---------|
 | `box`   | Rectangular container with a label. Can nest via `>parent`. |
-| `note`  | Free-form text block. Supports tasks, questions, code-mode, and discussions (see [Text annotations](text-annotations.md)). |
+| `note`  | Free-form text block. Supports tasks, questions, code-mode, Markdown-mode, and discussions (see [Text annotations](text-annotations.md)). |
 | `arrow` | Directed/bidirectional connector between two elements. |
 
 ### Arrow operators
@@ -38,8 +38,9 @@ its version. It is required.
 
 ### Modifiers
 
-- `<color>` — built-in tokens: `%primary`, `%secondary`, `%tertiary`,
-  `%accent`, `%subtle`, `%muted`, or any `#rrggbb` hex value.
+- `<color>` — built-in tokens: `%base`, `%primary`, `%secondary`,
+  `%tertiary`, `%subtle`, `%accent`, `%highlight`, `%muted`, `%soft`,
+  `%clay`, `%teal`, `%rose`, `%forest`, `%plum`, or any `#rrggbb` hex value.
 - `^anchor` — `topleft`, `top`, `topright`, `left`, `center`, `right`,
   `bottomleft`, `bottom`, `bottomright`. Controls how a box's label is
   placed.
@@ -50,8 +51,34 @@ its version. It is required.
   `~width=40` for a narrow caption, `~width=120` for a wide code listing).
   You can also drag the right edge of a selected note to set this
   interactively — the value persists on save.
-- `!style` — `flat`, `dashed`, plus arrow-specific styles.
+- `!style` — `flat`, `dashed`, plus arrow-specific styles. **Notes render in
+  a handwritten face by default**; `!mono` (and `code:` notes) switch to the
+  monospace face — handwriting for prose, monospace for code. (Style mode →
+  `t` opens the text grid; `Tab` there toggles a note's font.)
+- `!bold` / `!italic` — *(boxes and notes)* text emphasis layered on the
+  size, e.g. `~large !bold` for a heading. Combine freely (`!bold !italic`).
+  (Style mode → `t` opens a size × style text grid.)
+- `*icon` — *(boxes and notes)* attach a visual-vocabulary glyph. Bare
+  `*name` is *fill*: a big glyph with the label/text as a caption (a framed
+  node on a box, a borderless marker on a note). `*lead:name` is *lead*: a
+  small glyph to the left of the label, which keeps its normal weight — for
+  labeled items (`*lead:lock` → 🔒 Auth) and flagging existing nodes. Names:
+  `person`, `gear`, `cloud`, `database`, `warning`, `bulb`, `check`, `cross`,
+  `money`, `clock`, `doc`, `lock`, `flag`, `star`, `link`, `question`.
+  (Style mode → `i`; `Tab` toggles fill ↔ lead.)
 - `>parent` — nest this element inside the box with the given ID.
+
+> **When to reach for glyphs and emphasis.** They shine when you're
+> *explaining a concept* — mind maps, idea boards, walkthroughs — where a
+> `*bulb` node or a bold heading aids recognition. On *structural* diagrams
+> (state machines, architecture, data flow) keep it clean: boxes, labels,
+> arrows, and one colour per category read as a system; glyphs and bold are
+> mostly noise there. Default to restraint.
+
+Graph connectors are drawn with a thickness proportional to the size of the
+nodes they link — big containers get heavier arrows, small inner children stay
+light — so a zoomed-out view reads as a clear hierarchy. This is automatic;
+the weight is capped by the smaller of the two endpoints.
 
 ## Block text
 
@@ -86,6 +113,37 @@ triple-quoted form.
 
 @ note 100,240 "SPA with React"
 ```
+
+## Bookmarks and flows (v2)
+
+Saved viewpoints and guided tours are stored in the file too. A file that
+contains them uses the `v2` header; pure-diagram files stay on `v1`.
+
+```text
+@ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
+@ bookmark <id> "<label>" ~view=<x>,<y>,<w>,<h> ["<description>"]
+@ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
+```
+
+- `@<ids>` is the **semantic anchor** — the item ids the view frames. The
+  pan/zoom is computed by fitting them, so the bookmark survives layout edits.
+  `~pad=<n>` overrides the framing padding.
+- `~view=<x>,<y>,<w>,<h>` stores an **exact scene rect** instead, used for a
+  hand-tuned framing or a viewpoint that contains no nodes. A bookmark uses
+  one or the other.
+- A `@ flow` lists bookmark ids in order; `:<dwell>` sets that stop's
+  auto-play time in seconds (omit for the flow default).
+
+```text
+#!grafli v2
+@ box api "API Gateway" 280,0 180x80 %secondary
+@ box auth "Auth Service" 280,160 180x80 %soft
+@ bookmark bm_auth "Authentication" @api,auth "Verified before routing."
+@ flow tour "Walkthrough" bm_auth:6 "A short guided tour."
+```
+
+See [Bookmarks & flows](bookmarks-flows.md) for capturing, editing, playback,
+present mode, and PDF export.
 
 ## Why plain text
 

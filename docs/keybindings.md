@@ -37,14 +37,15 @@ lands on the placeholder ready to type-replace.
 | Key | Action |
 |-----|--------|
 | Arrow keys | Pan viewport |
-| Middle-drag | Pan from anywhere |
+| Middle-drag / Right-drag | Pan from anywhere |
 | <kbd>+</kbd> / <kbd>-</kbd> | Zoom in / out |
 | <kbd>z</kbd> | Zoom-in step cycle: 25 → 50 → 100 → 150 % (wraps) |
 | <kbd>Shift</kbd>+<kbd>Z</kbd> | Zoom to fit (whole graph) |
+| <kbd>g</kbd><kbd>z</kbd> | Focus: zoom the selection to fill the viewport; press again to fly back. Re-press after changing the selection to re-focus |
 | <kbd>g</kbd><kbd>p</kbd> | Select parent (zoom if needed) |
-| <kbd>F</kbd> | Select first child |
+| <kbd>g</kbd><kbd>c</kbd> | Select first child |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle siblings (or search matches when search is open) |
-| <kbd>Ctrl</kbd>+<kbd>J</kbd> | Jump to any item (global) |
+| <kbd>f</kbd> / <kbd>Ctrl</kbd>+<kbd>J</kbd> | Jump to any item (global) |
 | <kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd> | Nav history back / forward |
 | <kbd>Alt</kbd> (hold) | Graph nav: follow connectors |
 | <kbd>/</kbd> | Search dim-filter — see [Search](#search) below |
@@ -53,8 +54,8 @@ lands on the placeholder ready to type-replace.
 
 | Key | Action |
 |-----|--------|
-| <kbd>e</kbd> / Double-click | Edit selected element |
-| <kbd>E</kbd> | Edit annotation |
+| <kbd>e</kbd> / Double-click | Edit selected element (inline) |
+| <kbd>E</kbd> | Open the full-window zen editor — edits a **note's own text**; for a box/image, opens (or creates) its attached markdown file |
 | <kbd>W</kbd> | Set URL on selected item |
 | <kbd>Return</kbd> | Open URL in browser |
 | <kbd>Enter</kbd> | Accept edit |
@@ -62,23 +63,43 @@ lands on the placeholder ready to type-replace.
 | <kbd>u</kbd> / <kbd>⌘</kbd>+<kbd>Z</kbd> | Undo |
 | <kbd>Ctrl</kbd>+<kbd>R</kbd> / <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Redo |
 | <kbd>x</kbd> / <kbd>Delete</kbd> | Delete selection |
-| <kbd>⌘</kbd>+<kbd>G</kbd> | Insert glyph / replace label |
+| <kbd>Ctrl</kbd>+<kbd>G</kbd> | Insert glyph (while editing a label) |
+
+### Editing a note (vim)
+
+Editing a note (<kbd>e</kbd> / double-click) opens a small **vim-capable**
+editor in place — the same keybindings as the full-window zen editor,
+without leaving the canvas. It opens in INSERT mode so you can type right
+away; Markdown (`md:`) notes are syntax-highlighted.
+
+| Key | Action |
+|-----|--------|
+| <kbd>Esc</kbd> (in INSERT) | Drop to NORMAL mode (vim motions/edits) |
+| <kbd>Esc</kbd> (in NORMAL) | Commit and close |
+| <kbd>Shift</kbd>+<kbd>Esc</kbd> (in NORMAL) | Discard and close |
+| Click elsewhere | Commit and close |
 
 ## Create
 
 | Key | Action |
 |-----|--------|
 | <kbd>o</kbd> / <kbd>O</kbd> | Create box below / above selection |
+| <kbd>Ctrl</kbd>+<kbd>G</kbd> | Encapsulate selection in a new parent box |
 | <kbd>Ctrl</kbd>+arrow | Create connected box in that direction |
-| <kbd>Alt</kbd>+drag | Connect boxes (from Select) |
+| <kbd>Alt</kbd>+drag | Connect nodes — boxes, notes, images (from Select) |
 | <kbd>Alt</kbd>+click | Paste at position |
 
 ## Style
 
+With a selection, press <kbd>s</kbd> to enter style mode, then:
+
 | Key | Action |
 |-----|--------|
-| <kbd>h</kbd> / <kbd>l</kbd> | Cycle color |
-| <kbd>j</kbd> / <kbd>k</kbd> | Cycle text size |
+| <kbd>c</kbd> | Open the color grid — <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> to pick (live preview), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
+| <kbd>i</kbd> | Open the icon grid (visual vocabulary) — same keys; <kbd>Tab</kbd> toggles placement (fill ↔ lead). Fill: big glyph + caption. Lead: small glyph beside the label |
+| <kbd>t</kbd> | Open the text grid — rows = sizes, columns = Regular / Bold / Italic / Bold+Italic; <kbd>hjkl</kbd> to move (live preview), <kbd>Tab</kbd> toggles a note's font (handwritten ↔ monospace), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
+| <kbd>j</kbd> / <kbd>k</kbd> | Cycle text size (quick nudge) |
+| <kbd>d</kbd> then <kbd>r</kbd> | Snap selected box(es) to the **slide aspect ratio** — a reusable export frame (re-apply after edits; works on a multi-selection) |
 | <kbd>Shift</kbd>+<kbd>G</kbd> | Snap to grid |
 | <kbd>=</kbd> | Auto-layout selection (or all) |
 
@@ -119,6 +140,7 @@ section.
 | <kbd>h</kbd> / <kbd>l</kbd> | Toggle arrowheads |
 | <kbd>j</kbd> / <kbd>k</kbd> | Arrow label size |
 | <kbd>Shift</kbd>+<kbd>J</kbd> / <kbd>Shift</kbd>+<kbd>K</kbd> | Cycle arrow style |
+| <kbd>s</kbd> then <kbd>a</kbd> | Toggle connector kind: **graph edge** ⇄ **annotation** (a graph edge to a note or image makes it a node) |
 
 ## Buffers
 
@@ -128,13 +150,38 @@ section.
 | <kbd>Ctrl</kbd>+<kbd>6</kbd> | Toggle last buffer |
 | <kbd>Q</kbd> | Close buffer (no selection) |
 
+## Bookmarks & flows
+
+Save labeled viewpoints and string them into guided tours — see
+[Bookmarks & flows](bookmarks-flows.md).
+
+| Key | Action |
+|-----|--------|
+| <kbd>g</kbd><kbd>b</kbd> | Bookmark what's shown (selection, else everything visible) |
+| <kbd>g</kbd><kbd>B</kbd> | Bookmark the exact viewport (pixel-faithful framing) |
+| <kbd>g</kbd><kbd>f</kbd> | Start / stop flow recording (each capture is appended) |
+| <kbd>g</kbd><kbd>F</kbd> | Auto-flow: generate a flow by walking forward arrows from the selected node |
+| <kbd>F5</kbd> | Present the current flow fullscreen (chrome hidden, paused) |
+
+During playback (in-app or presenting):
+
+| Key | Action |
+|-----|--------|
+| <kbd>Space</kbd> / <kbd>→</kbd> | Next stop |
+| <kbd>←</kbd> | Previous stop |
+| <kbd>t</kbd> | Toggle smooth camera ↔ instant cuts |
+| <kbd>p</kbd> | Cycle paused → playing → playing (loop) |
+| <kbd>Esc</kbd> | Exit playback |
+
 ## Mouse
 
 | Action | Effect |
 |--------|--------|
 | Click `@path:line` in a code-mode note | Open the file at that line in the configured editor |
-| <kbd>Shift</kbd>+click | Toggle selection |
-| <kbd>Alt</kbd>+drag | Connect boxes |
+| <kbd>Shift</kbd>+click | Toggle selection (on empty space or a node's body) |
+| Drag a **corner handle** | **Scale** the selection — size *and* font, around its bounding box; keeps the aspect ratio. A preview frame shows where it lands and it commits on release. Hold <kbd>Shift</kbd> for a free (non-uniform) scale |
+| Drag an **edge handle** | Stretch that single axis (modifier-agnostic) |
+| <kbd>Alt</kbd>+drag | Connect nodes (boxes, notes, images) |
 | <kbd>Alt</kbd>+click | Paste at position |
 
 ## Search

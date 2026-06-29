@@ -3,19 +3,54 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 
 from PySide6.QtCore import QPointF
 
 from grafli.constants import (
     LAYOUT_PADDING,
+    resolve_textsize_px,
+    step_textsize_px,
     _BOX_STYLE_CYCLE,
-    _COLOR_VALUES,
-    _SIZE_SEQUENCE,
     _UNDO_LIMIT,
 )
 from grafli.format import Arrow, Box, Image, Note, parse, serialize
 from grafli.items import BoxItem, ImageItem, NoteItem
 from grafli.layout import compute_layout
+
+
+# ── TEMPORARY paste-crash diagnostics (remove once the segfault is fixed) ──
+# Writes each step of an image paste to ~/grafli-paste-debug.log, flushed and
+# fsync'd so the last line survives a hard segfault and pinpoints the crash.
+def _paste_dbg(msg: str) -> None:
+    import os
+    import sys
+    from pathlib import Path
+    line = f"[grafli-paste] {msg}\n"
+    try:
+        sys.stderr.write(line)
+        sys.stderr.flush()
+    except Exception:
+        pass
+    try:
+        with open(Path.home() / "grafli-paste-debug.log", "a") as f:
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())
+    except Exception:
+        pass
+
+
+def _img_props(im, tag: str) -> None:
+    try:
+        fmt = getattr(im.format(), "value", im.format())
+        _paste_dbg(
+            f"{tag}: null={im.isNull()} fmt={fmt} "
+            f"{im.width()}x{im.height()} depth={im.depth()} "
+            f"bpl={im.bytesPerLine()} bytes={im.sizeInBytes()} "
+            f"dpr={im.devicePixelRatio()} colors={im.colorCount()}")
+    except Exception as e:
+        _paste_dbg(f"{tag}: props-error {e!r}")
 
 
 class CommandsMixin:
@@ -29,11 +64,15 @@ class CommandsMixin:
 
     # ── Undo / Redo ──
 
+    # Undo snapshots embed doc-bodied note texts (normally external vault .md
+    # files): a snapshot without them would restore those notes blank and the
+    # next autosave would write the blanks back to disk.
+
     def _push_undo(self):
         """Save current board state to undo stack (call before mutation)."""
         if not self._board:
             return
-        self._undo_stack.append(serialize(self._board))
+        self._undo_stack.append(serialize(self._board, embed_doc_bodies=True))
         self._redo_stack.clear()
         if len(self._undo_stack) > _UNDO_LIMIT:
             self._undo_stack.pop(0)
@@ -41,12 +80,13 @@ class CommandsMixin:
     def _save_pre_action_snapshot(self):
         """Save snapshot before a drag/resize gesture."""
         if self._board:
-            self._pre_move_snapshot = serialize(self._board)
+            self._pre_move_snapshot = serialize(self._board,
+                                                embed_doc_bodies=True)
 
     def _commit_pre_action_snapshot(self):
         """Push pre-action snapshot to undo stack if state changed."""
         if self._board and self._pre_move_snapshot:
-            current = serialize(self._board)
+            current = serialize(self._board, embed_doc_bodies=True)
             if current != self._pre_move_snapshot:
                 self._undo_stack.append(self._pre_move_snapshot)
                 self._redo_stack.clear()
@@ -57,7 +97,7 @@ class CommandsMixin:
     def _undo(self):
         if not self._undo_stack or not self._board:
             return
-        self._redo_stack.append(serialize(self._board))
+        self._redo_stack.append(serialize(self._board, embed_doc_bodies=True))
         text = self._undo_stack.pop()
         self._board = parse(text)
         self._rebuild_scene()
@@ -66,7 +106,7 @@ class CommandsMixin:
     def _redo(self):
         if not self._redo_stack or not self._board:
             return
-        self._undo_stack.append(serialize(self._board))
+        self._undo_stack.append(serialize(self._board, embed_doc_bodies=True))
         text = self._redo_stack.pop()
         self._board = parse(text)
         self._rebuild_scene()
@@ -74,11 +114,43 @@ class CommandsMixin:
 
     # ── Copy / Paste ──
 
+    @staticmethod
+    def _clipboard_image_fp():
+        """Fingerprint the system-clipboard image, or None if there isn't one.
+
+        Used to detect whether the clipboard image changed (an external copy)
+        relative to when an internal grafli copy was made.
+        """
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QImage
+        clipboard = QApplication.clipboard()
+        if not clipboard:
+            return None
+        img = clipboard.image()
+        if img.isNull():
+            return None
+        # Normalize to a canonical buffer before touching raw bits — a clipboard
+        # image can have a stride that makes constBits() read out of bounds.
+        if img.format() != QImage.Format.Format_ARGB32:
+            img = img.convertToFormat(QImage.Format.Format_ARGB32)
+        try:
+            return (img.width(), img.height(),
+                    hashlib.md5(bytes(img.constBits())).hexdigest())
+        except Exception:
+            return (img.width(), img.height(), img.sizeInBytes())
+
     def _copy_selected(self):
         self._clipboard_boxes.clear()
         self._clipboard_notes.clear()
         self._clipboard_arrows.clear()
         self._clipboard_images.clear()
+        # Remember the system clipboard present *now* (image + text), so a later
+        # paste can tell this internal copy is more recent than what was there —
+        # and that anything copied afterwards (an external link, an image) wins.
+        from PySide6.QtWidgets import QApplication
+        self._copy_clip_img_fp = self._clipboard_image_fp()
+        clipboard = QApplication.clipboard()
+        self._copy_clip_text = clipboard.text() if clipboard else ""
 
         selected_box_ids = set()
         selected_note_ids = set()
@@ -99,16 +171,66 @@ class CommandsMixin:
                     self._clipboard_arrows.append(copy.deepcopy(arrow))
 
     def _paste(self):
+        from PySide6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clip_text = clipboard.text() if clipboard else ""
+
+        # An inline editor is focused: paste the system clipboard *text* into it
+        # (this is the only sensible target), never a canvas element. The global
+        # Cmd+V action routes here, so without this an internal element copy
+        # would shadow a link the user just copied to paste into a note.
+        if self._note_widget is not None:
+            self._note_widget.insertPlainText(clip_text)
+            return
+        if self._editor is not None:
+            cursor = self._editor.textCursor()
+            cursor.insertText(clip_text)
+            self._editor.setTextCursor(cursor)
+            return
+
         cursor_viewport = self.mapFromGlobal(self.cursor().pos())
         cursor_scene = self.mapToScene(cursor_viewport)
-        # If internal clipboard is empty, try system clipboard for images
-        if not (self._clipboard_boxes or self._clipboard_notes or self._clipboard_images):
-            from PySide6.QtWidgets import QApplication
-            clipboard = QApplication.clipboard()
-            if clipboard and not clipboard.image().isNull():
-                self._paste_clipboard_image(cursor_scene, clipboard.image())
-                return
-        self._paste_at(cursor_scene)
+
+        has_image = clipboard is not None and not clipboard.image().isNull()
+        has_internal = bool(
+            self._clipboard_boxes or self._clipboard_notes or self._clipboard_images
+        )
+        _paste_dbg(f"_paste: has_image={has_image} has_internal={has_internal}")
+
+        # Latest copy wins. A system-clipboard image wins when there's no
+        # internal copy, or when it changed since the internal copy (i.e. was
+        # copied afterwards). Otherwise the internal copy wins.
+        if has_image and (not has_internal
+                          or self._clipboard_image_fp() != self._copy_clip_img_fp):
+            _paste_dbg("_paste: routing to clipboard-image paste")
+            self._paste_clipboard_image(cursor_scene, clipboard.image())
+            return
+
+        # External text copied *after* the internal copy also wins: drop it as a
+        # new note at the cursor rather than re-pasting the stale element.
+        if clip_text and (not has_internal or clip_text != self._copy_clip_text):
+            _paste_dbg("_paste: routing to clipboard-text paste")
+            self._paste_text_note(cursor_scene, clip_text)
+            return
+
+        if has_internal:
+            _paste_dbg("_paste: routing to internal paste")
+            self._paste_at(cursor_scene)
+
+    def _paste_text_note(self, center: QPointF, text: str):
+        """Drop external clipboard text as a new note centred at the cursor."""
+        if not self._board:
+            return
+        self._push_undo()
+        note = Note(id=self._board.next_note_id(),
+                    x=center.x(), y=center.y(), text=text)
+        self._board.add_note(note)
+        self._rebuild_scene()
+        item = self._note_items.get(note.id)
+        if item:
+            self._scene.clearSelection()
+            item.setSelected(True)
+        self.mark_dirty()
 
     def _paste_clipboard_image(self, center: QPointF, qimage):
         """Save a QImage from the system clipboard and add it as an image element."""
@@ -116,20 +238,45 @@ class CommandsMixin:
         from pathlib import Path
         from PySide6.QtGui import QImage
 
+        _paste_dbg("_paste_clipboard_image: enter")
         if not self._board:
+            _paste_dbg("no board, abort")
             return
         window = self.window()
         if not hasattr(window, '_file_path') or not window._file_path:
+            _paste_dbg("no file_path, abort")
             return
 
         from grafli.resources import ensure_res_dir
         file_path = window._file_path
         images_dir = ensure_res_dir(file_path)
+        _paste_dbg(f"images_dir={images_dir}")
+
+        _img_props(qimage, "incoming")
+        if qimage.isNull():
+            _paste_dbg("incoming null, abort")
+            return
+        # A QImage straight from the macOS clipboard (TIFF/CGImage-backed) can
+        # share a transient buffer (or carry a stride) the PNG writer walks off,
+        # crashing in QImageWriter::write. Normalize the format AND force a deep
+        # copy so the encoder sees a fresh, owned, self-consistent ARGB32 buffer.
+        qimage = qimage.convertToFormat(QImage.Format.Format_ARGB32)
+        _paste_dbg("convertToFormat ok")
+        qimage = qimage.copy()
+        _paste_dbg("deep copy ok")
+        _img_props(qimage, "to-save")
+        if qimage.isNull():
+            _paste_dbg("null after normalize, abort")
+            return
 
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         img_name = f"img-{timestamp}.png"
         img_path = images_dir / img_name
-        qimage.save(str(img_path), "PNG")
+        _paste_dbg(f"about to save -> {img_path}")
+        ok = qimage.save(str(img_path), "PNG")
+        _paste_dbg(f"save returned {ok}")
+        if not ok:
+            return
 
         # Compute display size: 320px wide, aspect ratio preserved
         default_w = 320.0
@@ -145,11 +292,14 @@ class CommandsMixin:
             w=default_w, h=default_h,
         )
         self._board.add_image(image)
+        _paste_dbg(f"added image id={image.id}, rebuilding scene")
         self._rebuild_scene()
+        _paste_dbg("rebuild done")
 
         if image.id in self._image_items:
             self._image_items[image.id].setSelected(True)
         self.mark_dirty()
+        _paste_dbg("_paste_clipboard_image: complete")
 
     def _paste_at(self, center: QPointF):
         if not (self._clipboard_boxes or self._clipboard_notes or self._clipboard_images) or not self._board:
@@ -243,43 +393,29 @@ class CommandsMixin:
 
     # ── Property shortcuts ──
 
-    def _cycle_color(self, direction: int):
-        self._push_undo()
-        new_color = None
-        for item in self._scene.selectedItems():
-            if isinstance(item, BoxItem):
-                cur = item.box.color
-                idx = _COLOR_VALUES.index(cur) if cur in _COLOR_VALUES else 0
-                idx = (idx + direction) % len(_COLOR_VALUES)
-                item.set_color(_COLOR_VALUES[idx])
-                new_color = _COLOR_VALUES[idx]
-        if new_color is not None:
-            self._last_box_color = new_color
-        self.mark_dirty()
-
     def _cycle_textsize(self, direction: int):
-        """direction: +1 = increase (toward large), -1 = decrease (toward small)."""
+        """Step selected nodes' text size by one ladder rung.
+
+        direction: +1 = larger, -1 = smaller. Sizes are stored numerically
+        (fine-grained); a parent's small-header default still applies when its
+        size is unset, but stepping always yields an explicit size so a parent
+        can reach the same sizes as any other node.
+        """
         self._push_undo()
         new_textsize = None
         for item in self._scene.selectedItems():
             if isinstance(item, BoxItem):
-                cur = item.box.textsize
-                if cur in _SIZE_SEQUENCE:
-                    idx = _SIZE_SEQUENCE.index(cur)
-                else:
-                    idx = 1  # default to medium
-                idx = max(0, min(len(_SIZE_SEQUENCE) - 1, idx + direction))
-                item.set_textsize(_SIZE_SEQUENCE[idx])
-                new_textsize = _SIZE_SEQUENCE[idx]
+                is_parent = self._has_children(item.box.id)
+                cur_px = resolve_textsize_px(
+                    item.box.textsize, "small" if is_parent else "")
+                new = str(step_textsize_px(cur_px, direction))
+                item.set_textsize(new)
+                new_textsize = new
             elif isinstance(item, NoteItem):
-                cur = item.note.textsize
-                if cur in _SIZE_SEQUENCE:
-                    idx = _SIZE_SEQUENCE.index(cur)
-                else:
-                    idx = 1
-                idx = max(0, min(len(_SIZE_SEQUENCE) - 1, idx + direction))
-                item.set_textsize(_SIZE_SEQUENCE[idx])
-                self._last_note_textsize = _SIZE_SEQUENCE[idx]
+                cur_px = resolve_textsize_px(item.note.textsize, "")
+                new = str(step_textsize_px(cur_px, direction))
+                item.set_textsize(new)
+                self._last_note_textsize = new
         if new_textsize is not None:
             self._last_box_textsize = new_textsize
         self.mark_dirty()

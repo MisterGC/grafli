@@ -5,10 +5,11 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPen, QPixmap, QTextOption
+from PySide6.QtGui import QAbstractTextDocumentLayout, QBrush, QColor, QFont, QFontMetricsF, QLinearGradient, QPainter, QPainterPath, QPainterPathStroker, QPalette, QPen, QPixmap, QTextBlockFormat, QTextCharFormat, QTextCursor, QTextDocument, QTextOption
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
+    QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsRectItem,
     QGraphicsSimpleTextItem,
@@ -19,13 +20,17 @@ from grafli.constants import (
     BOX_BORDER_WIDTH,
     BOX_FONT_SIZES,
     BOX_RADIUS,
+    DEFAULT_BOX_H,
+    DEFAULT_BOX_W,
     DISCUSSION_COLORS,
     FONT_FAMILY,
+    NOTE_FONT_FAMILY,
     HANDLE_SIZE,
     MIN_BOX_SIZE,
     NOTE_PEN_COLOR,
     NOTE_QUESTION_COLOR,
     NOTE_TASK_COLOR,
+    resolve_textsize_px,
     SCENE_BG,
     _resolve_color,
 )
@@ -55,7 +60,16 @@ def note_prefix(text: str) -> tuple[str, str] | None:
         return "Q:", text[m.end():]
     return None
 from grafli.code_note import is_code_note, split_signature, tokenize_line
+from grafli.md_note import note_is_md, note_md_body
 from grafli.format import Box, Image, Note
+from grafli import iconset
+
+
+def _attach_tooltip(el) -> str:
+    """Human-readable tooltip for an element's attachment."""
+    if el.attach_kind in ("doc", "graph"):
+        return f"{el.attach_kind}:{el.url}" if el.url else el.attach_kind
+    return el.url or ""
 
 # Code-note palette — deliberately minimal so the snippet doesn't fight
 # the surrounding graph. Two accents only, plus muted comments:
@@ -74,6 +88,33 @@ NOTE_CODE_COMMENT_COLOR = QColor("#8A8580")
 NOTE_CODE_TEXT_COLOR = QColor("#2F3437")
 NOTE_CODE_INDENT_GUIDE_COLOR = QColor("#B5B0A8")
 
+# Markdown-note styling. Qt's setMarkdown only honours *font* properties
+# (size / weight) from the default stylesheet; text colour comes from the
+# paint-context palette (near-black body, blue links — see _paint_markdown)
+# and code-span backgrounds are applied as char formats (_style_code_spans),
+# because colour / background CSS rules are ignored on a Markdown import.
+NOTE_MD_CODE_BG_COLOR = QColor("#E7E3DA")
+
+
+def _md_stylesheet(base_pt: float) -> str:
+    """Font-only CSS applied to a Markdown note's QTextDocument.
+
+    Heading sizes are relative to the note's base point size so ``~size``
+    still scales the whole note. Tuned so an ``md:`` note reads at the same
+    visual weight as neighbouring notes when zoomed out.
+    """
+    if base_pt <= 0:
+        base_pt = 13.0
+    h1 = base_pt * 1.45
+    h2 = base_pt * 1.25
+    h3 = base_pt * 1.1
+    return f"""
+        h1 {{ font-size: {h1:.1f}pt; font-weight: bold; }}
+        h2 {{ font-size: {h2:.1f}pt; font-weight: bold; }}
+        h3, h4, h5, h6 {{ font-size: {h3:.1f}pt; font-weight: bold; }}
+    """
+
+
 _CODE_BOLD_KINDS = {"kw_struct", "kw_effect", "kw_contract", "ref"}
 _CODE_KIND_COLORS = {
     "kw_struct": NOTE_CODE_KW_COLOR,
@@ -90,13 +131,24 @@ _CODE_KIND_COLORS = {
 
 
 def _paint_link_glyph(painter: QPainter, rect: QRectF):
-    """Paint a subtle link icon at the top-right corner of *rect*."""
-    color = QColor("#D4804E")
-    color.setAlphaF(0.6)
-    painter.setPen(QPen(color, 1.2))
+    """Paint a link icon at the top-right of *rect*, on a small label-style
+    plate so it stays legible regardless of box fill color.
+    """
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    # Plate — mirrors BoxLabelItem's background plate.
+    plate = QRectF(rect.right() - 17, rect.top() + 2, 14, 11)
+    bg = QColor("#F2F0EB")
+    bg.setAlphaF(0.6)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(bg))
+    painter.drawRoundedRect(plate, 4, 4)
+
+    # Chain glyph — same color as label text, full alpha (plate carries contrast).
+    painter.setPen(QPen(QColor("#2F3437"), 1.2))
     painter.setBrush(Qt.BrushStyle.NoBrush)
-    cx = rect.right() - 8
-    cy = rect.top() + 8
+    cx = plate.center().x()
+    cy = plate.center().y()
     r1 = QRectF(cx - 4, cy - 3, 6, 4)
     r2 = QRectF(cx - 2, cy - 1, 6, 4)
     painter.drawRoundedRect(r1, 1.5, 1.5)
@@ -112,6 +164,12 @@ _EDGE_T = 4
 _EDGE_R = 5
 _EDGE_B = 6
 _EDGE_L = 7
+
+_CORNERS = (_CORNER_TL, _CORNER_TR, _CORNER_BL, _CORNER_BR)
+_EDGES = (_EDGE_T, _EDGE_R, _EDGE_B, _EDGE_L)
+_ALL_HANDLES = _CORNERS + _EDGES
+
+MIN_SCALE_FONT_PT = 6   # font floor when scaling a node down
 
 _HANDLE_CURSORS = {
     _CORNER_TL: Qt.CursorShape.SizeFDiagCursor,
@@ -133,22 +191,363 @@ def _get_view(item):
     return None
 
 
+def _view_scale(item) -> float:
+    """Current canvas zoom (scene units per pixel inverse), or 1.0."""
+    view = _get_view(item)
+    if view is not None:
+        m = view.transform().m11()
+        if m:
+            return abs(m)
+    return 1.0
+
+
+def _aggregate_ideal_px(w_screen: float, h_screen: float) -> float:
+    """Most-readable headline size (on-screen px) for an aggregate of the given
+    on-screen footprint, shared by collapsed tiles and cluster hulls.
+
+    Driven by the footprint's *area* (geometric mean of the sides), not its
+    shorter side: a wide-but-flat tile then still earns a prominent headline
+    instead of being throttled by its short dimension. Floored so a headline
+    stays scannable as the tile keeps shrinking on zoom-out (it may overflow the
+    footprint — the caption painter treats that as an acceptable last resort),
+    and capped so a huge tile doesn't shout.
+    """
+    return max(9.0, min(22.0, (w_screen * h_screen) ** 0.5 * 0.32))
+
+
+def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
+                            ideal_px):
+    """Draw a centered '<label> / N nodes' caption for a collapsed tile or hull.
+
+    The painter is already translated to the centre and counter-scaled
+    (1 unit == 1 on-screen px). The headline wraps to the available width at the
+    ideal (most readable) size; it is shrunk **only if** it would still overflow
+    the available area — the largest size that fits — and overflows past the
+    edges only as a last resort (a single word too wide even at the floor).
+    """
+    flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
+                | Qt.TextFlag.TextWordWrap)
+    min_px = 6.0
+    head_px = max(min_px, ideal_px)
+    while True:
+        pad = max(3.0, head_px * 0.45)
+        avail_w = max(16.0, w_screen - 2 * pad)
+        avail_h = max(12.0, h_screen - 2 * pad)
+        head_font = QFont(FONT_FAMILY)
+        head_font.setPixelSize(round(head_px))
+        head_font.setBold(True)
+        painter.setFont(head_font)
+        gap = head_px * 0.35
+        badge_px = max(6.0, head_px * 0.72)
+        # Measure with QFontMetricsF, not painter.boundingRect: the latter
+        # returns an empty rect under the translated/counter-scaled scene
+        # painter (device-coordinate quirk). Font metrics are transform-free.
+        bound = QFontMetricsF(head_font).boundingRect(
+            QRectF(-avail_w / 2, 0.0, avail_w, 60.0 * head_px), flags, label)
+        fits = (bound.width() <= avail_w + 0.5
+                and bound.height() + gap + badge_px <= avail_h)
+        if fits or head_px <= min_px:
+            head_h = bound.height()
+            break
+        head_px -= 1.0
+
+    total_h = head_h + gap + badge_px
+    top = -total_h / 2
+    painter.setPen(QColor("#2F3437"))
+    painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h), flags, label)
+
+    badge_font = QFont(FONT_FAMILY)
+    badge_font.setPixelSize(round(badge_px))
+    painter.setFont(badge_font)
+    painter.setPen(QColor("#2F3437"))
+    text = f"{count} node" + ("" if count == 1 else "s")
+    bfm = QFontMetricsF(badge_font)
+    bw = bfm.horizontalAdvance(text)
+    painter.drawText(
+        QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6),
+        int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), text)
+
+
+def _apply_emphasis(font: QFont, emphasis: str) -> QFont:
+    """Layer bold/italic onto ``font`` from an element's ``emphasis`` string."""
+    if "bold" in emphasis:
+        font.setBold(True)
+    if "italic" in emphasis:
+        font.setItalic(True)
+    return font
+
+
+def _draw_text(painter: QPainter, point: QPointF, text: str,
+               font: QFont, color: QColor, emphasis: str = "") -> None:
+    """Draw ``text`` at a baseline ``point`` in ``color``.
+
+    Handles the display text styles that can't be expressed through a plain
+    ``QFont``:
+
+    * **faux-bold** — the handwritten face (Patrick Hand) ships no bold weight,
+      so a plain ``setBold`` only yields weak synthetic emboldening; for that
+      family we thicken by stroking the glyph outline.
+    * **outline** (``emphasis`` contains ``outline``) — hollow letters: the
+      glyph path is stroked, not filled.
+    * **shadow** (``emphasis`` contains ``shadow``) — an offset dark copy of
+      the glyphs is laid down first, giving depth.
+
+    The mono UI font has a real Bold, so it takes the plain text path unless a
+    display style is requested.
+    """
+    outline = "outline" in emphasis
+    shadow = "shadow" in emphasis
+    faux_bold = font.bold() and font.family() == NOTE_FONT_FAMILY
+    if not (outline or shadow or faux_bold):
+        painter.setFont(font)
+        painter.setPen(color)
+        painter.drawText(point, text)
+        return
+
+    path = QPainterPath()
+    path.addText(point, font, text)
+    painter.save()
+    if shadow:
+        offset = max(1.5, font.pointSizeF() * 0.06)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(QColor(0, 0, 0, 90)))
+        painter.translate(offset, offset)
+        painter.drawPath(path)
+        painter.translate(-offset, -offset)
+    if outline:
+        pen = QPen(color, max(0.8, font.pointSizeF() * 0.05))
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+    else:
+        painter.setBrush(QBrush(color))
+        if faux_bold:
+            pen = QPen(color, max(0.5, font.pointSizeF() * 0.04))
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+        else:
+            painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawPath(path)
+    painter.restore()
+
+
+def _begin_drag_guides(item):
+    """Tell the view a free-move drag is starting (gathers alignment refs)."""
+    view = _get_view(item)
+    if view is not None and hasattr(view, "begin_drag_guides"):
+        view.begin_drag_guides(item)
+
+
+def _end_drag_guides(item):
+    """Tell the view a free-move drag ended (clears live guides)."""
+    view = _get_view(item)
+    if view is not None and hasattr(view, "end_drag_guides"):
+        view.end_drag_guides()
+
+
+_HANDLE_GRAB_PX = HANDLE_SIZE / 2 + 5   # forgiving grab radius around a handle
+
+
+def _handle_points(rect: QRectF, handle_ids):
+    """Map of handle id → its anchor point on ``rect`` (corner or edge mid)."""
+    cx = (rect.left() + rect.right()) / 2
+    cy = (rect.top() + rect.bottom()) / 2
+    pts = {
+        _CORNER_TL: rect.topLeft(),
+        _CORNER_TR: rect.topRight(),
+        _CORNER_BL: rect.bottomLeft(),
+        _CORNER_BR: rect.bottomRight(),
+        _EDGE_T: QPointF(cx, rect.top()),
+        _EDGE_B: QPointF(cx, rect.bottom()),
+        _EDGE_L: QPointF(rect.left(), cy),
+        _EDGE_R: QPointF(rect.right(), cy),
+    }
+    return {h: pts[h] for h in handle_ids}
+
+
+def _handle_hit(rect: QRectF, handle_ids, pos: QPointF, scale: float):
+    """Nearest handle whose square ``pos`` falls within, else None.
+
+    The grab radius is constant in *screen* pixels (handles are drawn at a
+    fixed size regardless of zoom), so it is divided by the canvas scale.
+    """
+    radius = _HANDLE_GRAB_PX / max(scale, 1e-6)
+    best, best_d = None, radius
+    for hid, pt in _handle_points(rect, handle_ids).items():
+        d = ((pos.x() - pt.x()) ** 2 + (pos.y() - pt.y()) ** 2) ** 0.5
+        if d <= best_d:
+            best, best_d = hid, d
+    return best
+
+
 # ── Graphics items ───────────────────────────────────────────────
 
 
 class ResizeHandle(QGraphicsRectItem):
-    """Small handle for resizing a BoxItem (corner or edge)."""
+    """Grab square at a node's corner or edge midpoint.
+
+    The handle owns its own hover feedback (it lights up and grows so it is
+    obvious a drag will resize) and its own drag, delegating the actual
+    geometry change to the parent node's ``_begin/_update/_finish_handle_drag``.
+    """
+
+    _HOVER_GROW = 4
+    _IDLE_FILL = QColor("#FFFFFF")
+    _IDLE_PEN = QColor("#2F5D5C")
+    _HOVER_FILL = QColor("#2F5D5C")
+    _HOVER_PEN = QColor("#FFFFFF")
 
     def __init__(self, handle_id: int, parent: QGraphicsRectItem):
         hs = HANDLE_SIZE
         super().__init__(-hs / 2, -hs / 2, hs, hs, parent)
         self.corner = handle_id
-        self.setPen(QPen(QColor("#2F5D5C"), 1))
-        self.setBrush(QBrush(QColor("#FFFFFF")))
+        self._hovered = False
+        self._dragging = False
+        self.setPen(QPen(self._IDLE_PEN, 1))
+        self.setBrush(QBrush(self._IDLE_FILL))
         self.setCursor(_HANDLE_CURSORS[handle_id])
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+        self.setAcceptHoverEvents(True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        # Draw at a constant screen size regardless of canvas zoom, and keep
+        # the squares above the node and its selection outline.
+        self.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True
+        )
+        self.setZValue(10)
+        self.setVisible(False)
+
+    def _set_hover(self, on: bool):
+        if on == self._hovered:
+            return
+        self._hovered = on
+        hs = HANDLE_SIZE + (self._HOVER_GROW if on else 0)
+        self.prepareGeometryChange()
+        self.setRect(-hs / 2, -hs / 2, hs, hs)
+        if on:
+            self.setBrush(QBrush(self._HOVER_FILL))
+            self.setPen(QPen(self._HOVER_PEN, 1.5))
+        else:
+            self.setBrush(QBrush(self._IDLE_FILL))
+            self.setPen(QPen(self._IDLE_PEN, 1))
+
+    def hoverEnterEvent(self, event):
+        self._set_hover(True)
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        if not self._dragging:
+            self._set_hover(False)
+        super().hoverLeaveEvent(event)
+
+    def _parent_node(self):
+        parent = self.parentItem()
+        if parent is not None and hasattr(parent, "_begin_handle_drag"):
+            return parent
+        return None
+
+    def mousePressEvent(self, event):
+        parent = self._parent_node()
+        if (event.button() == Qt.MouseButton.LeftButton
+                and parent is not None and parent.isSelected()):
+            parent._begin_handle_drag(self.corner, event.scenePos())
+            self._dragging = True
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        parent = self._parent_node()
+        if self._dragging and parent is not None:
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            parent._update_handle_drag(event.scenePos(), shift)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        parent = self._parent_node()
+        if self._dragging and parent is not None:
+            self._dragging = False
+            parent._finish_handle_drag()
+            self._set_hover(False)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+class ResizeForeshadow(QGraphicsItem):
+    """Translucent preview drawn while resizing/scaling a box.
+
+    Shows where the box's *frame* will land (dashed outline) and where its
+    *content* will sit after scaling (a filled occupied-area rect). When the
+    box has aspect-lock on, a small corner glyph signals the ratio is held.
+    The real size/font mutation happens on release; this only foreshadows it.
+    """
+
+    _OUTLINE = QColor("#2F5D5C")
+    _FILL = QColor("#2F5D5C")
+    _GLYPH_BG = QColor("#2F3437")
+    _GLYPH_FG = QColor("#ECECEC")
+
+    def __init__(self):
+        super().__init__()
+        self._frame = QRectF()
+        self._content = QRectF()
+        self._locked = False
+        self.setZValue(10001)
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setVisible(False)
+
+    def set_preview(self, frame: QRectF, content: QRectF | None, locked: bool):
+        self.prepareGeometryChange()
+        self._frame = QRectF(frame)
+        self._content = QRectF(content) if content is not None else QRectF()
+        self._locked = bool(locked)
+        self.update()
+
+    def boundingRect(self):
+        r = QRectF(self._frame)
+        if not self._content.isEmpty():
+            r = r.united(self._content)
+        return r.adjusted(-12, -12, 12, 12)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # Content-occupied area (filled, faint).
+        if not self._content.isEmpty():
+            fill = QColor(self._FILL)
+            fill.setAlphaF(0.18)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(fill))
+            painter.drawRect(self._content)
+        # Target frame outline (dashed).
+        pen = QPen(self._OUTLINE, 2, Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(self._frame)
+        # Lock indicator: a small badge in the top-left of the frame.
+        if self._locked:
+            self._paint_lock_badge(painter)
+
+    def _paint_lock_badge(self, painter: QPainter):
+        size = 18.0
+        r = QRectF(self._frame.left() + 4, self._frame.top() + 4, size, size)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(self._GLYPH_BG))
+        painter.drawRoundedRect(r, 4, 4)
+        # Simple padlock: shackle arc + body.
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(self._GLYPH_FG, 1.6))
+        cx = r.center().x()
+        arc = QRectF(cx - 3.5, r.top() + 4, 7, 7)
+        painter.drawArc(arc, 0, 180 * 16)
+        body = QRectF(cx - 4.5, r.top() + 7.5, 9, 7)
+        painter.setBrush(QBrush(self._GLYPH_FG))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(body, 1.5, 1.5)
 
 
 class BoxLabelItem(QGraphicsTextItem):
@@ -163,6 +562,10 @@ class BoxLabelItem(QGraphicsTextItem):
         self.setAcceptHoverEvents(False)
 
     def paint(self, painter: QPainter, option, widget=None):
+        # No caption (e.g. a glyph box cleared to fill with its icon) → draw
+        # nothing, so the contrast plate doesn't linger as an empty strip.
+        if not self._box_item.box.label:
+            return
         if _resolve_color(self._box_item.box.color):
             bg_rect = self.boundingRect()
             bg = QColor("#F2F0EB")
@@ -203,13 +606,22 @@ class BoxItem(QGraphicsRectItem):
             ResizeHandle(_EDGE_L, self),
         ]
         self._resizing = False
+        self._scaling = False
         self._is_parent = False
+        # Level-of-Detail: when the view zooms out far enough that this box's
+        # label would be illegible, the view marks it simplified — the box
+        # paints as a bare coloured shell (no icon; its label item is hidden).
+        self._lod_simplified = False
+        # When this box is a collapsed container, the view sets a (headline,
+        # count) tuple; paint() then draws a counter-scaled headline + count
+        # badge in place of the hidden children, and the normal label is hidden.
+        self._lod_tile: tuple[str, int] | None = None
 
         self._label = BoxLabelItem(self)
         self._label.setFont(self._box_font())
         self._label.setDefaultTextColor(QColor("#2F3437"))
         self._label.setPlainText(box.label)
-        self._label.setTextWidth(box.w - 16)
+        self._label.setTextWidth(self._label_width_for(box.w))
         self._apply_color()
         self._position_label()
         self._auto_grow()
@@ -247,14 +659,67 @@ class BoxItem(QGraphicsRectItem):
         self._apply_color()
         self.update()
 
+    def set_icon(self, name: str, placement: str = ""):
+        self.box.icon = name
+        self.box.icon_placement = placement
+        self._auto_grow()
+        self._position_label()
+        self.update()
+
+    def set_emphasis(self, emphasis: str):
+        self.box.emphasis = emphasis
+        self._label.setFont(self._box_font())
+        self._auto_grow()
+        self._position_label()
+        self.update()
+
+    def _lead_icon_side(self) -> float:
+        """Small leading-icon size, scaled to the box's text."""
+        is_parent = self._is_parent
+        px = resolve_textsize_px(self.box.textsize,
+                                 "small" if is_parent else "")
+        return max(14.0, min(px * 1.7, self.box.h - 8))
+
+    def _has_lead_icon(self) -> bool:
+        return (bool(self.box.icon) and self.box.icon_placement == "lead"
+                and iconset.has_icon(self.box.icon))
+
+    def _label_width_for(self, w: float) -> float:
+        """Wrap width for the label — leaves room for a lead-icon gutter so
+        the text never runs past the box edge."""
+        if self._has_lead_icon():
+            return w - (self._lead_icon_side() + 24.0)
+        return w - 16.0
+
+    def _paint_icon(self, painter: QPainter):
+        """Draw the visual-vocabulary glyph. ``fill`` (default): big icon, the
+        label is a caption (positioned by _position_label). ``lead``: a small
+        icon at the left, the label keeps its normal weight beside it."""
+        w, h = self.box.w, self.box.h
+        color = QColor("#2F3437")
+        if self.box.icon_placement == "lead":
+            side = self._lead_icon_side()
+            iconset.paint_icon(painter, self.box.icon,
+                               QRectF(8.0, (h - side) / 2, side, side), color)
+            return
+        pad = 10.0
+        cap_h = (self._label.boundingRect().height() + 6
+                 if self.box.label else 0.0)
+        avail_h = h - 2 * pad - cap_h
+        side = max(8.0, min(w - 2 * pad, avail_h))
+        ix = (w - side) / 2
+        iy = pad + (avail_h - side) / 2
+        iconset.paint_icon(painter, self.box.icon,
+                           QRectF(ix, iy, side, side), color)
+
     def set_style(self, style: str):
         self.box.style = style
         self._apply_color()
         self.update()
 
     def _update_url_indicator(self):
-        """Refresh tooltip based on url."""
-        self.setToolTip(self.box.url if self.box.url else "")
+        """Refresh tooltip based on the attachment."""
+        self.setToolTip(_attach_tooltip(self.box))
 
     # ── Auto layout helpers ──
 
@@ -275,16 +740,41 @@ class BoxItem(QGraphicsRectItem):
         return ""
 
     def _box_font(self) -> QFont:
-        return QFont(FONT_FAMILY, BOX_FONT_SIZES.get(self._get_effective_textsize(), 13))
+        view = _get_view(self)
+        is_parent = bool(view and hasattr(view, '_has_children')
+                         and view._has_children(self.box.id))
+        # Unset size: a parent defaults to the small header, a normal node to
+        # medium. An explicit size (numeric or named) is always honoured — so
+        # a parent can be set to the same size as any other node.
+        px = resolve_textsize_px(self.box.textsize, "small" if is_parent else "")
+        return _apply_emphasis(QFont(FONT_FAMILY, px), self.box.emphasis)
 
     def _position_label(self):
+        self._label.setTextWidth(self._label_width_for(self.box.w))
         br = self._label.boundingRect()
         w = self.box.w
         h = self.box.h
         bx = self.pos().x()
         by = self.pos().y()
-        anchor = self._get_effective_anchor()
         doc = self._label.document()
+        # Glyph box. ``lead``: a small icon sits at the left and the label
+        # keeps its weight beside it. ``fill``: the icon fills the body, so the
+        # label rides at the bottom as a caption.
+        if self.box.icon and iconset.has_icon(self.box.icon):
+            if self.box.icon_placement == "lead":
+                gutter = 8.0 + self._lead_icon_side() + 8.0
+                opt = QTextOption()
+                opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                doc.setDefaultTextOption(opt)
+                self._label.setPos(bx + gutter, by + (h - br.height()) / 2)
+                return
+            opt = QTextOption()
+            opt.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            doc.setDefaultTextOption(opt)
+            self._label.setPos(bx + (w - br.width()) / 2,
+                               by + h - br.height() - 6)
+            return
+        anchor = self._get_effective_anchor()
         opt = QTextOption()
         if anchor == "topleft":
             opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -319,11 +809,64 @@ class BoxItem(QGraphicsRectItem):
     def update_label(self, text: str):
         self.box.label = text
         self._label.setPlainText(text)
-        self._label.setTextWidth(self.box.w - 16)
+        self._label.setTextWidth(self._label_width_for(self.box.w))
         self._auto_grow()
         self._position_label()
 
+    def set_geometry(self, x: float, y: float, w: float, h: float):
+        """Set the box's full geometry and refresh dependent visuals."""
+        self.box.x = x
+        self.box.y = y
+        self.box.w = w
+        self.box.h = h
+        self._min_h = h
+        self.setPos(x, y)
+        self.setRect(0, 0, w, h)
+        self._label.setTextWidth(self._label_width_for(w))
+        self._update_handles()
+        self._position_label()
+        view = _get_view(self)
+        if view and hasattr(view, 'arrow_update_needed'):
+            view.arrow_update_needed.emit()
+            view.mark_dirty()
+
+    def _fit_to_label(self):
+        """Shrink the box down to comfortably fit its text label.
+
+        Used when a node stops being a parent (its last child was dragged
+        out) so it doesn't keep the enlarged container size and leave a big
+        empty box. Floors at the default node size, never grows beyond the
+        current size, and collapses around the box centre so the label
+        stays roughly in place.
+        """
+        cx = self.box.x + self.box.w / 2
+        cy = self.box.y + self.box.h / 2
+
+        self._label.setFont(self._box_font())
+        # Natural (unwrapped) label width, then height wrapped at the new width.
+        self._label.setTextWidth(-1)
+        natural_w = self._label.boundingRect().width()
+        new_w = min(self.box.w, max(DEFAULT_BOX_W, natural_w + 32))
+        self._label.setTextWidth(self._label_width_for(new_w))
+        needed_h = self._label.boundingRect().height() + 16
+        new_h = min(self.box.h, max(DEFAULT_BOX_H, needed_h))
+
+        self.box.w = new_w
+        self.box.h = new_h
+        self.box.x = cx - new_w / 2
+        self.box.y = cy - new_h / 2
+        self._min_h = new_h
+        self.setPos(self.box.x, self.box.y)
+        self.setRect(0, 0, new_w, new_h)
+        self._update_handles()
+        self._position_label()
+        view = _get_view(self)
+        if view and hasattr(view, 'arrow_update_needed'):
+            view.arrow_update_needed.emit()
+            view.mark_dirty()
+
     def _auto_grow(self):
+        self._label.setTextWidth(self._label_width_for(self.box.w))
         needed = self._label.boundingRect().height() + 16
         new_h = max(self._min_h, needed)
         if new_h != self.box.h:
@@ -349,52 +892,17 @@ class BoxItem(QGraphicsRectItem):
         self._handles[_EDGE_L].setPos(r.left(), cy)
 
     def _show_handles(self, visible: bool):
-        pass  # resize is via border proximity, no visible handles needed
+        for handle in self._handles:
+            handle.setVisible(visible)
 
     def _handle_at(self, pos: QPointF) -> int | None:
-        r = self.rect()
-        margin = 10
-
-        near_l = abs(pos.x() - r.left()) < margin
-        near_r = abs(pos.x() - r.right()) < margin
-        near_t = abs(pos.y() - r.top()) < margin
-        near_b = abs(pos.y() - r.bottom()) < margin
-
-        in_x = r.left() - margin < pos.x() < r.right() + margin
-        in_y = r.top() - margin < pos.y() < r.bottom() + margin
-
-        # Corners (both edges near)
-        if near_l and near_t:
-            return _CORNER_TL
-        if near_r and near_t:
-            return _CORNER_TR
-        if near_l and near_b:
-            return _CORNER_BL
-        if near_r and near_b:
-            return _CORNER_BR
-
-        # Edges (one edge near, within extent of the other axis)
-        if near_t and in_x:
-            return _EDGE_T
-        if near_b and in_x:
-            return _EDGE_B
-        if near_l and in_y:
-            return _EDGE_L
-        if near_r and in_y:
-            return _EDGE_R
-
-        return None
+        return _handle_hit(self.rect(), _ALL_HANDLES, pos, _view_scale(self))
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             view = _get_view(self)
-            if view and hasattr(view, '_grid_visible') and view._grid_visible:
-                spacing = view.GRID_SPACING
-                new_pos = value
-                return QPointF(
-                    round(new_pos.x() / spacing) * spacing,
-                    round(new_pos.y() / spacing) * spacing,
-                )
+            if view is not None and hasattr(view, 'snap_drag_pos'):
+                return view.snap_drag_pos(self, value)
         elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             dx = self.pos().x() - self.box.x
             dy = self.pos().y() - self.box.y
@@ -419,29 +927,177 @@ class BoxItem(QGraphicsRectItem):
 
     def boundingRect(self):
         r = super().boundingRect()
-        if self.isSelected():
-            return r.adjusted(-6, -6, 6, 6)
+        m = 6 if self.isSelected() else 0
+        if self._lod_tile is not None:
+            # The "stacked edges" mark peeks up and to the right of the tile.
+            return r.adjusted(-m, -m - 64, m + 64, m)
+        if m:
+            return r.adjusted(-m, -m, m, m)
         return r
 
     def mousePressEvent(self, event):
+        # Presses on the box body within a handle's grab ring still start a
+        # resize; presses on a handle square are driven by the handle itself.
         if event.button() == Qt.MouseButton.LeftButton:
             corner = self._handle_at(event.pos())
-            if corner is not None and self.isSelected():
-                self._resizing = True
-                self._resize_corner = corner
-                self._resize_origin = event.pos()
-                self.setFlag(
-                    QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False
-                )
-                view = _get_view(self)
-                if view and hasattr(view, '_save_pre_action_snapshot'):
-                    view._save_pre_action_snapshot()
+            # A collapsed tile is read-only — no resize (it would desync the
+            # hidden children); the press just selects (for navigation).
+            if (corner is not None and self.isSelected()
+                    and self._lod_tile is None):
+                self._begin_handle_drag(corner, event.scenePos())
                 event.accept()
                 return
+        _begin_drag_guides(self)
         super().mousePressEvent(event)
 
-    def _apply_resize_delta(self, dx: float, dy: float, corner: int):
-        """Apply a resize delta for the given handle direction."""
+    # ── Handle drag: corners scale the selection, edges stretch one axis ──
+
+    def _begin_handle_drag(self, corner: int, scene_pos: QPointF):
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        view = _get_view(self)
+        if view and hasattr(view, '_save_pre_action_snapshot'):
+            view._save_pre_action_snapshot()
+        if corner in _CORNERS:
+            self._begin_scale(corner, scene_pos)
+        else:
+            self._resizing = True
+            self._resize_corner = corner
+            self._resize_origin = self.mapFromScene(scene_pos)
+
+    def _update_handle_drag(self, scene_pos: QPointF, shift: bool):
+        if self._scaling:
+            # Corners keep the aspect ratio by default; Shift frees it.
+            keep = not shift
+            self._scale_fx, self._scale_fy = self._scale_factors_for(
+                scene_pos, keep)
+            view = _get_view(self)
+            if view and hasattr(view, '_show_resize_foreshadow'):
+                view._show_resize_foreshadow(
+                    self._projected_bbox(), content=None, locked=keep)
+        elif self._resizing:
+            local = self.mapFromScene(scene_pos)
+            dx = local.x() - self._resize_origin.x()
+            dy = local.y() - self._resize_origin.y()
+            self._resize_origin = local
+            corner = self._resize_corner
+            # Edge handles always stretch a single axis (Shift has no effect).
+            self._apply_resize_delta(dx, dy, corner, False)
+            scene = self.scene()
+            if scene:
+                for item in scene.selectedItems():
+                    if isinstance(item, BoxItem) and item is not self:
+                        item._apply_resize_delta(dx, dy, corner, False)
+            view = _get_view(self)
+            if view and hasattr(view, 'arrow_update_needed'):
+                view.arrow_update_needed.emit()
+
+    def _finish_handle_drag(self):
+        view = _get_view(self)
+        if self._scaling:
+            self._scaling = False
+            self._commit_scale()
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            if view and hasattr(view, '_clear_resize_foreshadow'):
+                view._clear_resize_foreshadow()
+            if view and hasattr(view, '_commit_pre_action_snapshot'):
+                view._commit_pre_action_snapshot()
+                view.mark_dirty()
+            if view and hasattr(view, 'arrow_update_needed'):
+                view.arrow_update_needed.emit()
+        elif self._resizing:
+            self._resizing = False
+            self._min_h = self.box.h
+            self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            if view and hasattr(view, '_commit_pre_action_snapshot'):
+                view._commit_pre_action_snapshot()
+                view.mark_dirty()
+
+    # ── Corner-drag scale (whole selection; Shift keeps aspect ratio) ──
+
+    def _begin_scale(self, corner: int, scene_pos: QPointF):
+        """Start scaling the whole selection about its bounding box.
+
+        Inkscape-style: a corner drag scales every selected item (boxes, notes,
+        images) around the opposite corner of the selection's bounds, so the
+        group keeps its relative layout. Font scales with the geometry.
+        """
+        self._scaling = True
+        self._scale_corner = corner
+        self._scale_fx = self._scale_fy = 1.0
+        scene = self.scene()
+        sel = ([i for i in scene.selectedItems()
+                if isinstance(i, (BoxItem, NoteItem, ImageItem))]
+               if scene else [])
+        if self not in sel:
+            sel.append(self)
+        self._scale_members = []
+        bbox = None
+        for item in sel:
+            r = self._member_rect(item)
+            self._scale_members.append((item, r, self._member_font_px(item)))
+            bbox = r if bbox is None else bbox.united(r)
+        self._scale_bbox = bbox or self._member_rect(self)
+        self._scale_pivot = self._corner_anchor(self._scale_bbox, corner)
+
+    @staticmethod
+    def _member_rect(item) -> QRectF:
+        if isinstance(item, BoxItem):
+            b = item.box
+            return QRectF(b.x, b.y, b.w, b.h)
+        if isinstance(item, ImageItem):
+            im = item.image
+            return QRectF(im.x, im.y, im.w, im.h)
+        sr = item.sceneBoundingRect()
+        return QRectF(sr.x(), sr.y(), sr.width(), sr.height())
+
+    @staticmethod
+    def _member_font_px(item):
+        if isinstance(item, BoxItem):
+            return item._box_font().pointSizeF()
+        if isinstance(item, NoteItem):
+            return item._note_font().pointSizeF()
+        return None
+
+    @staticmethod
+    def _corner_anchor(rect: QRectF, corner: int) -> QPointF:
+        """The fixed point (opposite the grabbed corner) during a scale."""
+        if corner == _CORNER_TL:
+            return rect.bottomRight()
+        if corner == _CORNER_TR:
+            return rect.bottomLeft()
+        if corner == _CORNER_BL:
+            return rect.topRight()
+        return rect.topLeft()                       # _CORNER_BR
+
+    @staticmethod
+    def _scaled_frame(anchor: QPointF, corner: int, w: float, h: float) -> QRectF:
+        """Frame of size w×h keeping ``anchor`` fixed for the given corner."""
+        if corner == _CORNER_TL:
+            return QRectF(anchor.x() - w, anchor.y() - h, w, h)
+        if corner == _CORNER_TR:
+            return QRectF(anchor.x(), anchor.y() - h, w, h)
+        if corner == _CORNER_BL:
+            return QRectF(anchor.x() - w, anchor.y(), w, h)
+        return QRectF(anchor.x(), anchor.y(), w, h)  # _CORNER_BR
+
+    def _scale_factors_for(self, scene_pos: QPointF, keep_ratio: bool):
+        """(fx, fy) so the dragged corner of the selection follows the cursor."""
+        pivot = self._scale_pivot
+        w0, h0 = self._scale_bbox.width(), self._scale_bbox.height()
+        fx = abs(scene_pos.x() - pivot.x()) / w0 if w0 else 1.0
+        fy = abs(scene_pos.y() - pivot.y()) / h0 if h0 else 1.0
+        fx, fy = max(fx, 0.05), max(fy, 0.05)
+        if keep_ratio:
+            fx = fy = max(fx, fy)
+        return fx, fy
+
+    def _projected_bbox(self) -> QRectF:
+        w = self._scale_bbox.width() * self._scale_fx
+        h = self._scale_bbox.height() * self._scale_fy
+        return self._scaled_frame(self._scale_pivot, self._scale_corner, w, h)
+
+    def _free_resize_rect(self, dx, dy, corner):
+        """New (x, y, w, h) for a free (per-axis) resize."""
         x, y, w, h = self.box.x, self.box.y, self.box.w, self.box.h
 
         if corner == _CORNER_TL:
@@ -470,6 +1126,17 @@ class BoxItem(QGraphicsRectItem):
             if corner in (_CORNER_TL, _CORNER_TR, _EDGE_T):
                 y -= MIN_BOX_SIZE - h
             h = MIN_BOX_SIZE
+        return x, y, w, h
+
+    def _apply_resize_delta(self, dx: float, dy: float, corner: int,
+                            keep_ratio: bool = False):
+        """Apply a single-axis (edge) resize delta for the given handle.
+
+        Corner scaling goes through the selection-scale path; this drives the
+        edge handles, which always stretch one axis. ``keep_ratio`` is accepted
+        for call-site symmetry but ignored — edges never preserve the ratio.
+        """
+        x, y, w, h = self._free_resize_rect(dx, dy, corner)
 
         self.box.x = x
         self.box.y = y
@@ -477,47 +1144,37 @@ class BoxItem(QGraphicsRectItem):
         self.box.h = h
         self.setPos(x, y)
         self.setRect(0, 0, w, h)
-        self._label.setTextWidth(w - 16)
+        self._label.setTextWidth(self._label_width_for(w))
         self._position_label()
         self._update_handles()
 
     def mouseMoveEvent(self, event):
-        if self._resizing:
-            dx = event.pos().x() - self._resize_origin.x()
-            dy = event.pos().y() - self._resize_origin.y()
-            self._resize_origin = event.pos()
-            corner = self._resize_corner
-
-            self._apply_resize_delta(dx, dy, corner)
-
-            scene = self.scene()
-            if scene:
-                for item in scene.selectedItems():
-                    if isinstance(item, BoxItem) and item is not self:
-                        item._apply_resize_delta(dx, dy, corner)
-
-            view = _get_view(self)
-            if view and hasattr(view, 'arrow_update_needed'):
-                view.arrow_update_needed.emit()
-
+        if self._scaling or self._resizing:
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            self._update_handle_drag(event.scenePos(), shift)
             event.accept()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._resizing:
-            self._resizing = False
-            self._min_h = self.box.h
-            self.setFlag(
-                QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True
-            )
-            view = _get_view(self)
-            if view and hasattr(view, '_commit_pre_action_snapshot'):
-                view._commit_pre_action_snapshot()
-                view.mark_dirty()
+        _end_drag_guides(self)
+        if self._scaling or self._resizing:
+            self._finish_handle_drag()
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def _commit_scale(self):
+        """Scale every selected item about the selection pivot, on release."""
+        fx, fy = self._scale_fx, self._scale_fy
+        # Corner scaling carries the font: the exact factor when ratio-locked,
+        # else the geometric mean of the two axis factors.
+        font_factor = fx if abs(fx - fy) < 1e-9 else (fx * fy) ** 0.5
+        view = _get_view(self)
+        if view and hasattr(view, '_scale_members'):
+            view._scale_members(self._scale_members, fx, fy, font_factor,
+                                self._scale_pivot)
+        self._scale_members = []
 
     def hoverMoveEvent(self, event):
         if self.isSelected():
@@ -534,12 +1191,41 @@ class BoxItem(QGraphicsRectItem):
         self.unsetCursor()
         super().hoverLeaveEvent(event)
 
+    def set_lod_simplified(self, simplified: bool) -> None:
+        """Mark/clear the zoomed-out simplified state (driven by the view)."""
+        if simplified == self._lod_simplified:
+            return
+        self._lod_simplified = simplified
+        self.update()
+
+    def set_lod_tile(self, summary) -> None:
+        """Set/clear collapsed-container tile rendering from a ContainerSummary."""
+        tile = (summary.label, summary.descendants) if summary else None
+        if tile == self._lod_tile:
+            return
+        self.prepareGeometryChange()   # boundingRect grows for the stack mark
+        self._lod_tile = tile
+        # A tile is read-only: dragging it would move the container box but
+        # leave its absolutely-positioned children behind (desync). Disable the
+        # move flag while collapsed; restore it when expanded.
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, tile is None)
+        self.update()
+
     def paint(self, painter: QPainter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if self._lod_tile is not None:
+            self._paint_lod_stack(painter)   # offset edges behind the fill
         painter.setPen(self.pen())
         painter.setBrush(self.brush())
         radius = 0 if self.box.style == "flat" or self._is_parent else BOX_RADIUS
         painter.drawRoundedRect(self.rect(), radius, radius)
+
+        if self._lod_tile is not None:
+            self._paint_lod_tile(painter)
+        elif self._lod_simplified:
+            self._paint_lod_shell_bars(painter)
+        elif self.box.icon and iconset.has_icon(self.box.icon):
+            self._paint_icon(painter)
 
         if self.box.url:
             _paint_link_glyph(painter, self.rect())
@@ -556,6 +1242,199 @@ class BoxItem(QGraphicsRectItem):
             painter.setPen(QPen(sel_color, 4, Qt.PenStyle.SolidLine))
             painter.drawRoundedRect(sel_rect, radius, radius)
 
+    def _paint_lod_shell_bars(self, painter: QPainter):
+        """LoD shell: when its label is too small to read, a leaf box keeps its
+        fill colour (colour carries meaning) and shows skeleton bars where the
+        label was — the same 'there is text here' language as a note marker, so
+        every simplified node reads alike."""
+        r = self.rect()
+        fill = self.brush().color()
+        lum = 0.299 * fill.red() + 0.587 * fill.green() + 0.114 * fill.blue()
+        ink = QColor("#2D2D2D" if lum > 140 else "#F2F0EB")
+        ink.setAlphaF(0.45)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(ink))
+        pad = 12.0
+        avail_w = r.width() - 2 * pad
+        if avail_w <= 6 or r.height() < 24:
+            return
+        bar_h, gap = 7.0, 7.0
+        n = 2 if r.height() >= 70 else 1   # box labels are short: 1-2 bars
+        widths = (0.7, 0.45)
+        total_h = n * bar_h + (n - 1) * gap
+        y = r.center().y() - total_h / 2
+        for i in range(n):
+            painter.drawRoundedRect(
+                QRectF(r.left() + pad, y, avail_w * widths[i], bar_h), 2.0, 2.0)
+            y += bar_h + gap
+
+    def _paint_lod_stack(self, painter: QPainter):
+        """Mark a tile as a LoD summary by stacking it like a few thin notebooks:
+        only the *edges* of the layers underneath peek out at the top and right
+        (the front cover hides the rest). Counter-scaled so the offset stays a
+        small, capped on-screen amount — compact, never bloats the layout."""
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        off = min(5.0 / scale, 30.0)
+        front = self.rect()
+        base = QColor(self.brush().color())
+        if base.alpha() == 0:
+            base = QColor("#C8CCD0")
+        base.setAlpha(255)
+        front_path = QPainterPath()
+        front_path.addRect(front)
+        pen = QPen(QColor(0, 0, 0, 70))
+        pen.setWidthF(max(0.8, 1.0 / scale))
+        # One layer: just the L-shaped sliver of a single notebook behind the
+        # cover peeks out at the top and right.
+        layer = QPainterPath()
+        layer.addRect(front.translated(off, -off))
+        visible = layer.subtracted(front_path)
+        painter.fillPath(visible, base.darker(122))
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(visible)
+
+    def _paint_lod_tile(self, painter: QPainter):
+        """Draw a collapsed container as a headline + child-count badge.
+
+        Counter-scaled so the text stays readable as the tile shrinks (like a
+        place name on a map). The headline **wraps** to the tile's on-screen
+        width across multiple lines, only spilling past the edges when a single
+        word can't fit at all.
+        """
+        label, count = self._lod_tile
+        rect = self.rect()
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        w_screen = rect.width() * scale
+        h_screen = rect.height() * scale
+        ideal = _aggregate_ideal_px(w_screen, h_screen)
+
+        painter.save()
+        painter.translate(rect.center())
+        painter.scale(1.0 / scale, 1.0 / scale)   # 1 unit == 1 on-screen px
+        _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
+                                ideal)
+        painter.restore()
+
+
+class ClusterHullItem(QGraphicsPathItem):
+    """A concave "bubble" enclosing a collapsed parent-less node cluster.
+
+    The outline is a pure-Qt concave hull: the boolean union of each member's
+    inflated rounded-rect with a thick-stroked path of the member-to-member
+    edges (so the blob follows the graph and never fragments). The cluster has
+    no backing element, so it is navigation-only — it carries a hub label and
+    node count drawn counter-scaled at the centroid, like a collapsed tile.
+    """
+
+    def __init__(self, member_rects, edges, pad: float,
+                 label: str, count: int, color: str):
+        super().__init__()
+        self._label = label
+        self._count = count
+        path = self._build_path(member_rects, edges, pad)
+        self.setPath(path)
+        self._centroid = path.boundingRect().center()
+        fill = QColor(color)
+        fill.setAlphaF(0.16)
+        self.setBrush(QBrush(fill))
+        self._fill_color = QColor(color)
+        pen = QPen(QColor(color).darker(115))
+        pen.setWidthF(2.0)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        self.setPen(pen)
+        self.setZValue(-100)   # behind the (hidden) nodes and arrows
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+    @staticmethod
+    def _build_path(member_rects, edges, pad: float) -> QPainterPath:
+        path = QPainterPath()
+        centers: dict[str, QPointF] = {}
+        for mid, (x, y, w, h) in member_rects.items():
+            sub = QPainterPath()
+            sub.addRoundedRect(QRectF(x - pad, y - pad, w + 2 * pad, h + 2 * pad),
+                               pad, pad)
+            path = path.united(sub)
+            centers[mid] = QPointF(x + w / 2, y + h / 2)
+        if edges:
+            ep = QPainterPath()
+            for a, b in edges:
+                if a in centers and b in centers:
+                    ep.moveTo(centers[a])
+                    ep.lineTo(centers[b])
+            stroker = QPainterPathStroker()
+            stroker.setWidth(2 * pad)
+            stroker.setCapStyle(Qt.PenCapStyle.RoundCap)
+            stroker.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            path = path.united(stroker.createStroke(ep))
+        return path.simplified()
+
+    def centroid(self) -> QPointF:
+        return QPointF(self._centroid)
+
+    def boundary_point(self, from_pt: QPointF) -> QPointF:
+        """Where a line from ``from_pt`` to the centroid crosses the hull
+        outline — the attach point for an external arrow into the cluster."""
+        path = self.path()
+        if path.contains(from_pt):
+            return QPointF(self._centroid)
+        outside, inside = QPointF(from_pt), QPointF(self._centroid)
+        for _ in range(24):
+            mid = (outside + inside) / 2
+            if path.contains(mid):
+                inside = mid
+            else:
+                outside = mid
+        return outside
+
+    def boundingRect(self) -> QRectF:
+        # Room for the offset shadow (top-right) and the counter-scaled label.
+        return super().boundingRect().adjusted(-20, -40, 40, 20)
+
+    def _paint_hull_stack(self, painter: QPainter):
+        """One offset layer peeking behind the hull — the same 'stack of
+        notebooks' aggregation cue used on collapsed tiles, so the whole LoD
+        vocabulary is consistent."""
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        off = min(5.0 / scale, 30.0)
+        front = self.path()
+        layer = QPainterPath(front)
+        layer.translate(off, -off)
+        visible = layer.subtracted(front)
+        shade = QColor(self._fill_color).darker(118)
+        shade.setAlpha(165)
+        painter.fillPath(visible, shade)
+        pen = QPen(QColor(0, 0, 0, 60))
+        pen.setWidthF(max(0.8, 1.0 / scale))
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(visible)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self._paint_hull_stack(painter)          # offset 'notebook' edge behind
+        super().paint(painter, option, widget)   # fill + solid concave outline
+
+        scale = _view_scale(self)
+        if scale <= 0:
+            return
+        bounds = self.path().boundingRect()
+        w_screen = bounds.width() * scale
+        h_screen = bounds.height() * scale
+        ideal = _aggregate_ideal_px(w_screen, h_screen)
+        painter.save()
+        painter.translate(self._centroid)
+        painter.scale(1.0 / scale, 1.0 / scale)
+        _draw_aggregate_caption(painter, self._label, self._count,
+                                w_screen, h_screen, ideal)
+        painter.restore()
+
 
 class NoteItem(QGraphicsSimpleTextItem):
     """A draggable free-text note with Neovim-style badge rendering."""
@@ -568,6 +1447,8 @@ class NoteItem(QGraphicsSimpleTextItem):
     _BG_RADIUS = 4
     _CODE_BG_RADIUS = 6
     _BLOCK_GAP = 4
+    _DISPLAY_CAP_LINES = 12   # cap an over-long note's on-canvas height
+    _DISPLAY_FOOTER_H = 20.0  # 'open to read the rest' pill band
 
     def __init__(self, note: Note):
         super().__init__(note.text)
@@ -584,7 +1465,20 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.setAcceptHoverEvents(True)
         self._code_ref_rects: list[tuple[QRectF, str]] = []
         self._pending_ref: tuple[str, QPointF] | None = None
+        self._lod_text_marker = False
+        self._display_truncated = False    # set in boundingRect(): note capped?
+        self._display_hidden_lines = 0
         self._update_url_indicator()
+
+    def set_lod_text_marker(self, on: bool) -> None:
+        """LoD: when its text is too small to read, a standalone note paints a
+        'there is text here' marker (plate + skeleton lines + a semantic accent
+        tick) instead of unreadable glyphs — so the note isn't lost, just
+        simplified. Same footprint, so no geometry change."""
+        if on == self._lod_text_marker:
+            return
+        self._lod_text_marker = on
+        self.update()
 
     def _ref_at(self, pos: QPointF) -> str | None:
         for rect, ref in self._code_ref_rects:
@@ -605,6 +1499,15 @@ class NoteItem(QGraphicsSimpleTextItem):
         path.addRect(self.boundingRect())
         return path
 
+    def contains(self, point: QPointF) -> bool:
+        # QGraphicsSimpleTextItem's C++ hit-test (used by scene.itemAt, clicks,
+        # rubber-band, and the Alt-drag connector) is keyed on the base class's
+        # *unwrapped* single-line text geometry. Once an explicit width wraps the
+        # note that geometry diverges from what we actually paint, leaving the
+        # clickable area stuck on the first line. Test against our real shape so
+        # the whole visible note responds.
+        return self.shape().contains(point)
+
     def _on_right_edge(self, pos) -> bool:
         br = self.boundingRect()
         if br.isEmpty():
@@ -624,6 +1527,10 @@ class NoteItem(QGraphicsSimpleTextItem):
     def hoverMoveEvent(self, event):
         if self._is_code_note() and self._ref_at(event.pos()) is not None:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
+        elif self._is_md_note() and self._md_anchor_at(event.pos()) is not None:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        elif self._is_md_note() and self._md_task_index_at(event.pos()) is not None:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
         elif self._on_right_edge(event.pos()):
             self.setCursor(Qt.CursorShape.SizeHorCursor)
         else:
@@ -632,6 +1539,8 @@ class NoteItem(QGraphicsSimpleTextItem):
 
     def mousePressEvent(self, event):
         self._pending_ref = None
+        self._pending_link = None
+        self._pending_task = None
         self._resizing = False
         if (
             event.button() == Qt.MouseButton.LeftButton
@@ -649,6 +1558,18 @@ class NoteItem(QGraphicsSimpleTextItem):
             ref = self._ref_at(event.pos())
             if ref is not None:
                 self._pending_ref = (ref, event.pos())
+        elif (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._is_md_note()
+        ):
+            href = self._md_anchor_at(event.pos())
+            if href is not None:
+                self._pending_link = (href, event.pos())
+            else:
+                idx = self._md_task_index_at(event.pos())
+                if idx is not None:
+                    self._pending_task = (idx, event.pos())
+        _begin_drag_guides(self)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -678,6 +1599,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        _end_drag_guides(self)
         if getattr(self, "_resizing", False):
             self._resizing = False
             self._resize_target_px = None
@@ -703,17 +1625,142 @@ class NoteItem(QGraphicsSimpleTextItem):
                     event.accept()
                     super().mouseReleaseEvent(event)
                     return
+        pending_link = getattr(self, "_pending_link", None)
+        self._pending_link = None
+        if (
+            pending_link is not None
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            href, press_pos = pending_link
+            if (event.pos() - press_pos).manhattanLength() <= 4 \
+                    and self._md_anchor_at(event.pos()) == href:
+                view = _get_view(self)
+                if view is not None and hasattr(view, "_open_url_string"):
+                    view._open_url_string(href)
+                    event.accept()
+                    super().mouseReleaseEvent(event)
+                    return
+        pending_task = getattr(self, "_pending_task", None)
+        self._pending_task = None
+        if (
+            pending_task is not None
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            idx, press_pos = pending_task
+            if (event.pos() - press_pos).manhattanLength() <= 4 \
+                    and self._md_task_index_at(event.pos()) == idx:
+                view = _get_view(self)
+                if view is not None and hasattr(view, "_toggle_md_task"):
+                    view._toggle_md_task(self, idx)
+                    event.accept()
+                    super().mouseReleaseEvent(event)
+                    return
         super().mouseReleaseEvent(event)
 
     def _wrap_cache_key(self) -> tuple:
+        # style (mono) and emphasis (bold/italic) change the rendering font,
+        # so they must invalidate the wrap / markdown / code layout caches —
+        # otherwise toggling them shows no change until the next text edit.
         return (self.note.text, self.note.wrap_chars, self.note.textsize,
-                self.note.wrap_chars_explicit)
+                self.note.wrap_chars_explicit, self.note.icon,
+                self.note.style, self.note.emphasis)
 
     def _bbox_cache_key(self, sel: bool) -> tuple:
         # Include the live drag target so the visible box tracks the cursor
         # smoothly (text wrap is still keyed on wrap_chars only).
         return (self._wrap_cache_key(), sel,
                 getattr(self, "_resize_target_px", None))
+
+    def set_icon(self, name: str, placement: str = ""):
+        self.prepareGeometryChange()
+        self.note.icon = name
+        self.note.icon_placement = placement
+        self._brect_cache = None
+        self.update()
+
+    def set_emphasis(self, emphasis: str):
+        self.prepareGeometryChange()
+        self.note.emphasis = emphasis
+        self._brect_cache = None
+        self.update()
+
+    def set_flat(self, flat: bool):
+        """Toggle the background plate — flat notes draw text on the canvas."""
+        self.note.flat = flat
+        self.update()
+
+    def _icon_color(self) -> QColor:
+        return (QColor(_resolve_color(self.note.color)) if self.note.color
+                else QColor("#2F3437"))
+
+    def _icon_side(self) -> float:
+        px = resolve_textsize_px(self.note.textsize, "")
+        if self.note.icon_placement == "lead":
+            return max(16.0, min(px * 1.7, 64.0))
+        return max(40.0, min(220.0, px * 3.5))
+
+    def _icon_metrics(self):
+        """(side, caption_lines, total_w, total_h) for a glyph note —
+        ``fill`` stacks icon over caption, ``lead`` sets icon left of text."""
+        pad = self._PAD
+        side = self._icon_side()
+        lead = self.note.icon_placement == "lead"
+        lines: list[str] = []
+        text_w = text_h = 0.0
+        if self.note.text:
+            font = self._note_font()
+            fm = QFontMetricsF(font)
+            wrap_w = self._wrap_width_px(font) if lead else max(side, 80.0)
+            lines = self._wrap_text_to_width(self.note.text, font, wrap_w)
+            text_w = max((fm.horizontalAdvance(ln) for ln in lines), default=0.0)
+            text_h = len(lines) * fm.height()
+        if lead:
+            gap = 6.0 if lines else 0.0
+            total_w = pad + side + gap + text_w + pad
+            total_h = pad + max(side, text_h) + pad
+        else:
+            cap_h = text_h + 4 if lines else 0.0
+            total_w = pad + max(side, text_w) + pad
+            total_h = pad + side + cap_h + pad
+        return side, lines, total_w, total_h
+
+    def _paint_icon_note(self, painter: QPainter):
+        """A borderless floating glyph. ``fill``: big icon with the text as a
+        caption beneath. ``lead``: a small icon left of the text."""
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        side, lines, total_w, total_h = self._icon_metrics()
+        pad = self._PAD
+        color = self._icon_color()
+        font = self._note_font()
+        fm = QFontMetricsF(font)
+        if self.note.icon_placement == "lead":
+            iconset.paint_icon(painter, self.note.icon,
+                               QRectF(pad, (total_h - side) / 2, side, side),
+                               color)
+            painter.setFont(font)
+            painter.setPen(color)
+            if lines:
+                x = pad + side + 6
+                y = (total_h - len(lines) * fm.height()) / 2 + fm.ascent()
+                for ln in lines:
+                    painter.drawText(QPointF(x, y), ln)
+                    y += fm.height()
+        else:
+            iconset.paint_icon(painter, self.note.icon,
+                               QRectF((total_w - side) / 2, pad, side, side),
+                               color)
+            painter.setFont(font)
+            painter.setPen(color)
+            if lines:
+                y = pad + side + fm.ascent() + 2
+                for ln in lines:
+                    tw = fm.horizontalAdvance(ln)
+                    painter.drawText(QPointF((total_w - tw) / 2, y), ln)
+                    y += fm.height()
+        if self.isSelected():
+            painter.setPen(QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(QRectF(0, 0, total_w, total_h).adjusted(-3, -3, 3, 3))
 
     def _wrap_width_px(self, font: QFont) -> float:
         """Pixel width corresponding to ``note.wrap_chars`` for *font*."""
@@ -887,6 +1934,112 @@ class NoteItem(QGraphicsSimpleTextItem):
     def _is_code_note(self) -> bool:
         return is_code_note(self.note.text)
 
+    def _is_md_note(self) -> bool:
+        return note_is_md(self.note)
+
+    def _md_document(self) -> QTextDocument:
+        """Build (cached) a laid-out QTextDocument for a Markdown note.
+
+        Keyed on the same wrap cache key as the other note modes — Qt
+        re-queries geometry and repaints constantly during drag, and
+        re-parsing Markdown every frame is wasteful.
+        """
+        cache = getattr(self, "_md_doc_cache", None)
+        key = self._wrap_cache_key()
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        font = self._note_font()
+        doc = QTextDocument()
+        doc.setDefaultFont(font)
+        doc.setDefaultStyleSheet(_md_stylesheet(font.pointSizeF()))
+        doc.setDocumentMargin(0)
+        # GitHub-flavoured: task lists, strikethrough, tables. We document
+        # a smaller recommended subset; extras degrade rather than break.
+        doc.setMarkdown(
+            note_md_body(self.note),
+            QTextDocument.MarkdownFeature.MarkdownDialectGitHub,
+        )
+        doc.setTextWidth(self._wrap_width_px(font))
+        self._style_code_spans(doc)
+        self._md_doc_cache = (key, doc)
+        return doc
+
+    @staticmethod
+    def _style_code_spans(doc: QTextDocument):
+        """Give inline code and fenced blocks a muted plate.
+
+        The note font is already monospace, so code spans would otherwise
+        be invisible. Background brushes (unlike text colour) do render via
+        the document layout, so we set them directly on the char formats
+        Qt marked as fixed-pitch during the Markdown import.
+        """
+        bg = QBrush(NOTE_MD_CODE_BG_COLOR)
+        cursor = QTextCursor(doc)
+        block = doc.begin()
+        while block.isValid():
+            it = block.begin()
+            while not it.atEnd():
+                frag = it.fragment()
+                if frag.isValid() and frag.charFormat().fontFixedPitch():
+                    fmt = QTextCharFormat()
+                    fmt.setBackground(bg)
+                    cursor.setPosition(frag.position())
+                    cursor.setPosition(
+                        frag.position() + frag.length(),
+                        QTextCursor.MoveMode.KeepAnchor,
+                    )
+                    cursor.mergeCharFormat(fmt)
+                it += 1
+            block = block.next()
+
+    def _md_metrics(self):
+        """Return ``(content_w, total_w, total_h)`` for a Markdown note."""
+        doc = self._md_document()
+        pad = self._PAD
+        # idealWidth is the width the laid-out text actually used, so a
+        # short note doesn't stretch to the full wrap budget.
+        content_w = doc.idealWidth()
+        total_w = pad + content_w + pad
+        total_h = pad + doc.size().height() + pad
+        if self.note.wrap_chars_explicit:
+            total_w = max(total_w, self._wrap_width_px(self._note_font()) + 2 * pad)
+        return content_w, total_w, total_h
+
+    def _md_anchor_at(self, pos: QPointF) -> str | None:
+        """Return the link href under *pos* (item coords), or None."""
+        if not self._is_md_note():
+            return None
+        doc = self._md_document()
+        layout = doc.documentLayout()
+        href = layout.anchorAt(QPointF(pos.x() - self._PAD, pos.y() - self._PAD))
+        return href or None
+
+    def _md_task_index_at(self, pos: QPointF) -> int | None:
+        """Return the 0-based index of the task-list item whose line is under
+        *pos* (item coords) among all checkbox items, or None.
+
+        The whole rendered line is the hit zone (not just the marker glyph),
+        and the index counts checkbox blocks in document order — the same
+        order ``md_note.toggle_task`` walks the source, so they stay aligned.
+        """
+        if not self._is_md_note():
+            return None
+        doc = self._md_document()
+        layout = doc.documentLayout()
+        y = pos.y() - self._PAD
+        idx = 0
+        block = doc.begin()
+        while block.isValid():
+            marker = block.blockFormat().marker()
+            if marker in (QTextBlockFormat.MarkerType.Checked,
+                          QTextBlockFormat.MarkerType.Unchecked):
+                rect = layout.blockBoundingRect(block)
+                if rect.top() <= y <= rect.bottom():
+                    return idx
+                idx += 1
+            block = block.next()
+        return None
+
     def _code_lines(self) -> tuple[int | None, list[str]]:
         return split_signature(self.note.text)
 
@@ -1014,14 +2167,24 @@ class NoteItem(QGraphicsSimpleTextItem):
         cache = getattr(self, "_brect_cache", None)
         cache_key = self._bbox_cache_key(sel)
         if cache is not None and cache[0] == cache_key:
+            self._display_truncated = cache[2]
+            self._display_hidden_lines = cache[3]
             return cache[1]
         target_px = getattr(self, "_resize_target_px", None)
-        if self._is_code_note():
+        if self.note.icon and iconset.has_icon(self.note.icon):
+            _, _, tw, th = self._icon_metrics()
+            r = QRectF(0, 0, tw, th)
+        elif self._is_code_note():
             _, visual = self._visual_code_lines()
             _, _, _, tw, th = self._code_metrics(visual)
             if self.note.wrap_chars_explicit:
                 min_w = self._wrap_width_px(self._code_font()) + 2 * self._CODE_PAD
                 tw = max(tw, min_w)
+            if target_px is not None:
+                tw = max(tw, target_px)
+            r = QRectF(0, 0, tw, th)
+        elif self._is_md_note():
+            _, tw, th = self._md_metrics()
             if target_px is not None:
                 tw = max(tw, target_px)
             r = QRectF(0, 0, tw, th)
@@ -1061,14 +2224,137 @@ class NoteItem(QGraphicsSimpleTextItem):
                     total_w = max(total_w, target_px)
                 total_h = pad + n_lines * line_h + pad
                 r = QRectF(0, 0, total_w, total_h)
+        # Cap an over-long note to a readable height on the canvas; the paint
+        # overlay tells the user to open the zen editor for the rest. Icon
+        # notes are a single glyph, not flowing text — never capped.
+        self._display_truncated = False
+        self._display_hidden_lines = 0
+        is_icon = self.note.icon and iconset.has_icon(self.note.icon)
+        if not is_icon:
+            line_h = QFontMetricsF(self._note_font()).height()
+            content_cap = self._PAD + self._DISPLAY_CAP_LINES * line_h
+            cap_h = content_cap + self._DISPLAY_FOOTER_H
+            if r.height() > cap_h + line_h:
+                self._display_truncated = True
+                self._display_hidden_lines = max(
+                    1, round((r.height() - content_cap) / line_h))
+                r = QRectF(r.x(), r.y(), r.width(), cap_h)
         if sel:
             r = r.adjusted(-4, -4, 4, 4)
-        self._brect_cache = (cache_key, r)
+        self._brect_cache = (cache_key, r, self._display_truncated,
+                             self._display_hidden_lines)
         return r
 
+    def _paint_lod_marker(self, painter: QPainter):
+        """Paint the LoD 'text here' placeholder: the note's plate with a few
+        skeleton bars (suggesting prose) and a semantic accent tick down the
+        left edge. Drawn at the note's real footprint, so a bigger note stays a
+        bigger blob and shows more bars."""
+        r = self.boundingRect()
+        if self.isSelected():
+            r = r.adjusted(4, 4, -4, -4)   # undo the selection padding
+        pad = self._PAD
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        bg = QColor("#F2F0EB")
+        bg.setAlphaF(0.85)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(r, self._BG_RADIUS, self._BG_RADIUS)
+
+        _, _, accent = self._parse_note()
+        tick = QRectF(r.left() + pad, r.top() + pad,
+                      3.0, max(0.0, r.height() - 2 * pad))
+        painter.setBrush(QBrush(QColor(accent)))
+        painter.drawRoundedRect(tick, 1.5, 1.5)
+
+        bar = QColor("#9A968D")
+        bar.setAlphaF(0.55)
+        painter.setBrush(QBrush(bar))
+        line_h, gap = 6.0, 5.0
+        x0 = tick.right() + 5.0
+        avail_w = r.right() - pad - x0
+        if avail_w <= 4:
+            return
+        widths = (1.0, 0.7, 0.9, 0.55, 0.8)   # varied so it reads as prose
+        y, idx = r.top() + pad, 0
+        while y + line_h <= r.bottom() - pad:
+            painter.drawRoundedRect(
+                QRectF(x0, y, avail_w * widths[idx % len(widths)], line_h),
+                2.0, 2.0)
+            y += line_h + gap
+            idx += 1
+
+    def _paint_truncation_overlay(self, painter: QPainter):
+        """Fade the clipped bottom of a capped note and stamp a clear pill so
+        it's obvious the rest of the text lives in the zen editor."""
+        r = self.boundingRect()
+        if self.isSelected():
+            r = r.adjusted(4, 4, -4, -4)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        bg = QColor("#F2F0EB" if not self.note.flat else "#E9E5DD")
+        clip = QPainterPath()
+        clip.addRoundedRect(r, self._BG_RADIUS, self._BG_RADIUS)
+        painter.save()
+        painter.setClipPath(clip)
+        # Fade the last strip into the background so the cut reads intentional.
+        fade_h = 36.0
+        top = r.bottom() - fade_h
+        grad = QLinearGradient(0, top, 0, r.bottom())
+        c0 = QColor(bg); c0.setAlphaF(0.0)
+        c1 = QColor(bg); c1.setAlphaF(0.97)
+        grad.setColorAt(0.0, c0)
+        grad.setColorAt(0.5, c1)
+        grad.setColorAt(1.0, c1)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(grad))
+        painter.drawRect(QRectF(r.left(), top, r.width(), fade_h))
+        painter.restore()
+        # The pill: an unmistakable 'there's more — open it' cue.
+        n = self._display_hidden_lines
+        label = f"⌄ {n} more line{'s' if n != 1 else ''} · double-click to open"
+        font = QFont(self._note_font())
+        font.setPointSizeF(9.0)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QColor("#5A5A5A"))
+        band = QRectF(r.left() + self._PAD, r.bottom() - self._DISPLAY_FOOTER_H,
+                      r.width() - 2 * self._PAD, self._DISPLAY_FOOTER_H)
+        painter.drawText(
+            band,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter),
+            label)
+
     def paint(self, painter: QPainter, option, widget=None):
+        if self._lod_text_marker:
+            self._paint_lod_marker(painter)
+            return
+
+        if self.note.icon and iconset.has_icon(self.note.icon):
+            self._paint_icon_note(painter)
+            return
+
+        # Long notes are capped to a readable height (boundingRect); clip the
+        # body to the rounded card and overlay a fade + 'open to read all' pill.
+        truncated = getattr(self, "_display_truncated", False)
+        if truncated:
+            painter.save()
+            clip = QPainterPath()
+            clip.addRoundedRect(self.boundingRect(), self._BG_RADIUS,
+                                self._BG_RADIUS)
+            painter.setClipPath(clip)
+        self._paint_text_body(painter)
+        if truncated:
+            painter.restore()
+            self._paint_truncation_overlay(painter)
+
+    def _paint_text_body(self, painter: QPainter):
         if self._is_code_note():
             self._paint_code(painter)
+            return
+
+        if self._is_md_note():
+            self._paint_markdown(painter)
             return
 
         discussion = self._parse_discussion()
@@ -1111,11 +2397,12 @@ class NoteItem(QGraphicsSimpleTextItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Light background
-        bg = QColor("#F2F0EB")
-        bg.setAlphaF(0.85)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+        if not self.note.flat:
+            bg = QColor("#F2F0EB")
+            bg.setAlphaF(0.85)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
 
         text_y = pad + fm.ascent()
 
@@ -1128,29 +2415,64 @@ class NoteItem(QGraphicsSimpleTextItem):
 
             bold_font = QFont(font)
             bold_font.setBold(True)
-            painter.setFont(bold_font)
-            painter.setPen(QColor("#FFFFFF"))
-            painter.drawText(
-                QPointF(pad + self._BADGE_HPAD, text_y), prefix
-            )
+            _draw_text(painter, QPointF(pad + self._BADGE_HPAD, text_y),
+                       prefix, bold_font, QColor("#FFFFFF"))
 
             # Body lines in accent color
-            painter.setFont(body_font)
-            painter.setPen(accent)
             body_x = pad + badge_w + self._BADGE_GAP
             for i, ln in enumerate(lines):
-                painter.drawText(QPointF(body_x, text_y + i * line_h), ln)
+                _draw_text(painter, QPointF(body_x, text_y + i * line_h),
+                           ln, body_font, accent, self.note.emphasis)
         else:
             # Plain note: accent-colored text, no badge
-            painter.setFont(body_font)
-            painter.setPen(accent)
             for i, ln in enumerate(lines):
-                painter.drawText(QPointF(pad, text_y + i * line_h), ln)
+                _draw_text(painter, QPointF(pad, text_y + i * line_h),
+                           ln, body_font, accent, self.note.emphasis)
 
         if self.note.url:
             _paint_link_glyph(painter, bg_rect)
 
         # Selection indicator + always-visible resize grip
+        if self.isSelected():
+            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
+            painter.setPen(sel_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
+            painter.drawRect(sel_rect)
+            self._paint_resize_grip(painter, total_w, total_h)
+
+    def _paint_markdown(self, painter: QPainter):
+        doc = self._md_document()
+        pad = self._PAD
+        _, total_w, total_h = self._md_metrics()
+        target_px = getattr(self, "_resize_target_px", None)
+        if target_px is not None:
+            total_w = max(total_w, target_px)
+        bg_rect = QRectF(0, 0, total_w, total_h)
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        if not self.note.flat:
+            bg = QColor("#F2F0EB")
+            bg.setAlphaF(0.85)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+
+        painter.save()
+        painter.translate(pad, pad)
+        ctx = QAbstractTextDocumentLayout.PaintContext()
+        # Markdown notes are a sibling of code notes — a formatted block on
+        # the beige plate — so they share the near-black body text, with
+        # links picked out in the plain-note blue.
+        ctx.palette.setColor(QPalette.ColorRole.Text, NOTE_CODE_TEXT_COLOR)
+        ctx.palette.setColor(QPalette.ColorRole.Link, NOTE_PEN_COLOR)
+        doc.documentLayout().draw(painter, ctx)
+        painter.restore()
+
+        if self.note.url:
+            _paint_link_glyph(painter, bg_rect)
+
         if self.isSelected():
             sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
@@ -1177,11 +2499,12 @@ class NoteItem(QGraphicsSimpleTextItem):
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        bg = QColor("#F2F0EB")
-        bg.setAlphaF(0.85)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
+        if not self.note.flat:
+            bg = QColor("#F2F0EB")
+            bg.setAlphaF(0.85)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(bg_rect, self._BG_RADIUS, self._BG_RADIUS)
 
         body_x = pad + max_badge_w + self._BADGE_GAP
         y = pad
@@ -1197,17 +2520,13 @@ class NoteItem(QGraphicsSimpleTextItem):
                 badge_rect, self._BADGE_RADIUS, self._BADGE_RADIUS
             )
 
-            painter.setFont(bold_font)
-            painter.setPen(QColor("#FFFFFF"))
-            painter.drawText(
-                QPointF(pad + self._BADGE_HPAD, y + fm.ascent()), speaker
-            )
+            _draw_text(painter, QPointF(pad + self._BADGE_HPAD, y + fm.ascent()),
+                       speaker, bold_font, QColor("#FFFFFF"))
 
             # Body lines (already wrapped)
-            painter.setFont(font)
-            painter.setPen(color)
             for ln in lines:
-                painter.drawText(QPointF(body_x, y + fm.ascent()), ln)
+                _draw_text(painter, QPointF(body_x, y + fm.ascent()), ln,
+                           font, color, self.note.emphasis)
                 y += line_h
 
             if blk_idx < len(wrapped_blocks) - 1:
@@ -1252,15 +2571,16 @@ class NoteItem(QGraphicsSimpleTextItem):
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        bg = QColor(NOTE_CODE_BG_COLOR)
-        bg.setAlphaF(0.85)
-        border_color = NOTE_CODE_BORDER_COLOR
-        painter.setPen(QPen(border_color, 1))
-        painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(
-            bg_rect.adjusted(0.5, 0.5, -0.5, -0.5),
-            self._CODE_BG_RADIUS, self._CODE_BG_RADIUS,
-        )
+        if not self.note.flat:
+            bg = QColor(NOTE_CODE_BG_COLOR)
+            bg.setAlphaF(0.85)
+            border_color = NOTE_CODE_BORDER_COLOR
+            painter.setPen(QPen(border_color, 1))
+            painter.setBrush(QBrush(bg))
+            painter.drawRoundedRect(
+                bg_rect.adjusted(0.5, 0.5, -0.5, -0.5),
+                self._CODE_BG_RADIUS, self._CODE_BG_RADIUS,
+            )
 
         # Per-visual-line top offsets, with a divider gap after the LAST
         # visual line that traces back to the signature (handles wrap of
@@ -1385,7 +2705,20 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.update()
 
     def _note_font(self) -> QFont:
-        return QFont(FONT_FAMILY, BOX_FONT_SIZES.get(self.note.textsize, 13))
+        # Freeform notes are handwritten (Patrick Hand); code notes and notes
+        # explicitly set to !mono use the monospace face.
+        mono = self.note.style == "mono" or self._is_code_note()
+        family = FONT_FAMILY if mono else NOTE_FONT_FAMILY
+        return _apply_emphasis(
+            QFont(family, resolve_textsize_px(self.note.textsize, "")),
+            self.note.emphasis)
+
+    def set_text_mono(self, mono: bool):
+        """Switch a note between the monospace and handwritten face."""
+        self.prepareGeometryChange()
+        self.note.style = "mono" if mono else ""
+        self._brect_cache = None
+        self.update()
 
     def set_color(self, color: str):
         self.note.color = color
@@ -1401,8 +2734,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         pass
 
     def _update_url_indicator(self):
-        """Refresh tooltip based on url."""
-        self.setToolTip(self.note.url if self.note.url else "")
+        """Refresh tooltip based on the attachment."""
+        self.setToolTip(_attach_tooltip(self.note))
         self.update()
 
     def update_text(self, text: str):
@@ -1414,13 +2747,8 @@ class NoteItem(QGraphicsSimpleTextItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             view = _get_view(self)
-            if view and hasattr(view, '_grid_visible') and view._grid_visible:
-                spacing = view.GRID_SPACING
-                new_pos = value
-                return QPointF(
-                    round(new_pos.x() / spacing) * spacing,
-                    round(new_pos.y() / spacing) * spacing,
-                )
+            if view is not None and hasattr(view, 'snap_drag_pos'):
+                return view.snap_drag_pos(self, value)
         elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.note.x = self.pos().x()
             self.note.y = self.pos().y()
@@ -1463,17 +2791,14 @@ class ImageItem(QGraphicsPixmapItem):
         self.setAcceptHoverEvents(True)
 
         self._handles: list[ResizeHandle] = [
-            ResizeHandle(_CORNER_TL, self),
-            ResizeHandle(_CORNER_TR, self),
-            ResizeHandle(_CORNER_BL, self),
-            ResizeHandle(_CORNER_BR, self),
+            ResizeHandle(h, self) for h in _ALL_HANDLES
         ]
         self._update_handles()
         self._update_url_indicator()
 
     def _update_url_indicator(self):
-        """Refresh tooltip based on url."""
-        self.setToolTip(self.image.url if self.image.url else "")
+        """Refresh tooltip based on the attachment."""
+        self.setToolTip(_attach_tooltip(self.image))
 
     def _load_pixmap(self):
         import os
@@ -1491,71 +2816,74 @@ class ImageItem(QGraphicsPixmapItem):
         self._full_pixmap = pm
 
     def _update_handles(self):
-        w, h = self.image.w, self.image.h
-        positions = {
-            _CORNER_TL: (0, 0),
-            _CORNER_TR: (w, 0),
-            _CORNER_BL: (0, h),
-            _CORNER_BR: (w, h),
-        }
+        r = QRectF(0, 0, self.image.w, self.image.h)
+        points = _handle_points(r, _ALL_HANDLES)
+        visible = self.isSelected()
         for handle in self._handles:
-            pos = positions.get(handle.corner)
-            if pos:
-                handle.setPos(*pos)
-            handle.setVisible(False)
+            pt = points.get(handle.corner)
+            if pt is not None:
+                handle.setPos(pt)
+            handle.setVisible(visible)
 
     def _handle_at(self, pos: QPointF) -> int | None:
-        """Return corner handle id if pos is near a corner, else None."""
         r = QRectF(0, 0, self.image.w, self.image.h)
-        margin = 10
-        near_l = abs(pos.x() - r.left()) < margin
-        near_r = abs(pos.x() - r.right()) < margin
-        near_t = abs(pos.y() - r.top()) < margin
-        near_b = abs(pos.y() - r.bottom()) < margin
-        if near_l and near_t:
-            return _CORNER_TL
-        if near_r and near_t:
-            return _CORNER_TR
-        if near_l and near_b:
-            return _CORNER_BL
-        if near_r and near_b:
-            return _CORNER_BR
-        return None
+        return _handle_hit(r, _ALL_HANDLES, pos, _view_scale(self))
 
-    def _apply_resize_delta(self, dx: float, dy: float, corner: int):
-        x, y, w, h = self.image.x, self.image.y, self.image.w, self.image.h
-        ar = self._aspect_ratio
+    def _apply_resize_delta(self, dx: float, dy: float, corner: int,
+                            keep_ratio: bool = True):
+        """Resize the image from a handle.
 
-        # Use the larger delta to drive proportional resize
-        if corner == _CORNER_TL:
-            dw = -dx
-            new_w = max(self._MIN_SIZE, w + dw)
-            new_h = new_w / ar
-            x -= new_w - w
-            y -= new_h - h
-        elif corner == _CORNER_TR:
-            new_w = max(self._MIN_SIZE, w + dx)
-            new_h = new_w / ar
-            y -= new_h - h
-        elif corner == _CORNER_BL:
-            dw = -dx
-            new_w = max(self._MIN_SIZE, w + dw)
-            new_h = new_w / ar
-            x -= new_w - w
-        elif corner == _CORNER_BR:
-            new_w = max(self._MIN_SIZE, w + dx)
-            new_h = new_w / ar
+        Corners keep the image's aspect ratio by default (``keep_ratio``);
+        Shift frees them for a non-uniform resize. Edge handles always stretch
+        a single axis. The side opposite the dragged handle stays anchored.
+        """
+        if corner in _CORNERS and keep_ratio:
+            x, y, w, h = self._prop_corner_rect(dx, dy, corner)
         else:
-            return
+            x, y, w, h = self._free_resize_rect(dx, dy, corner)
 
         self.image.x = x
         self.image.y = y
-        self.image.w = new_w
-        self.image.h = new_h
+        self.image.w = w
+        self.image.h = h
         self.setPos(x, y)
         self.prepareGeometryChange()
         self._update_handles()
         self.update()
+
+    def _prop_corner_rect(self, dx, dy, corner):
+        """Aspect-locked corner resize; width drives, height follows."""
+        x, y, w, h = self.image.x, self.image.y, self.image.w, self.image.h
+        ar = self._aspect_ratio or (w / h if h else 1.0)
+        dw = -dx if corner in (_CORNER_TL, _CORNER_BL) else dx
+        new_w = max(self._MIN_SIZE, w + dw)
+        new_h = new_w / ar
+        if corner in (_CORNER_TL, _CORNER_BL):
+            x -= new_w - w
+        if corner in (_CORNER_TL, _CORNER_TR):
+            y -= new_h - h
+        return x, y, new_w, new_h
+
+    def _free_resize_rect(self, dx, dy, corner):
+        """Per-axis resize (free corner or single-axis edge)."""
+        x, y, w, h = self.image.x, self.image.y, self.image.w, self.image.h
+        left = corner in (_CORNER_TL, _CORNER_BL, _EDGE_L)
+        right = corner in (_CORNER_TR, _CORNER_BR, _EDGE_R)
+        top = corner in (_CORNER_TL, _CORNER_TR, _EDGE_T)
+        bottom = corner in (_CORNER_BL, _CORNER_BR, _EDGE_B)
+
+        new_w, new_h = w, h
+        if left:
+            new_w = max(self._MIN_SIZE, w - dx)
+            x -= new_w - w
+        elif right:
+            new_w = max(self._MIN_SIZE, w + dx)
+        if top:
+            new_h = max(self._MIN_SIZE, h - dy)
+            y -= new_h - h
+        elif bottom:
+            new_h = max(self._MIN_SIZE, h + dy)
+        return x, y, new_w, new_h
 
     def boundingRect(self):
         r = QRectF(0, 0, self.image.w, self.image.h)
@@ -1603,40 +2931,58 @@ class ImageItem(QGraphicsPixmapItem):
             self.unsetCursor()
         super().hoverMoveEvent(event)
 
+    def _begin_handle_drag(self, corner: int, scene_pos: QPointF):
+        self._resizing = True
+        self._resize_corner = corner
+        self._resize_origin = self.mapFromScene(scene_pos)
+        view = _get_view(self)
+        if view and hasattr(view, '_save_pre_action_snapshot'):
+            view._save_pre_action_snapshot()
+
+    def _update_handle_drag(self, scene_pos: QPointF, shift: bool):
+        if not self._resizing:
+            return
+        local = self.mapFromScene(scene_pos)
+        dx = local.x() - self._resize_origin.x()
+        dy = local.y() - self._resize_origin.y()
+        self._resize_origin = local
+        # Corners keep aspect by default; Shift frees them. Edges: single axis.
+        self._apply_resize_delta(dx, dy, self._resize_corner, not shift)
+        view = _get_view(self)
+        if view and hasattr(view, 'arrow_update_needed'):
+            view.arrow_update_needed.emit()
+        if view and hasattr(view, 'mark_dirty'):
+            view.mark_dirty()
+
+    def _finish_handle_drag(self):
+        if not self._resizing:
+            return
+        self._resizing = False
+        view = _get_view(self)
+        if view and hasattr(view, '_commit_pre_action_snapshot'):
+            view._commit_pre_action_snapshot()
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.isSelected():
             corner = self._handle_at(event.pos())
             if corner is not None:
-                self._resizing = True
-                self._resize_corner = corner
-                self._resize_origin = event.pos()
-                view = _get_view(self)
-                if view and hasattr(view, '_save_pre_action_snapshot'):
-                    view._save_pre_action_snapshot()
+                self._begin_handle_drag(corner, event.scenePos())
                 event.accept()
                 return
+        _begin_drag_guides(self)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if self._resizing:
-            dx = event.pos().x() - self._resize_origin.x()
-            dy = event.pos().y() - self._resize_origin.y()
-            self._resize_origin = event.pos()
-            self._apply_resize_delta(dx, dy, self._resize_corner)
-            view = _get_view(self)
-            if view and hasattr(view, 'arrow_update_needed'):
-                view.arrow_update_needed.emit()
-            if view and hasattr(view, 'mark_dirty'):
-                view.mark_dirty()
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            self._update_handle_drag(event.scenePos(), shift)
         else:
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        _end_drag_guides(self)
         if self._resizing:
-            self._resizing = False
-            view = _get_view(self)
-            if view and hasattr(view, '_commit_pre_action_snapshot'):
-                view._commit_pre_action_snapshot()
+            self._finish_handle_drag()
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -1644,13 +2990,8 @@ class ImageItem(QGraphicsPixmapItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             view = _get_view(self)
-            if view and hasattr(view, '_grid_visible') and view._grid_visible:
-                spacing = view.GRID_SPACING
-                new_pos = value
-                return QPointF(
-                    round(new_pos.x() / spacing) * spacing,
-                    round(new_pos.y() / spacing) * spacing,
-                )
+            if view is not None and hasattr(view, 'snap_drag_pos'):
+                return view.snap_drag_pos(self, value)
         elif change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.image.x = self.pos().x()
             self.image.y = self.pos().y()

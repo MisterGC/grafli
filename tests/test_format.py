@@ -1,5 +1,6 @@
 """Tests for grafli.format — .grafli file parsing and serialization."""
 
+import re
 import tempfile
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from grafli.format import (
     serialize,
     serialize_to_file,
 )
+from grafli.sync import merge_boards
 
 SAMPLE = """\
 #!grafli v1
@@ -108,6 +110,110 @@ def test_empty_file():
     assert serialize(board) == HEADER + "\n"
 
 
+def test_footer_roundtrips():
+    src = (
+        '#!grafli v2\n'
+        '@ footer "© [Klebert](https://k.io) — **2026**"\n'
+        '@ box a "A" 0,0 100x50\n'
+    )
+    board = parse(src)
+    assert board.footer == "© [Klebert](https://k.io) — **2026**"
+    assert serialize(board) == src
+
+
+def test_footer_bumps_v2_header_when_added_at_runtime():
+    board = parse('#!grafli v1\n@ box a "A" 0,0 100x50\n')
+    assert "@ footer" not in serialize(board)        # absent → nothing emitted
+    board.footer = "branding"
+    out = serialize(board)
+    assert out.splitlines()[0] == "#!grafli v2"      # footer implies v2
+    assert '@ footer "branding"' in out
+
+
+def test_footer_multiline_escaped():
+    board = parse("")
+    board.footer = "line one\nline two"
+    out = serialize(board)
+    assert '@ footer "line one\\nline two"' in out
+    assert parse(out).footer == "line one\nline two"
+
+
+def test_title_bg_roundtrips():
+    src = (
+        '#!grafli v2\n'
+        '@ footer "brand"\n'
+        '@ title-bg thumbnail-art\n'
+        '@ box a "A" 0,0 100x50\n'
+    )
+    board = parse(src)
+    assert board.title_bg == "thumbnail-art"
+    assert serialize(board) == src
+
+
+def test_arrow_kind_roundtrips():
+    src = (
+        '#!grafli v1\n'
+        '@ box a "A" 0,0 100x50\n'
+        '@ box b "B" 300,0 100x50\n'
+        '@ arrow a -> b "x" !dashed &http://k.io ~kind=annotation\n'
+    )
+    board = parse(src)
+    assert board.arrows[0].kind == "annotation"
+    assert board.arrows[0].style == "dashed"
+    assert serialize(board) == src
+
+
+def test_arrow_without_kind_is_byte_stable():
+    src = (
+        '#!grafli v1\n'
+        '@ box a "A" 0,0 100x50\n'
+        '@ note n1 300,0 "hi"\n'
+        '@ arrow a -> n1 "explains"\n'
+    )
+    board = parse(src)
+    assert board.arrows[0].kind == ""
+    out = serialize(board)
+    assert "~kind" not in out
+    assert out == src
+
+
+def test_flow_auto_start_roundtrips():
+    src = (
+        '#!grafli v2\n'
+        '@ box box1 "A" 0,0 100x50\n'
+        '@ bookmark bm1 "A" @box1 ~iso\n'
+        '@ flow flow1 "Auto" bm1 ~auto=box1 "desc"\n'
+    )
+    board = parse(src)
+    assert board.flows[0].auto_start == "box1"
+    assert serialize(board) == src
+
+
+def test_flow_without_auto_start_is_byte_stable():
+    src = (
+        '#!grafli v2\n'
+        '@ box box1 "A" 0,0 100x50\n'
+        '@ bookmark bm1 "A" @box1\n'
+        '@ flow flow1 "Manual" bm1 "d"\n'
+    )
+    board = parse(src)
+    assert board.flows[0].auto_start == ""
+    out = serialize(board)
+    assert "~auto" not in out
+    assert out == src
+
+
+def test_title_bg_absent_is_empty_and_byte_stable():
+    src = '#!grafli v1\n@ box a "A" 0,0 100x50\n'
+    board = parse(src)
+    assert board.title_bg == ""
+    assert serialize(board) == src
+    board.title_bg = "thumbnail-art"
+    out = serialize(board)
+    assert out.splitlines()[0] == "#!grafli v2"
+    assert "@ title-bg thumbnail-art" in out
+
+
 def test_legacy_file_gets_header():
     """Legacy .board files without header get the header on serialize."""
     board = parse(SAMPLE_LEGACY)
@@ -122,14 +228,20 @@ def test_box_by_id_missing():
 
 
 def test_float_coordinates():
+    """Float coords parse losslessly but serialize quantized to integers.
+
+    Issue #20: the auto-save must not leak ~14 digits of float noise into
+    diffs. Quantization on save makes drags produce 1-line diffs."""
     text = '@ box f "Float" 10.5,20.3 100.0x50.0\n'
     board = parse(text)
+    # parser preserves the input precision
     assert board.boxes[0].x == 10.5
     assert board.boxes[0].y == 20.3
-    # integer-like floats should serialize without decimals
-    assert "100x50" in serialize(board)
-    # true floats should keep decimals
-    assert "10.5,20.3" in serialize(board)
+    out = serialize(board)
+    # integer-like floats serialize without decimals
+    assert "100x50" in out
+    # fractional coords round to integers (no decimals reach the file)
+    assert "." not in out.split('"Float"')[1].split('\n')[0]
 
 
 def test_negative_coordinates():
@@ -511,6 +623,17 @@ def test_box_all_fields_with_style_roundtrip():
     assert box.style == "flat"
     assert box.parent == "root"
     assert serialize(board) == HEADER + "\n" + text
+
+
+def test_legacy_resize_flags_tolerated_and_dropped():
+    # Older files may carry the removed !ratio / !fit flags — they must still
+    # parse (flags ignored) and serialize back out without them.
+    board = parse('@ box slide "Slide" 0,0 960x540 !flat !ratio !fit\n')
+    box = board.boxes[0]
+    assert box.style == "flat"
+    out = serialize(board)
+    assert "!ratio" not in out and "!fit" not in out
+    assert '@ box slide "Slide" 0,0 960x540 !flat' in out
 
 
 def test_parse_note_with_style_mono():
@@ -1017,19 +1140,27 @@ def test_parse_note_with_newlines():
     assert board.notes[0].text == "line one\nline two"
 
 
-def test_serialize_note_with_newlines():
+def test_serialize_note_with_newlines_uses_block_form():
+    # Multiline text defaults to the triple-quoted block so prose diffs
+    # line-by-line instead of collapsing into one \\n-escaped line.
     note = Note(id="n1", x=100, y=200, text="line one\nline two")
     board = Board()
     board.add_note(note)
     text = serialize(board)
-    assert r'@ note n1 100,200 "line one\nline two"' in text
+    assert '@ note n1 100,200 """\nline one\nline two\n"""' in text
 
 
 def test_note_newline_roundtrip():
+    # Legacy \\n-escaped form parses; it re-serializes as a block (the new
+    # default) and round-trips stably from there.
     text = r'@ note n1 100,200 "first\nsecond\nthird"' + "\n"
     board = parse(text)
     assert board.notes[0].text == "first\nsecond\nthird"
-    assert serialize(board) == HEADER + "\n" + text
+    out = serialize(board)
+    assert '@ note n1 100,200 """\nfirst\nsecond\nthird\n"""' in out
+    again = parse(out)
+    assert again.notes[0].text == "first\nsecond\nthird"
+    assert serialize(again) == out
 
 
 # ── Note parent tests ──────────────────────────────────────
@@ -1168,11 +1299,11 @@ def test_arrow_label_offset_zero_omitted():
 
 
 def test_arrow_all_fields_with_offset_roundtrip():
-    text = '@ arrow a <-> b "data" @-5,12.5 !dashed ~xxlarge  # check latency\n'
+    text = '@ arrow a <-> b "data" @-5,12 !dashed ~xxlarge  # check latency\n'
     board = parse(text)
     arrow = board.arrows[0]
     assert arrow.label_dx == -5.0
-    assert arrow.label_dy == 12.5
+    assert arrow.label_dy == 12.0
     assert arrow.style == "dashed"
     assert arrow.textsize == "xxlarge"
     assert arrow.annotation == "check latency"
@@ -1180,7 +1311,7 @@ def test_arrow_all_fields_with_offset_roundtrip():
     assert arrow.head_to is True
     # Annotation is parsed but not serialized
     result = serialize(board)
-    assert '@ arrow a <-> b "data" @-5,12.5 !dashed ~xxlarge\n' in result
+    assert '@ arrow a <-> b "data" @-5,12 !dashed ~xxlarge\n' in result
 
 
 def test_arrow_label_offset_negative():
@@ -1367,3 +1498,246 @@ def test_note_wrap_chars_explicit_default_is_emitted():
     board = parse('@ note n1 0,0 "hello" ~width=80')
     assert board.notes[0].wrap_chars_explicit is True
     assert "~width=80" in serialize(board)
+
+
+# ── merge_boards: live-reload 3-way merge (position cases) ────────
+# These pin the box-position semantics the live-reload merge inherited
+# from the old position-only merge; merge_boards(base, local, remote)
+# generalises them to every field (see tests/test_sync.py).
+
+
+def _board_with_box(bid: str, x: float, y: float) -> Board:
+    return Board(boxes=[Box(id=bid, label="X", x=x, y=y, w=100, h=50)])
+
+
+def test_merge_external_position_change_wins():
+    """External edit moved a box. In-mem still has the previous disk pos.
+    The new disk position must survive the merge — this is the bug fix."""
+    base = _board_with_box("a", 0, 0)
+    local = _board_with_box("a", 0, 0)        # never dragged
+    remote = _board_with_box("a", 500, 500)   # external edit
+    merged, _ = merge_boards(base, local, remote)
+    assert (merged.boxes[0].x, merged.boxes[0].y) == (500, 500)
+
+
+def test_merge_in_app_drag_preserved_when_disk_unchanged():
+    """User dragged a box in-app. External edit only changed something
+    else (e.g. label). The in-app drag must NOT be reverted."""
+    base = _board_with_box("a", 0, 0)
+    local = _board_with_box("a", 200, 100)    # user drag
+    remote = _board_with_box("a", 0, 0)        # disk pos unchanged
+    merged, _ = merge_boards(base, local, remote)
+    assert (merged.boxes[0].x, merged.boxes[0].y) == (200, 100)
+
+
+def test_merge_disk_wins_when_both_changed():
+    """Conflict: user dragged AND external edit moved the box.
+    Disk (remote) wins deterministically and the clash is reported."""
+    base = _board_with_box("a", 0, 0)
+    local = _board_with_box("a", 200, 100)
+    remote = _board_with_box("a", 999, 999)
+    merged, conflicts = merge_boards(base, local, remote)
+    assert (merged.boxes[0].x, merged.boxes[0].y) == (999, 999)
+    assert conflicts   # not silently resolved
+
+
+def test_merge_handles_no_base():
+    """First reconcile — no common ancestor. Disk (remote) wins by default."""
+    local = _board_with_box("a", 200, 100)
+    remote = _board_with_box("a", 0, 0)
+    merged, _ = merge_boards(None, local, remote)
+    assert (merged.boxes[0].x, merged.boxes[0].y) == (0, 0)
+
+
+def test_merge_handles_new_box_added_externally():
+    """A new box appears on disk that wasn't in memory before.
+    It should land at the disk position (no in-mem to merge from)."""
+    base = _board_with_box("a", 0, 0)
+    local = _board_with_box("a", 0, 0)
+    remote = Board(boxes=[
+        Box(id="a", label="X", x=0, y=0, w=100, h=50),
+        Box(id="b", label="Y", x=300, y=300, w=100, h=50),
+    ])
+    merged, _ = merge_boards(base, local, remote)
+    new_b = next(b for b in merged.boxes if b.id == "b")
+    assert (new_b.x, new_b.y) == (300, 300)
+
+
+# ── Coordinate quantization on save (issue #20) ───────────────────
+
+
+def _no_decimals_in_coords(text: str) -> bool:
+    """No fractional coordinates in serialized output.
+
+    Strips quoted string content from each @ line first so decimals in
+    labels (e.g. "ratio > 2.0") don't trip the check — we only care
+    about coordinate / size tokens like 12.5 in `100.5,200`.
+    """
+    for line in text.splitlines():
+        if not line.startswith("@"):
+            continue
+        outside_quotes = re.sub(r'"[^"]*"', "", line)
+        if re.search(r"\d+\.\d+", outside_quotes):
+            return False
+    return True
+
+
+def test_serialize_quantizes_box_floats():
+    """Issue #20: full-precision floats from drags are rounded on save."""
+    board = Board()
+    board.add_box(Box(
+        id="b1", label="X",
+        x=1476.537054409133, y=217.99831588774094,
+        w=160.0, h=89.5001,
+    ))
+    out = serialize(board)
+    assert "1477,218" in out
+    assert "160x90" in out  # 89.5 → 90 via banker's rounding
+    assert _no_decimals_in_coords(out)
+
+
+def test_serialize_quantizes_note_floats():
+    board = Board()
+    board.add_note(Note(id="n1", x=300.72953746, y=-108.89470385, text="hi"))
+    out = serialize(board)
+    assert "301,-109" in out
+    assert _no_decimals_in_coords(out)
+
+
+def test_serialize_quantizes_image_floats():
+    from grafli.format import Image
+    board = Board()
+    board.add_image(Image(
+        id="img1", image_path="x.png",
+        x=10.4, y=20.6, w=100.49, h=50.51,
+    ))
+    out = serialize(board)
+    assert "10,21" in out
+    assert "100x51" in out
+    assert _no_decimals_in_coords(out)
+
+
+def test_serialize_quantizes_arrow_label_offset():
+    board = Board()
+    board.add_arrow(Arrow(
+        from_id="a", to_id="b", label="x",
+        label_dx=10.7, label_dy=-20.3,
+    ))
+    out = serialize(board)
+    assert "@11,-20" in out
+    assert _no_decimals_in_coords(out)
+
+
+def test_serialize_drops_offset_when_both_round_to_zero():
+    """A label_dx/dy that rounds to (0, 0) is omitted entirely."""
+    board = Board()
+    board.add_arrow(Arrow(
+        from_id="a", to_id="b", label="x",
+        label_dx=0.3, label_dy=-0.4,
+    ))
+    out = serialize(board)
+    assert "@0,0" not in out
+    assert "@-0,0" not in out
+
+
+def test_serialize_no_float_noise_in_showcase():
+    """Round-trip on the showcase example produces no float noise."""
+    from pathlib import Path
+    src = Path(__file__).parent.parent / "examples" / "showcase.grafli"
+    if not src.exists():
+        return  # examples are optional in some checkouts
+    board = parse_file(str(src))
+    out = serialize(board)
+    assert _no_decimals_in_coords(out), \
+        "Serialized showcase still contains fractional coords"
+
+
+def test_double_roundtrip_byte_stable():
+    """parse → serialize → parse → serialize is byte-stable.
+
+    The first serialize is allowed to quantize; the second must produce
+    an identical byte sequence."""
+    text = (
+        '#!grafli v1\n'
+        '@ box auth "Auth" 1476.537054409133,217.99831588774094 160x89.5\n'
+        '@ note n1 -300.72,-108.89 "hi"\n'
+        '@ image img1 "p.png" 10.4,20.6 100.49x50.51\n'
+        '@ arrow auth -> auth "loop" @10.7,-20.3\n'
+    )
+    once = serialize(parse(text))
+    twice = serialize(parse(once))
+    assert once == twice
+    assert _no_decimals_in_coords(once)
+
+
+def test_hero_size_4xl_resolves_and_roundtrips():
+    from grafli.constants import resolve_textsize_px
+    assert resolve_textsize_px("4xl", "") == 60
+    src = '#!grafli v1\n@ note t 0,0 "HERO" ~4xl\n'
+    b = parse(src)
+    assert b.notes[0].textsize == "4xl"
+    assert serialize(b) == src   # short form persists verbatim
+
+
+def test_size_short_aliases_resolve_to_canonical_px():
+    from grafli.constants import resolve_textsize_px
+    # 2xl/3xl/4xl mirror xxlarge/xxxlarge/xxxxlarge.
+    assert resolve_textsize_px("2xl", "") == resolve_textsize_px("xxlarge", "")
+    assert resolve_textsize_px("3xl", "") == resolve_textsize_px("xxxlarge", "")
+    assert resolve_textsize_px("4xl", "") == resolve_textsize_px("xxxxlarge", "")
+
+
+def test_size_aliases_parse_on_box_note_arrow():
+    src = ('#!grafli v1\n'
+           '@ box b "B" 0,0 200x100 ~2xl\n'
+           '@ note n 0,200 "N" ~3xl\n'
+           '@ arrow b -> n ~4xl\n')
+    b = parse(src)
+    assert b.boxes[0].textsize == "2xl"
+    assert b.notes[0].textsize == "3xl"
+    assert serialize(b) == src
+
+
+# ── Parse-warning surfacing (no silent demotion of malformed lines) ──
+
+def test_malformed_directive_is_flagged_not_silently_dropped():
+    from grafli.format import parse
+    b = parse('#!grafli v1\n@ box ok "OK" 0,0 200x80\n@ box bad "B" 0,0 200\n')
+    assert [x.id for x in b.boxes] == ["ok"]      # the bad box is gone...
+    assert len(b.parse_warnings) == 1             # ...but it's reported
+    w = b.parse_warnings[0]
+    assert w.line == 3 and "malformed" in w.reason
+
+
+def test_unterminated_block_is_flagged_with_its_start_line():
+    from grafli.format import parse
+    b = parse('#!grafli v1\n@ box ok "OK" 0,0 200x80\n@ note n 0,0 """\nbody\n')
+    assert any('unterminated' in w.reason for w in b.parse_warnings)
+    assert b.parse_warnings[0].line == 3          # the opening `@ note … """`
+
+
+def test_clean_file_has_no_parse_warnings():
+    from grafli.format import parse
+    b = parse('#!grafli v1\n@ box a "A" 0,0 200x80\n@ note n 0,0 "hi"\n')
+    assert b.parse_warnings == []
+
+
+def test_header_records_had_header_flag():
+    from grafli.format import parse
+    assert parse('#!grafli v1\n@ box a "A" 0,0 200x80\n').had_header is True
+    assert parse('@ box a "A" 0,0 200x80\n').had_header is False
+
+
+def test_non_grafli_file_has_no_header_and_mostly_warnings():
+    """A Markdown doc opened as a board: no header, nearly every line fails.
+    The app uses this shape to say 'not a grafli file' instead of crying
+    'N broken lines' on an otherwise-fine board."""
+    from grafli.format import parse
+    md = ("# A heading\n\n> a quote line\n- a bullet\n- another bullet\n"
+          "Some prose sentence.\nMore prose here.\n")
+    b = parse(md)
+    assert b.had_header is False
+    recognized = (len(b.boxes) + len(b.arrows) + len(b.notes)
+                  + len(b.images) + len(b.bookmarks) + len(b.flows))
+    assert recognized == 0
+    assert len(b.parse_warnings) >= 5

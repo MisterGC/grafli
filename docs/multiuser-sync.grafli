@@ -1,0 +1,43 @@
+#!grafli v1
+# Synchronous multi-user collaboration — architecture sketch
+
+@ note title 470,20 "Synchronous multi-user collaboration" ~xlarge !bold
+@ note subtitle 505,78 "humans + agents on one board — local-first, server-merged" ~small !italic
+
+# ── Sync server (the hub) ──
+@ box server "Sync server" 480,150 440x300 %muted ^topleft ~large !flat
+@ box mk "Merge kernel\n(sync.py)" 500,220 180x70 %primary >server
+@ box boards "Boards:\ntext + version" 720,220 180x70 >server
+@ box notify "Notify /\nbroadcast" 500,330 180x70 >server
+@ box githist "Git —\ndurable history" 720,330 180x70 >server
+@ arrow mk -> boards "3-way merge" @0,-48
+@ arrow boards -> githist "checkpoint" !dashed
+
+# ── User A (host workstation) ──
+@ box usera "User A — host workstation" 60,560 400x300 %subtle ^topleft ~large !flat
+@ box filesa "Local board files" 80,620 160x70 >usera
+@ box guia "GUI client" 280,620 160x70 >usera
+@ box agenta "Agent A" 80,730 160x70 >usera
+@ arrow agenta -> filesa "Read / Write" @78,0
+@ arrow guia <-> filesa
+
+# ── User B (colleague) ──
+@ box userb "User B — colleague" 940,560 400x300 %subtle ^topleft ~large !flat
+@ box guib "GUI client" 960,620 160x70 >userb
+@ box mirrorb "Local mirror" 1160,620 160x70 >userb
+@ box agentb "Agent B" 1160,730 160x70 >userb
+@ arrow agentb -> mirrorb "Read / Write" @78,0
+@ arrow guib <-> mirrorb
+
+# ── Sync (clients <-> server) ──
+@ arrow guia <-> server "sync: base+new / pull+notify"
+@ arrow guib <-> server "sync: base+new / pull+notify"
+
+# ── Future: browser client via an agent gateway ──
+@ box gateway "Agent gateway (MCP)" 590,650 240x70 %soft ^topcenter !flat
+@ box browser "Browser client (future)" 580,910 260x90 %soft ^topleft !flat
+@ arrow browser -> gateway "MCP" !dashed
+@ arrow gateway -> server "routed via kernel" !dashed
+
+@ note coren 70,200 "Client sends {base, new}; server 3-way-merges against current, bumps the version, broadcasts pull. Serialized per board, so no lost updates." ~small ~width=30
+@ note futnote 590,1015 "No local files, so the browser's agent reaches the board through the gateway — same merge kernel, version-checked." ~small ~width=44

@@ -106,6 +106,51 @@ return ok  @grafli/api.py:42
 """
 ```
 
+## Markdown-mode notes
+
+A note whose first non-empty line is `md:` (or `markdown:`) renders its
+body as lightly formatted Markdown — for prose annotations that want a
+bit of structure. It's a sibling of code-mode: a formatted block on the
+same beige plate, sharing the near-black body text.
+
+Markdown notes are small canvas annotations, not documents. The
+*recommended* subset is GitHub-flavoured:
+
+| Markdown | Renders as |
+|----------|------------|
+| `# ` / `## ` / `### ` | Headings (3 levels, bold) |
+| `- ` / `* ` | Bullet list |
+| `1. ` | Ordered list |
+| `- [ ]` / `- [x]` | Task checkboxes — **click to tick/untick** |
+| `> ` | Blockquote |
+| `---` | Horizontal rule |
+| ` ``` ` fenced / `` `code` `` | Code block / inline code (muted plate) |
+| `**bold**`, `*italic*`, `~~strike~~` | Inline emphasis |
+| `[text](url)` | Link — click to open (reuses the `&url` handling) |
+
+Task checkboxes are **interactive**: click anywhere on a `- [ ]` / `- [x]`
+line to tick or untick it — the note's source flips that one checkbox
+(a one-character diff) and saves, no editor needed. A `[text](url)` link
+on the same line still opens on click; the rest of the line toggles.
+
+Heavier Markdown (tables, images, raw HTML, footnotes) is parsed by the
+underlying engine but isn't part of the supported surface and rarely
+fits a canvas annotation — if a note wants that much, it's a document;
+link it as a [Markdown resource](#markdown-resources) instead.
+
+```text
+@ note plan 100,320 """
+md:
+# Release checklist
+Ship **0.4.0** with the new *Markdown* note.
+
+- [x] Parser + rendering
+- [ ] Docs and changelog
+
+> See the [tracking issue](https://github.com/MisterGC/grafli/issues/65).
+"""
+```
+
 ## Semantic edge labels
 
 Arrow labels can carry a relationship kind via a one-word prefix. The
@@ -133,11 +178,80 @@ prefix renders as a colored chip and tints the edge:
 Unknown `word:` prefixes are left as plain label text — ordinary labels
 with colons are not affected.
 
+## Editing notes
+
+Two ways to edit a note's text:
+
+* <kbd>e</kbd> (or double-click) — a small **inline** vim editor right on
+  the canvas; it grows to fit as you type. Best for quick edits.
+* <kbd>E</kbd> — the **full-window zen editor** (iA-Writer style, vim
+  keybindings) on the note's own text. Best for longer prose. Saving
+  writes straight back to the note — no separate file is created.
+
+Both open in INSERT mode; <kbd>Esc</kbd> drops to NORMAL, a second
+<kbd>Esc</kbd> commits, <kbd>Shift</kbd>+<kbd>Esc</kbd> discards.
+
+## Reading & commenting
+
+In the full-window zen editor, <kbd>⌘</kbd>+<kbd>R</kbd> toggles a **rendered
+reading view** — a clean read of the Markdown, vim-navigable
+(<kbd>j</kbd>/<kbd>k</kbd>, <kbd>Ctrl</kbd>+<kbd>d</kbd>/<kbd>u</kbd>,
+<kbd>gg</kbd>/<kbd>G</kbd>).
+
+You can **comment on a span of text while reading**. Comments live inline in
+the Markdown itself (as [CriticMarkup](http://criticmarkup.com/) —
+`{==span==}{>>your comment<<}`), so they travel with the file and diff in git
+— no sidecar. In the reading view the comment body is **hidden** and the
+commented span wears a **subtle highlight**; the text stays the focus, and a
+comment only surfaces when you ask for it.
+
+The reading view is **caret-based and vim-navigable** —
+<kbd>h</kbd>/<kbd>j</kbd>/<kbd>k</kbd>/<kbd>l</kbd>, <kbd>w</kbd>/<kbd>b</kbd>/<kbd>e</kbd>,
+<kbd>0</kbd>/<kbd>$</kbd>, <kbd>gg</kbd>/<kbd>G</kbd>, and half/full-page jumps move a
+caret through the rendered text.
+
+| Key | Action |
+|-----|--------|
+| <kbd>v</kbd> | Enter **visual mode** — extend a selection with the motions above (you can see the text the whole time, no label clutter) |
+| <kbd>c</kbd> | Comment the visual selection — or, with the caret already on an existing comment, reveal & edit it directly. You never type the markup yourself |
+| <kbd>]</kbd><kbd>c</kbd> / <kbd>[</kbd><kbd>c</kbd> | Step to the next / previous comment |
+| <kbd>Enter</kbd> | Reveal & edit the active comment inline |
+| <kbd>Shift</kbd>+<kbd>D</kbd> | Delete the active comment (the highlight and body are removed) |
+
+While editing a comment: <kbd>Enter</kbd> saves and returns to undisturbed
+reading, <kbd>Shift</kbd>+<kbd>Enter</kbd> inserts a line break, <kbd>Esc</kbd>
+cancels. Clearing the text and saving deletes the comment.
+
+Clearing a comment's text and committing also deletes it. Because comments are
+plain CriticMarkup, you (or a collaborator, or an AI) can also read and edit
+them directly in the source.
+
+## Opening standalone (`textli`)
+
+The same zen editor runs on any Markdown file outside the diagram app:
+
+```
+textli notes.md
+```
+
+It autosaves while you edit (creating the file on first save if needed), so you
+lean on git/SCM for deliberate states rather than a manual save.
+
+Open at a **location** and in a **mode**:
+
+| Form | Effect |
+|------|--------|
+| `textli notes.md#design-decisions` | Scroll to the heading whose slug is `design-decisions` |
+| `textli notes.md -r` / `--read` | Open straight into the rendered reading view (default is the editable write view) |
+
+`path#heading-slug` is a plain Markdown fragment, so a grafli node can link to a
+precise spot in a doc.
+
 ## Markdown resources
 
-Any element can link to a markdown file. Open the linked resource with
-<kbd>E</kbd> on the selected element to edit it in a full-window zen
-editor with vim-style keybindings.
+Boxes and images can link to a separate markdown file. Open (or create)
+the linked resource with <kbd>E</kbd> on the selected element to edit it
+in the full-window zen editor.
 
 The path is stored in the `.grafli` file; grafli tracks it and migrates
 references when you rename the file.

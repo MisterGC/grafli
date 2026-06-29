@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QScrollArea,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -129,7 +130,10 @@ class SidePanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setFixedWidth(SIDE_PANEL_WIDTH)
+        # Width is driven by the enclosing splitter; only a content-floor and a
+        # sane ceiling are enforced so the panel can't clip or swallow the canvas.
+        self.setMinimumWidth(self._TOOLS_MIN)
+        self.setMaximumWidth(self._MAX_WIDTH)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         # Never steal keyboard focus from the canvas — panel is mouse-only.
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -143,12 +147,16 @@ class SidePanel(QWidget):
 
         self._buttons: dict[str, _ToolButton] = {}
         self._sections: dict[str, list[QWidget]] = {}
+        self._view = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Scrollable content
+        # Tools | Flows tab switcher.
+        root.addWidget(self._build_tabbar())
+
+        # Tools page — scrollable tool buttons.
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -169,7 +177,73 @@ class SidePanel(QWidget):
 
         self._layout.addStretch(1)
         scroll.setWidget(content)
-        root.addWidget(scroll)
+
+        # Flows page — dedicated editor (wired once the view is attached).
+        from grafli.flowspanel import FlowsPanel
+        self._flows_panel = FlowsPanel(self)
+
+        self._stack = QStackedWidget()
+        self._stack.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._stack.addWidget(scroll)              # index 0: Tools
+        self._stack.addWidget(self._flows_panel)   # index 1: Flows
+        root.addWidget(self._stack, stretch=1)
+
+    _TOOLS_WIDTH = SIDE_PANEL_WIDTH
+    _FLOWS_WIDTH = 300
+    # Minimum widths below which each tab's content would start to clip.
+    _TOOLS_MIN = SIDE_PANEL_WIDTH
+    _FLOWS_MIN = 118
+    _MAX_WIDTH = 720
+
+    def preferred_width(self) -> int:
+        """Default shared panel width on first run (wide enough for Flows)."""
+        return self._FLOWS_WIDTH
+
+    def _build_tabbar(self) -> QWidget:
+        bar = QWidget()
+        bar.setFixedHeight(34)
+        bar.setStyleSheet(f"background: {SIDE_PANEL_BG.name()};")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(8, 4, 8, 0)
+        h.setSpacing(4)
+        self._tab_buttons: list[QLabel] = []
+        for i, name in enumerate(("Tools", "Flows")):
+            tab = QLabel(name)
+            tab.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            tab.setFont(QFont(FONT_FAMILY, 11, QFont.Weight.Bold))
+            tab.setCursor(Qt.CursorShape.PointingHandCursor)
+            tab.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            tab.mousePressEvent = lambda _e, idx=i: self.switch_tab(idx)
+            h.addWidget(tab, stretch=1)
+            self._tab_buttons.append(tab)
+        return bar
+
+    def attach_view(self, view):
+        self._view = view
+        self._flows_panel.attach(view)
+        self.switch_tab(0)
+
+    def switch_tab(self, index: int):
+        self._stack.setCurrentIndex(index)
+        # Keep the shared width; only adjust the floor to the current content.
+        self.setMinimumWidth(self._FLOWS_MIN if index == 1 else self._TOOLS_MIN)
+        for i, tab in enumerate(self._tab_buttons):
+            active = i == index
+            color = BOX_BORDER.name() if active else SIDE_PANEL_SECTION_COLOR.name()
+            weight = "bold" if active else "normal"
+            border = (f"2px solid {BOX_BORDER.name()}" if active
+                      else "2px solid transparent")
+            tab.setStyleSheet(
+                f"color: {color}; background: transparent;"
+                f" border-bottom: {border}; padding-bottom: 2px;"
+                f" font-weight: {weight};")
+        # Editing only targets a flow while the Flows tab is open.
+        if self._view is not None:
+            if index == 1:
+                self._flows_panel.refresh()
+            else:
+                self._view.set_flow_edit_target(None, -1)
+            self._view.setFocus()
 
     def _add_section(self, name: str, title: str,
                      buttons: list[tuple[str, str, str, str]]):
@@ -202,10 +276,11 @@ class SidePanel(QWidget):
 
     def _build_actions_section(self):
         self._add_section("actions", "Actions", [
-            ("undo",   "󰕌", "Undo",    "u"),
-            ("redo",   "󰑎", "Redo",    "^R"),
-            ("layout", "󱁐", "Layout",  "="),
-            ("search", "󰍉", "Search",  "/"),
+            ("undo",        "󰕌", "Undo",        "u"),
+            ("redo",        "󰑎", "Redo",        "^R"),
+            ("layout",      "󱁐", "Layout",      "="),
+            ("slide_ratio", "󰨤", "Slide ratio", "d r"),
+            ("search",      "󰍉", "Search",      "/"),
         ])
 
     def _build_view_section(self):
@@ -219,9 +294,15 @@ class SidePanel(QWidget):
 
     def _build_export_section(self):
         self._add_section("export", "Export", [
-            ("yank_png",   "󰆏", "PNG",  "Y"),
-            ("export_svg", "󰈔", "SVG",  "^E"),
+            ("yank_png",        "󰆏", "PNG",       "Y"),
+            ("export_svg",      "󰈔", "SVG",       "^E"),
+            ("export_flow_pdf", "󰈦", "Flow PDF",  ""),
+            ("export_flow_pptx", "󰈦", "Flow PPTX", ""),
         ])
+
+    def refresh_flows(self):
+        """Refresh the dedicated Flows editor (kept in sync with the board)."""
+        self._flows_panel.refresh()
 
     def set_section_visible(self, name: str, visible: bool):
         for widget in self._sections.get(name, []):

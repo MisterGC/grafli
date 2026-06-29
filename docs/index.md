@@ -88,6 +88,7 @@ Notes aren't just sticky labels. Grafli recognizes lightweight conventions and r
 - **Tasks** (`T:` / `TODO:`) and **questions** (`Q:` / `QUESTION:`, both case-insensitive) get distinct colors so review work is visible at a glance.
 - **Discussions** (`AI:` / `Reviewer:` …) format as threaded conversation bubbles inside a single note.
 - **Code-mode notes** (lines starting with `code:`) render minimal pseudocode: a bold function signature on the first line, blue **flow** keywords (`if`, `for`, `call`, `emit`, …), red **contract** keywords (`pre`, `post`, `verify`, `risk`, …), and clickable `@file:line` refs that open in your editor.
+- **Markdown-mode notes** (lines starting with `md:` / `markdown:`) render a small subset of GitHub-flavoured Markdown — headings, lists, click-to-toggle task checkboxes, blockquotes, inline emphasis, and clickable links.
 - **Semantic edge labels** — prefixes like `call:`, `data:`, `event:`, `verify:`, `risk:` render as colored chips on the arrow itself.
 - **Markdown resources** — attach a markdown note to any element and edit it in a full-window zen editor.
 
@@ -109,11 +110,31 @@ Real diagrams sprawl. A handful of view-toggles turn a busy diagram into a focus
 - **Jump labels** (<kbd>Ctrl</kbd>+<kbd>J</kbd>) — every visible item gets a one-or-two-key label; press it to select.
 - **Search** (<kbd>/</kbd>) by label, fuzzy-matched.
 - **Graph navigation** — hold <kbd>Alt</kbd>, see connector keys, follow edges chord by chord.
-- **Hierarchy traversal** — <kbd>P</kbd> parent, <kbd>F</kbd> first child, <kbd>Tab</kbd> cycle siblings, with a breadcrumb in the status bar.
+- **Hierarchy traversal** — <kbd>g</kbd><kbd>p</kbd> parent, <kbd>g</kbd><kbd>c</kbd> first child, <kbd>Tab</kbd> cycle siblings, with a breadcrumb in the status bar.
+- **Focus loop** — <kbd>g</kbd><kbd>z</kbd> zooms the selection to fill the screen and flies you back again, for a tight overview → edit → overview rhythm.
 - **Jumplist** (<kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd>) — vim-style viewport history.
 - **Sub-graflis** — link any node to a deeper diagram in its own file. Click through, edit, return.
 
 ![The same town ecosystem with jump-mode active — every visible item carries a one- or two-character jump label](assets/screenshots/jump-labels.png)
+
+[Read more →](navigating.md)
+
+## Explain a graph as a guided tour
+
+A big diagram doesn't have to land all at once. **Bookmarks** save labeled
+viewpoints; **flows** string them into a guided tour you can step through,
+auto-play, present fullscreen, or export as a slide PDF.
+
+- **Semantic anchors** — a bookmark frames *item ids*, not pixel coordinates,
+  so it stays correct after you move boxes around.
+- **Frictionless capture** — <kbd>g</kbd><kbd>b</kbd> bookmarks what's on
+  screen; <kbd>g</kbd><kbd>f</kbd> records a flow as you navigate.
+- **Present & export** — <kbd>F5</kbd> presents a flow like a slide deck;
+  `grafli export … --flow` writes a PDF for people who don't run grafli.
+- **AI-authorable** — because it's plain text, your agent can write an
+  explanatory tour through a graph instead of dumping the whole thing.
+
+[Read more →](bookmarks-flows.md)
 
 ## Where grafli fits
 

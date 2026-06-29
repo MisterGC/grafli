@@ -12,15 +12,17 @@ from grafli.constants import (
     FONT_FAMILY,
     MINIMAP_BG,
     MINIMAP_BORDER_COLOR,
+    MINIMAP_CAMERA_COLOR,
     MINIMAP_CONNECTOR_COLOR,
+    MINIMAP_GRID_COLOR,
     MINIMAP_INFO_COLOR,
     MINIMAP_MARGIN,
     MINIMAP_MAX_H,
     MINIMAP_MAX_W,
+    MINIMAP_SELECT_COLOR,
     MINIMAP_STATS_COLOR,
     MINIMAP_STATS_FONT_SIZE,
     MINIMAP_TIER_COLORS,
-    MINIMAP_VIEWPORT_COLOR,
     NOTE_DISCUSSION_COLOR,
     NOTE_PEN_COLOR,
     NOTE_QUESTION_COLOR,
@@ -31,6 +33,31 @@ from grafli.constants import (
 _RE_SPEAKER = re.compile(r"^([A-Z][A-Za-z0-9_-]{0,15}): ", re.MULTILINE)
 
 _TIER_LABELS = ("Simple", "Moderate", "Intricate", "Dense")
+
+
+def _box_depth_order(boxes):
+    """Return ``boxes`` ordered by parent-chain depth (top-level first).
+
+    Parents must paint before children so the minimap's solid fill
+    doesn't hide nested boxes (parents are usually declared after
+    their children in `.grafli` files).
+
+    Cyclic parent refs are tolerated — the chain walk bails on
+    revisits and the offending box gets a stable but arbitrary depth.
+    """
+    by_id = {b.id: b for b in boxes}
+
+    def depth(box):
+        d = 0
+        cur = box
+        seen = {cur.id}
+        while cur.parent and cur.parent in by_id and cur.parent not in seen:
+            cur = by_id[cur.parent]
+            seen.add(cur.id)
+            d += 1
+        return d
+
+    return sorted(boxes, key=depth)
 
 
 class MinimapMixin:
@@ -193,6 +220,9 @@ class MinimapMixin:
         sx = mw / scene_rect.width()
         sy = mh / scene_rect.height()
 
+        # Faint tactical grid under everything — RTS radar terrain feel.
+        self._draw_minimap_grid(painter)
+
         # Draw connectors first (under boxes/notes) — single neutral colour
         # gives a density read of the graph without competing with the
         # element markers drawn on top.
@@ -202,8 +232,12 @@ class MinimapMixin:
             cy = my + (box.y - scene_rect.y() + box.h / 2) * sy
             elem_centers[box.id] = (cx, cy)
         for note in self._board.notes:
-            cx = mx + (note.x - scene_rect.x() + 10) * sx
-            cy = my + (note.y - scene_rect.y() + 10) * sy
+            ni = self._note_items.get(note.id)
+            br = ni.boundingRect() if ni is not None else None
+            half_w = br.width() / 2 if br is not None else 10
+            half_h = br.height() / 2 if br is not None else 10
+            cx = mx + (note.x - scene_rect.x() + half_w) * sx
+            cy = my + (note.y - scene_rect.y() + half_h) * sy
             elem_centers[note.id] = (cx, cy)
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -225,9 +259,15 @@ class MinimapMixin:
         dimmed_ids: set[str] = getattr(self, "_search_dimmed_ids", set()) or set()
         dim_alpha = 50
 
-        # Draw boxes
+        # Selected ids get a pulsing glow ring drawn over the markers. Collect
+        # their minimap rects as we lay the markers down, then ring them last.
+        selected_ids: set[str] = self._minimap_selected_ids()
+        selected_rects: list[QRectF] = []
+
+        # Draw boxes — top-level parents first so nested children
+        # render on top instead of being covered by the parent's fill.
         painter.setPen(Qt.PenStyle.NoPen)
-        for box in self._board.boxes:
+        for box in _box_depth_order(self._board.boxes):
             color_hex = _resolve_color(box.color) if box.color else ""
             if color_hex:
                 c = QColor(color_hex)
@@ -242,6 +282,8 @@ class MinimapMixin:
             bw = max(box.w * sx, 2)
             bh = max(box.h * sy, 2)
             painter.drawRect(QRectF(bx, by, bw, bh))
+            if box.id in selected_ids:
+                selected_rects.append(QRectF(bx, by, bw, bh))
 
         # Draw notes as small markers
         from grafli.items import note_prefix as _note_prefix
@@ -256,21 +298,65 @@ class MinimapMixin:
             if note.id in dimmed_ids:
                 color = QColor(color)
                 color.setAlpha(dim_alpha)
-            painter.setBrush(QBrush(color))
             nx = mx + (note.x - scene_rect.x()) * sx
             ny = my + (note.y - scene_rect.y()) * sy
-            painter.drawRect(QRectF(nx, ny, max(3, 20 * sx), max(3, 20 * sy)))
+            # Scale to the note's rendered size, like boxes, so a big note
+            # reads as a big marker instead of a fixed square.
+            ni = self._note_items.get(note.id)
+            if ni is not None:
+                br = ni.boundingRect()
+                nw = max(br.width() * sx, 2)
+                nh = max(br.height() * sy, 2)
+            else:
+                nw = nh = max(3, 20 * sx)
+            self._draw_minimap_note(painter, QRectF(nx, ny, nw, nh), color,
+                                    dimmed=note.id in dimmed_ids)
+            if note.id in selected_ids:
+                selected_rects.append(QRectF(nx, ny, nw, nh))
 
-        # Viewport indicator
+        # Selected images aren't otherwise on the radar — drop a faint marker
+        # so the glow ring has something to frame.
+        painter.setPen(Qt.PenStyle.NoPen)
+        for image in getattr(self._board, "images", []):
+            if image.id not in selected_ids:
+                continue
+            ix = mx + (image.x - scene_rect.x()) * sx
+            iy = my + (image.y - scene_rect.y()) * sy
+            iw = max(image.w * sx, 3)
+            ih = max(image.h * sy, 3)
+            marker = QColor(MINIMAP_SELECT_COLOR)
+            marker.setAlpha(60)
+            painter.setBrush(QBrush(marker))
+            painter.drawRect(QRectF(ix, iy, iw, ih))
+            selected_rects.append(QRectF(ix, iy, iw, ih))
+
+        # LoD overlay: outline the regions currently summarized in the main
+        # view, so the minimap (always full detail) shows what's aggregated.
+        self._draw_minimap_lod(painter, mx, my, sx, sy, scene_rect)
+
+        # Camera box — RTS-style: faint fill, thin outline, glowing corner
+        # brackets that read as the on-screen "camera".
         vp_scene = self.mapToScene(vp).boundingRect()
         vx = mx + (vp_scene.x() - scene_rect.x()) * sx
         vy = my + (vp_scene.y() - scene_rect.y()) * sy
         vw = vp_scene.width() * sx
         vh = vp_scene.height() * sy
         vp_rect = QRectF(vx, vy, vw, vh).intersected(self._minimap_rect)
-        painter.setBrush(QBrush(MINIMAP_VIEWPORT_COLOR))
-        painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
-        painter.drawRect(vp_rect)
+        self._draw_minimap_camera(painter, vp_rect)
+
+        # HUD corner brackets framing the radar.
+        frame = QColor(MINIMAP_CAMERA_COLOR)
+        frame.setAlpha(120)
+        self._corner_brackets(painter, self._minimap_rect, 9, [(frame, 1.4)])
+
+        # Selection glow rings on top of everything — the radar blip for the
+        # element(s) the user has selected, clipped to the map.
+        if selected_rects:
+            painter.save()
+            painter.setClipRect(self._minimap_rect)
+            for rect in selected_rects:
+                self._draw_minimap_selection(painter, rect)
+            painter.restore()
 
         # ── F1 Help hint in bottom-left of panel ──
         hint_font = QFont(FONT_FAMILY, 9)
@@ -278,6 +364,149 @@ class MinimapMixin:
         painter.setPen(QPen(MINIMAP_STATS_COLOR))
         hint_y = panel_y + panel_h - panel_pad
         painter.drawText(QPointF(mx, hint_y), "F1 Help")
+
+    def _draw_minimap_lod(self, painter, mx, my, sx, sy, scene_rect):
+        """Outline the regions the main view is currently summarizing (collapsed
+        container tiles and cluster hulls) in the LoD accent colour."""
+        if not getattr(self, "_lod_enabled", True):
+            return
+        tiles = [it for it in self._box_items.values()
+                 if it._lod_tile is not None]
+        hulls = list(getattr(self, "_lod_hulls", {}).values())
+        if not tiles and not hulls:
+            return
+        pen = QPen(QColor("#C77A52"))
+        pen.setWidthF(1.2)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        def to_mini(r: QRectF) -> QRectF:
+            return QRectF(mx + (r.x() - scene_rect.x()) * sx,
+                          my + (r.y() - scene_rect.y()) * sy,
+                          r.width() * sx, r.height() * sy)
+
+        for it in tiles:
+            b = it.box
+            painter.drawRect(to_mini(QRectF(b.x, b.y, b.w, b.h))
+                             .intersected(self._minimap_rect))
+        for hull in hulls:
+            painter.drawRect(to_mini(hull.sceneBoundingRect())
+                             .intersected(self._minimap_rect))
+
+    def _draw_minimap_selection(self, painter, rect):
+        """Draw a static glow ring around a selected marker — an RTS radar
+        blip. A soft halo sits behind a crisp bright outline that hugs the
+        marker, so the selection reads at a glance without animation.
+        """
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # Soft outer halo.
+        halo = QColor(MINIMAP_SELECT_COLOR)
+        halo.setAlpha(80)
+        painter.setPen(QPen(halo, 2.4))
+        painter.drawRoundedRect(rect.adjusted(-3, -3, 3, 3), 3, 3)
+
+        # Crisp inner ring — bright so the blip stays legible.
+        ring = QColor(MINIMAP_SELECT_COLOR)
+        ring.setAlpha(235)
+        painter.setPen(QPen(ring, 1.2))
+        painter.drawRoundedRect(rect.adjusted(-1, -1, 1, 1), 2, 2)
+
+    def _draw_minimap_note(self, painter, rect, accent, *, dimmed=False):
+        """Draw a note marker as a light 'card' with an accent border and a
+        few short text lines — so notes read as text at a glance and stand
+        out from the solid box markers. ``accent`` already carries any dim
+        alpha applied by the caller.
+        """
+        # Too small for a card: a solid accent dot keeps it visible.
+        if rect.width() < 10 or rect.height() < 8:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(accent))
+            painter.drawRect(rect)
+            return
+
+        card = QColor("#F4F1EA")
+        if dimmed:
+            card.setAlpha(50)
+        painter.setBrush(QBrush(card))
+        painter.setPen(QPen(accent, 1))
+        painter.drawRoundedRect(rect, 2, 2)
+
+        # Text lines suggesting prose; widths vary for a texty rhythm.
+        inset = 2.5
+        gap = 3.0
+        fracs = (0.85, 0.6, 0.75, 0.5, 0.8)
+        y = rect.top() + inset + 1.0
+        i = 0
+        while y <= rect.bottom() - inset and i < 8:
+            line_w = (rect.width() - 2 * inset) * fracs[i % len(fracs)]
+            painter.drawLine(QPointF(rect.left() + inset, y),
+                             QPointF(rect.left() + inset + line_w, y))
+            y += gap
+            i += 1
+
+    def _draw_minimap_grid(self, painter):
+        """Faint regular grid across the radar — RTS terrain texture."""
+        r = self._minimap_rect
+        if r.isNull():
+            return
+        painter.save()
+        painter.setClipRect(r)
+        painter.setPen(QPen(MINIMAP_GRID_COLOR, 1))
+        step = 28.0
+        x = r.left() + step
+        while x < r.right():
+            painter.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
+            x += step
+        y = r.top() + step
+        while y < r.bottom():
+            painter.drawLine(QPointF(r.left(), y), QPointF(r.right(), y))
+            y += step
+        painter.restore()
+
+    def _corner_brackets(self, painter, rect, length, pens):
+        """Draw inward L-brackets at each corner of ``rect``.
+
+        ``pens`` is a list of ``(QColor, width)`` drawn back-to-front, so a
+        wide low-alpha pen followed by a thin bright one yields a glow.
+        """
+        size = min(length, rect.width() / 2, rect.height() / 2)
+        if size < 1:
+            return
+        corners = (
+            (rect.left(), rect.top(), 1, 1),
+            (rect.right(), rect.top(), -1, 1),
+            (rect.left(), rect.bottom(), 1, -1),
+            (rect.right(), rect.bottom(), -1, -1),
+        )
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for color, width in pens:
+            pen = QPen(color, width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            for x, y, dx, dy in corners:
+                painter.drawLine(QPointF(x, y), QPointF(x + dx * size, y))
+                painter.drawLine(QPointF(x, y), QPointF(x, y + dy * size))
+
+    def _draw_minimap_camera(self, painter, rect):
+        """RTS camera box: faint fill, thin outline, glowing corner brackets."""
+        if rect.isNull() or rect.width() < 1 or rect.height() < 1:
+            return
+        cam = MINIMAP_CAMERA_COLOR
+        fill = QColor(cam)
+        fill.setAlpha(26)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(fill))
+        painter.drawRect(rect)
+        outline = QColor(cam)
+        outline.setAlpha(110)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(outline, 1))
+        painter.drawRect(rect)
+        glow = QColor(cam)
+        glow.setAlpha(70)
+        self._corner_brackets(painter, rect, 12, [(glow, 4.0), (QColor(cam), 1.6)])
 
     def _minimap_viewport_rect(self) -> QRectF:
         """Compute the viewport indicator rect in minimap (widget) coords."""

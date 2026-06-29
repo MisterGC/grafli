@@ -136,8 +136,6 @@ While summarising, the status bar shows a `◧ LoD` indicator, and the minimap
 (above) outlines the regions that are currently folded — so you can see at a
 glance how much of the board has collapsed.
 
-<!-- TODO before release: add a screenshot of a large board zoomed out (tiles + a cluster hull) to docs/assets/screenshots/ and embed it here. -->
-
 ## Across files
 
 A node can link to a deeper diagram in its own `.grafli` file (a *sub-grafli*).

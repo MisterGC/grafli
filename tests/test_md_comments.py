@@ -197,6 +197,23 @@ def test_real_comment_outside_code_still_parses_next_to_examples():
     assert [(c.span, c.body) for c in comments] == [("span", "note")]
 
 
+def test_map_position_round_trips_between_views():
+    src = "# Title\n\nThe **quick** brown fox and a [link](http://x) here.\n"
+    rendered = mc.strip(src).replace("**", "").replace("# ", "")  # ~Qt render
+    rendered = rendered.replace("[link](http://x)", "link")
+    sp = src.index("brown")
+    rp = mc.map_position(src, rendered, sp)
+    assert rendered[rp:rp + 5] == "brown"
+    # and back
+    sp2 = mc.map_position(rendered, src, rp)
+    assert src[sp2:sp2 + 5] == "brown"
+
+
+def test_map_position_no_shared_words_is_zero():
+    assert mc.map_position("", "abc", 0) == 0
+    assert mc.map_position("abc", "", 0) == 0
+
+
 def test_contains_markup_detects_delimiters():
     assert mc.contains_markup("a {== b") is True
     assert mc.contains_markup("a ==} b") is True

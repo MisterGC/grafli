@@ -38,6 +38,40 @@ def test_rendered_toggle_swaps_editor_for_rendered_view():
     assert not ed._editor.isHidden() and ed._rendered.isHidden()
 
 
+def test_toggle_keeps_caret_position_both_directions():
+    from PySide6.QtGui import QTextCursor
+    md = ("# Title\n\n" +
+          "\n\n".join(f"Paragraph {i} has word marker{i} inside." for i in range(40)))
+    QApplication.instance() or QApplication([])
+    parent = QWidget()
+    parent.resize(700, 500)
+    ed = ZenMarkdownEditor(parent, md, title="t")
+    ed._parent = parent
+
+    def word_at(w, pos):
+        c = w.textCursor()
+        c.setPosition(pos)
+        c.select(QTextCursor.SelectionType.WordUnderCursor)
+        return c.selectedText()
+
+    def put_caret(w, pos):
+        c = w.textCursor()
+        c.setPosition(pos)
+        w.setTextCursor(c)
+
+    # caret on marker25 in the source → toggle to read → same word, not the top
+    put_caret(ed._editor, ed._editor.toPlainText().index("marker25"))
+    ed._toggle_rendered()
+    rp = ed._rendered.textCursor().position()
+    assert word_at(ed._rendered, rp) == "marker25"
+    assert rp > 50                          # not snapped to the document top
+
+    # move to marker10 in read → toggle back to write → same word
+    put_caret(ed._rendered, ed._rendered.document().toPlainText().index("marker10"))
+    ed._toggle_rendered()
+    assert word_at(ed._editor, ed._editor.textCursor().position()) == "marker10"
+
+
 def test_mode_flash_on_toggle():
     ed = _editor()
     ed._toggle_rendered()

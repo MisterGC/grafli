@@ -289,6 +289,29 @@ def _nearest_mapped(r2c: dict, wi: int, n: int, forward: bool):
     return None
 
 
+def map_position(from_text: str, to_text: str, pos: int) -> int:
+    """Map a character offset in ``from_text`` to the nearest equivalent offset
+    in ``to_text`` by aligning their word sequences (same robust word-diff as
+    :func:`map_rendered_span`). Used to keep the caret in place when toggling
+    between the source and rendered views. Falls back to 0 with no shared words."""
+    ftok = _word_tokens(from_text)
+    ttok = _word_tokens(to_text)
+    if not ftok or not ttok:
+        return 0
+    matcher = difflib.SequenceMatcher(
+        None, [t[0] for t in ftok], [t[0] for t in ttok], autojunk=False
+    )
+    f2t: dict[int, int] = {}
+    for blk in matcher.get_matching_blocks():
+        for k in range(blk.size):
+            f2t[blk.a + k] = blk.b + k
+    wi = next((i for i, t in enumerate(ftok) if t[2] > pos), len(ftok) - 1)
+    tj = _nearest_mapped(f2t, wi, len(ftok), forward=True)
+    if tj is None:
+        tj = _nearest_mapped(f2t, wi, len(ftok), forward=False)
+    return ttok[tj][1] if tj is not None else 0
+
+
 def to_sentineled(
     source: str,
     start: str = SENTINEL_START,

@@ -437,19 +437,34 @@ class ZenMarkdownEditor(QWidget):
             self._rendered_pending_bracket = ""
             self._visual = False
             self._authoring_span = None
+            src = self._editor.toPlainText()
+            src_caret = self._editor.textCursor().position()
             self._rendered.setFont(QFont(FONT_FAMILY, self._font_size))
-            self._render_markdown(self._editor.toPlainText())
+            self._render_markdown(src)
             self._editor.setVisible(False)
             self._rendered.setVisible(True)
             self._rendered.setFocus()
-            cur = self._rendered.textCursor()    # caret at top for vim motions
-            cur.setPosition(0)
+            # Keep the reader's place: map the source caret to the rendered text.
+            rendered = self._rendered.document().toPlainText()
+            r_pos = md_comments.map_position(src, rendered, src_caret)
+            cur = self._rendered.textCursor()
+            cur.setPosition(min(r_pos, len(rendered)))
             self._rendered.setTextCursor(cur)
+            self._rendered.ensureCursorVisible()
         else:
+            # Keep the reader's place: map the rendered caret back to the source.
+            rendered = self._rendered.document().toPlainText()
+            r_caret = self._rendered.textCursor().position()
+            src = self._editor.toPlainText()
+            s_pos = md_comments.map_position(rendered, src, r_caret)
             self._hide_comment_field()
             self._rendered.setVisible(False)
             self._editor.setVisible(True)
             self._editor.setFocus()
+            cur = self._editor.textCursor()
+            cur.setPosition(min(s_pos, len(src)))
+            self._editor.setTextCursor(cur)
+            self._editor.ensureCursorVisible()
         self.update()
         # Flash last, after the view swap + repaint, so it sits clearly on top.
         self._flash_mode("READ" if self._rendered_mode else "WRITE")

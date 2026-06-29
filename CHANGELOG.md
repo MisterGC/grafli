@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Level-of-Detail now tracks live edits.** Adding, deleting, connecting,
+  moving or reparenting elements in-app — and undo/redo — now updates the
+  zoomed-out aggregation immediately, instead of reflecting only what was on
+  the board when the file was opened. Previously a newly added cluster, for
+  example, never grew its bounding hull until you reopened the file. The
+  rebuild is debounced to gesture boundaries, so the canvas stays responsive
+  (no per-frame graph work). ([#106](https://github.com/MisterGC/grafli/issues/106))
+
 ## [0.4.0] - 2026-06-28
 
 ### Added

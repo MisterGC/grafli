@@ -231,6 +231,17 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._lod_state = None                   # change-detection snapshot
         self._lod_enabled = True
 
+        # _lod_dirty: the structural model may be stale after an edit; it is
+        # consumed (rebuilt) lazily at the top of _refresh_lod. _lod_refresh_timer
+        # coalesces a burst of edits (a whole drag) into one rebuild + re-eval
+        # once edits settle — the same debounce shape as autosave, so the O(V+E)
+        # graph rebuild never lands on the per-frame path.
+        self._lod_dirty = False
+        self._lod_refresh_timer = QTimer(self)
+        self._lod_refresh_timer.setSingleShot(True)
+        self._lod_refresh_timer.setInterval(60)
+        self._lod_refresh_timer.timeout.connect(self._refresh_lod)
+
         # Pan state (middle-click always works)
         self._panning = False
         self._pan_start = QPointF()
@@ -737,6 +748,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 window.setWindowTitle(window._title_for_path(window._file_path, dirty=True))
             window._schedule_autosave()
         self._update_scene_rect()
+        self._invalidate_lod()
 
     def mark_clean(self):
         self._dirty = False
@@ -753,6 +765,45 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _invalidate_graph_stats(self):
         self._graph_stats = {}
+
+    def _invalidate_lod(self) -> None:
+        """Mark the structural LoD model stale and schedule a coalesced refresh.
+
+        Hung off mark_dirty (the universal edit funnel) so every present and
+        future mutation path keeps LoD in sync without per-call-site wiring.
+        Per-frame cost is one bool + a timer restart; the O(V+E) rebuild runs
+        once after edits settle (or on the next zoom), in _refresh_lod.
+        """
+        self._lod_dirty = True
+        timer = getattr(self, "_lod_refresh_timer", None)
+        if timer is not None:
+            timer.start()  # restart: a continuous drag keeps deferring
+
+    def _rebuild_lod_model(self) -> None:
+        """Re-derive the structural model from the live board (cheap, O(V+E)).
+
+        Deliberately non-incremental: a full from_board on any edit, bounded by
+        grafli's scale (sub-graflis handle larger systems). Matches the
+        derive-from-truth style used across the codebase and has no delta
+        surface to go stale. See mgc/groundwork/lod-stale-model-2026-06-29.md.
+        """
+        if self._board is None:
+            self._lod = None
+            self._lod_dirty = False
+            return
+        self._lod = LodModel.from_board(self._board)
+        self._feed_lod_note_extents()
+        self._lod_dirty = False
+
+    def _feed_lod_note_extents(self) -> None:
+        """Replace notes' placeholder extents with their rendered footprints so
+        a notes-only container collapses on size like any box container."""
+        if self._lod is None:
+            return
+        self._lod.set_note_extents({
+            nid: (it.boundingRect().width(), it.boundingRect().height())
+            for nid, it in self._note_items.items()
+        })
 
     def load_board(self, board: Board):
         self._board = board
@@ -772,10 +823,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._rebuild_scene()
         # Feed real note footprints to the model now the items exist, so a
         # notes-only container can collapse on size like any box container.
-        self._lod.set_note_extents({
-            nid: (it.boundingRect().width(), it.boundingRect().height())
-            for nid, it in self._note_items.items()
-        })
+        self._feed_lod_note_extents()
+        self._lod_dirty = False  # fresh model; ignore any mark_dirty during load
         self._refresh_lod()
         self.flows_changed.emit()
 
@@ -824,6 +873,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._arrow_items.clear()
         self._note_items.clear()
         self._image_items.clear()
+        # The scene clear above deleted any LoD hull/overlay items; drop the now
+        # dangling references and force the next _refresh_lod to fully reapply
+        # (mirrors load_board). Otherwise a scene rebuild while zoomed into a
+        # hull — undo/redo, paste, layout — would reroute arrows onto a deleted
+        # ClusterHullItem in the _redraw_arrows below.
+        self._lod_hulls = {}
+        self._lod_hull_member = {}
+        self._lod_state = None
         self._editor = None
         self._edit_target = None
         self._note_proxy = None
@@ -3929,6 +3986,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         Disabled (everything detailed) when LoD is toggled off. Re-routes arrows
         to the surviving tiles / hulls only when the routing actually changes.
         """
+        # Consume a pending edit: the structural model is rebuilt here (lazily,
+        # at most once per settled gesture or zoom tick) rather than on every
+        # mutation, so the graph rebuild stays off the per-frame path.
+        if self._lod_dirty:
+            self._rebuild_lod_model()
         scale = self._current_zoom()
         model = self._lod
         # Container aggregation is a zoom-OUT affordance: at 100%+ the board is

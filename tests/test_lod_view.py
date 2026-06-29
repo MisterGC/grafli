@@ -7,7 +7,7 @@ import os
 from PySide6.QtGui import QTransform
 from PySide6.QtWidgets import QApplication
 
-from grafli.format import parse
+from grafli.format import Arrow, Box, parse
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -476,3 +476,83 @@ def test_toggle_helper_flips_and_reapplies():
     assert view._box_items["child"].isVisible()
     view._toggle_lod()                          # -> on
     assert view._lod_collapsed == {"group"}
+
+
+# ── live-edit invalidation (issue #106): the structural model must rebuild on
+# in-app edits, not only on load_board, or aggregation goes stale. ──────────
+
+TWO = """\
+@ box a "A" 0,0 160x70
+@ box b "B" 250,0 160x70
+@ arrow a -- b
+"""
+
+
+def _commit_edit(view):
+    """Mirror the in-app incremental edit path: items rebuilt from the live
+    board and the change funnelled through mark_dirty — but NOT load_board,
+    which would rebuild the LoD model eagerly and mask the staleness under test.
+    """
+    view._rebuild_scene()
+    view.mark_dirty()
+
+
+def test_edit_flags_model_dirty_and_refresh_consumes_it():
+    view = _view(parse(TWO))
+    assert view._lod_dirty is False             # a freshly loaded board is clean
+    view._board.add_box(Box("c", "C", 500, 0, 160, 70))
+    view._board.add_arrow(Arrow("b", "c", head_to=False))
+    _commit_edit(view)
+    assert view._lod_dirty is True              # mark_dirty flagged it
+    view._refresh_lod()
+    assert view._lod_dirty is False             # consumed on refresh
+    # the rebuilt model now sees the third node as part of the loose cluster
+    assert any(sorted(comp) == ["a", "b", "c"] for comp in view._lod.components)
+
+
+def test_added_connected_leaves_get_a_hull_without_reload():
+    # The exact reported bug: open a board, then add connected top-level leaves
+    # in-app — the new cluster must hull on zoom-out without reopening the file.
+    view = _view(parse(TWO))
+    _set_zoom(view, 0.05)
+    assert view._lod_hulls == {}                # 2 members < 3: no hull yet
+    view._board.add_box(Box("c", "C", 500, 0, 160, 70))
+    view._board.add_arrow(Arrow("b", "c", head_to=False))
+    _commit_edit(view)
+    _set_zoom(view, 0.05)                        # refresh rebuilds the model
+    assert len(view._lod_hulls) == 1
+    assert sorted(view._lod_hull_member) == ["a", "b", "c"]
+
+
+def test_deleting_a_member_dissolves_the_stale_hull():
+    view = _view(parse(MESH))                    # a -- b -- c
+    _set_zoom(view, 0.05)
+    assert len(view._lod_hulls) == 1            # baseline hull of three
+    c = view._board.box_by_id("c")
+    for arr in [a for a in view._board.arrows if "c" in (a.from_id, a.to_id)]:
+        view._board.remove_arrow(arr)
+    view._board.remove_box(c)
+    _commit_edit(view)
+    _set_zoom(view, 0.05)
+    assert view._lod_hulls == {}                # only two members remain -> no hull
+    assert "c" not in view._lod_hull_member
+
+
+def test_undo_redo_refreshes_lod_model():
+    # _undo/_redo replace the board and go through mark_dirty (not load_board),
+    # so the fix must keep aggregation in sync across history navigation.
+    view = _view(parse(MESH))
+    _set_zoom(view, 0.05)
+    assert sorted(view._lod_hull_member) == ["a", "b", "c"]
+    view._push_undo()                           # snapshot the 3-node mesh
+    view._board.add_box(Box("d", "D", 750, 0, 160, 70))
+    view._board.add_arrow(Arrow("c", "d", head_to=False))
+    _commit_edit(view)
+    _set_zoom(view, 0.05)
+    assert sorted(view._lod_hull_member) == ["a", "b", "c", "d"]   # d joined
+    view._undo()                                # back to a,b,c
+    _set_zoom(view, 0.05)
+    assert sorted(view._lod_hull_member) == ["a", "b", "c"]        # d gone
+    view._redo()                                # d returns
+    _set_zoom(view, 0.05)
+    assert sorted(view._lod_hull_member) == ["a", "b", "c", "d"]

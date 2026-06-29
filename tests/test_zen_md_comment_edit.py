@@ -185,6 +185,14 @@ def test_source_change_keeps_scroll_position():
     assert target > 0
     ed._apply_source_change(ed._editor.toPlainText(), lambda: None)  # re-render
     assert sb.value() == target          # not snapped back to the top
+    # the caret lands in the visible area (not at the document end), so j/k
+    # continue from here instead of jumping away.
+    from PySide6.QtCore import QPoint
+    visible_top = ed._rendered.cursorForPosition(QPoint(0, 0)).position()
+    doc_end = ed._rendered.document().characterCount() - 1
+    caret = ed._rendered.textCursor().position()
+    assert caret == visible_top
+    assert caret < doc_end
 
 
 def test_no_comments_navigation_is_noop():

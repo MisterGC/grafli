@@ -197,6 +197,14 @@ def test_real_comment_outside_code_still_parses_next_to_examples():
     assert [(c.span, c.body) for c in comments] == [("span", "note")]
 
 
+def test_contains_markup_detects_delimiters():
+    assert mc.contains_markup("a {== b") is True
+    assert mc.contains_markup("a ==} b") is True
+    assert mc.contains_markup("a {>> b") is True
+    assert mc.contains_markup("a <<} b") is True
+    assert mc.contains_markup("plain prose, nothing here") is False
+
+
 def test_tempered_span_does_not_swallow_next_comment():
     # a stray '{==' must not let one comment consume the next one's opening
     src = "a {==one==}{>>first<<} b {==two==}{>>second<<} c"

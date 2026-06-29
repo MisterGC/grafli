@@ -195,6 +195,19 @@ def test_authoring_clear_of_comments_creates_new():
     assert ("brown fox", "zoom?") in spans and ("quick", "why?") in spans
 
 
+def test_comment_across_code_example_is_refused():
+    # selecting a span that crosses a `{== ==}` syntax example would wrap nested
+    # delimiters and render as literal text — refuse quietly instead.
+    ed = _reading_editor("# N\n\nthe `{== ==}{>> <<}` marker shows here in prose\n")
+    rt = ed._rendered.document().toPlainText()
+    r0 = rt.index("the")
+    r1 = rt.index("marker") + len("marker")   # spans across the code example
+    ed._begin_comment_for_span(r0, r1)
+    assert ed._comment_field is None                       # no field opened
+    assert ed._authoring_span is None
+    assert md_comments.parse(ed._editor.toPlainText()) == []   # nothing wrapped
+
+
 def test_unmappable_selection_is_a_quiet_noop():
     # an unmappable selection must NOT yank you to the source view — it simply
     # does nothing and leaves you reading.

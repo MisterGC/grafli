@@ -1078,6 +1078,11 @@ class ZenMarkdownEditor(QWidget):
         if mapped is None:
             return
         s0, s1 = mapped
+        # The span can't include CriticMarkup delimiters (e.g. it crossed a code
+        # example like `{== ==}`) — wrapping it would nest markers and render as
+        # literal text. Refuse quietly.
+        if md_comments.contains_markup(src[s0:s1]):
+            return
         # Overlap-aware (no nesting): inside an existing comment → edit it;
         # straddling one → refuse quietly rather than corrupt the markup.
         overlap = md_comments.classify_overlap(src, s0, s1)
@@ -1153,6 +1158,11 @@ class ZenMarkdownEditor(QWidget):
         else:
             self._active_comment = -1
         sb.setValue(pos)   # stay exactly where the reader was
+        # setMarkdown left the caret at the document end; move it to the top of
+        # the visible area so j/k continue from here instead of jumping away.
+        caret = self._rendered.cursorForPosition(QPoint(0, 0))
+        self._rendered.setTextCursor(caret)
+        sb.setValue(pos)
 
     def _change_font_size(self, delta: int):
         """Change font size. delta=0 resets to default."""

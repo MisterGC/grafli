@@ -148,6 +148,16 @@ def classify_overlap(source: str, s0: int, s1: int):
     return None
 
 
+_RE_ANY_MARKER = re.compile(r"\{==|==\}|\{>>|<<\}")
+
+
+def contains_markup(text: str) -> bool:
+    """True if ``text`` holds any CriticMarkup delimiter — e.g. a syntax example
+    in a code span, or an existing comment. Such a span can't be wrapped cleanly
+    (it would nest delimiters), so the caller should refuse."""
+    return bool(_RE_ANY_MARKER.search(text))
+
+
 def render_comment(span: str, body: str) -> str:
     """The inline form for a span comment: ``{==span==}{>>body<<}``."""
     return f"{{=={span}==}}{{>>{body}<<}}"

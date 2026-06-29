@@ -289,6 +289,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same beige plate with near-black body text. Rendered via Qt's
   `QTextDocument` Markdown engine, so it honours `~size` / `~width` and
   drag-to-resize like other notes.
+- **Resize a node by dragging its corners.** A selected box shows resize
+  handles; dragging a corner scales the node — its size *and* its label — with
+  <kbd>Shift</kbd> to lock the aspect ratio. Connector widths scale with node
+  size too. (Replaces the earlier `!ratio` / `!fit` flag experiment.)
+- **Drag a node onto another to nest it.** Dropping a box (or image) over
+  another makes it a child at the cursor: the parent auto-grows to fit the drop
+  with a live dashed preview, reserves its headline band, keeps children inside,
+  and shrinks back when its last child leaves — so containment is a direct drag,
+  not a syntax edit ([#73], [#74], [#75], [#76]).
+- **Notes and images can be first-class graph nodes.** Connect a note or image
+  with a real arrow and it joins the graph — traversable by `Alt`
+  graph-navigation and auto-flows — rather than staying a decorative
+  annotation. Connectors carry an explicit kind: in arrow style mode, `s` then
+  `a` toggles annotation ↔ graph edge (sticky, so new connectors inherit the
+  choice), and a graph-edge note no longer triggers the annotation-dimming
+  spotlight ([#85]).
+- **Fine-grained numeric text sizes.** Box and note `~size` accepts numeric
+  point values, not just the named tiers, and container / parent boxes can take
+  any size too (previously pinned small) ([#82]).
+- **Image resize handles.** A selected image shows corner handles, making
+  aspect-locked corner-drag resize discoverable ([#78]).
+- **`gz` — focus, then fly back.** `gz` zooms to fit the current selection;
+  press it again to return to the previous overview — a one-key
+  overview → focus → overview loop.
+- **Zoom anchors on the selection.** `+` / `-` now zoom centred on the current
+  selection (falling back to the viewport centre when nothing is selected), so
+  zooming keeps the thing you care about in view ([#69]).
+- **Right-mouse-button pan.** Drag with the right mouse button to pan the
+  canvas; the canvas context menu is suppressed so the drag isn't interrupted.
+- **Snap grid with three modes.** The grid cycles off → visual → snap
+  (remembered across restarts); snap points draw as small crosses ([#77]).
+- **Resizable side panel.** The panel / canvas splitter is draggable (with a
+  content-floor minimum) and its width persists across runs.
+- **Window pins to the primary screen.** grafli opens on the primary display so
+  a sleeping or disconnected external monitor can't swallow the window.
+- **Clipboard paste prefers the fresher image.** Pasting compares grafli's
+  internal copy buffer against the system clipboard and uses whichever is more
+  recent, so an external screenshot isn't shadowed by a stale internal copy
+  ([#81]).
+- **Coordinates quantize to integers on save.** Element positions and sizes are
+  written as whole pixels, so a moved box is a one-line diff instead of a wall
+  of sub-pixel float noise — keeping `.grafli` files clean in git ([#20]).
 
 ### Fixed
 - **Reading view scrolls back to the top after jumping to the end.** Pressing
@@ -403,6 +445,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (e.g. the RPG-engine example) were also subtly affected; the fix
   produces complete renders for both shapes.
 
+[#20]: https://github.com/MisterGC/grafli/issues/20
 [#27]: https://github.com/MisterGC/grafli/issues/27
 [#28]: https://github.com/MisterGC/grafli/issues/28
 [#29]: https://github.com/MisterGC/grafli/issues/29
@@ -413,6 +456,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [#34]: https://github.com/MisterGC/grafli/issues/34
 [#65]: https://github.com/MisterGC/grafli/issues/65
 [#66]: https://github.com/MisterGC/grafli/issues/66
+[#69]: https://github.com/MisterGC/grafli/issues/69
+[#73]: https://github.com/MisterGC/grafli/issues/73
+[#74]: https://github.com/MisterGC/grafli/issues/74
+[#75]: https://github.com/MisterGC/grafli/issues/75
+[#76]: https://github.com/MisterGC/grafli/issues/76
+[#77]: https://github.com/MisterGC/grafli/issues/77
+[#78]: https://github.com/MisterGC/grafli/issues/78
+[#81]: https://github.com/MisterGC/grafli/issues/81
+[#82]: https://github.com/MisterGC/grafli/issues/82
+[#85]: https://github.com/MisterGC/grafli/issues/85
 [#95]: https://github.com/MisterGC/grafli/issues/95
 
 ## [0.2.0] - 2026-05-05

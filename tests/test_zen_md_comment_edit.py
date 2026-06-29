@@ -164,6 +164,29 @@ def test_c_off_any_comment_does_nothing():
     assert ed._comment_field is None
 
 
+def test_source_change_keeps_scroll_position():
+    # Regression: confirming/editing/deleting a comment re-renders via setMarkdown
+    # (which resets scroll to the top) — the view must stay where the reader was.
+    QApplication.instance() or QApplication([])
+    long_md = "# Title\n\n" + "\n\n".join(f"Paragraph {i} body text." for i in range(120))
+    parent = QWidget()
+    parent.resize(600, 400)
+    parent.show()
+    ed = ZenMarkdownEditor(parent, long_md, title="t")
+    ed.resize(600, 400)
+    ed._toggle_rendered()
+    ed._rendered.resize(560, 360)
+    QApplication.processEvents()
+    sb = ed._rendered.verticalScrollBar()
+    assert sb.maximum() > 0
+    sb.setValue(sb.maximum() // 2)
+    QApplication.processEvents()
+    target = sb.value()
+    assert target > 0
+    ed._apply_source_change(ed._editor.toPlainText(), lambda: None)  # re-render
+    assert sb.value() == target          # not snapped back to the top
+
+
 def test_no_comments_navigation_is_noop():
     ed = _reading_editor("# Plain\n\nno comments here\n")
     assert ed._rendered_comments == []

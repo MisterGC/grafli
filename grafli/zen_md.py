@@ -1060,12 +1060,11 @@ class ZenMarkdownEditor(QWidget):
             src = md_comments.remove(src, comment)   # emptied → delete
         idx = self._active_comment
         self._hide_comment_field()
-        self._set_source_text(src)
-        self._render_markdown(src)
-        if self._rendered_comments:
-            self._set_active_comment(min(idx, len(self._rendered_comments) - 1))
-        else:
-            self._active_comment = -1
+        self._apply_source_change(
+            src,
+            lambda: (min(idx, len(self._rendered_comments) - 1)
+                     if self._rendered_comments else None),
+        )
 
     # ── Authoring: comment the visual selection ──
 
@@ -1104,11 +1103,9 @@ class ZenMarkdownEditor(QWidget):
         if not body:
             return                               # abandoned — no comment created
         new_src = md_comments.wrap(self._editor.toPlainText(), s0, _s1, body)
-        self._set_source_text(new_src)
-        self._render_markdown(new_src)
-        idx = self._rendered_index_for_source_start(s0)
-        if idx is not None:
-            self._set_active_comment(idx)
+        self._apply_source_change(
+            new_src, lambda: self._rendered_index_for_source_start(s0)
+        )
 
     def _rendered_index_for_source_start(self, full_start: int):
         """Index of the rendered comment whose source construct begins at
@@ -1126,16 +1123,36 @@ class ZenMarkdownEditor(QWidget):
         idx = self._active_comment
         src = md_comments.remove(self._editor.toPlainText(), comment)
         self._hide_comment_field()
-        self._set_source_text(src)
-        self._render_markdown(src)
-        if self._rendered_comments:
-            self._set_active_comment(min(idx, len(self._rendered_comments) - 1))
-        else:
-            self._active_comment = -1
+        self._apply_source_change(
+            src,
+            lambda: (min(idx, len(self._rendered_comments) - 1)
+                     if self._rendered_comments else None),
+        )
 
     def _set_source_text(self, src: str):
         """Replace the source buffer (fires heading layout + autosave)."""
         self._editor.setPlainText(src)
+
+    def _apply_source_change(self, src: str, resolve_idx=None):
+        """Update the source + re-render the read view **keeping the reader's
+        scroll position**, then activate the comment ``resolve_idx()`` returns
+        (resolved after the re-render). Adding/editing/deleting a comment barely
+        changes the rendered text, so the view stays put instead of snapping to
+        the top — ``ensureCursorVisible`` isn't reliable right after
+        ``setMarkdown`` (layout isn't ready), so we restore the scrollbar."""
+        sb = self._rendered.verticalScrollBar()
+        pos = sb.value()
+        self._set_source_text(src)
+        self._render_markdown(src)
+        idx = resolve_idx() if resolve_idx is not None else None
+        if idx is not None and 0 <= idx < len(self._rendered_comments):
+            # Track the active comment but DON'T move the text cursor onto it —
+            # that would queue an ensureCursorVisible that re-scrolls. The span's
+            # highlight already marks it; ]c / [c can step from here.
+            self._active_comment = idx
+        else:
+            self._active_comment = -1
+        sb.setValue(pos)   # stay exactly where the reader was
 
     def _change_font_size(self, delta: int):
         """Change font size. delta=0 resets to default."""

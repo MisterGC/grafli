@@ -83,13 +83,25 @@ def _code_ranges(source: str) -> list[tuple[int, int]]:
 
 
 def _matches(source: str) -> list[re.Match]:
-    """Comment matches that don't overlap a code region, in document order."""
+    """Real comment matches, in document order. A match is skipped only when its
+    delimiters sit inside a code region — i.e. it's a literal syntax *example*
+    like `` `{==…==}` ``. A genuine comment whose span merely *contains* inline
+    code (``{==`assembly` added==}{>>…<<}``) is kept: its markers are outside the
+    code, only the span wraps around it."""
     ranges = _code_ranges(source)
+
+    def in_code(pos):
+        return any(a <= pos < b for a, b in ranges)
+
     out = []
     for m in _RE_COMMENT.finditer(source):
-        s, e = m.start(), m.end()
-        if any(not (e <= a or s >= b) for a, b in ranges):
-            continue   # inside `code` / a fenced block — leave it literal
+        # The structural delimiters must all be outside code; the span between
+        # them may freely contain `code`.
+        if (in_code(m.start())                  # {==
+                or in_code(m.end("span"))       # ==}
+                or in_code(m.start("body") - 3)  # {>>
+                or in_code(m.end() - 1)):        # <<}
+            continue
         out.append(m)
     return out
 
@@ -156,6 +168,19 @@ def contains_markup(text: str) -> bool:
     in a code span, or an existing comment. Such a span can't be wrapped cleanly
     (it would nest delimiters), so the caller should refuse."""
     return bool(_RE_ANY_MARKER.search(text))
+
+
+def snap_out_of_code(source: str, s0: int, s1: int) -> tuple[int, int]:
+    """Expand a span so neither boundary falls *inside* a code region (inline
+    `` `code` `` or a fenced block). A wrapped comment's ``{==`` / ``==}`` markers
+    must sit outside code — placed inside, they'd be skipped as a literal example
+    and the comment wouldn't render. Each boundary snaps to the code edge."""
+    for a, b in _code_ranges(source):
+        if a < s0 < b:
+            s0 = a
+        if a < s1 < b:
+            s1 = b
+    return s0, s1
 
 
 def render_comment(span: str, body: str) -> str:

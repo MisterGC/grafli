@@ -207,6 +207,28 @@ def test_authoring_clear_of_comments_creates_new():
     assert ("brown fox", "zoom?") in spans and ("quick", "why?") in spans
 
 
+def test_comment_starting_inside_inline_code_renders():
+    # selecting a span that starts on a word inside `code` snaps the marker out
+    # of the code so the comment parses (not rendered as literal {== ).
+    ed = _reading_editor("# D\n\n- **`assembly` meeting type added** here\n")
+    rt = ed._rendered.document().toPlainText()
+    r0 = rt.index("assembly")
+    r1 = rt.index("added") + len("added")
+    cur = ed._rendered.textCursor()
+    cur.setPosition(r0)
+    cur.setPosition(r1, QTextCursor.MoveMode.KeepAnchor)
+    ed._rendered.setTextCursor(cur)
+    ed._visual = True
+    ed._comment_selection()
+    assert ed._comment_field is not None and not ed._comment_field.isHidden()
+    ed._comment_field.setPlainText("why?")
+    ed._commit_comment_field()
+    src = ed._editor.toPlainText()
+    (c,) = md_comments.parse(src)
+    assert c.body == "why?" and "assembly" in c.span
+    assert "{==" not in ed._rendered.document().toPlainText()   # not literal
+
+
 def test_comment_across_code_example_is_refused():
     # selecting a span that crosses a `{== ==}` syntax example would wrap nested
     # delimiters and render as literal text — refuse quietly instead.

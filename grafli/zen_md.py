@@ -1087,8 +1087,12 @@ class ZenMarkdownEditor(QWidget):
         if mapped is None:
             return
         s0, s1 = mapped
-        # The span can't include CriticMarkup delimiters (e.g. it crossed a code
-        # example like `{== ==}`) — wrapping it would nest markers and render as
+        # Keep the {== / ==} markers out of code: if a boundary maps inside an
+        # inline `code` span (e.g. a word that was in backticks), snap it to the
+        # code edge so the comment stays parseable.
+        s0, s1 = md_comments.snap_out_of_code(src, s0, s1)
+        # The span still can't include CriticMarkup delimiters (e.g. it crossed a
+        # code example like `{== ==}`) — wrapping would nest markers and render as
         # literal text. Refuse quietly.
         if md_comments.contains_markup(src[s0:s1]):
             return

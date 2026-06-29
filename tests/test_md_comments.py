@@ -191,6 +191,26 @@ def test_fenced_code_example_is_not_a_comment():
     assert mc.strip(src) == src
 
 
+def test_comment_span_may_contain_inline_code():
+    # a real comment whose span wraps around `code` must parse (markers are
+    # outside the code); only an example with `{==` *inside* code is skipped.
+    src = "- **{==`assembly` meeting type added==}{>>why?<<}.** more"
+    (c,) = mc.parse(src)
+    assert c.span == "`assembly` meeting type added"
+    assert c.body == "why?"
+
+
+def test_snap_out_of_code_moves_boundary_to_edge():
+    src = "see `assembly` here"
+    a = src.index("assembly")             # inside the backticks
+    s0, s1 = mc.snap_out_of_code(src, a, src.index("here"))
+    assert src[s0] == "`"                 # snapped back to before the code
+    # wrapping the snapped span yields a parseable comment
+    out = mc.wrap(src, s0, s1, "q")
+    (c,) = mc.parse(out)
+    assert "`assembly`" in c.span
+
+
 def test_real_comment_outside_code_still_parses_next_to_examples():
     src = "Use `{==x==}{>>y<<}` then a real {==span==}{>>note<<} here."
     comments = mc.parse(src)

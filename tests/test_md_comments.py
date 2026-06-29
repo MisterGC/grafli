@@ -177,6 +177,52 @@ def test_overlap_none_without_comments():
     assert mc.classify_overlap("plain text here", 0, 5) is None
 
 
+# ── code regions and robustness ──
+
+def test_inline_code_example_is_not_a_comment():
+    src = "The syntax is `{==span==}{>>body<<}` in code."
+    assert mc.parse(src) == []
+    assert mc.strip(src) == src              # left literal
+
+
+def test_fenced_code_example_is_not_a_comment():
+    src = "Example:\n\n```\nThe {==quarterly==}{>>q?<<} numbers\n```\n\ndone"
+    assert mc.parse(src) == []
+    assert mc.strip(src) == src
+
+
+def test_real_comment_outside_code_still_parses_next_to_examples():
+    src = "Use `{==x==}{>>y<<}` then a real {==span==}{>>note<<} here."
+    comments = mc.parse(src)
+    assert [(c.span, c.body) for c in comments] == [("span", "note")]
+
+
+def test_tempered_span_does_not_swallow_next_comment():
+    # a stray '{==' must not let one comment consume the next one's opening
+    src = "a {==one==}{>>first<<} b {==two==}{>>second<<} c"
+    assert [(c.span, c.body) for c in mc.parse(src)] == [
+        ("one", "first"), ("two", "second"),
+    ]
+
+
+def test_map_is_robust_when_render_drops_content():
+    # Regression: the greedy char aligner drifted on real docs (every word
+    # mapped to the end). Here the "rendered" view drops link URLs (as Qt's
+    # setMarkdown does), so the word sequences differ — the word-diff stays exact.
+    import re
+    src = "\n\n".join(
+        f"## Section {i}\n\nSee [marker{i}](https://example.com/very/long/path/{i}) now."
+        for i in range(40)
+    )
+    rendered = re.sub(r"^## ", "", re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", src),
+                      flags=re.M)
+    for i in (0, 20, 39):
+        tok = f"marker{i}"
+        r0 = rendered.index(tok)
+        s0, s1 = mc.map_rendered_span(rendered, src, r0, r0 + len(tok))
+        assert src[s0:s1] == tok
+
+
 def test_real_sentinels_are_private_use():
     # default sentinels must be the private-use code points the read view scans
     assert mc.SENTINEL_START == "\uE000"

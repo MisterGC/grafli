@@ -195,10 +195,13 @@ def test_authoring_clear_of_comments_creates_new():
     assert ("brown fox", "zoom?") in spans and ("quick", "why?") in spans
 
 
-def test_unmappable_selection_falls_back_to_source():
+def test_unmappable_selection_is_a_quiet_noop():
+    # an unmappable selection must NOT yank you to the source view — it simply
+    # does nothing and leaves you reading.
     ed = _reading_editor()
     assert ed._rendered_mode is True
     r0, _ = _rspan(ed, "fox")
     ed._begin_comment_for_span(r0, r0)                  # empty span → unmappable
-    assert ed._rendered_mode is False                   # dropped to source editor
+    assert ed._rendered_mode is True                    # stayed in the reading view
     assert ed._authoring_span is None
+    assert ed._comment_field is None

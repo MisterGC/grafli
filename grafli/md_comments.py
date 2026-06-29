@@ -16,6 +16,7 @@ render or export path.
 
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass
 
@@ -26,8 +27,19 @@ from dataclasses import dataclass
 SENTINEL_START = "\uE000"
 SENTINEL_END = "\uE001"
 
-# {==span==}{>>body<<} — span and body are non-greedy and may span lines.
-_RE_COMMENT = re.compile(r"\{==(?P<span>.*?)==\}\{>>(?P<body>.*?)<<\}", re.DOTALL)
+# {==span==}{>>body<<} — span/body are non-greedy, may span lines, and are
+# "tempered": neither may contain a marker delimiter (==}, {==, <<}, {>>), so a
+# stray `{==` in prose can't make one comment swallow the next one's opening.
+_RE_COMMENT = re.compile(
+    r"\{==(?P<span>(?:(?!==\}|\{==).)*?)==\}"
+    r"\{>>(?P<body>(?:(?!<<\}|\{>>).)*?)<<\}",
+    re.DOTALL,
+)
+
+# Opening fence of a code block; closing is matched line-by-line in _code_ranges.
+_RE_FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
+# Inline code span: a backtick run, content not crossing a newline, same run.
+_RE_INLINE_CODE = re.compile(r"(`+)(?:(?!\1)[^\n])+\1")
 
 
 @dataclass(frozen=True)
@@ -42,26 +54,81 @@ class Comment:
     body: str         # the comment text
 
 
+def _code_ranges(source: str) -> list[tuple[int, int]]:
+    """Character ranges that are Markdown code — fenced blocks and inline code
+    spans — where CriticMarkup must be left literal (it's documentation, not a
+    real comment). This is what keeps the format's own ``{==…==}`` *examples*
+    from being parsed as comments."""
+    ranges: list[tuple[int, int]] = []
+    # Fenced blocks, line by line.
+    pos = 0
+    fence: tuple[str, int, int] | None = None   # (marker_char, run_len, start)
+    for line in source.splitlines(keepends=True):
+        m = _RE_FENCE.match(line)
+        marker = (m.group(1)[0], len(m.group(1))) if m else None
+        if fence is None:
+            if marker:
+                fence = (marker[0], marker[1], pos)
+        elif marker and marker[0] == fence[0] and marker[1] >= fence[1]:
+            ranges.append((fence[2], pos + len(line)))
+            fence = None
+        pos += len(line)
+    if fence is not None:
+        ranges.append((fence[2], len(source)))
+    # Inline code spans outside any fenced block.
+    for m in _RE_INLINE_CODE.finditer(source):
+        if not any(a <= m.start() < b for a, b in ranges):
+            ranges.append((m.start(), m.end()))
+    return ranges
+
+
+def _matches(source: str) -> list[re.Match]:
+    """Comment matches that don't overlap a code region, in document order."""
+    ranges = _code_ranges(source)
+    out = []
+    for m in _RE_COMMENT.finditer(source):
+        s, e = m.start(), m.end()
+        if any(not (e <= a or s >= b) for a, b in ranges):
+            continue   # inside `code` / a fenced block — leave it literal
+        out.append(m)
+    return out
+
+
+def _to_comment(m: re.Match) -> Comment:
+    return Comment(
+        full_start=m.start(),
+        full_end=m.end(),
+        span_start=m.start("span"),
+        span_end=m.end("span"),
+        span=m.group("span"),
+        body=m.group("body"),
+    )
+
+
+def _rebuild(source: str, matches: list[re.Match], transform) -> str:
+    """Rebuild ``source`` replacing each match with ``transform(match)`` and
+    leaving everything else (including code regions) untouched."""
+    out = []
+    i = 0
+    for m in matches:
+        out.append(source[i:m.start()])
+        out.append(transform(m))
+        i = m.end()
+    out.append(source[i:])
+    return "".join(out)
+
+
 def parse(source: str) -> list[Comment]:
-    """Return every inline comment in ``source``, in document order."""
-    return [
-        Comment(
-            full_start=m.start(),
-            full_end=m.end(),
-            span_start=m.start("span"),
-            span_end=m.end("span"),
-            span=m.group("span"),
-            body=m.group("body"),
-        )
-        for m in _RE_COMMENT.finditer(source)
-    ]
+    """Return every inline comment in ``source``, in document order. Markup
+    inside code spans / fenced blocks is left literal (not a comment)."""
+    return [_to_comment(m) for m in _matches(source)]
 
 
 def strip(source: str) -> str:
     """``source`` with all comment markup removed: the highlighted span text is
     kept inline, the comment body is dropped. This is the plain markdown a
     reader would see with no annotations at all."""
-    return _RE_COMMENT.sub(lambda m: m.group("span"), source)
+    return _rebuild(source, _matches(source), lambda m: m.group("span"))
 
 
 def classify_overlap(source: str, s0: int, s1: int):
@@ -120,7 +187,7 @@ def _strip_with_map(source: str) -> tuple[str, list[int]]:
     chars: list[str] = []
     src_idx: list[int] = []
     i = 0
-    for m in _RE_COMMENT.finditer(source):
+    for m in _matches(source):
         for k in range(i, m.start()):
             chars.append(source[k])
             src_idx.append(k)
@@ -134,26 +201,14 @@ def _strip_with_map(source: str) -> tuple[str, list[int]]:
     return "".join(chars), src_idx
 
 
-def _align(rendered: str, clean: str, max_gap: int = 800) -> list[int]:
-    """Greedy char alignment of ``rendered`` (Qt's Markdown render output) onto
-    ``clean`` (source minus comment markup). Markdown drops syntax characters, so
-    most ``clean`` characters survive verbatim in ``rendered`` and in order: for
-    each rendered char we take the next matching ``clean`` char, skipping the
-    syntax in between. Returns, per rendered index, the matched ``clean`` index
-    (plus a trailing entry for the end position)."""
-    out: list[int] = []
-    j = 0
-    n = len(clean)
-    for ch in rendered:
-        k = clean.find(ch, j)
-        if k != -1 and (max_gap <= 0 or k - j <= max_gap):
-            out.append(k)
-            j = k + 1
-        else:
-            # rendered-only char (e.g. an inserted list bullet) — no clean match
-            out.append(min(j, max(n - 1, 0)))
-    out.append(j)
-    return out
+_RE_WORD = re.compile(r"\w+")
+
+
+def _word_tokens(s: str) -> list[tuple[str, int, int]]:
+    """Words in ``s`` as ``(text, start, end)`` — the stable anchors shared by
+    the rendered text and the clean source (Markdown alters punctuation around
+    words, never the letters inside them)."""
+    return [(m.group(), m.start(), m.end()) for m in _RE_WORD.finditer(s)]
 
 
 def map_rendered_span(
@@ -162,28 +217,66 @@ def map_rendered_span(
     """Map a rendered-view selection ``[r0, r1)`` (indices into the rendered
     plain text) to a source slice ``[s0, s1)`` suitable for :func:`wrap`.
 
-    Returns ``None`` when the selection can't be mapped (empty, or an index that
-    falls in rendered-inserted content) — the caller should fall back rather than
-    wrap the wrong text. Anchors on the *last selected* rendered char (not the
-    one after it) so trailing markup like a closing ``**`` is never swallowed.
+    Works by aligning the *word sequences* of the rendered text and the clean
+    source with :class:`difflib.SequenceMatcher` — robust on real documents
+    (tables, links, lists) where a greedy char scan drifts. The selection snaps
+    to whole words it overlaps. Returns ``None`` when it can't be mapped.
     """
     if r1 <= r0:
         return None
     clean, clean2src = _strip_with_map(source)
     if not clean2src:
         return None
-    r2c = _align(rendered, clean)
-    if r1 - 1 >= len(r2c) or r0 >= len(r2c):
+    rtok = _word_tokens(rendered)
+    ctok = _word_tokens(clean)
+    if not rtok or not ctok:
         return None
-    c0 = r2c[r0]
-    c_last = r2c[r1 - 1]
-    if c0 >= len(clean2src) or c_last >= len(clean2src):
+
+    # First/last rendered word overlapping the selection.
+    start_wi = next((i for i, t in enumerate(rtok) if t[2] > r0), None)
+    end_wi = None
+    for i, t in enumerate(rtok):
+        if t[1] < r1:
+            end_wi = i
+        else:
+            break
+    if start_wi is None or end_wi is None or end_wi < start_wi:
         return None
-    s0 = clean2src[c0]
-    s1 = clean2src[c_last] + 1
+
+    # rendered-word-index -> clean-word-index, via matching blocks.
+    matcher = difflib.SequenceMatcher(
+        None, [t[0] for t in rtok], [t[0] for t in ctok], autojunk=False
+    )
+    r2c: dict[int, int] = {}
+    for blk in matcher.get_matching_blocks():
+        for k in range(blk.size):
+            r2c[blk.a + k] = blk.b + k
+
+    cs = _nearest_mapped(r2c, start_wi, len(rtok), forward=True)
+    ce = _nearest_mapped(r2c, end_wi, len(rtok), forward=False)
+    if cs is None or ce is None or ce < cs:
+        return None
+    clean_start = ctok[cs][1]
+    clean_end = ctok[ce][2]
+    if clean_start >= len(clean2src) or clean_end - 1 >= len(clean2src):
+        return None
+    s0 = clean2src[clean_start]
+    s1 = clean2src[clean_end - 1] + 1
     if s1 <= s0:
         return None
     return s0, s1
+
+
+def _nearest_mapped(r2c: dict, wi: int, n: int, forward: bool):
+    """Clean-word index for rendered word ``wi``; if that exact word didn't
+    align, take the nearest aligned neighbour in the given direction."""
+    step = 1 if forward else -1
+    i = wi
+    while 0 <= i < n:
+        if i in r2c:
+            return r2c[i]
+        i += step
+    return None
 
 
 def to_sentineled(
@@ -198,5 +291,6 @@ def to_sentineled(
     markdown plus the comments in document order, so the caller can pair the Nth
     sentinel span found in the rendered document with the Nth comment's body.
     """
-    md = _RE_COMMENT.sub(lambda m: f"{start}{m.group('span')}{end}", source)
-    return md, parse(source)
+    matches = _matches(source)
+    md = _rebuild(source, matches, lambda m: f"{start}{m.group('span')}{end}")
+    return md, [_to_comment(m) for m in matches]

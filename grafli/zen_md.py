@@ -944,6 +944,9 @@ class ZenMarkdownEditor(QWidget):
         an existing comment without `]c` or visual mode)."""
         cur = self._rendered.textCursor()
         if cur.hasSelection():
+            if not cur.selectedText().strip():
+                self._set_visual(False)     # nothing but whitespace — ignore
+                return
             r0, r1 = cur.selectionStart(), cur.selectionEnd()
             self._set_visual(False)
             self._begin_comment_for_span(r0, r1)
@@ -987,12 +990,16 @@ class ZenMarkdownEditor(QWidget):
         self._rendered.ensureCursorVisible()
 
     def _reveal_active_comment(self):
-        """Show the inline editable field for the active comment (Enter). With
-        no active comment yet, land on the first one and reveal it."""
+        """Show the inline editable field for the active comment (Enter). With no
+        active comment, reveal the one under the caret — never jump to an
+        unrelated comment elsewhere in the document."""
         if not self._rendered_comments:
             return
         if self._active_comment < 0:
-            self._set_active_comment(0)
+            idx = self._comment_at_position(self._rendered.textCursor().position())
+            if idx < 0:
+                return
+            self._set_active_comment(idx)
         _start, end, comment = self._rendered_comments[self._active_comment]
         self._show_comment_field(end, comment.body)
 
@@ -1064,12 +1071,12 @@ class ZenMarkdownEditor(QWidget):
 
     def _begin_comment_for_span(self, r0: int, r1: int):
         """Map the rendered span back to source; if it maps, open an empty field
-        to type the comment; if not, fall back to the source editor."""
+        to type the comment. An unmappable selection (e.g. no words) is a quiet
+        no-op — it never yanks you out of the reading view."""
         rendered = self._rendered.document().toPlainText()
         src = self._editor.toPlainText()
         mapped = md_comments.map_rendered_span(rendered, src, r0, r1)
         if mapped is None:
-            self._fallback_to_source()
             return
         s0, s1 = mapped
         # Overlap-aware (no nesting): inside an existing comment → edit it;
@@ -1110,14 +1117,6 @@ class ZenMarkdownEditor(QWidget):
             if comment.full_start == full_start:
                 return i
         return None
-
-    def _fallback_to_source(self):
-        """Safety net for a rendered selection that can't be mapped to source
-        (degenerate/empty): drop to the source editor so it can be marked there.
-        Effectively unreachable from a real visual selection."""
-        self._authoring_span = None
-        if self._rendered_mode:
-            self._toggle_rendered()
 
     def _delete_active_comment(self):
         """⇧D — unwrap the active comment (highlight + body gone), re-render."""

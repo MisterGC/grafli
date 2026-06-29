@@ -96,6 +96,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Toggle the whole thing with `⇧D` (on by default; off restores the
   uniform-shrink behaviour) — see issue #103. Ships with an
   `examples/lod-demo.grafli` board built to show it off.
+- **Bookmarks & flows — guided tours of a graph.** Capture **bookmarks**
+  (named viewpoints) and string them into **flows** — ordered, narrated tours
+  that play in-app, present fullscreen, or export to slides. Both live in the
+  `.grafli` file as plain-text v2 directives (`@ bookmark` / `@ flow`), so they
+  diff in git and an agent can author them.
+  - **Semantic bookmarks.** A bookmark frames a set of element *ids*, not raw
+    coordinates, so it stays correct when the layout changes; an optional
+    isolate mode renders only the framed items. Capture the current view with
+    `gb` (logical / by selection) or `gB` (exact viewport); `gf` records a flow.
+  - **Playback & present.** Step a flow manually or auto-play with per-step
+    dwell times; `p` cycles paused → playing → looping; `F5` presents
+    fullscreen with on-canvas captions. A dedicated **Flows** side-panel tab
+    shows slide-card previews with inline editing, and a flow can be
+    **auto-generated** from a node's neighbourhood.
+  - **Export to PDF & PowerPoint.** Export a flow as a slide deck — a title
+    slide plus one slide per stop, the step description as caption. Single-note
+    steps export as **native, clickable text slides**; scoped steps render only
+    their framed items. In-app buttons, or headless
+    `grafli export <file> tour.pdf --flow <id>`. (PowerPoint export, including
+    onto an existing template, is detailed below.)
 - **Parse problems are surfaced, not swallowed.** When a line can't be
   interpreted (a malformed `@` directive, an unterminated `"""` note block) the
   parser still keeps it as a comment — but now *records* it and the app shows a

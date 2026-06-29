@@ -160,6 +160,18 @@ def test_author_wraps_selected_span():
     assert ed._active_comment == 0
 
 
+def test_caret_lands_on_new_comment_after_commit():
+    # After confirming, the caret sits on the new comment (so j/k continue from
+    # there), not at the document end or the page top.
+    ed = _reading_editor()
+    r0, r1 = _rspan(ed, "quick brown")
+    ed._begin_comment_for_span(r0, r1)
+    ed._comment_field.setPlainText("note")
+    ed._commit_comment_field()
+    span_start = ed._rendered_comments[ed._active_comment][0]
+    assert ed._rendered.textCursor().position() == span_start
+
+
 def test_author_empty_body_creates_nothing():
     ed = _reading_editor()
     r0, r1 = _rspan(ed, "fox")

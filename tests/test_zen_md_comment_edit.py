@@ -154,6 +154,19 @@ def test_c_on_existing_comment_reveals_it_without_visual():
     assert ed._comment_field.toPlainText() == comment.body
 
 
+def test_enter_off_a_comment_does_not_open_a_stale_active_one():
+    # Regression: pressing Enter on a non-comment word must not open a comment
+    # elsewhere on the page just because it was the last "active" one.
+    ed = _reading_editor()
+    ed._goto_comment(1)                  # active 0, caret on it
+    ed._active_comment = 0               # stale active persists...
+    cur = ed._rendered.textCursor()
+    cur.setPosition(0)                   # ...but the caret is now off it
+    ed._rendered.setTextCursor(cur)
+    assert _key(ed, Qt.Key.Key_Return) is True
+    assert ed._comment_field is None     # nothing opened
+
+
 def test_c_off_any_comment_does_nothing():
     ed = _reading_editor()
     cur = ed._rendered.textCursor()

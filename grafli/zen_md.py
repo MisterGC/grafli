@@ -951,10 +951,7 @@ class ZenMarkdownEditor(QWidget):
             self._set_visual(False)
             self._begin_comment_for_span(r0, r1)
             return
-        idx = self._comment_at_position(cur.position())
-        if idx >= 0:
-            self._set_active_comment(idx)
-            self._reveal_active_comment()
+        self._reveal_active_comment()   # no selection → reveal comment under caret
 
     def _comment_at_position(self, pos: int) -> int:
         """Index of the rendered comment whose span contains ``pos``, else -1."""
@@ -990,17 +987,14 @@ class ZenMarkdownEditor(QWidget):
         self._rendered.ensureCursorVisible()
 
     def _reveal_active_comment(self):
-        """Show the inline editable field for the active comment (Enter). With no
-        active comment, reveal the one under the caret — never jump to an
-        unrelated comment elsewhere in the document."""
-        if not self._rendered_comments:
+        """Show the inline editable field for the comment **under the caret**
+        (Enter). If the caret isn't on a comment, do nothing — never open an
+        unrelated comment that merely happens to be on the same screen."""
+        idx = self._comment_at_position(self._rendered.textCursor().position())
+        if idx < 0:
             return
-        if self._active_comment < 0:
-            idx = self._comment_at_position(self._rendered.textCursor().position())
-            if idx < 0:
-                return
-            self._set_active_comment(idx)
-        _start, end, comment = self._rendered_comments[self._active_comment]
+        self._active_comment = idx
+        _start, end, comment = self._rendered_comments[idx]
         self._show_comment_field(end, comment.body)
 
     def _show_comment_field(self, end_pos: int, body: str):
@@ -1149,20 +1143,21 @@ class ZenMarkdownEditor(QWidget):
         pos = sb.value()
         self._set_source_text(src)
         self._render_markdown(src)
+        sb.setValue(pos)   # restore scroll first, so visibility is computed right
         idx = resolve_idx() if resolve_idx is not None else None
+        caret = self._rendered.textCursor()
         if idx is not None and 0 <= idx < len(self._rendered_comments):
-            # Track the active comment but DON'T move the text cursor onto it —
-            # that would queue an ensureCursorVisible that re-scrolls. The span's
-            # highlight already marks it; ]c / [c can step from here.
+            # Park the caret on the comment just touched (it's already in view, so
+            # no scroll jump) — j/k then continue from there, not the page top.
             self._active_comment = idx
+            caret.setPosition(self._rendered_comments[idx][0])
         else:
+            # No comment to anchor to (e.g. the last one was deleted) — fall back
+            # to the top of the visible area rather than the document end.
             self._active_comment = -1
-        sb.setValue(pos)   # stay exactly where the reader was
-        # setMarkdown left the caret at the document end; move it to the top of
-        # the visible area so j/k continue from here instead of jumping away.
-        caret = self._rendered.cursorForPosition(QPoint(0, 0))
+            caret = self._rendered.cursorForPosition(QPoint(0, 0))
         self._rendered.setTextCursor(caret)
-        sb.setValue(pos)
+        sb.setValue(pos)   # setTextCursor may nudge scroll; reassert the position
 
     def _change_font_size(self, delta: int):
         """Change font size. delta=0 resets to default."""

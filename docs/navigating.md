@@ -96,6 +96,48 @@ looked.
 - <kbd>A</kbd> — **complexity heatmap**: colours nodes by how connected/busy
   they are, to spot where the density is.
 
+## Read a board zoomed out (semantic zoom)
+
+Zooming a large board all the way out used to shrink everything into
+unreadable specks. Instead, grafli **simplifies as you zoom out** — the
+further you pull back, the more the canvas summarises itself, like a map that
+drops street names before town names before city names. It's on by default and
+needs no setup: just zoom out (<kbd>-</kbd>, <kbd>z</kbd>, or
+<kbd>Shift</kbd>+<kbd>Z</kbd> to fit the whole graph).
+
+What happens as you pull back:
+
+- **Containers fold into tiles.** A group whose children have shrunk too small
+  to read collapses to a single tile showing its label and a child count; its
+  contents hide and arrows re-route to the tile. Nested groups fold
+  innermost-first, and smaller groups fold before larger ones.
+- **Leaves become shells.** A standalone box whose label is too small keeps its
+  colour and shows skeleton bars where the text was — you still see *that
+  there's a node here*, without the unreadable label.
+- **Loose clusters get a hull.** A connected, compact group of three or more
+  free-floating nodes wraps in a labelled "bubble" outline (named by its
+  busiest node), with outside arrows attaching to the boundary.
+- **Notes and images** follow suit: a note that gets too small shows a marker
+  so it never silently vanishes, and anything inside a folded container is
+  subsumed into its tile.
+
+At **100 %** the board is always shown in full — aggregation is purely a
+zoom-*out* affordance — and a hysteresis band keeps the tiers from flickering
+as you scrub the zoom. The summary tracks your edits **live**: add, connect, or
+delete nodes and the zoomed-out view reflects it right away.
+
+!!! tip "Dive into a summarised group"
+    Aggregated tiles and hulls are read-only — you edit at full detail.
+    **Double-click** a tile or hull to fly straight into that group, or just
+    zoom back in. To switch the whole behaviour off (back to plain uniform
+    shrinking), press <kbd>Shift</kbd>+<kbd>D</kbd>.
+
+While summarising, the status bar shows a `◧ LoD` indicator, and the minimap
+(above) outlines the regions that are currently folded — so you can see at a
+glance how much of the board has collapsed.
+
+<!-- TODO before release: add a screenshot of a large board zoomed out (tiles + a cluster hull) to docs/assets/screenshots/ and embed it here. -->
+
 ## Across files
 
 A node can link to a deeper diagram in its own `.grafli` file (a *sub-grafli*).

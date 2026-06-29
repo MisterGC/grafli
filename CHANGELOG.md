@@ -7,15 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- **Level-of-Detail now tracks live edits.** Adding, deleting, connecting,
-  moving or reparenting elements in-app — and undo/redo — now updates the
-  zoomed-out aggregation immediately, instead of reflecting only what was on
-  the board when the file was opened. Previously a newly added cluster, for
-  example, never grew its bounding hull until you reopened the file. The
-  rebuild is debounced to gesture boundaries, so the canvas stays responsive
-  (no per-frame graph work). ([#106](https://github.com/MisterGC/grafli/issues/106))
-
 ## [0.4.0] - 2026-06-28
 
 ### Added
@@ -96,6 +87,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The **LoD state is surfaced**: a status-bar indicator (`◧ LoD` while
     summarizing, `LoD off` when toggled off), and the **minimap outlines the
     currently-collapsed regions** against its always-full-detail view.
+  - **Aggregation tracks live edits.** Adding, deleting, connecting, moving or
+    reparenting elements — and undo/redo — update the zoomed-out view
+    immediately (a newly added cluster grows its hull without reopening the
+    file), instead of reflecting only what was on the board at open time. The
+    rebuild is debounced to gesture boundaries, so the canvas stays responsive.
+    See issue #106.
   Toggle the whole thing with `⇧D` (on by default; off restores the
   uniform-shrink behaviour) — see issue #103. Ships with an
   `examples/lod-demo.grafli` board built to show it off.

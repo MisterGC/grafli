@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
+    QEventLoop,
     QFileSystemWatcher,
     QPoint,
     QPropertyAnimation,
@@ -32,6 +33,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
+    QApplication,
     QGraphicsOpacityEffect,
     QLabel,
     QPlainTextEdit,
@@ -82,6 +84,7 @@ class ZenMarkdownEditor(QWidget):
         title: str = "",
         file_path: Path | None = None,
         anchor: str = "",
+        start_in_read: bool = False,
         canvas: QWidget | None = None,
     ):
         super().__init__(parent)
@@ -123,10 +126,15 @@ class ZenMarkdownEditor(QWidget):
         self._build_ui(title, text)
         self._setup_file_watcher()
         self._enable_autosave()
-        if anchor:
-            self._jump_to_anchor(anchor)
         self.show()
         self._start_fade_in()
+        # Open at a location / in a mode (used by textli's open-at-anchor). The
+        # read-view toggle and centerCursor both need a laid-out viewport, so do
+        # this after show().
+        if start_in_read:
+            self._toggle_rendered()
+        if anchor:
+            self._jump_to_anchor(anchor)
 
     # ── UI construction ──
 
@@ -286,17 +294,32 @@ class ZenMarkdownEditor(QWidget):
         return re.sub(r"[\s]+", "-", s).strip("-")
 
     def _jump_to_anchor(self, anchor: str):
-        """Scroll to the heading matching the given anchor slug."""
-        doc = self._editor.document()
+        """Scroll to the heading matching the given anchor slug, in whichever
+        view is active. In the source editor a heading carries its `#` markers;
+        in the rendered read view they're gone, so identify headings by their
+        block heading-level (set by Markdown rendering) and match the bare text."""
+        rendered = self._rendered_mode
+        view = self._rendered if rendered else self._editor
+        doc = view.document()
         block = doc.begin()
         while block.isValid():
-            text = block.text()
-            m = re.match(r"^#{1,6}\s+(.*)", text)
-            if m and self._slugify(m.group(1)) == anchor:
-                cursor = self._editor.textCursor()
+            if rendered:
+                is_heading = block.blockFormat().headingLevel() > 0
+                heading = block.text() if is_heading else None
+            else:
+                m = re.match(r"^#{1,6}\s+(.*)", block.text())
+                heading = m.group(1) if m else None
+            if heading is not None and self._slugify(heading) == anchor:
+                cursor = view.textCursor()
                 cursor.setPosition(block.position())
-                self._editor.setTextCursor(cursor)
-                self._editor.centerCursor()
+                view.setTextCursor(cursor)
+                if rendered:
+                    # QTextBrowser has no centerCursor — scroll the heading to
+                    # the top of the viewport (natural for an anchor landing).
+                    y = int(doc.documentLayout().blockBoundingRect(block).y())
+                    view.verticalScrollBar().setValue(y)
+                else:
+                    view.centerCursor()
                 return
             block = block.next()
 
@@ -444,6 +467,7 @@ class ZenMarkdownEditor(QWidget):
             self._editor.setVisible(False)
             self._rendered.setVisible(True)
             self._rendered.setFocus()
+            self._settle_rendered_layout()
             # Keep the reader's place: map the source caret to the rendered text.
             rendered = self._rendered.document().toPlainText()
             r_pos = md_comments.map_position(src, rendered, src_caret)
@@ -468,6 +492,19 @@ class ZenMarkdownEditor(QWidget):
         self.update()
         # Flash last, after the view swap + repaint, so it sits clearly on top.
         self._flash_mode("READ" if self._rendered_mode else "WRITE")
+
+    def _settle_rendered_layout(self):
+        """Force the rendered document's layout to finish before we navigate it.
+
+        ``QTextDocument`` lays out lazily and only corrects the view's scroll
+        range when the deferred relayout runs in the event loop. If the reader
+        jumps (``G``) before that settles, the scroll range is still estimated
+        and scrolling back up stops short — until ``gg`` forces a top-down
+        relayout. Draining the layout work here (excluding user input so it
+        can't re-enter this handler) makes the range correct immediately."""
+        QApplication.processEvents(
+            QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+        )
 
     def _flash_mode(self, text: str):
         """Briefly flash a big, blocky word ('READ' / 'WRITE') in the centre to
@@ -729,6 +766,11 @@ class ZenMarkdownEditor(QWidget):
         super().hideEvent(event)
 
     def eventFilter(self, obj, event):
+        # Bail if we're mid-construction or mid-teardown — pumping the event
+        # loop (e.g. the read-view layout settle) can deliver events while
+        # these child refs aren't established or have been cleared.
+        if getattr(self, "_editor", None) is None:
+            return False
         if obj == self.parentWidget() and event.type() == QEvent.Type.Resize:
             self.resize(obj.size())
             return False

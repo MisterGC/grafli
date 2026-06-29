@@ -226,6 +226,27 @@ Clearing a comment's text and committing also deletes it. Because comments are
 plain CriticMarkup, you (or a collaborator, or an AI) can also read and edit
 them directly in the source.
 
+## Opening standalone (`textli`)
+
+The same zen editor runs on any Markdown file outside the diagram app:
+
+```
+textli notes.md
+```
+
+It autosaves while you edit (creating the file on first save if needed), so you
+lean on git/SCM for deliberate states rather than a manual save.
+
+Open at a **location** and in a **mode**:
+
+| Form | Effect |
+|------|--------|
+| `textli notes.md#design-decisions` | Scroll to the heading whose slug is `design-decisions` |
+| `textli notes.md -r` / `--read` | Open straight into the rendered reading view (default is the editable write view) |
+
+`path#heading-slug` is a plain Markdown fragment, so a grafli node can link to a
+precise spot in a doc.
+
 ## Markdown resources
 
 Boxes and images can link to a separate markdown file. Open (or create)

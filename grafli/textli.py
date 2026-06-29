@@ -20,6 +20,14 @@ from grafli.fonts import register_bundled_fonts
 from grafli.zen_md import ZenMarkdownEditor
 
 
+def split_location(file_arg: str) -> tuple[str, str]:
+    """Split an ``open`` argument into ``(path, anchor)``. A ``#heading-slug``
+    fragment selects a heading to scroll to (markdown-link style); anchors are
+    ``[a-z0-9-]`` slugs, so the first ``#`` starts the fragment."""
+    path, _, anchor = file_arg.partition("#")
+    return path, anchor
+
+
 class TextliHost(QWidget):
     """Full-window host for the zen editor in standalone mode.
 
@@ -38,12 +46,20 @@ class TextliHost(QWidget):
         self.setPalette(pal)
         self._editor: ZenMarkdownEditor | None = None
 
-    def open(self, path: Path, text: str) -> None:
+    def open(
+        self,
+        path: Path,
+        text: str,
+        anchor: str = "",
+        read: bool = False,
+    ) -> None:
         """Create the editor on the given file. Call after the host is shown
-        so the editor sizes to a real window rect."""
+        so the editor sizes to a real window rect. ``anchor`` scrolls to a
+        heading (its markdown slug); ``read`` opens the rendered read view."""
         self.setWindowTitle(f"textli — {path.name}")
         self._editor = ZenMarkdownEditor(
             parent=self, text=text, title=path.name, file_path=path,
+            anchor=anchor, start_in_read=read,
         )
         # File-backed editing autosaves, so closing simply ends the session.
         self._editor.cancelled.connect(self.close)
@@ -61,11 +77,19 @@ def main():
     )
     parser.add_argument(
         "file",
-        help="Markdown file to open (created on first save if it doesn't exist)",
+        help="Markdown file to open, optionally with a #heading-slug location "
+             "(e.g. notes.md#design-decisions). Created on first save if it "
+             "doesn't exist.",
+    )
+    parser.add_argument(
+        "-r", "--read",
+        action="store_true",
+        help="Open in the rendered read view (default: editable write view)",
     )
     args = parser.parse_args()
 
-    path = Path(args.file).expanduser()
+    file_arg, anchor = split_location(args.file)
+    path = Path(file_arg).expanduser()
     if path.is_dir():
         parser.error(f"{path} is a directory")
     if not path.exists() and not path.parent.exists():
@@ -84,7 +108,7 @@ def main():
 
     host = TextliHost()
     host.showMaximized()
-    host.open(path, text)
+    host.open(path, text, anchor=anchor, read=args.read)
 
     sys.exit(app.exec())
 

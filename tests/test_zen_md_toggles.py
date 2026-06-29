@@ -72,6 +72,29 @@ def test_toggle_keeps_caret_position_both_directions():
     assert word_at(ed._editor, ed._editor.textCursor().position()) == "marker10"
 
 
+def test_entering_read_mode_settles_scroll_range():
+    # Regression: Qt lays the rendered doc out lazily and reports an
+    # over-estimated scroll range until the event loop settles it. Jumping (G)
+    # before that landed in the estimated region and scrolling back up stopped
+    # short until 'gg' forced a relayout. Entering read mode now settles the
+    # layout, so the scrollbar max matches the real document height immediately.
+    QApplication.instance() or QApplication([])
+    parent = QWidget()
+    parent.resize(900, 600)
+    parent.show()
+    big = "# Top\n\n" + "\n\n".join(
+        f"## Section {i}\n\n" + ("word%d " % i) * 40 for i in range(600))
+    ed = ZenMarkdownEditor(parent, big, title="t")
+    ed._parent = parent
+    ed._toggle_rendered()
+    sb = ed._rendered.verticalScrollBar()
+    doc_h = ed._rendered.document().documentLayout().documentSize().height()
+    # settled: max tracks the real document height (one viewport less), not the
+    # inflated pre-layout estimate.
+    assert sb.maximum() <= doc_h
+    assert sb.maximum() >= doc_h - ed._rendered.viewport().height() - 50
+
+
 def test_mode_flash_on_toggle():
     ed = _editor()
     ed._toggle_rendered()

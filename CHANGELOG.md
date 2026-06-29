@@ -15,7 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   editor grafli uses for notes — vim-navigable, with the rendered reading view
   (⌘R) — now usable on its own. Autosaves while you edit (and creates the file
   on first save if it doesn't exist yet), so important states are captured via
-  git/SCM rather than a manual save action.
+  git/SCM rather than a manual save action. Open at a specific spot and in a
+  chosen mode: `textli notes.md#design-decisions` scrolls to that heading, and
+  `-r`/`--read` opens straight into the rendered reading view (default is the
+  editable write view). The `path#heading-slug` form is a plain markdown
+  fragment, so a grafli node can link to a precise location in a doc.
 - **Inline comments in the reading view.** The zen editor's rendered view
   (<kbd>⌘R</kbd>) is now caret-based and vim-navigable, and you can comment on a
   span of text: select it in **visual mode** (<kbd>v</kbd> + motions), press
@@ -261,6 +265,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drag-to-resize like other notes.
 
 ### Fixed
+- **Reading view scrolls back to the top after jumping to the end.** Pressing
+  `G` to jump to the bottom of a long document in the rendered reading view, then
+  scrolling up, could stop short of the beginning (only `gg` recovered it) — the
+  Markdown layout was still being computed lazily, so the scroll range was an
+  estimate. Entering the reading view now settles the layout up front, so jumps
+  and scrolling work against the real document height immediately.
 - **Opening a file reliably frames it and focuses the canvas.** A board could
   open off-screen (the on-open zoom-to-fit fired before the window had its real
   size, leaving the view at 1:1 near the origin) and the canvas didn't grab

@@ -499,6 +499,25 @@ def rejected(source: str) -> str:
                           lambda mk: _resolved_text(mk, False))
 
 
+def _resolve_suggestions(source: str, accept_them: bool) -> str:
+    def transform(mk: Mark) -> str:
+        if mk.kind == MarkKind.COMMENT:
+            return source[mk.full_start:mk.full_end]   # leave comments untouched
+        return _resolved_text(mk, accept_them)
+    return _rebuild_marks(source, parse_marks(source), transform)
+
+
+def accept_all(source: str) -> str:
+    """``source`` with every *suggestion* applied; comments are left intact
+    (unlike :func:`accepted`, which also reduces comments to their span)."""
+    return _resolve_suggestions(source, True)
+
+
+def reject_all(source: str) -> str:
+    """``source`` with every *suggestion* reverted; comments left intact."""
+    return _resolve_suggestions(source, False)
+
+
 def accept(source: str, mark: Mark) -> str:
     """``source`` with a single ``mark`` accepted (applied, markup removed)."""
     return (source[:mark.full_start] + _resolved_text(mark, True)

@@ -171,6 +171,31 @@ def test_wrap_suggestion_deletion_on_empty_replacement():
     assert m.kind == K.DELETE and m.removed == "very "
 
 
+# ── to_rendered: visible text + role-tagged spans ──
+
+def test_to_rendered_drops_markup_and_tags_roles():
+    src = "the {--very --}{~~quick~>swift~~} {++brown ++}fox {==n==}{>>b<<}"
+    md, spans = mc.to_rendered(src, start="<", end=">")
+    # raw CriticMarkup is gone; visible text (struck old + new) is present
+    assert "{++" not in md and "~>" not in md and "==}" not in md
+    assert "<very >" in md and "<quick> <swift>" in md and "<brown >" in md
+    roles = [s.role for s in spans]
+    assert roles == ["removed", "removed", "added", "added", "comment"]
+
+
+def test_to_rendered_substitution_separates_old_and_new():
+    md, spans = mc.to_rendered("{~~a~>b~~}", start="<", end=">")
+    assert md == "<a> <b>"            # a gap keeps struck-old off handwritten-new
+
+
+def test_to_rendered_comment_matches_to_sentineled():
+    # comment-only docs render exactly as the original comment path did
+    src = "x {==y==}{>>z<<} w"
+    md_new, _ = mc.to_rendered(src)
+    md_old, _ = mc.to_sentineled(src)
+    assert md_new == md_old
+
+
 # ── guard: a span carrying markup can't be re-wrapped ──
 
 def test_contains_markup_detects_suggestion_delimiters():

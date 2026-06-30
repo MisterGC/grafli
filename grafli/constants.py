@@ -174,7 +174,10 @@ ZEN_TITLE_COLOR = QColor("#004578")
 ZEN_HINT_COLOR = QColor("#8A8580")
 
 # ── Zen markdown editor ──────────────────────────────────────────
-ZEN_MD_MAX_WIDTH = 700
+ZEN_MD_MAX_WIDTH = 700          # default content-column width (user-adjustable)
+ZEN_MD_MAX_WIDTH_MIN = 360      # narrowest the column can step to
+ZEN_MD_MAX_WIDTH_MAX = 1400     # widest (further clamped to the window)
+ZEN_MD_WIDTH_STEP = 80          # per-keystroke width increment
 ZEN_MD_BG = QColor("#EEE5D0")
 ZEN_MD_HEADING_SIZES = {1: 22, 2: 18, 3: 15}
 ZEN_MD_CODE_BG = QColor("#EDE9E3")
@@ -197,6 +200,16 @@ ZEN_MD_CANVAS_DIM_COLOR = QColor(0, 0, 0, 165)  # canvas — strong step-back
 # translucent so it composites over the warm paper as a soft highlighter wash
 # that accompanies the zen style without shouting.
 ZEN_MD_COMMENT_HL = QColor(199, 92, 78, 72)
+
+# Suggestion (track-changes) styling in the rendered read view. Removed text is
+# struck through in muted red (it stays in the body mono font); added text is
+# written in the handwriting note font in zen blue — so an edit reads as a
+# proposal pencilled over the typeset prose. A long rewrite drops the handwriting
+# (hard to read in bulk) for the body font over a faint blue wash instead.
+ZEN_MD_SUGGEST_DEL = QColor("#C53030")
+ZEN_MD_SUGGEST_ADD = QColor("#2B6CB0")
+ZEN_MD_SUGGEST_ADD_WASH = QColor(43, 108, 176, 40)
+ZEN_MD_SUGGEST_LONG = 80   # added-text length above which we use the wash, not hand
 
 # ── Side panel ───────────────────────────────────────────────────
 SIDE_PANEL_WIDTH = 180

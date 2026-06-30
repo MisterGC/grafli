@@ -523,6 +523,77 @@ def render_substitute(old: str, new: str) -> str:
     return f"{{~~{old}~>{new}~~}}"
 
 
+def as_comment(mark: Mark) -> Comment:
+    """View a comment-kind ``Mark`` as a ``Comment`` (the read view's reveal/edit
+    code is typed against ``Comment``)."""
+    return Comment(
+        full_start=mark.full_start,
+        full_end=mark.full_end,
+        span_start=mark.span_start,
+        span_end=mark.span_end,
+        span=mark.span,
+        body=mark.body,
+    )
+
+
+@dataclass(frozen=True)
+class RenderSpan:
+    """One sentinel-wrapped span the read view should style. A mark yields one
+    span (``comment`` / ``added`` / ``removed``); a substitution yields two — its
+    struck ``removed`` then its handwritten ``added`` — in document order."""
+
+    role: str    # "comment" | "removed" | "added"
+    mark: Mark
+
+
+def to_rendered(
+    source: str,
+    start: str = SENTINEL_START,
+    end: str = SENTINEL_END,
+) -> tuple[str, list[RenderSpan]]:
+    """Prepare ``source`` for the read view's Markdown renderer, for the whole
+    mark set. Each mark's *visible* text is wrapped in sentinel markers and its
+    raw CriticMarkup is dropped:
+
+      comment     -> the span (body hidden)
+      insert      -> the added text
+      delete      -> the removed text (shown struck)
+      substitute  -> removed text then added text (two spans)
+
+    Returns the rewritten markdown plus the spans in document order, so the
+    caller can pair the Nth sentinel span found in the rendered document with the
+    Nth :class:`RenderSpan` and style it by role.
+    """
+    marks = parse_marks(source)
+    out: list[str] = []
+    spans: list[RenderSpan] = []
+    i = 0
+
+    def wrap(text: str) -> str:
+        return f"{start}{text}{end}"
+
+    for mk in marks:
+        out.append(source[i:mk.full_start])
+        if mk.kind == MarkKind.COMMENT:
+            out.append(wrap(mk.span))
+            spans.append(RenderSpan("comment", mk))
+        elif mk.kind == MarkKind.INSERT:
+            out.append(wrap(mk.added))
+            spans.append(RenderSpan("added", mk))
+        elif mk.kind == MarkKind.DELETE:
+            out.append(wrap(mk.removed))
+            spans.append(RenderSpan("removed", mk))
+        else:  # substitute: struck old, a gap, then handwritten new
+            out.append(wrap(mk.removed))
+            spans.append(RenderSpan("removed", mk))
+            out.append(" ")   # unstyled gap so old/new don't run together
+            out.append(wrap(mk.added))
+            spans.append(RenderSpan("added", mk))
+        i = mk.full_end
+    out.append(source[i:])
+    return "".join(out), spans
+
+
 def wrap_suggestion(source: str, s0: int, s1: int, replacement: str) -> str:
     """Wrap the slice ``[s0, s1)`` as a suggestion — the one entry point the
     authoring key uses, branching on the gesture:

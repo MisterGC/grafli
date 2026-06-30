@@ -45,9 +45,14 @@ from PySide6.QtWidgets import (
 from grafli import md_comments
 from grafli.constants import (
     FONT_FAMILY,
+    NOTE_FONT_FAMILY,
     ZEN_MD_BG,
     ZEN_MD_CANVAS_DIM_COLOR,
     ZEN_MD_COMMENT_HL,
+    ZEN_MD_SUGGEST_ADD,
+    ZEN_MD_SUGGEST_ADD_WASH,
+    ZEN_MD_SUGGEST_DEL,
+    ZEN_MD_SUGGEST_LONG,
     ZEN_MD_CARD_H_RATIO,
     ZEN_MD_CARD_INNER_PAD_H,
     ZEN_MD_CARD_INNER_PAD_V,
@@ -57,6 +62,9 @@ from grafli.constants import (
     ZEN_MD_FONT_SIZE_MAX,
     ZEN_MD_FONT_SIZE_MIN,
     ZEN_MD_MAX_WIDTH,
+    ZEN_MD_MAX_WIDTH_MAX,
+    ZEN_MD_MAX_WIDTH_MIN,
+    ZEN_MD_WIDTH_STEP,
     ZEN_TEXT_COLOR,
     _CTRL_MOD,
 )
@@ -116,6 +124,14 @@ class ZenMarkdownEditor(QWidget):
             ZEN_MD_FONT_SIZE_MIN, min(ZEN_MD_FONT_SIZE_MAX, self._font_size)
         )
 
+        # Load persisted content-column width preference (adjustable like font).
+        self._content_width = settings.value(
+            "zen_md/content_width", ZEN_MD_MAX_WIDTH, type=int
+        )
+        self._content_width = max(
+            ZEN_MD_MAX_WIDTH_MIN, min(ZEN_MD_MAX_WIDTH_MAX, self._content_width)
+        )
+
         # Opacity effect for fade in/out.
         self._opacity = QGraphicsOpacityEffect(self)
         self._opacity.setOpacity(0.0)
@@ -147,6 +163,7 @@ class ZenMarkdownEditor(QWidget):
         # each highlighted span to its source Comment; _active_comment is the
         # one ]c / [c stepped onto; _comment_field is the inline reveal editor.
         self._rendered_comments: list = []
+        self._rendered_suggestions: list = []
         self._active_comment = -1
         self._comment_field: QPlainTextEdit | None = None
         self._rendered_pending_bracket = ""
@@ -547,51 +564,82 @@ class ZenMarkdownEditor(QWidget):
         self._mode_flash_anim = anim   # hold a ref so it isn't GC'd mid-run
 
     def _render_markdown(self, source: str):
-        """Render ``source`` into the read view, with inline comments stripped
-        and their spans highlighted. The comment bodies stay hidden — they are
-        revealed only on demand (cursor-driven, added in a later phase)."""
-        md, comments = md_comments.to_sentineled(source)
+        """Render ``source`` into the read view: comment spans are highlighted
+        (bodies hidden, revealed on demand), and suggestion marks are styled as
+        track-changes — removed text struck in the body mono, added text written
+        in the handwriting note font. The raw CriticMarkup never shows."""
+        md, spans = md_comments.to_rendered(source)
         doc = self._rendered.document()
         doc.setMarkdown(md)
-        self._highlight_comment_spans(doc, comments)
+        self._apply_mark_formats(doc, spans)
 
-    def _highlight_comment_spans(self, doc, comments):
-        """Find each sentinel-wrapped span in the rendered document, paint the
-        subtle comment highlight over it, tag it with its comment index, and
-        delete the sentinel markers. Builds ``self._rendered_comments`` — the
-        rendered-range → source-``Comment`` map the reveal/navigate loop uses.
+    def _format_for_span(self, span, comment_idx: int) -> QTextCharFormat:
+        """The char format for one rendered span by its role. Comments wear the
+        highlight (tagged with their comment index); a removed span is struck in
+        muted red; an added span is handwritten in zen blue, or — for a long
+        rewrite that would be a wall of handwriting — body text on a faint wash."""
+        fmt = QTextCharFormat()
+        if span.role == "comment":
+            fmt.setBackground(QBrush(ZEN_MD_COMMENT_HL))
+            fmt.setProperty(_COMMENT_IDX_PROP, comment_idx)
+        elif span.role == "removed":
+            fmt.setFontStrikeOut(True)
+            fmt.setForeground(QBrush(ZEN_MD_SUGGEST_DEL))
+        elif span.role == "added":
+            added = span.mark.added
+            if len(added) > ZEN_MD_SUGGEST_LONG or "\n" in added:
+                fmt.setBackground(QBrush(ZEN_MD_SUGGEST_ADD_WASH))
+            else:
+                fmt.setFontFamilies([NOTE_FONT_FAMILY])
+                fmt.setForeground(QBrush(ZEN_MD_SUGGEST_ADD))
+        return fmt
+
+    def _apply_mark_formats(self, doc, spans):
+        """Find each sentinel-wrapped span in the rendered document, paint its
+        role's format over it, tag comment spans with their comment index, and
+        delete the sentinel markers. Builds ``self._rendered_comments`` (the
+        rendered-range → source-``Comment`` map the reveal/navigate loop uses).
 
         Located via ``QTextDocument.find`` (not raw string indexing) so the
         positions stay correct even when the render inserts position-bearing
         objects (images, rules) ahead of a span.
         """
         self._rendered_comments = []
-        if not comments:
+        self._rendered_suggestions = []
+        if not spans:
             return
         # Collect each span's sentinel bounds, in document order.
-        spans = []
+        bounds = []
         pos = 0
-        for _ in comments:
+        for _ in spans:
             start = doc.find(md_comments.SENTINEL_START, pos)
             if start.isNull():
                 break
             end = doc.find(md_comments.SENTINEL_END, start.selectionEnd())
             if end.isNull():
                 break
-            spans.append((start.selectionStart(), start.selectionEnd(),
-                          end.selectionStart(), end.selectionEnd()))
+            bounds.append((start.selectionStart(), start.selectionEnd(),
+                           end.selectionStart(), end.selectionEnd()))
             pos = end.selectionEnd()
+        # Comment spans index into a comment-only list (kept as Comment objects
+        # so the reveal/edit code stays typed against Comment).
+        comments = []
+        comment_idx = []
+        for span in spans:
+            if span.role == "comment":
+                comment_idx.append(len(comments))
+                comments.append(md_comments.as_comment(span.mark))
+            else:
+                comment_idx.append(-1)
         # Apply last-to-first so deletions don't shift not-yet-processed offsets.
         edit = QTextCursor(doc)
         edit.beginEditBlock()
-        for i in range(len(spans) - 1, -1, -1):
-            s0, s1, e0, e1 = spans[i]
-            fmt = QTextCharFormat()
-            fmt.setBackground(QBrush(ZEN_MD_COMMENT_HL))
-            fmt.setProperty(_COMMENT_IDX_PROP, i)   # tag span -> comment index
+        for i in range(len(bounds) - 1, -1, -1):
+            s0, s1, e0, e1 = bounds[i]
+            fmt = self._format_for_span(spans[i], comment_idx[i])
             edit.setPosition(s1)
             edit.setPosition(e0, QTextCursor.MoveMode.KeepAnchor)
-            edit.mergeCharFormat(fmt)               # highlight the span text
+            edit.mergeCharFormat(fmt)               # style the span text
             edit.setPosition(e0)
             edit.setPosition(e1, QTextCursor.MoveMode.KeepAnchor)
             edit.removeSelectedText()               # drop END sentinel
@@ -626,16 +674,17 @@ class ZenMarkdownEditor(QWidget):
     # ── Modal card geometry ──
 
     def _card_rect(self) -> QRectF:
-        """Card width hugs the text column (ZEN_MD_MAX_WIDTH + padding);
-        height takes most of the window. Centered. In full-width mode (⌘↵) the
-        card grows to nearly fill the window.
+        """Card width hugs the text column (the adjustable content width +
+        padding); height takes most of the window. Centered. In full-width mode
+        (⌘↵) the card grows to nearly fill the window.
         """
         max_w = max(self.width() - 80, 320)
         if getattr(self, "_full_width", False):
             w = max_w
             h = max(self.height() - 40, 320)
         else:
-            desired_w = ZEN_MD_MAX_WIDTH + 2 * ZEN_MD_CARD_INNER_PAD_H
+            content_w = getattr(self, "_content_width", ZEN_MD_MAX_WIDTH)
+            desired_w = content_w + 2 * ZEN_MD_CARD_INNER_PAD_H
             w = min(desired_w, max_w)
             h = min(self.height() * ZEN_MD_CARD_H_RATIO, self.height() - 60)
         x = (self.width() - w) / 2
@@ -825,6 +874,21 @@ class ZenMarkdownEditor(QWidget):
                 and event.modifiers() & _CTRL_MOD):
             self._toggle_full_width()
             return True
+
+        # Ctrl+Shift+→/←/↓ — widen / narrow / reset the content column.
+        # Arrow keys (not +/-) so the binding is layout-independent and doesn't
+        # collide with the Ctrl +/-/0 font zoom below. Works in either view.
+        if ((event.modifiers() & _CTRL_MOD)
+                and (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)):
+            if event.key() == Qt.Key.Key_Right:
+                self._change_width(+1)
+                return True
+            if event.key() == Qt.Key.Key_Left:
+                self._change_width(-1)
+                return True
+            if event.key() == Qt.Key.Key_Down:
+                self._change_width(0)
+                return True
 
         # Ctrl+. — toggle section-focus dim (works in either view)
         if (event.key() == Qt.Key.Key_Period
@@ -1238,6 +1302,31 @@ class ZenMarkdownEditor(QWidget):
         self._apply_heading_layout()
         QSettings("Grafli", "Grafli").setValue(
             "zen_md/font_size", self._font_size
+        )
+
+    def _change_width(self, delta: int):
+        """Step the editor's content-column width. delta=0 resets to default;
+        +1/-1 widen/narrow by one step. Stepping exits full-width mode so the
+        change is visible, and the preference persists across sessions."""
+        if delta == 0:
+            new_w = ZEN_MD_MAX_WIDTH
+        else:
+            new_w = max(
+                ZEN_MD_MAX_WIDTH_MIN,
+                min(ZEN_MD_MAX_WIDTH_MAX,
+                    self._content_width + delta * ZEN_MD_WIDTH_STEP),
+            )
+        if new_w == self._content_width and not self._full_width:
+            return
+        self._content_width = new_w
+        self._full_width = False
+        layout = self.layout()
+        if layout:
+            self._apply_card_margins(layout)
+        self._apply_heading_layout()
+        self.update()
+        QSettings("Grafli", "Grafli").setValue(
+            "zen_md/content_width", self._content_width
         )
 
     def _activate_jump(self):

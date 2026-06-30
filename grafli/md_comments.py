@@ -10,6 +10,11 @@ written adjacent (the comment tool always emits them that way). This module is
 the single source of truth for that format: parsing it, stripping it for a plain
 render, and preparing a sentinel-wrapped variant the read view can highlight.
 
+It also owns the rest of the CriticMarkup vocabulary — `{++insert++}`,
+`{--delete--}`, `{~~old~>new~~}` — as inline *suggestions* (track-changes), so an
+agent or the human can propose edits the reader reviews (accept/reject) instead
+of silently rewriting the prose. See the "Suggestions" section at the bottom.
+
 Pure text logic only — no Qt — so it is cheap to unit-test and reusable by any
 render or export path.
 """
@@ -160,7 +165,9 @@ def classify_overlap(source: str, s0: int, s1: int):
     return None
 
 
-_RE_ANY_MARKER = re.compile(r"\{==|==\}|\{>>|<<\}")
+_RE_ANY_MARKER = re.compile(
+    r"\{==|==\}|\{>>|<<\}|\{\+\+|\+\+\}|\{--|--\}|\{~~|~~\}"
+)
 
 
 def contains_markup(text: str) -> bool:
@@ -352,3 +359,183 @@ def to_sentineled(
     matches = _matches(source)
     md = _rebuild(source, matches, lambda m: f"{start}{m.group('span')}{end}")
     return md, [_to_comment(m) for m in matches]
+
+
+# ── Suggestions: CriticMarkup track-changes (insert / delete / substitute) ──
+#
+# Beyond {==span==}{>>body<<} comments, the format carries proposed *edits* as the
+# other CriticMarkup marks. An agent (or the human) suggests a change; the reader
+# reviews it inline and accepts or rejects it, rather than the prose being
+# silently rewritten. Same tempering + code-region exclusion as comments; no
+# nesting/overlap in v1 (resolved greedily left-to-right).
+
+
+class MarkKind:
+    """The kinds of CriticMarkup mark this module understands."""
+
+    COMMENT = "comment"
+    INSERT = "insert"
+    DELETE = "delete"
+    SUBSTITUTE = "substitute"
+
+
+@dataclass(frozen=True)
+class Mark:
+    """One CriticMarkup mark of any kind, with offsets into the *source*.
+
+    Normalized text fields by kind:
+      comment     -> span (highlighted text) + body (the note)
+      insert      -> added
+      delete      -> removed
+      substitute  -> removed (old) + added (new)
+    Unused fields stay empty/-1 so call sites can read them uniformly.
+    """
+
+    kind: str
+    full_start: int        # offset of the opening delimiter
+    full_end: int          # offset just past the closing delimiter
+    removed: str = ""      # text the mark removes (delete / substitute)
+    added: str = ""        # text the mark adds (insert / substitute)
+    span: str = ""         # comment: the highlighted text
+    body: str = ""         # comment: the note
+    span_start: int = -1   # comment: span offsets into the source
+    span_end: int = -1
+
+
+# Each suggestion mark is "tempered" like the comment regex: its inner text may
+# not contain its own delimiters, so a stray opener can't swallow a neighbour.
+_RE_INSERT = re.compile(r"\{\+\+(?P<ins>(?:(?!\+\+\}|\{\+\+).)*?)\+\+\}", re.DOTALL)
+_RE_DELETE = re.compile(r"\{--(?P<del>(?:(?!--\}|\{--).)*?)--\}", re.DOTALL)
+_RE_SUBSTITUTE = re.compile(
+    r"\{~~(?P<old>(?:(?!~>|~~\}|\{~~).)*?)~>(?P<new>(?:(?!~~\}|\{~~).)*?)~~\}",
+    re.DOTALL,
+)
+_SUGGESTION_RES = (
+    (MarkKind.INSERT, _RE_INSERT),
+    (MarkKind.DELETE, _RE_DELETE),
+    (MarkKind.SUBSTITUTE, _RE_SUBSTITUTE),
+)
+
+
+def _to_mark(kind: str, m: re.Match) -> Mark:
+    if kind == MarkKind.COMMENT:
+        return Mark(kind, m.start(), m.end(),
+                    span=m.group("span"), body=m.group("body"),
+                    span_start=m.start("span"), span_end=m.end("span"))
+    if kind == MarkKind.INSERT:
+        return Mark(kind, m.start(), m.end(), added=m.group("ins"))
+    if kind == MarkKind.DELETE:
+        return Mark(kind, m.start(), m.end(), removed=m.group("del"))
+    return Mark(kind, m.start(), m.end(),
+                removed=m.group("old"), added=m.group("new"))
+
+
+def parse_marks(source: str) -> list[Mark]:
+    """Every CriticMarkup mark — comment + insert/delete/substitute — in document
+    order. Markup inside code regions is left literal, exactly as for comments;
+    overlapping matches are resolved greedily left-to-right (no nesting in v1)."""
+    ranges = _code_ranges(source)
+
+    def in_code(pos):
+        return any(a <= pos < b for a, b in ranges)
+
+    items: list[tuple[str, re.Match]] = [
+        (MarkKind.COMMENT, m) for m in _matches(source)
+    ]
+    for kind, rx in _SUGGESTION_RES:
+        for m in rx.finditer(source):
+            if in_code(m.start()) or in_code(m.end() - 1):
+                continue
+            items.append((kind, m))
+    items.sort(key=lambda km: km[1].start())
+    resolved: list[Mark] = []
+    last_end = -1
+    for kind, m in items:
+        if m.start() >= last_end:
+            resolved.append(_to_mark(kind, m))
+            last_end = m.end()
+    return resolved
+
+
+def suggestions(source: str) -> list[Mark]:
+    """Only the edit marks (insert/delete/substitute), in document order."""
+    return [mk for mk in parse_marks(source) if mk.kind != MarkKind.COMMENT]
+
+
+def _resolved_text(mark: Mark, accept: bool) -> str:
+    """The text a mark collapses to when accepted (or rejected)."""
+    k = mark.kind
+    if k == MarkKind.COMMENT:
+        return mark.span                                   # comment just unwraps
+    if k == MarkKind.INSERT:
+        return mark.added if accept else ""
+    if k == MarkKind.DELETE:
+        return "" if accept else mark.removed
+    return mark.added if accept else mark.removed          # substitute
+
+
+def _rebuild_marks(source: str, marks: list[Mark], transform) -> str:
+    out = []
+    i = 0
+    for mk in marks:
+        out.append(source[i:mk.full_start])
+        out.append(transform(mk))
+        i = mk.full_end
+    out.append(source[i:])
+    return "".join(out)
+
+
+def accepted(source: str) -> str:
+    """``source`` with every suggestion *applied* and comments reduced to their
+    span — the prose as it reads if you accepted everything."""
+    return _rebuild_marks(source, parse_marks(source),
+                          lambda mk: _resolved_text(mk, True))
+
+
+def rejected(source: str) -> str:
+    """``source`` with every suggestion *reverted* and comments reduced to their
+    span — the original prose if you rejected everything."""
+    return _rebuild_marks(source, parse_marks(source),
+                          lambda mk: _resolved_text(mk, False))
+
+
+def accept(source: str, mark: Mark) -> str:
+    """``source`` with a single ``mark`` accepted (applied, markup removed)."""
+    return (source[:mark.full_start] + _resolved_text(mark, True)
+            + source[mark.full_end:])
+
+
+def reject(source: str, mark: Mark) -> str:
+    """``source`` with a single ``mark`` rejected (reverted, markup removed)."""
+    return (source[:mark.full_start] + _resolved_text(mark, False)
+            + source[mark.full_end:])
+
+
+def render_insert(text: str) -> str:
+    return f"{{++{text}++}}"
+
+
+def render_delete(text: str) -> str:
+    return f"{{--{text}--}}"
+
+
+def render_substitute(old: str, new: str) -> str:
+    return f"{{~~{old}~>{new}~~}}"
+
+
+def wrap_suggestion(source: str, s0: int, s1: int, replacement: str) -> str:
+    """Wrap the slice ``[s0, s1)`` as a suggestion — the one entry point the
+    authoring key uses, branching on the gesture:
+
+      s0 == s1            -> insertion of ``replacement`` at the caret
+      replacement == ""   -> deletion of the selected text
+      otherwise           -> substitution of the selection by ``replacement``
+    """
+    original = source[s0:s1]
+    if s0 == s1:
+        mark = render_insert(replacement)
+    elif replacement == "":
+        mark = render_delete(original)
+    else:
+        mark = render_substitute(original, replacement)
+    return source[:s0] + mark + source[s1:]

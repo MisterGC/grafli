@@ -185,7 +185,7 @@ Two ways to edit a note's text:
 * <kbd>e</kbd> (or double-click) — a small **inline** vim editor right on
   the canvas; it grows to fit as you type. Best for quick edits.
 * <kbd>E</kbd> — [textli](https://mistergc.github.io/textli/), the
-  full-window Markdown editor (iA-Writer style, vim keybindings), on the
+  full-window, distraction-free Markdown editor (vim keybindings), on the
   note's own text. Best for longer prose. Saving writes straight back to
   the note — no separate file is created.
 

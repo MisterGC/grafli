@@ -5,8 +5,9 @@ Open this in the reading view to try track-changes:
     textli examples/suggestions-demo.md
     # then press ⌘R to switch to the reading view
 
-In the reading view, **removed** text is struck out in red and **added** text is
-written in blue handwriting. Step through the changes and accept or reject each.
+In the reading view, **removed** text keeps the body ink but wears a strong
+strike line, and **added** text is in a subtle zen red. Step through the changes
+and accept or reject each — or preview the clean result.
 
 ## Keys
 
@@ -14,13 +15,17 @@ written in blue handwriting. Step through the changes and accept or reject each.
 - `a` — accept the suggestion under the caret (then it advances to the next)
 - `x` — reject it (and advance)
 - `⇧A` / `⇧X` — accept all / reject all
+- `s` — author your own: select a span and press `s`, type the replacement
+  (empty = delete); with no selection, `s` inserts at the caret
+- `gc` — changes overview: a jump-list of every change and comment
+- `p` — preview the clean prose with every suggestion accepted (source untouched)
 - `]c` / `[c`, `Enter` — the existing comment navigation still works
 
 ## Try it
 
-The quarterly {~~numbers~>figures~~} look off this quarter, so we should
-{++double-check the ledger before the board call ++}and revisit the {--clearly --}stale
-forecast.
+The quarterly {~~numbers~>figures~~} look off this {==quarter==}{>>is this the
+Q2 dip again?<<}, so we should {++double-check the ledger ++}and revisit the
+{--clearly --}stale forecast.
 
 Our north-star metric is {~~daily active users~>weekly active users~~}; the
 {++newly proposed ++}guardrail metric is crash-free sessions.
@@ -38,8 +43,9 @@ side.
 ### A longer rewrite
 
 {~~The onboarding flow is fine.~>We are replacing this whole sentence with a much
-longer rationale so you can see that a long rewrite drops the handwriting font for
-the body font on a faint blue wash, which stays readable in bulk.~~}
+longer rationale so you can see that a block-sized rewrite reads as plain zen-red
+body text — no wash, no special case — the same treatment as a one-word edit,
+just more of it.~~}
 
 ### A few more to burn through
 

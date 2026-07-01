@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Suggestions (track changes) in the reading view.** Beyond comments, the zen /
+  `textli` reading view now speaks the full [CriticMarkup](http://criticmarkup.com/)
+  vocabulary — `{++insert++}`, `{--delete--}`, `{~~old~>new~~}` — rendered as
+  track changes: removals wear a strong strike line, additions are in a subtle
+  zen red. Step through with <kbd>]</kbd><kbd>s</kbd> / <kbd>[</kbd><kbd>s</kbd>
+  and **accept** (<kbd>a</kbd>) / **reject** (<kbd>x</kbd>) each — or all
+  (<kbd>Shift</kbd>+<kbd>A</kbd> / <kbd>Shift</kbd>+<kbd>X</kbd>) — with an
+  animated swap and single-undo source edits. **Author** a change by selecting a
+  span and pressing <kbd>s</kbd> (replace / delete / insert). <kbd>g</kbd><kbd>c</kbd>
+  opens a changes overview jump-list; <kbd>p</kbd> toggles a clean preview of the
+  accepted prose. Marks live inline in the Markdown, so AI-proposed edits
+  round-trip through the file and git and are reviewed key-by-key instead of
+  diff-hunted.
 - **Adjustable editor width.** The textli / zen markdown editor's content column
   can now be widened or narrowed from the keyboard — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd>
   wider, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd> narrower,

@@ -79,6 +79,25 @@ away; Markdown (`md:`) notes are syntax-highlighted.
 | <kbd>Shift</kbd>+<kbd>Esc</kbd> (in NORMAL) | Discard and close |
 | Click elsewhere | Commit and close |
 
+### Reading view (zen editor)
+
+<kbd>⌘</kbd>+<kbd>R</kbd> toggles a caret-based, vim-navigable **rendered
+reading view**. There you can comment on and suggest changes to the prose — see
+[Text annotations](text-annotations.md) for the full story.
+
+| Key | Action |
+|-----|--------|
+| <kbd>⌘</kbd>+<kbd>R</kbd> | Toggle the rendered reading view ↔ source editor |
+| <kbd>v</kbd> | Visual mode — extend a selection with the vim motions |
+| <kbd>c</kbd> | Comment the selection (or reveal the comment under the caret) |
+| <kbd>s</kbd> | Suggest a change — replace the selection (empty = delete), or insert at the caret |
+| <kbd>]</kbd><kbd>c</kbd> / <kbd>[</kbd><kbd>c</kbd> | Step between comments |
+| <kbd>]</kbd><kbd>s</kbd> / <kbd>[</kbd><kbd>s</kbd> | Step between suggestions |
+| <kbd>a</kbd> / <kbd>x</kbd> | Accept / reject the suggestion under the caret (<kbd>Shift</kbd> = all) |
+| <kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>D</kbd> | Reveal-edit / delete the active comment |
+| <kbd>g</kbd><kbd>c</kbd> | Changes overview — a jump-list of every change & comment |
+| <kbd>p</kbd> | Clean preview — the prose with every suggestion accepted (source untouched) |
+
 ## Create
 
 | Key | Action |

@@ -226,6 +226,61 @@ Clearing a comment's text and committing also deletes it. Because comments are
 plain CriticMarkup, you (or a collaborator, or an AI) can also read and edit
 them directly in the source.
 
+## Suggestions (track changes)
+
+A comment says *"look at this"*; a **suggestion** says *"change it to this"* —
+and lets you accept or reject the change with one key. Suggestions use the rest
+of the [CriticMarkup](http://criticmarkup.com/) vocabulary, so they live inline
+in the Markdown and diff in git like comments do:
+
+| On disk | Meaning |
+|---------|---------|
+| `{++added++}` | Insert this text |
+| `{--removed--}` | Delete this text |
+| `{~~old~>new~~}` | Replace *old* with *new* |
+
+In the reading view the raw markup never shows. Instead it reads as *track
+changes* over the prose: **removed** text keeps the body ink but wears a strong
+strike line; **added** text is in a subtle **zen red** that stands out on its own
+— the same whether it's a one-word fix or a whole-paragraph rewrite.
+
+### Reviewing
+
+Step onto a change and take it or leave it — accepting or rejecting rewrites the
+source (a single <kbd>⌘</kbd>+<kbd>Z</kbd> undo step) and animates the swap: what
+leaves fades out, what stays settles into the prose.
+
+| Key | Action |
+|-----|--------|
+| <kbd>]</kbd><kbd>s</kbd> / <kbd>[</kbd><kbd>s</kbd> | Step to the next / previous suggestion |
+| <kbd>a</kbd> | **Accept** the suggestion under the caret (caret advances to the next) |
+| <kbd>x</kbd> | **Reject** it (caret advances) |
+| <kbd>Shift</kbd>+<kbd>A</kbd> / <kbd>Shift</kbd>+<kbd>X</kbd> | Accept / reject **all** |
+| <kbd>g</kbd><kbd>c</kbd> | **Overview** — a jump-list of every change & comment; <kbd>j</kbd>/<kbd>k</kbd> moves, <kbd>Enter</kbd> or a digit jumps, <kbd>Esc</kbd> closes |
+| <kbd>p</kbd> | **Preview** — toggle a clean read of the prose with every suggestion accepted (no markup); the source is untouched |
+
+### Authoring
+
+You propose a change the same way you comment one — mark the text and let the
+editor write the markup:
+
+| Gesture | Proposes |
+|---------|----------|
+| Select a span, <kbd>s</kbd>, type the replacement | A **substitution** (`{~~old~>new~~}`) |
+| Select a span, <kbd>s</kbd>, leave it empty | A **deletion** (`{--old--}`) |
+| <kbd>s</kbd> with **no** selection, type text | An **insertion** at the caret (`{++text++}`) |
+
+<kbd>Enter</kbd> commits, <kbd>Esc</kbd> abandons. (Authoring is disabled while
+the clean preview is showing.)
+
+### Working with an AI
+
+Suggestions are the natural surface for AI-assisted editing. Ask an agent to
+revise a doc and it can emit `{++…++}` / `{--…--}` / `{~~old~>new~~}` marks
+**in place** — then you review its edits in the reading view with <kbd>a</kbd> /
+<kbd>x</kbd> instead of hunting for what changed in a wall of new text. The marks
+are a stable on-disk contract, so the round-trip is just the file plus git.
+
 ## Opening standalone (`textli`)
 
 The same zen editor runs on any Markdown file outside the diagram app:

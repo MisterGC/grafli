@@ -122,6 +122,24 @@ in its clean-merge path by editing like a good concurrent citizen:
 Small, current, localized edits avoid conflicts almost entirely — the
 merge is the safety net, not the plan.
 
+**Revising markdown prose — propose, don't overwrite.** When you rewrite a
+markdown doc or note body that a human will review (a `.md` doc body, or any
+file opened in the zen/`textli` editor), prefer emitting the change as inline
+[CriticMarkup](http://criticmarkup.com/) suggestions instead of silently
+replacing the prose:
+
+* `{++added text++}` — insert
+* `{--removed text--}` — delete
+* `{~~old~>new~~}` — replace *old* with *new*
+* `{==span==}{>>a question or note<<}` — comment on a span (no change proposed)
+
+In the reading view these render as **track changes** — struck removals, red
+additions — and the human accepts or rejects each with one key. That turns a
+"what did the agent change?" diff-hunt into a quick review, and the marks are a
+stable on-disk contract that round-trips through the file and git. Use a plain
+`Edit` when you're making an uncontested mechanical fix; reach for suggestions
+when the human should get the final say on wording or substance.
+
 Speaker tags (for discussions and `Q:` replies): **a label of 1–16
 characters starting with an uppercase letter, then `: `** — `AI:`,
 `User:`, `GC:`, `Reviewer:`. 2+ distinct tags in one note trigger the

@@ -55,7 +55,7 @@ lands on the placeholder ready to type-replace.
 | Key | Action |
 |-----|--------|
 | <kbd>e</kbd> / Double-click | Edit selected element (inline) |
-| <kbd>E</kbd> | Open the full-window zen editor — edits a **note's own text**; for a box/image, opens (or creates) its attached markdown file |
+| <kbd>E</kbd> | Open [textli](https://mistergc.github.io/textli/) (the full-window Markdown editor) — edits a **note's own text**; for a box/image, opens (or creates) its attached markdown file |
 | <kbd>W</kbd> | Set URL on selected item |
 | <kbd>Return</kbd> | Open URL in browser |
 | <kbd>Enter</kbd> | Accept edit |
@@ -68,8 +68,8 @@ lands on the placeholder ready to type-replace.
 ### Editing a note (vim)
 
 Editing a note (<kbd>e</kbd> / double-click) opens a small **vim-capable**
-editor in place — the same keybindings as the full-window zen editor,
-without leaving the canvas. It opens in INSERT mode so you can type right
+editor in place — the same keybindings as textli's full editor, without
+leaving the canvas. It opens in INSERT mode so you can type right
 away; Markdown (`md:`) notes are syntax-highlighted.
 
 | Key | Action |
@@ -79,25 +79,15 @@ away; Markdown (`md:`) notes are syntax-highlighted.
 | <kbd>Shift</kbd>+<kbd>Esc</kbd> (in NORMAL) | Discard and close |
 | Click elsewhere | Commit and close |
 
-### Reading view (zen editor)
+### The full editor (textli)
 
-<kbd>⌘</kbd>+<kbd>R</kbd> toggles a caret-based, vim-navigable **rendered
-reading view**. There you can comment on and suggest changes to the prose — see
-[Text annotations](text-annotations.md) for the full story.
-
-| Key | Action |
-|-----|--------|
-| <kbd>⌘</kbd>+<kbd>R</kbd> | Toggle the rendered reading view ↔ source editor |
-| <kbd>v</kbd> | Visual mode — extend a selection with the vim motions |
-| <kbd>c</kbd> | Comment the selection (or reveal the comment under the caret) |
-| <kbd>s</kbd> | Suggest a change — replace the selection (empty = delete), or insert at the caret |
-| <kbd>]</kbd><kbd>c</kbd> / <kbd>[</kbd><kbd>c</kbd> | Step between comments |
-| <kbd>]</kbd><kbd>s</kbd> / <kbd>[</kbd><kbd>s</kbd> | Step between suggestions |
-| <kbd>a</kbd> / <kbd>x</kbd> | Accept / reject the suggestion under the caret and advance (<kbd>Shift</kbd>+<kbd>A</kbd>/<kbd>Shift</kbd>+<kbd>X</kbd> = all) |
-| <kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>D</kbd> | Reveal-edit / delete the active comment |
-| <kbd>g</kbd><kbd>c</kbd> | Changes overview — a jump-list of every change & comment |
-| <kbd>g</kbd><kbd>h</kbd> | Headings overview — a jump-list outline of the document |
-| <kbd>p</kbd> | Clean preview — the prose with every suggestion accepted (source untouched) |
+<kbd>E</kbd> opens [textli](https://mistergc.github.io/textli/), grafli's
+Markdown editor and its own project. Writing keys, the rendered reading view
+(<kbd>⌘</kbd>+<kbd>R</kbd>), and the comment / suggestion review workflow are
+documented in the
+[textli key reference](https://mistergc.github.io/textli/keybindings/) — or
+press <kbd>F1</kbd> inside the editor. See
+[Text annotations](text-annotations.md) for how it fits into a review flow.
 
 ## Create
 

@@ -12,9 +12,9 @@ and accept or reject each — or preview the clean result.
 ## Keys
 
 - `]s` / `[s` — jump to the next / previous suggestion
-- `a` — accept the suggestion under the caret (then it advances to the next)
-- `x` — reject it (and advance)
-- `⇧A` / `⇧X` — accept all / reject all
+- `a` — accept the suggestion under the caret and advance to the next
+- `x` — reject it and advance
+- `⇧A` / `⇧X` — accept / reject but stay at the current spot
 - `s` — author your own: select a span and press `s`, type the replacement
   (empty = delete); with no selection, `s` inserts at the caret
 - `gc` — changes overview: a jump-list of every change and comment

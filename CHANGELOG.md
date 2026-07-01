@@ -17,9 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vocabulary — `{++insert++}`, `{--delete--}`, `{~~old~>new~~}` — rendered as
   track changes: removals wear a strong strike line, additions are in a subtle
   zen red. Step through with <kbd>]</kbd><kbd>s</kbd> / <kbd>[</kbd><kbd>s</kbd>
-  and **accept** (<kbd>a</kbd>) / **reject** (<kbd>x</kbd>) each — or all
-  (<kbd>Shift</kbd>+<kbd>A</kbd> / <kbd>Shift</kbd>+<kbd>X</kbd>) — with an
-  animated swap and single-undo source edits. **Author** a change by selecting a
+  and **accept** (<kbd>a</kbd>) / **reject** (<kbd>x</kbd>) each — advancing to the
+  next decision, or <kbd>Shift</kbd>+<kbd>A</kbd> / <kbd>Shift</kbd>+<kbd>X</kbd> to
+  resolve but stay put — with an animated swap and single-undo source edits.
+  **Author** a change by selecting a
   span and pressing <kbd>s</kbd> (replace / delete / insert). <kbd>g</kbd><kbd>c</kbd>
   opens a changes overview jump-list; <kbd>p</kbd> toggles a clean preview of the
   accepted prose. Marks live inline in the Markdown, so AI-proposed edits

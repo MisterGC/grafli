@@ -148,7 +148,7 @@ def test_reject_deletion_keeps_original():
 
 
 def test_lowercase_accept_advances_to_next_decision():
-    # suggestions separated by plain text so advance vs stay is distinguishable
+    # suggestions separated by plain text so the advance is observable
     ed = _reading_editor("a {--x --}b c d {++y ++}e\n")
     _caret_on(ed, "x")
     _key(ed, Qt.Key.Key_A)                 # accept + advance
@@ -157,22 +157,13 @@ def test_lowercase_accept_advances_to_next_decision():
     assert idx == 0                        # advanced onto the remaining suggestion
 
 
-def test_uppercase_accept_stays_put():
-    ed = _reading_editor("a {--x --}b c d {++y ++}e\n")
-    _caret_on(ed, "x")
-    _key(ed, Qt.Key.Key_A, shift=True)     # accept but stay
-    assert ed._editor.toPlainText() == "a b c d {++y ++}e\n"
-    idx = ed._suggestion_at_position(ed._rendered.textCursor().position())
-    assert idx < 0                         # did NOT jump to the remaining suggestion
-
-
-def test_uppercase_reject_stays_put():
-    ed = _reading_editor("a {--x --}b c d {++y ++}e\n")
-    _caret_on(ed, "x")
-    _key(ed, Qt.Key.Key_X, shift=True)     # reject the deletion (keep x) + stay
-    assert ed._editor.toPlainText() == "a x b c d {++y ++}e\n"
-    idx = ed._suggestion_at_position(ed._rendered.textCursor().position())
-    assert idx < 0                         # stayed, didn't advance
+def test_accept_all_and_reject_all():
+    ed = _reading_editor(SRC)
+    _key(ed, Qt.Key.Key_A, shift=True)     # ⇧A — accept all
+    assert ed._editor.toPlainText() == "the swift brown fox\n"
+    ed2 = _reading_editor(SRC)
+    _key(ed2, Qt.Key.Key_X, shift=True)    # ⇧X — reject all
+    assert ed2._editor.toPlainText() == "the very quick fox\n"
 
 
 def test_accept_is_undoable():

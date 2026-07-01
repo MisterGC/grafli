@@ -235,7 +235,7 @@ def editor_help_html() -> str:
         ("s", "Suggest a change — replace the selection (empty = delete), or insert at the caret"),
         ("]s / [s", "Step to the next / previous suggestion"),
         ("a / x", "Accept / reject the suggestion under the caret and advance to the next"),
-        ("⇧A / ⇧X", "Accept / reject but stay at the current spot"),
+        ("⇧A / ⇧X", "Accept / reject all suggestions at once"),
         ("gc", "Changes overview — a jump-list of every change &amp; comment"),
         ("p", "Clean preview — the prose with every suggestion accepted (source untouched)"),
     ])}</table>
@@ -1412,7 +1412,7 @@ class ZenMarkdownEditor(QWidget):
         same motions extend a selection; `c` comments the selection, `s` suggests
         an alternative for it (empty = delete; no selection = insert at the caret).
         `]c`/`[c` step between comments, `]s`/`[s` between suggestions; on a
-        suggestion `a`/`x` accept/reject and advance (⇧A/⇧X stay put). Enter reveals/edits a
+        suggestion `a`/`x` accept/reject and advance (⇧A/⇧X = all). Enter reveals/edits a
         comment, ⇧D deletes it. Esc leaves visual mode, or — when not selecting —
         saves & closes (⇧Esc cancels)."""
         key = event.key()
@@ -1481,12 +1481,12 @@ class ZenMarkdownEditor(QWidget):
             return True
 
         # a / x — accept / reject the suggestion under the caret and advance to the
-        # next decision. ⇧A / ⇧X — accept / reject but stay at the current spot.
+        # next decision (scrolling to it). ⇧A / ⇧X — accept / reject all at once.
         if key == Qt.Key.Key_A and not ctrl:
-            self._review_suggestion(accept=True, advance=not shift)
+            self._review_suggestion(accept=True, every=shift)
             return True
         if key == Qt.Key.Key_X and not ctrl:
-            self._review_suggestion(accept=False, advance=not shift)
+            self._review_suggestion(accept=False, every=shift)
             return True
 
         # Enter — reveal/edit the active comment inline. ⇧D — delete it.
@@ -1944,31 +1944,31 @@ class ZenMarkdownEditor(QWidget):
         self._rendered.setTextCursor(cur)
         self._rendered.ensureCursorVisible()
 
-    def _review_suggestion(self, accept: bool, advance: bool = True):
+    def _review_suggestion(self, accept: bool, every: bool = False):
         """a / x (and ⇧A / ⇧X). Accept or reject the suggestion under the caret —
-        the accepted/rejected text is applied to the source and the view
-        re-renders. With ``advance`` (lowercase a / x) the caret moves onto the
-        next decision and the view scrolls to reveal it, so review is a rhythm;
-        without it (⇧A / ⇧X) the caret and scroll stay where you are. A single
-        accept/reject plays the zen animation first (fade what leaves, settle what
-        stays)."""
+        the accepted/rejected text is applied to the source, the view re-renders,
+        and the caret advances onto the next suggestion (scrolling to reveal it) so
+        review is a rhythm. A single accept/reject plays the zen animation first
+        (fade what leaves, settle what stays); ⇧ variants resolve every suggestion
+        at once, instantly."""
         # Settle any in-flight animation so we compute against a stable document.
         self._suggest_animator.finish()
         src = self._editor.toPlainText()
+        if every:
+            new_src = (md_comments.accept_all(src) if accept
+                       else md_comments.reject_all(src))
+            self._apply_source_change_pos(new_src, lambda: 0)
+            return
         idx = self._suggestion_at_position(self._rendered.textCursor().position())
         if idx < 0:
             return
         s = self._rendered_suggestions[idx]
-        at = s.start
         new_src = (md_comments.accept(src, s.mark) if accept
                    else md_comments.reject(src, s.mark))
 
-        # Advancing: after re-render the resolved mark is gone, so the suggestion
-        # that was next has slid into ``idx`` — park there. Staying: keep the caret
-        # at the spot the mark occupied.
+        # After re-render the resolved mark is gone, so the suggestion that was
+        # next has slid into ``idx`` — park there (and scroll to it) to advance.
         def resolve_pos():
-            if not advance:
-                return at
             if not self._rendered_suggestions:
                 return None
             return self._rendered_suggestions[
@@ -1976,7 +1976,7 @@ class ZenMarkdownEditor(QWidget):
 
         def apply():
             self._apply_source_change_pos(
-                new_src, resolve_pos, scroll_to_caret=advance)
+                new_src, resolve_pos, scroll_to_caret=True)
 
         if self._suggest_animate:
             self._suggest_animator.run(

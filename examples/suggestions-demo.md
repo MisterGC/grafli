@@ -14,7 +14,7 @@ and accept or reject each — or preview the clean result.
 - `]s` / `[s` — jump to the next / previous suggestion
 - `a` — accept the suggestion under the caret and advance to the next
 - `x` — reject it and advance
-- `⇧A` / `⇧X` — accept / reject but stay at the current spot
+- `⇧A` / `⇧X` — accept / reject all at once
 - `s` — author your own: select a span and press `s`, type the replacement
   (empty = delete); with no selection, `s` inserts at the caret
 - `gc` — changes overview: a jump-list of every change and comment

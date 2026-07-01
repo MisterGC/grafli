@@ -93,7 +93,7 @@ reading view**. There you can comment on and suggest changes to the prose — se
 | <kbd>s</kbd> | Suggest a change — replace the selection (empty = delete), or insert at the caret |
 | <kbd>]</kbd><kbd>c</kbd> / <kbd>[</kbd><kbd>c</kbd> | Step between comments |
 | <kbd>]</kbd><kbd>s</kbd> / <kbd>[</kbd><kbd>s</kbd> | Step between suggestions |
-| <kbd>a</kbd> / <kbd>x</kbd> | Accept / reject the suggestion under the caret and advance (<kbd>Shift</kbd>+<kbd>A</kbd>/<kbd>Shift</kbd>+<kbd>X</kbd> stay put) |
+| <kbd>a</kbd> / <kbd>x</kbd> | Accept / reject the suggestion under the caret and advance (<kbd>Shift</kbd>+<kbd>A</kbd>/<kbd>Shift</kbd>+<kbd>X</kbd> = all) |
 | <kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>D</kbd> | Reveal-edit / delete the active comment |
 | <kbd>g</kbd><kbd>c</kbd> | Changes overview — a jump-list of every change & comment |
 | <kbd>g</kbd><kbd>h</kbd> | Headings overview — a jump-list outline of the document |

@@ -77,7 +77,7 @@ from grafli.zen_md_vim import VimKeyHandler, VimMode
 # comment even when inline formatting splits the span into fragments.
 _COMMENT_IDX_PROP = QTextFormat.Property.UserProperty + 7
 # Same idea for a suggestion: both spans of a substitution carry the same index,
-# so its rendered range (struck-old through handwritten-new) recovers as one unit.
+# so its rendered range (struck-old through red-new) recovers as one unit.
 _SUGGEST_IDX_PROP = QTextFormat.Property.UserProperty + 8
 # Role of a suggestion fragment (0 = removed/struck, 1 = added), so the animator
 # can fade the part that leaves and settle the part that stays.
@@ -944,7 +944,7 @@ class ZenMarkdownEditor(QWidget):
     def _collect_rendered_suggestions(self, doc, marks):
         """Recover each suggestion as an :class:`RSuggestion` — its overall range
         plus the separate removed/added sub-ranges — from the tagged fragments. A
-        substitution's struck-old and handwritten-new fragments share the same
+        substitution's struck-old and red-new fragments share the same
         index (folded into one unit) but carry distinct roles (kept apart so the
         animator can fade one and settle the other)."""
         overall: dict[int, tuple[int, int]] = {}

@@ -573,7 +573,7 @@ def as_comment(mark: Mark) -> Comment:
 class RenderSpan:
     """One sentinel-wrapped span the read view should style. A mark yields one
     span (``comment`` / ``added`` / ``removed``); a substitution yields two — its
-    struck ``removed`` then its handwritten ``added`` — in document order."""
+    ``removed`` then its ``added`` — in document order."""
 
     role: str    # "comment" | "removed" | "added"
     mark: Mark
@@ -616,7 +616,7 @@ def to_rendered(
         elif mk.kind == MarkKind.DELETE:
             out.append(wrap(mk.removed))
             spans.append(RenderSpan("removed", mk))
-        else:  # substitute: struck old, a gap, then handwritten new
+        else:  # substitute: old, a gap, then new
             out.append(wrap(mk.removed))
             spans.append(RenderSpan("removed", mk))
             out.append(" ")   # unstyled gap so old/new don't run together

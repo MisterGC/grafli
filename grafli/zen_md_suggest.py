@@ -17,7 +17,7 @@ from PySide6.QtCore import QEasingCurve, QVariantAnimation
 from PySide6.QtGui import QBrush, QColor, QTextCharFormat, QTextCursor
 
 DURATION_MS = 200
-_FONT_SWAP_AT = 0.5   # midpoint: handwriting -> typeset / strike lifts
+_FONT_SWAP_AT = 0.5   # midpoint: settle to the body font family
 
 
 def _scaled_alpha(color: QColor, frac: float) -> QColor:
@@ -41,8 +41,8 @@ class SuggestionAnimator:
     """Runs one accept/reject animation on a read view, then fires ``on_finish``.
 
     ``body_color`` / ``body_family`` are the typeset prose ink and font the
-    settling text converges to; ``del_color`` / ``add_color`` are the struck-red
-    and handwriting-blue the leaving text fades from.
+    settling text converges to; ``del_color`` / ``add_color`` are the removal's
+    body ink and the addition's zen red the leaving text fades from.
     """
 
     def __init__(self, view, *, body_color, body_family, del_color, add_color,

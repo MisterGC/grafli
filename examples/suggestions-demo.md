@@ -25,6 +25,12 @@ forecast.
 Our north-star metric is {~~daily active users~>weekly active users~~}; the
 {++newly proposed ++}guardrail metric is crash-free sessions.
 
+We should {~~ship on Friday~>ship on Monday~~} to avoid a {--risky --}weekend
+deploy, and {++notify on-call ++}before the rollout starts.
+
+The API returns {~~a list~>a paginated list~~} of results; the client must
+{++handle the cursor and ++}retry on {~~5xx~>429 and 5xx~~} responses.
+
 This sentence has a {==deliberate highlight==}{>>this is a comment, not a
 suggestion — Enter reveals it<<} so you can see comments and suggestions side by
 side.
@@ -34,6 +40,12 @@ side.
 {~~The onboarding flow is fine.~>We are replacing this whole sentence with a much
 longer rationale so you can see that a long rewrite drops the handwriting font for
 the body font on a faint blue wash, which stays readable in bulk.~~}
+
+### A few more to burn through
+
+- Rename {~~the util module~>the helpers module~~} for clarity.
+- Drop the {--now-unused --}legacy adapter.
+- Add {++a smoke test and ++}a changelog entry before tagging.
 
 ### Not a suggestion (inside code)
 

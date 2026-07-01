@@ -265,6 +265,13 @@ class ZenMarkdownEditor(QWidget):
         self._authoring_suggestion = False
         # Transient READ/WRITE flash shown when toggling the rendered view.
         self._mode_flash: QLabel | None = None
+        # `p` clean preview: render the fully-accepted prose (no markup) on/off.
+        self._preview = False
+        # `gc` changes overview: a transient jump-list overlay (index of the row
+        # highlighted, or -1 when the overlay is closed).
+        self._changes_overlay: QLabel | None = None
+        self._changes = []          # ordered [(start, end, kind, label)] rows
+        self._changes_sel = 0
         layout = QVBoxLayout(self)
         self._apply_card_margins(layout)
         layout.setSpacing(0)
@@ -574,6 +581,7 @@ class ZenMarkdownEditor(QWidget):
     def _toggle_rendered(self):
         """⌘R: switch between the source editor and a read-only rendered
         Markdown view — a quick read perspective <-> edit perspective."""
+        self._close_changes_overview()
         self._rendered_mode = not self._rendered_mode
         if self._rendered_mode:
             self._active_comment = -1
@@ -581,6 +589,7 @@ class ZenMarkdownEditor(QWidget):
             self._visual = False
             self._authoring_span = None
             self._authoring_suggestion = False
+            self._preview = False
             src = self._editor.toPlainText()
             src_caret = self._editor.textCursor().position()
             self._rendered.setFont(QFont(FONT_FAMILY, self._font_size))
@@ -597,6 +606,9 @@ class ZenMarkdownEditor(QWidget):
             self._rendered.setTextCursor(cur)
             self._rendered.ensureCursorVisible()
         else:
+            if self._preview:   # leave the clean preview before mapping the caret
+                self._preview = False
+                self._render_markdown(self._editor.toPlainText())
             # Keep the reader's place: map the rendered caret back to the source.
             rendered = self._rendered.document().toPlainText()
             r_caret = self._rendered.textCursor().position()
@@ -670,12 +682,173 @@ class ZenMarkdownEditor(QWidget):
     def _render_markdown(self, source: str):
         """Render ``source`` into the read view: comment spans are highlighted
         (bodies hidden, revealed on demand), and suggestion marks are styled as
-        track-changes — removed text struck in the body mono, added text written
-        in the handwriting note font. The raw CriticMarkup never shows."""
+        track-changes — removed text struck, added text in zen red. The raw
+        CriticMarkup never shows."""
         md, spans = md_comments.to_rendered(source)
         doc = self._rendered.document()
         doc.setMarkdown(md)
         self._apply_mark_formats(doc, spans)
+
+    # ── `p` clean preview: the fully-accepted prose, no markup ──
+
+    def _toggle_preview(self):
+        """Flip the read view between track-changes and a clean preview of the
+        prose with every suggestion accepted and comments unwrapped — a calm
+        proof-read of the result, without mutating the source."""
+        if not self._rendered_mode:
+            return
+        self._preview = not self._preview
+        sb = self._rendered.verticalScrollBar()
+        pos = sb.value()
+        src = self._editor.toPlainText()
+        if self._preview:
+            self._render_preview(src)
+        else:
+            self._render_markdown(src)
+        sb.setValue(pos)
+        self._flash_mode("PREVIEW" if self._preview else "READ")
+
+    def _render_preview(self, source: str):
+        """Render the accepted 'final' text — no marks, no strikes, no styling."""
+        doc = self._rendered.document()
+        doc.setMarkdown(md_comments.accepted(source))
+        self._rendered.set_strikes([])
+        self._rendered_comments = []
+        self._rendered_suggestions = []
+        self._active_comment = -1
+
+    # ── `gc` changes overview: a jump-list of every mark in the document ──
+
+    def _build_changes_list(self):
+        """Every mark in document order as ``(start, end, kind, label)`` rows for
+        the overview — comments and suggestions, keyed by rendered position."""
+        rows = []
+        for start, end, comment in self._rendered_comments:
+            rows.append((start, end, "comment", comment.span or comment.body or ""))
+        for s in self._rendered_suggestions:
+            m = s.mark
+            if m.kind == md_comments.MarkKind.SUBSTITUTE:
+                label = f"{m.removed} → {m.added}"
+            elif m.kind == md_comments.MarkKind.INSERT:
+                label = f"+ {m.added}"
+            elif m.kind == md_comments.MarkKind.DELETE:
+                label = f"− {m.removed}"
+            else:
+                label = m.span
+            rows.append((s.start, s.end, m.kind, label))
+        rows.sort(key=lambda r: r[0])
+        return rows
+
+    def _open_changes_overview(self):
+        """gc — show the overview overlay listing every change; j/k moves the
+        selection, Enter (or a digit) jumps to it, Esc closes. A no-op when the
+        document has no marks."""
+        rows = self._build_changes_list()
+        if not rows:
+            return
+        self._changes = rows
+        # Start the selection on the change nearest the caret, if any.
+        pos = self._rendered.textCursor().position()
+        self._changes_sel = next(
+            (i for i, (s, e, _k, _l) in enumerate(rows) if s <= pos <= e), 0)
+        if self._changes_overlay is None:
+            lbl = QLabel(self)
+            lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            lbl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            lbl.setTextFormat(Qt.TextFormat.RichText)
+            self._changes_overlay = lbl
+        self._render_changes_overlay()
+
+    def _render_changes_overlay(self):
+        """(Re)paint the overview overlay with the current selection highlighted."""
+        lbl = self._changes_overlay
+        if lbl is None:
+            return
+        marker = {"substitute": "±", "insert": "+",
+                  "delete": "−", "comment": "✎"}
+
+        def esc(t):
+            t = t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            return t if len(t) <= 42 else t[:41] + "…"
+
+        lines = []
+        for i, (_s, _e, kind, label) in enumerate(self._changes):
+            n = f"{i + 1}"
+            row = (f"<span style='color:{ZEN_MD_SUGGEST_ADD.name()}'>"
+                   f"{marker.get(kind, '?')}</span>&nbsp;{esc(label)}")
+            if i == self._changes_sel:
+                lines.append(
+                    f"<tr><td style='background:{ZEN_MD_COMMENT_HL.name()};"
+                    f"padding:2px 10px'>{n}&nbsp;&nbsp;{row}</td></tr>")
+            else:
+                lines.append(f"<tr><td style='padding:2px 10px'>{n}"
+                             f"&nbsp;&nbsp;{row}</td></tr>")
+        title = (f"<div style='padding:2px 10px;color:{ZEN_TEXT_COLOR.name()};"
+                 f"font-weight:bold'>Changes ({len(self._changes)})</div>")
+        html = (f"<div style='font-family:\"{FONT_FAMILY}\";"
+                f"font-size:{max(ZEN_MD_FONT_SIZE_MIN, self._font_size - 3)}pt;"
+                f"color:{ZEN_TEXT_COLOR.name()}'>{title}"
+                f"<table cellspacing='0'>{''.join(lines)}</table></div>")
+        lbl.setText(html)
+        lbl.setStyleSheet(
+            "QLabel {"
+            " background: #FBF7EC; border: 1px solid #C9A227;"
+            " border-radius: 8px; padding: 8px; }")
+        lbl.adjustSize()
+        vp = self._rendered
+        x = vp.x() + max(16, vp.width() - lbl.width() - 24)
+        y = vp.y() + 24
+        lbl.move(x, y)
+        lbl.show()
+        lbl.raise_()
+
+    def _handle_changes_overlay_key(self, event: QKeyEvent) -> bool:
+        """Keys while the overview is open: j/k (or arrows) move, Enter / digit
+        jumps, Esc / q / g closes."""
+        key = event.key()
+        n = len(self._changes)
+        if key in (Qt.Key.Key_J, Qt.Key.Key_Down):
+            self._changes_sel = min(n - 1, self._changes_sel + 1)
+            self._render_changes_overlay()
+            return True
+        if key in (Qt.Key.Key_K, Qt.Key.Key_Up):
+            self._changes_sel = max(0, self._changes_sel - 1)
+            self._render_changes_overlay()
+            return True
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._jump_to_change(self._changes_sel)
+            return True
+        if Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
+            idx = key - Qt.Key.Key_1
+            if idx < n:
+                self._jump_to_change(idx)
+            return True
+        if key in (Qt.Key.Key_Escape, Qt.Key.Key_Q, Qt.Key.Key_G):
+            self._close_changes_overview()
+            return True
+        return True   # swallow everything else while the overview is up
+
+    def _jump_to_change(self, idx: int):
+        """Select change ``idx``'s span in the read view, scroll it into view, and
+        close the overview — leaving the caret on it so a/x/Enter act on it."""
+        if not (0 <= idx < len(self._changes)):
+            self._close_changes_overview()
+            return
+        start, end, _kind, _label = self._changes[idx]
+        cur = self._rendered.textCursor()
+        cur.setPosition(start)
+        cur.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        self._rendered.setTextCursor(cur)
+        self._rendered.ensureCursorVisible()
+        self._close_changes_overview()
+
+    def _close_changes_overview(self):
+        """Hide the overview overlay (idempotent)."""
+        if getattr(self, "_changes_overlay", None) is not None:
+            self._changes_overlay.hide()
+            self._changes_overlay = None
+        if getattr(self, "_rendered", None) is not None:
+            self._rendered.setFocus()
 
     def _format_for_span(self, span, comment_idx: int,
                          suggest_idx: int) -> QTextCharFormat:
@@ -1094,6 +1267,15 @@ class ZenMarkdownEditor(QWidget):
         ctrl = bool(mods & _CTRL_MOD)
         MO = QTextCursor.MoveOperation
 
+        # While the changes overview is open it captures every key.
+        if self._changes_overlay is not None:
+            return self._handle_changes_overlay_key(event)
+
+        # p — toggle the clean preview (fully-accepted prose, no markup).
+        if key == Qt.Key.Key_P and not ctrl:
+            self._toggle_preview()
+            return True
+
         # ]c / [c — step to the next / previous comment (two-key, vim diff-style).
         if self._rendered_pending_bracket:
             pending = self._rendered_pending_bracket
@@ -1111,7 +1293,7 @@ class ZenMarkdownEditor(QWidget):
             self._rendered_pending_bracket = "["
             return True
 
-        # `gg` — two-key jump to top.
+        # `gg` — two-key jump to top; `gc` — open the changes overview.
         if key == Qt.Key.Key_G and not shift:
             if getattr(self, "_rendered_pending_g", False):
                 self._rendered_pending_g = False
@@ -1119,18 +1301,25 @@ class ZenMarkdownEditor(QWidget):
             else:
                 self._rendered_pending_g = True
             return True
+        if (key == Qt.Key.Key_C and getattr(self, "_rendered_pending_g", False)
+                and not ctrl and not shift):
+            self._rendered_pending_g = False
+            self._open_changes_overview()
+            return True
         self._rendered_pending_g = False
 
         # v — toggle visual (selection) mode. c — comment the selection.
         if key == Qt.Key.Key_V and not ctrl:
             self._set_visual(not self._visual)
             return True
-        if key == Qt.Key.Key_C and not ctrl and not shift:
+        # Authoring is disabled in the clean preview (the rendered text is the
+        # accepted prose — mapping a span back to the marked-up source is unsafe).
+        if key == Qt.Key.Key_C and not ctrl and not shift and not self._preview:
             self._comment_selection()
             return True
         # s — suggest an alternative for the selection (type it; empty = delete);
         # with no selection, propose an insertion at the caret.
-        if key == Qt.Key.Key_S and not ctrl and not shift:
+        if key == Qt.Key.Key_S and not ctrl and not shift and not self._preview:
             self._suggest_selection()
             return True
 

@@ -289,6 +289,76 @@ def test_authored_suggestion_is_reviewable_and_undoable():
     assert ed._editor.toPlainText() == "the quick fox\n"   # one undo step
 
 
+# ── clean preview (`p`) and changes overview (`gc`) — Phase 6 ──
+
+def test_preview_shows_accepted_prose_then_restores():
+    ed = _reading_editor("the {~~quick~>swift~~} {++brown ++}fox\n")
+    _key(ed, Qt.Key.Key_P)
+    txt = ed._rendered.document().toPlainText()
+    assert "swift" in txt and "brown" in txt and "quick" not in txt
+    assert ed._preview is True
+    assert ed._rendered_suggestions == [] and ed._rendered._strikes == []
+    _key(ed, Qt.Key.Key_P)                 # back to track-changes
+    assert ed._preview is False
+    assert len(ed._rendered_suggestions) == 2
+
+
+def test_preview_suppresses_authoring():
+    ed = _reading_editor("the quick fox\n")
+    _key(ed, Qt.Key.Key_P)                 # enter preview
+    _select(ed, "quick")
+    _key(ed, Qt.Key.Key_S)                 # s should do nothing in preview
+    assert ed._authoring_suggestion is False
+    assert ed._editor.toPlainText() == "the quick fox\n"
+
+
+def test_gc_opens_overview_listing_every_mark():
+    ed = _reading_editor(
+        "a {--very --}{~~quick~>swift~~} {++brown ++}fox {==x==}{>>c<<} y\n")
+    _key(ed, Qt.Key.Key_G)                 # pending g
+    _key(ed, Qt.Key.Key_C)                 # gc
+    assert ed._changes_overlay is not None
+    kinds = {k for (_s, _e, k, _l) in ed._changes}
+    assert kinds == {"delete", "substitute", "insert", "comment"}
+
+
+def test_gc_no_op_when_no_marks():
+    ed = _reading_editor("plain prose, nothing to review\n")
+    _key(ed, Qt.Key.Key_G)
+    _key(ed, Qt.Key.Key_C)
+    assert ed._changes_overlay is None
+
+
+def test_overview_jump_selects_range_and_closes():
+    ed = _reading_editor("a {--x --}b {++y ++}c\n")
+    _key(ed, Qt.Key.Key_G)
+    _key(ed, Qt.Key.Key_C)
+    assert len(ed._changes) == 2
+    _key(ed, Qt.Key.Key_J)                 # move selection to the 2nd
+    assert ed._changes_sel == 1
+    _key(ed, Qt.Key.Key_Return)            # jump
+    assert ed._changes_overlay is None
+    assert ed._rendered.textCursor().hasSelection()
+
+
+def test_overview_escape_closes():
+    ed = _reading_editor("a {--x --}b\n")
+    _key(ed, Qt.Key.Key_G)
+    _key(ed, Qt.Key.Key_C)
+    assert ed._changes_overlay is not None
+    _key(ed, Qt.Key.Key_Escape)
+    assert ed._changes_overlay is None
+
+
+def test_overview_digit_jumps_directly():
+    ed = _reading_editor("a {--x --}b {++y ++}c\n")
+    _key(ed, Qt.Key.Key_G)
+    _key(ed, Qt.Key.Key_C)
+    _key(ed, Qt.Key.Key_2)                 # jump straight to the 2nd change
+    assert ed._changes_overlay is None
+    assert ed._rendered.textCursor().hasSelection()
+
+
 def test_color_helpers():
     from PySide6.QtGui import QColor
 

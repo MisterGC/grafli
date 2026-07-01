@@ -23,6 +23,7 @@ def _reading_editor(text: str) -> ZenMarkdownEditor:
     parent.show()
     ed = ZenMarkdownEditor(parent, text, title="t")
     ed._parent = parent
+    ed._suggest_animate = False   # deterministic: apply instantly (no timer)
     ed._toggle_rendered()
     return ed
 
@@ -163,3 +164,52 @@ def test_accept_advances_caret_to_next_suggestion():
     _key(ed, Qt.Key.Key_A)                 # accept -> caret should land on next
     idx = ed._suggestion_at_position(ed._rendered.textCursor().position())
     assert idx == 0 and len(ed._rendered_suggestions) == 2
+
+
+def test_substitution_exposes_removed_and_added_subranges():
+    ed = _reading_editor("the {~~quick~>swift~~} fox\n")
+    (s,) = ed._rendered_suggestions
+    assert s.removed is not None and s.added is not None       # both, for the tween
+
+
+def test_insertion_has_added_only_deletion_removed_only():
+    ins = _reading_editor("the {++brown ++}fox\n")._rendered_suggestions[0]
+    assert ins.removed is None and ins.added is not None
+    dele = _reading_editor("the {--very --}fox\n")._rendered_suggestions[0]
+    assert dele.removed is not None and dele.added is None
+
+
+# ── animated accept/reject (Phase 5) ──
+
+def test_animated_accept_defers_edit_until_finish():
+    ed = _reading_editor(SRC)
+    ed._suggest_animate = True             # turn the animation back on
+    _caret_on(ed, "brown")
+    before = ed._editor.toPlainText()
+    _key(ed, Qt.Key.Key_A)                 # starts the animation
+    assert ed._suggest_animator.busy() is True
+    assert ed._editor.toPlainText() == before        # source not mutated yet
+    ed._suggest_animator.finish()          # complete it now
+    assert "{++brown ++}" not in ed._editor.toPlainText()   # edit landed
+    assert ed._suggest_animator.busy() is False
+
+
+def test_new_review_settles_previous_animation_first():
+    ed = _reading_editor(SRC)
+    ed._suggest_animate = True
+    _caret_on(ed, "brown")
+    _key(ed, Qt.Key.Key_A)                 # animation in flight (insertion)
+    _caret_on(ed, "very")
+    _key(ed, Qt.Key.Key_A)                 # should settle the first, then start next
+    # first edit (insertion) has been applied by the settle
+    assert "{++brown ++}" not in ed._editor.toPlainText()
+
+
+def test_color_helpers():
+    from PySide6.QtGui import QColor
+
+    from grafli.zen_md_suggest import _lerp, _scaled_alpha
+    faded = _scaled_alpha(QColor(255, 0, 0, 200), 0.0)
+    assert faded.alpha() == 0
+    mid = _lerp(QColor(0, 0, 0), QColor(10, 20, 40), 0.5)
+    assert (mid.red(), mid.green(), mid.blue()) == (5, 10, 20)

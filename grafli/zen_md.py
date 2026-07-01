@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import namedtuple
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -70,6 +71,7 @@ from grafli.constants import (
 )
 from grafli.zen_md_highlight import MarkdownHighlighter, compute_focus_range
 from grafli.zen_md_jump import WordJumpOverlay
+from grafli.zen_md_suggest import SuggestionAnimator
 from grafli.zen_md_vim import VimKeyHandler, VimMode
 
 # Custom char-format property tagging a rendered span with its comment index,
@@ -79,6 +81,15 @@ _COMMENT_IDX_PROP = QTextFormat.Property.UserProperty + 7
 # Same idea for a suggestion: both spans of a substitution carry the same index,
 # so its rendered range (struck-old through handwritten-new) recovers as one unit.
 _SUGGEST_IDX_PROP = QTextFormat.Property.UserProperty + 8
+# Role of a suggestion fragment (0 = removed/struck, 1 = added), so the animator
+# can fade the part that leaves and settle the part that stays.
+_SUGGEST_ROLE_PROP = QTextFormat.Property.UserProperty + 9
+_ROLE_REMOVED, _ROLE_ADDED = 0, 1
+
+# A rendered suggestion: its overall [start, end) range, the source ``Mark``, and
+# the rendered sub-ranges of its removed (struck) and added (handwritten) text —
+# either may be None (an insertion has no removed; a deletion no added).
+RSuggestion = namedtuple("RSuggestion", "start end mark removed added")
 
 
 class ZenMarkdownEditor(QWidget):
@@ -167,6 +178,8 @@ class ZenMarkdownEditor(QWidget):
         # one ]c / [c stepped onto; _comment_field is the inline reveal editor.
         self._rendered_comments: list = []
         self._rendered_suggestions: list = []
+        # Play the accept/reject animation (tests turn this off for determinism).
+        self._suggest_animate = True
         self._active_comment = -1
         self._comment_field: QPlainTextEdit | None = None
         self._rendered_pending_bracket = ""
@@ -218,6 +231,16 @@ class ZenMarkdownEditor(QWidget):
         self._rendered.setVisible(False)
         self._rendered.installEventFilter(self)
         layout.addWidget(self._rendered, stretch=1)
+
+        # Animates accept/reject on the read view (fade what leaves, settle what
+        # stays) before the source edit lands.
+        self._suggest_animator = SuggestionAnimator(
+            self._rendered,
+            body_color=ZEN_TEXT_COLOR,
+            body_family=FONT_FAMILY,
+            del_color=ZEN_MD_SUGGEST_DEL,
+            add_color=ZEN_MD_SUGGEST_ADD,
+        )
 
         # Markdown highlighter + paragraph focus (off by default; ⌘. toggles)
         self._highlighter = MarkdownHighlighter(self._editor.document())
@@ -590,9 +613,11 @@ class ZenMarkdownEditor(QWidget):
             return fmt
         fmt.setProperty(_SUGGEST_IDX_PROP, suggest_idx)
         if span.role == "removed":
+            fmt.setProperty(_SUGGEST_ROLE_PROP, _ROLE_REMOVED)
             fmt.setFontStrikeOut(True)
             fmt.setForeground(QBrush(ZEN_MD_SUGGEST_DEL))
         elif span.role == "added":
+            fmt.setProperty(_SUGGEST_ROLE_PROP, _ROLE_ADDED)
             added = span.mark.added
             if len(added) > ZEN_MD_SUGGEST_LONG or "\n" in added:
                 fmt.setBackground(QBrush(ZEN_MD_SUGGEST_ADD_WASH))
@@ -670,10 +695,13 @@ class ZenMarkdownEditor(QWidget):
             doc, sugg_marks)
 
     def _collect_rendered_suggestions(self, doc, marks):
-        """Recover each suggestion's [start, end) range from the fragments tagged
-        with its index — a substitution's struck-old and handwritten-new fragments
-        carry the same index, so they fold into one range."""
-        bounds: dict[int, tuple[int, int]] = {}
+        """Recover each suggestion as an :class:`RSuggestion` — its overall range
+        plus the separate removed/added sub-ranges — from the tagged fragments. A
+        substitution's struck-old and handwritten-new fragments share the same
+        index (folded into one unit) but carry distinct roles (kept apart so the
+        animator can fade one and settle the other)."""
+        overall: dict[int, tuple[int, int]] = {}
+        by_role: dict[tuple[int, int], tuple[int, int]] = {}
         block = doc.begin()
         while block.isValid():
             it = block.begin()
@@ -682,14 +710,21 @@ class ZenMarkdownEditor(QWidget):
                 cf = frag.charFormat()
                 if cf.hasProperty(_SUGGEST_IDX_PROP):
                     idx = cf.intProperty(_SUGGEST_IDX_PROP)
+                    role = cf.intProperty(_SUGGEST_ROLE_PROP)
                     a = frag.position()
                     b = a + frag.length()
-                    lo, hi = bounds.get(idx, (a, b))
-                    bounds[idx] = (min(lo, a), max(hi, b))
+                    lo, hi = overall.get(idx, (a, b))
+                    overall[idx] = (min(lo, a), max(hi, b))
+                    rlo, rhi = by_role.get((idx, role), (a, b))
+                    by_role[(idx, role)] = (min(rlo, a), max(rhi, b))
                 it += 1
             block = block.next()
-        return [(bounds[i][0], bounds[i][1], marks[i])
-                for i in sorted(bounds)]
+        return [
+            RSuggestion(overall[i][0], overall[i][1], marks[i],
+                        by_role.get((i, _ROLE_REMOVED)),
+                        by_role.get((i, _ROLE_ADDED)))
+            for i in sorted(overall)
+        ]
 
     def _collect_rendered_comments(self, doc, comments):
         """Walk the rendered document's fragments and, for each comment index
@@ -1367,8 +1402,8 @@ class ZenMarkdownEditor(QWidget):
 
     def _suggestion_at_position(self, pos: int) -> int:
         """Index of the rendered suggestion whose range contains ``pos``, else -1."""
-        for i, (start, end, _m) in enumerate(self._rendered_suggestions):
-            if start <= pos <= end:
+        for i, s in enumerate(self._rendered_suggestions):
+            if s.start <= pos <= s.end:
                 return i
         return -1
 
@@ -1384,20 +1419,25 @@ class ZenMarkdownEditor(QWidget):
         if here >= 0:
             idx = (here + direction) % n
         elif direction > 0:
-            idx = next((i for i, (s, _e, _m) in enumerate(sugg) if s > pos), 0)
+            idx = next((i for i, s in enumerate(sugg) if s.start > pos), 0)
         else:
-            idx = next((i for i in range(n - 1, -1, -1) if sugg[i][0] < pos), n - 1)
-        start, end, _m = sugg[idx]
+            idx = next((i for i in range(n - 1, -1, -1) if sugg[i].start < pos), n - 1)
+        s = sugg[idx]
         cur = self._rendered.textCursor()
-        cur.setPosition(start)
-        cur.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        cur.setPosition(s.start)
+        cur.setPosition(s.end, QTextCursor.MoveMode.KeepAnchor)
         self._rendered.setTextCursor(cur)
         self._rendered.ensureCursorVisible()
 
     def _review_suggestion(self, accept: bool, every: bool = False):
         """a / x (and ⇧A / ⇧X). Accept or reject the suggestion under the caret —
-        applying it to the source, re-rendering, and advancing onto the next one
-        so review is a rhythm. ⇧ variants resolve every suggestion at once."""
+        the accepted/rejected text is applied to the source, the view re-renders,
+        and the caret advances onto the next suggestion so review is a rhythm.
+        A single accept/reject plays the zen accept/reject animation first (fade
+        the text that leaves, settle the text that stays); ⇧ variants resolve
+        every suggestion at once, instantly."""
+        # Settle any in-flight animation so we compute against a stable document.
+        self._suggest_animator.finish()
         src = self._editor.toPlainText()
         if every:
             new_src = (md_comments.accept_all(src) if accept
@@ -1407,17 +1447,25 @@ class ZenMarkdownEditor(QWidget):
         idx = self._suggestion_at_position(self._rendered.textCursor().position())
         if idx < 0:
             return
-        _s, _e, mark = self._rendered_suggestions[idx]
-        new_src = (md_comments.accept(src, mark) if accept
-                   else md_comments.reject(src, mark))
+        s = self._rendered_suggestions[idx]
+        new_src = (md_comments.accept(src, s.mark) if accept
+                   else md_comments.reject(src, s.mark))
+
         # After re-render the resolved mark is gone, so the suggestion that was
         # next has slid into ``idx`` — park there to auto-advance.
-        self._apply_source_change_pos(
-            new_src,
-            lambda: (self._rendered_suggestions[min(idx, len(
-                self._rendered_suggestions) - 1)][0]
-                if self._rendered_suggestions else None),
-        )
+        def apply():
+            self._apply_source_change_pos(
+                new_src,
+                lambda: (self._rendered_suggestions[min(idx, len(
+                    self._rendered_suggestions) - 1)].start
+                    if self._rendered_suggestions else None),
+            )
+
+        if self._suggest_animate:
+            self._suggest_animator.run(
+                accept=accept, removed=s.removed, added=s.added, on_finish=apply)
+        else:
+            apply()
 
     def _change_font_size(self, delta: int):
         """Change font size. delta=0 resets to default."""

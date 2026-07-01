@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The Markdown editor owns its help (<kbd>F1</kbd>).** The zen / `textli` editor
+  now shows its own, up-to-date help — covering the reading view, comments, and
+  suggestions — with <kbd>F1</kbd>, whether it's hosted in grafli or (soon) run
+  standalone. grafli's canvas <kbd>F1</kbd> now covers only the diagram.
 - **Suggestions (track changes) in the reading view.** Beyond comments, the zen /
   `textli` reading view now speaks the full [CriticMarkup](http://criticmarkup.com/)
   vocabulary — `{++insert++}`, `{--delete--}`, `{~~old~>new~~}` — rendered as

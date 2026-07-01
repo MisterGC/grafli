@@ -37,9 +37,11 @@ from PySide6.QtGui import (
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QGraphicsOpacityEffect,
     QLabel,
     QPlainTextEdit,
+    QPushButton,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -167,6 +169,87 @@ class _ReadingView(QTextBrowser):
             block = block.next()
 
 
+def editor_help_html() -> str:
+    """The editor's own help (F1). Owned here so it's identical whether the editor
+    is hosted inside grafli or run standalone via ``textli`` — a self-contained
+    contribution the host never has to know the contents of."""
+    accent = ZEN_MD_SUGGEST_ADD.name()
+    ink = ZEN_TEXT_COLOR.name()
+    hdr = f"color:{accent};font-weight:bold;padding-top:14px;padding-bottom:2px"
+    keyc = "font-family:monospace;white-space:nowrap;padding:3px 14px 3px 0;vertical-align:top"
+    cell = "padding:3px 0;vertical-align:top"
+
+    def rows(pairs):
+        return "".join(
+            f"<tr><td style='{keyc}'>{k}</td><td style='{cell}'>{d}</td></tr>"
+            for k, d in pairs)
+
+    return f"""
+    <div style='color:{ink}'>
+    <p style='color:{accent};font-weight:bold;font-size:15px'>textli — the zen Markdown editor</p>
+    <p>A focused, iA&nbsp;Writer-style editor. It opens ready to type (vim NORMAL
+    mode); <b>⌘R</b> flips to a rendered <b>reading view</b> for proof-reading,
+    commenting, and suggesting changes. <b>F1</b> shows this help.</p>
+
+    <p style='{hdr}'>Views &amp; session</p>
+    <table>{rows([
+        ("⌘R", "Toggle the source editor ↔ rendered reading view"),
+        ("Esc", "Save &amp; close (⇧Esc cancels / discards pending changes)"),
+        ("⌘↵", "Toggle full-window width"),
+        ("⌘.", "Section focus — dim all but the current paragraph"),
+        ("⌘+ / ⌘- / ⌘0", "Font size bigger / smaller / reset (persists)"),
+        ("⌘⇧→ / ⌘⇧← / ⌘⇧↓", "Content column wider / narrower / reset (persists)"),
+        ("⌘J", "Word-jump overlay (Easymotion-style two-key jump)"),
+        ("⌘P", "Print"),
+        ("F1", "This help"),
+    ])}</table>
+
+    <p style='{hdr}'>Writing (vim — source editor)</p>
+    <table>{rows([
+        ("h j k l", "Move left / down / up / right"),
+        ("w / b / e", "Next word / previous word / word end"),
+        ("0 / $ · gg / G", "Line start / end · document start / end"),
+        ("i a · I A · o O", "Enter INSERT: before/after · line start/end · new line below/above"),
+        ("Esc", "Back to NORMAL mode"),
+        ("x · dd · dw", "Delete char · line · to next word"),
+    ])}</table>
+
+    <p style='{hdr}'>Reading view — navigate</p>
+    <table>{rows([
+        ("h j k l · w b e · 0 $", "Move a caret through the rendered text"),
+        ("gg / G", "Document start / end"),
+        ("⌃d / ⌃u · ⌃f / ⌃b / Space", "Half-page · full-page scroll"),
+        ("gh", "Headings overview — an outline jump-list (j/k, Enter/digit, Esc)"),
+    ])}</table>
+
+    <p style='{hdr}'>Reading view — comments</p>
+    <table>{rows([
+        ("v", "Visual mode — extend a selection with the motions above"),
+        ("c", "Comment the selection (or reveal/edit the comment under the caret)"),
+        ("]c / [c", "Step to the next / previous comment"),
+        ("Enter · ⇧D", "Reveal-edit · delete the active comment"),
+    ])}</table>
+
+    <p style='{hdr}'>Reading view — suggestions (track changes)</p>
+    <table>{rows([
+        ("s", "Suggest a change — replace the selection (empty = delete), or insert at the caret"),
+        ("]s / [s", "Step to the next / previous suggestion"),
+        ("a / x", "Accept / reject the suggestion under the caret (⇧ = all)"),
+        ("gc", "Changes overview — a jump-list of every change &amp; comment"),
+        ("p", "Clean preview — the prose with every suggestion accepted (source untouched)"),
+    ])}</table>
+
+    <p style='color:{ink}'>Comments and suggestions live inline in the Markdown as
+    <a href='http://criticmarkup.com/' style='color:{accent}'>CriticMarkup</a>
+    (<span style='font-family:monospace'>{{==…==}}{{&gt;&gt;…&lt;&lt;}}</span>,
+    <span style='font-family:monospace'>{{++…++}}</span>,
+    <span style='font-family:monospace'>{{--…--}}</span>,
+    <span style='font-family:monospace'>{{~~old~&gt;new~~}}</span>), so they travel
+    with the file and diff in git — no sidecar.</p>
+    </div>
+    """
+
+
 class ZenMarkdownEditor(QWidget):
     """Full-window zen editor for annotations and markdown files."""
 
@@ -275,6 +358,8 @@ class ZenMarkdownEditor(QWidget):
         self._overview_sel = 0
         self._overview_title = ""
         self._overview_scroll_top = False
+        # F1 help dialog (the editor owns its own help).
+        self._help_dialog: QDialog | None = None
         layout = QVBoxLayout(self)
         self._apply_card_margins(layout)
         layout.setSpacing(0)
@@ -571,6 +656,30 @@ class ZenMarkdownEditor(QWidget):
         if dialog.exec() == QPrintDialog.DialogCode.Accepted:
             self._editor.print_(printer)
         self._highlighter.set_focus_enabled(self._focus_enabled)
+
+    def _show_help(self):
+        """F1 — the editor's own help dialog (modeless, so it never blocks the
+        writing surface). Built from :func:`editor_help_html`, which the editor
+        owns so grafli and standalone ``textli`` show the exact same content."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("textli — help")
+        dlg.setModal(True)
+        dlg.resize(560, 720)
+        browser = QTextBrowser(dlg)
+        browser.setOpenExternalLinks(True)
+        browser.setFont(QFont(
+            FONT_FAMILY, max(ZEN_MD_FONT_SIZE_MIN, self._font_size - 4)))
+        browser.setStyleSheet(
+            f"QTextBrowser {{ background: {ZEN_MD_BG.name()};"
+            f" color: {ZEN_TEXT_COLOR.name()}; border: none; padding: 14px; }}")
+        browser.setHtml(editor_help_html())
+        btn = QPushButton("Close", dlg)
+        btn.clicked.connect(dlg.accept)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(browser, 1)
+        lay.addWidget(btn)
+        self._help_dialog = dlg
+        dlg.show()
 
     def _toggle_full_width(self):
         """⌘↵: expand the card to fill the window (and back to the column)."""
@@ -1223,6 +1332,13 @@ class ZenMarkdownEditor(QWidget):
         # Jump overlay consumes all keys while active
         if self._jump and self._jump.is_active():
             self._jump.keyPressEvent(event)
+            return True
+
+        # F1 — the editor's own help (works in either view). The editor owns and
+        # shows this, so it's the same whether hosted in grafli or run standalone
+        # via `textli`; grafli's canvas F1 covers only the diagram.
+        if event.key() == Qt.Key.Key_F1:
+            self._show_help()
             return True
 
         # Ctrl+R — toggle rendered read-only view <-> source editor

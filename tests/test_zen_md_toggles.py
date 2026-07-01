@@ -108,7 +108,8 @@ def test_mode_flash_on_toggle():
 
 def test_full_width_toggle_grows_the_card():
     ed = _editor()
-    column_w = ed._card_rect().width()
+    ed._change_width(0)                 # known baseline — content width persists
+    column_w = ed._card_rect().width()  # to real QSettings, so reset it first
     ed._toggle_full_width()
     full_w = ed._card_rect().width()
     assert full_w > column_w
@@ -209,3 +210,33 @@ def test_rendered_view_supports_vim_navigation():
     _press(ed, Qt.Key.Key_G)
     _press(ed, Qt.Key.Key_G)
     assert caret() == 0                                       # gg -> top
+
+
+# ── F1 help is owned by the editor (shown in grafli and standalone textli) ──
+
+def test_f1_opens_the_editor_help_dialog():
+    ed = _editor()
+    assert ed._help_dialog is None
+    assert _press(ed, Qt.Key.Key_F1)          # consumed
+    assert ed._help_dialog is not None        # its own dialog opened
+    ed._help_dialog.close()
+
+
+def test_f1_works_in_the_reading_view_too():
+    ed = _editor()
+    ed._toggle_rendered()
+    assert _press(ed, Qt.Key.Key_F1)
+    assert ed._help_dialog is not None
+    ed._help_dialog.close()
+
+
+def test_editor_help_covers_the_latest_features():
+    from grafli.zen_md import editor_help_html
+    html = editor_help_html()
+    # reading-view review surface must be documented
+    for token in ("Suggest a change", "Accept / reject", "Changes overview",
+                  "Headings overview", "Clean preview", "CriticMarkup"):
+        assert token in html
+    # and the keys themselves
+    for key in (">gc<", ">gh<", ">p<", ">s<", ">]s / [s<"):
+        assert key in html

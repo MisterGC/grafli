@@ -8371,17 +8371,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         )
         notes_browser.setHtml(self._notes_help_html())
         tabs.addTab(notes_browser, "Text Annotations")
-
-        # ── Tab 3: markdown editor ──
-        md_browser = QTextBrowser(tabs)
-        md_browser.setOpenLinks(False)
-        md_browser.setFont(font)
-        md_browser.setStyleSheet(
-            "QTextBrowser { background: #2A2A2A; color: #E0E0E0; border: none;"
-            " padding: 8px; }"
-        )
-        md_browser.setHtml(self._md_editor_help_html())
-        tabs.addTab(md_browser, "Markdown Editor")
+        # The Markdown editor (textli) owns its own help now — press F1 while the
+        # zen editor is open to see it. grafli's F1 covers only the diagram.
 
         btn = QPushButton("Close", dlg)
         btn.clicked.connect(dlg.accept)
@@ -8528,111 +8519,6 @@ return out  @parser.py:44</div>
         <p>Notes can use triple-quoted text in the file format when the text
         contains quotes or should stay readable across multiple lines. In the
         canvas this is still just an ordinary editable note.</p>
-        """
-
-    def _md_editor_help_html(self) -> str:
-        hdr = (
-            "color:#6A9FB5;font-weight:bold;"
-            "padding-top:10px;padding-bottom:4px"
-        )
-        kw = "color:#6A9FB5;font-weight:bold"
-        mono = "font-family:monospace"
-        cell = "padding:4px 8px;vertical-align:top"
-        key_cell = (
-            "padding:4px 8px;font-family:monospace;"
-            "white-space:nowrap;vertical-align:top"
-        )
-        return f"""
-        <p style='{hdr}'>MARKDOWN EDITOR (ZEN MODE)</p>
-        <p>Opens when you follow a link to a local <span style='{mono}'>.md</span>
-        file from a node URL, or when you edit an annotation. Pure text, no
-        chrome &mdash; the shortcuts below are the controls. The editor opens
-        ready to type (vim NORMAL mode); switch to a rendered reading view with
-        <b>Ctrl+R</b>.</p>
-
-        <p style='{kw}'>Session</p>
-        <table cellpadding='2' style='margin-left:8px'>
-          <tr><td style='{key_cell}'>Esc</td>
-              <td style='{cell}'>Save &amp; close
-                  (annotation mode emits the new text; file mode just
-                  closes &mdash; writes happen via autosave).</td></tr>
-          <tr><td style='{key_cell}'>Shift+Esc</td>
-              <td style='{cell}'>Cancel &mdash; discard pending changes
-                  in annotation mode.</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+R</td>
-              <td style='{cell}'>Toggle a read-only <b>rendered</b> Markdown
-                  view (formatted headings, bold, lists, links) and back to
-                  the editor. Scroll it with vim keys
-                  (j/k, Ctrl+d/u, Ctrl+f/b, gg/G).</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+Enter</td>
-              <td style='{cell}'>Toggle full-window width
-                  (focused column &harr; fills the window).</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+.</td>
-              <td style='{cell}'>Toggle section focus &mdash; dim everything
-                  but the current paragraph (off by default).</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+P</td>
-              <td style='{cell}'>Open the native print dialog.</td></tr>
-          <tr><td style='{key_cell}'>Ctrl++ / Ctrl+- / Ctrl+0</td>
-              <td style='{cell}'>Bigger / smaller / reset font size
-                  (persists across sessions).</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+Shift+&rarr; / &larr; / &darr;</td>
-              <td style='{cell}'>Wider / narrower / reset editor width
-                  (persists across sessions).</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+J</td>
-              <td style='{cell}'>Activate word-jump overlay
-                  (Easymotion-style two-key jump to any visible word).</td></tr>
-        </table>
-
-        <p style='{kw}'>Vim Motion (NORMAL mode)</p>
-        <table cellpadding='2' style='margin-left:8px'>
-          <tr><td style='{key_cell}'>h j k l</td>
-              <td style='{cell}'>Left / down / up / right.</td></tr>
-          <tr><td style='{key_cell}'>w / b / e</td>
-              <td style='{cell}'>Next word start / previous word /
-                  word end.</td></tr>
-          <tr><td style='{key_cell}'>0 / $</td>
-              <td style='{cell}'>Line start / line end.</td></tr>
-          <tr><td style='{key_cell}'>gg / G</td>
-              <td style='{cell}'>Document start / end.</td></tr>
-        </table>
-
-        <p style='{kw}'>Entering INSERT mode</p>
-        <table cellpadding='2' style='margin-left:8px'>
-          <tr><td style='{key_cell}'>i / a</td>
-              <td style='{cell}'>Insert before / after the cursor.</td></tr>
-          <tr><td style='{key_cell}'>I / A</td>
-              <td style='{cell}'>Insert at line start / line end.</td></tr>
-          <tr><td style='{key_cell}'>o / O</td>
-              <td style='{cell}'>Open new line below / above.</td></tr>
-          <tr><td style='{key_cell}'>Esc</td>
-              <td style='{cell}'>Back to NORMAL mode
-                  (cursor steps left, vim convention).</td></tr>
-        </table>
-
-        <p style='{kw}'>Edits (NORMAL mode)</p>
-        <table cellpadding='2' style='margin-left:8px'>
-          <tr><td style='{key_cell}'>x</td>
-              <td style='{cell}'>Delete character under cursor.</td></tr>
-          <tr><td style='{key_cell}'>dd</td>
-              <td style='{cell}'>Delete line.</td></tr>
-          <tr><td style='{key_cell}'>dw</td>
-              <td style='{cell}'>Delete to next word.</td></tr>
-        </table>
-
-        <p style='{kw}'>Display</p>
-        <p>iA Writer-inspired: the current paragraph stays at full opacity,
-        surrounding text is muted to keep focus on what you're writing.
-        Headings, lists, links, inline <span style='{mono}'>code</span>,
-        and code fences get light syntax highlighting; muted in read-only
-        mode (no focus paragraph) so the whole document reads as one piece.</p>
-
-        <p style='{kw}'>Layout</p>
-        <p>The editor opens as a centered modal card with a drop shadow.
-        The dim wash falls over grafli's chrome (toolbars, side panel,
-        minimap) but spares the graph canvas, so the diagram you're
-        annotating stays fully saturated behind the card. The card holds
-        just the text &mdash; no title, no hint bar, no badges. Card width
-        hugs the text column (max ≈700&nbsp;px).</p>
         """
 
     def _show_graph_stats_dialog(self):

@@ -96,6 +96,7 @@ reading view**. There you can comment on and suggest changes to the prose — se
 | <kbd>a</kbd> / <kbd>x</kbd> | Accept / reject the suggestion under the caret (<kbd>Shift</kbd> = all) |
 | <kbd>Enter</kbd> / <kbd>Shift</kbd>+<kbd>D</kbd> | Reveal-edit / delete the active comment |
 | <kbd>g</kbd><kbd>c</kbd> | Changes overview — a jump-list of every change & comment |
+| <kbd>g</kbd><kbd>h</kbd> | Headings overview — a jump-list outline of the document |
 | <kbd>p</kbd> | Clean preview — the prose with every suggestion accepted (source untouched) |
 
 ## Create

@@ -317,8 +317,8 @@ def test_gc_opens_overview_listing_every_mark():
         "a {--very --}{~~quick~>swift~~} {++brown ++}fox {==x==}{>>c<<} y\n")
     _key(ed, Qt.Key.Key_G)                 # pending g
     _key(ed, Qt.Key.Key_C)                 # gc
-    assert ed._changes_overlay is not None
-    kinds = {k for (_s, _e, k, _l) in ed._changes}
+    assert ed._overview_overlay is not None
+    kinds = {k for (_s, _e, k, _l) in ed._build_changes_list()}
     assert kinds == {"delete", "substitute", "insert", "comment"}
 
 
@@ -326,18 +326,18 @@ def test_gc_no_op_when_no_marks():
     ed = _reading_editor("plain prose, nothing to review\n")
     _key(ed, Qt.Key.Key_G)
     _key(ed, Qt.Key.Key_C)
-    assert ed._changes_overlay is None
+    assert ed._overview_overlay is None
 
 
 def test_overview_jump_selects_range_and_closes():
     ed = _reading_editor("a {--x --}b {++y ++}c\n")
     _key(ed, Qt.Key.Key_G)
     _key(ed, Qt.Key.Key_C)
-    assert len(ed._changes) == 2
+    assert len(ed._overview_rows) == 2
     _key(ed, Qt.Key.Key_J)                 # move selection to the 2nd
-    assert ed._changes_sel == 1
+    assert ed._overview_sel == 1
     _key(ed, Qt.Key.Key_Return)            # jump
-    assert ed._changes_overlay is None
+    assert ed._overview_overlay is None
     assert ed._rendered.textCursor().hasSelection()
 
 
@@ -345,9 +345,9 @@ def test_overview_escape_closes():
     ed = _reading_editor("a {--x --}b\n")
     _key(ed, Qt.Key.Key_G)
     _key(ed, Qt.Key.Key_C)
-    assert ed._changes_overlay is not None
+    assert ed._overview_overlay is not None
     _key(ed, Qt.Key.Key_Escape)
-    assert ed._changes_overlay is None
+    assert ed._overview_overlay is None
 
 
 def test_overview_digit_jumps_directly():
@@ -355,8 +355,36 @@ def test_overview_digit_jumps_directly():
     _key(ed, Qt.Key.Key_G)
     _key(ed, Qt.Key.Key_C)
     _key(ed, Qt.Key.Key_2)                 # jump straight to the 2nd change
-    assert ed._changes_overlay is None
+    assert ed._overview_overlay is None
     assert ed._rendered.textCursor().hasSelection()
+
+
+def test_gh_opens_headings_overview():
+    ed = _reading_editor("# First\n\nbody text\n\n## Second\n\nmore\n")
+    _key(ed, Qt.Key.Key_G)
+    _key(ed, Qt.Key.Key_H)                 # gh
+    assert ed._overview_overlay is not None
+    rows = ed._build_headings_list()
+    assert [level for (_s, _e, level, _t) in rows] == [1, 2]
+    assert [t for (_s, _e, _l, t) in rows] == ["First", "Second"]
+
+
+def test_gh_no_op_without_headings():
+    ed = _reading_editor("just a paragraph, no headings here\n")
+    _key(ed, Qt.Key.Key_G)
+    _key(ed, Qt.Key.Key_H)
+    assert ed._overview_overlay is None
+
+
+def test_gh_headings_refresh_after_accepting_a_change():
+    # Accepting the deletion above the 2nd heading shifts its rendered position;
+    # the list must be rebuilt (not cached) so `gh` stays correct next time.
+    ed = _reading_editor("# First\n\nbody {--extra words --}here\n\n## Second\n")
+    before = {t: s for (s, _e, _l, t) in ed._build_headings_list()}
+    _caret_on(ed, "extra")
+    _key(ed, Qt.Key.Key_A)                 # accept the deletion (removes the text)
+    after = {t: s for (s, _e, _l, t) in ed._build_headings_list()}
+    assert after["Second"] < before["Second"]   # heading moved up, list refreshed
 
 
 def test_color_helpers():

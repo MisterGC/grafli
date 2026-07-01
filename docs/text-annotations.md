@@ -256,7 +256,7 @@ leaves fades out, what stays settles into the prose.
 | <kbd>a</kbd> | **Accept** the suggestion under the caret (caret advances to the next) |
 | <kbd>x</kbd> | **Reject** it (caret advances) |
 | <kbd>Shift</kbd>+<kbd>A</kbd> / <kbd>Shift</kbd>+<kbd>X</kbd> | Accept / reject **all** |
-| <kbd>g</kbd><kbd>c</kbd> | **Overview** — a jump-list of every change & comment; <kbd>j</kbd>/<kbd>k</kbd> moves, <kbd>Enter</kbd> or a digit jumps, <kbd>Esc</kbd> closes |
+| <kbd>g</kbd><kbd>c</kbd> | **Overview** — a jump-list of every change & comment; <kbd>j</kbd>/<kbd>k</kbd> moves, <kbd>Enter</kbd> or a digit jumps, <kbd>Esc</kbd> closes (<kbd>g</kbd><kbd>h</kbd> is the same jump-list over the document's **headings**) |
 | <kbd>p</kbd> | **Preview** — toggle a clean read of the prose with every suggestion accepted (no markup); the source is untouched |
 
 ### Authoring

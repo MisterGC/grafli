@@ -46,14 +46,10 @@ from PySide6.QtWidgets import (
 from grafli import md_comments
 from grafli.constants import (
     FONT_FAMILY,
-    NOTE_FONT_FAMILY,
     ZEN_MD_BG,
     ZEN_MD_CANVAS_DIM_COLOR,
     ZEN_MD_COMMENT_HL,
     ZEN_MD_SUGGEST_ADD,
-    ZEN_MD_SUGGEST_ADD_WASH,
-    ZEN_MD_SUGGEST_DEL,
-    ZEN_MD_SUGGEST_LONG,
     ZEN_MD_CARD_H_RATIO,
     ZEN_MD_CARD_INNER_PAD_H,
     ZEN_MD_CARD_INNER_PAD_V,
@@ -240,7 +236,7 @@ class ZenMarkdownEditor(QWidget):
             self._rendered,
             body_color=ZEN_TEXT_COLOR,
             body_family=FONT_FAMILY,
-            del_color=ZEN_MD_SUGGEST_DEL,
+            del_color=ZEN_TEXT_COLOR,   # removals are body-ink now (just struck)
             add_color=ZEN_MD_SUGGEST_ADD,
         )
 
@@ -605,10 +601,10 @@ class ZenMarkdownEditor(QWidget):
     def _format_for_span(self, span, comment_idx: int,
                          suggest_idx: int) -> QTextCharFormat:
         """The char format for one rendered span by its role. Comments wear the
-        highlight (tagged with their comment index); a removed span is struck in
-        muted red; an added span is handwritten in zen blue, or — for a long
-        rewrite that would be a wall of handwriting — body text on a faint wash.
-        Suggestion spans are tagged with their suggestion index for review."""
+        highlight (tagged with their comment index); a removed span is simply
+        struck out (calm — no colour); an added span is body text in zen blue,
+        which stands out on its own and works equally for inline edits and block
+        rewrites. Suggestion spans are tagged with their suggestion index."""
         fmt = QTextCharFormat()
         if span.role == "comment":
             fmt.setBackground(QBrush(ZEN_MD_COMMENT_HL))
@@ -618,15 +614,9 @@ class ZenMarkdownEditor(QWidget):
         if span.role == "removed":
             fmt.setProperty(_SUGGEST_ROLE_PROP, _ROLE_REMOVED)
             fmt.setFontStrikeOut(True)
-            fmt.setForeground(QBrush(ZEN_MD_SUGGEST_DEL))
         elif span.role == "added":
             fmt.setProperty(_SUGGEST_ROLE_PROP, _ROLE_ADDED)
-            added = span.mark.added
-            if len(added) > ZEN_MD_SUGGEST_LONG or "\n" in added:
-                fmt.setBackground(QBrush(ZEN_MD_SUGGEST_ADD_WASH))
-            else:
-                fmt.setFontFamilies([NOTE_FONT_FAMILY])
-                fmt.setForeground(QBrush(ZEN_MD_SUGGEST_ADD))
+            fmt.setForeground(QBrush(ZEN_MD_SUGGEST_ADD))
         return fmt
 
     def _apply_mark_formats(self, doc, spans):

@@ -49,38 +49,41 @@ def test_no_raw_markup_in_rendered_text():
         assert marker not in txt
 
 
-def test_removed_text_is_struck_and_red():
+def test_removed_text_is_struck_and_uncoloured():
     ed = _reading_editor("the {--very --}quick fox\n")
     fmt = _fmt_of(ed, "very")
     assert fmt is not None
     assert fmt.fontStrikeOut() is True
-    assert fmt.foreground().color().name() == "#c53030"
+    # calm: no red — the removal keeps the body ink, only struck
+    assert fmt.foreground().color().name() != "#c53030"
 
 
-def test_added_text_is_handwritten_and_blue():
+def test_added_text_is_blue_body_font():
     ed = _reading_editor("the {++brown ++}fox\n")
     fmt = _fmt_of(ed, "brown")
     assert fmt is not None
     assert fmt.fontStrikeOut() is False
-    assert fmt.fontFamilies() == [NOTE_FONT_FAMILY]
+    assert fmt.fontFamilies() != [NOTE_FONT_FAMILY]   # body font, not handwriting
     assert fmt.foreground().color().name() == "#2b6cb0"
 
 
-def test_substitution_shows_struck_old_and_handwritten_new():
+def test_substitution_shows_struck_old_and_blue_new():
     ed = _reading_editor("the {~~quick~>swift~~} fox\n")
     old = _fmt_of(ed, "quick")
     new = _fmt_of(ed, "swift")
     assert old.fontStrikeOut() is True
-    assert new.fontFamilies() == [NOTE_FONT_FAMILY] and new.fontStrikeOut() is False
+    assert new.fontStrikeOut() is False
+    assert new.foreground().color().name() == "#2b6cb0"
 
 
-def test_long_rewrite_uses_wash_not_handwriting():
-    long = "x " * 60   # > ZEN_MD_SUGGEST_LONG chars
+def test_block_rewrite_is_blue_body_font_no_wash():
+    long = "x " * 60   # a long, block-sized addition
     ed = _reading_editor(f"intro {{++{long}++}}done\n")
     fmt = _fmt_of(ed, "x x x")
     assert fmt is not None
-    assert fmt.fontFamilies() != [NOTE_FONT_FAMILY]   # body font, not handwriting
-    assert fmt.background().color().alpha() > 0        # a faint wash is present
+    assert fmt.fontFamilies() != [NOTE_FONT_FAMILY]     # body font (no handwriting)
+    assert fmt.foreground().color().name() == "#2b6cb0"  # same blue as an inline add
+    assert fmt.background().style() == Qt.BrushStyle.NoBrush   # no wash — just blue
 
 
 def test_comments_still_highlight_alongside_suggestions():

@@ -202,14 +202,10 @@ ZEN_MD_CANVAS_DIM_COLOR = QColor(0, 0, 0, 165)  # canvas — strong step-back
 ZEN_MD_COMMENT_HL = QColor(199, 92, 78, 72)
 
 # Suggestion (track-changes) styling in the rendered read view. Removed text is
-# struck through in muted red (it stays in the body mono font); added text is
-# written in the handwriting note font in zen blue — so an edit reads as a
-# proposal pencilled over the typeset prose. A long rewrite drops the handwriting
-# (hard to read in bulk) for the body font over a faint blue wash instead.
-ZEN_MD_SUGGEST_DEL = QColor("#C53030")
+# simply struck through in the body ink — calm, no colour; added text stays in
+# the body font but in zen blue, which stands out on its own and reads the same
+# for an inline edit or a whole block rewrite.
 ZEN_MD_SUGGEST_ADD = QColor("#2B6CB0")
-ZEN_MD_SUGGEST_ADD_WASH = QColor(43, 108, 176, 40)
-ZEN_MD_SUGGEST_LONG = 80   # added-text length above which we use the wash, not hand
 
 # ── Side panel ───────────────────────────────────────────────────
 SIDE_PANEL_WIDTH = 180

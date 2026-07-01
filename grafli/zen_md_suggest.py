@@ -1,10 +1,10 @@
 """Animated accept/reject for the reading view's track-changes.
 
-The gesture reads as *typesetting the handwriting*: on accept, the struck-out
-removal fades away while the handwritten addition settles into typeset body text;
-on reject, the handwritten addition fades away while the struck-out original
-un-strikes back to body text. Fading the leaving text *before* the source is
-mutated hides the reflow (it collapses on already-invisible characters).
+The gesture reads as *settling a proposal into the prose*: on accept, the
+struck-out removal fades away while the blue addition settles into body ink; on
+reject, the blue addition fades away while the struck-out original un-strikes
+back to body text. Fading the leaving text *before* the source is mutated hides
+the reflow (it collapses on already-invisible characters).
 
 Pure animation over the rendered ``QTextDocument`` — it tweens character formats
 on the removed/added sub-ranges, then calls back to run the (undoable) source

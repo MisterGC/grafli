@@ -601,10 +601,11 @@ class ZenMarkdownEditor(QWidget):
     def _format_for_span(self, span, comment_idx: int,
                          suggest_idx: int) -> QTextCharFormat:
         """The char format for one rendered span by its role. Comments wear the
-        highlight (tagged with their comment index); a removed span is simply
-        struck out (calm — no colour); an added span is body text in zen blue,
-        which stands out on its own and works equally for inline edits and block
-        rewrites. Suggestion spans are tagged with their suggestion index."""
+        highlight (tagged with their comment index); a removed span is struck out
+        with a strong (bold-weight) line so it's unmistakable, keeping the body
+        ink; an added span is body text in a subtle zen red, which stands out on
+        its own and works equally for inline edits and block rewrites. Suggestion
+        spans are tagged with their suggestion index."""
         fmt = QTextCharFormat()
         if span.role == "comment":
             fmt.setBackground(QBrush(ZEN_MD_COMMENT_HL))
@@ -614,6 +615,7 @@ class ZenMarkdownEditor(QWidget):
         if span.role == "removed":
             fmt.setProperty(_SUGGEST_ROLE_PROP, _ROLE_REMOVED)
             fmt.setFontStrikeOut(True)
+            fmt.setFontWeight(QFont.Weight.Bold)   # thicker strike — strong, clear
         elif span.role == "added":
             fmt.setProperty(_SUGGEST_ROLE_PROP, _ROLE_ADDED)
             fmt.setForeground(QBrush(ZEN_MD_SUGGEST_ADD))

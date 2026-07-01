@@ -14,7 +14,7 @@ edit. Kept out of ``zen_md`` so that file stays a coordinator.
 from __future__ import annotations
 
 from PySide6.QtCore import QEasingCurve, QVariantAnimation
-from PySide6.QtGui import QBrush, QColor, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QBrush, QColor, QFont, QTextCharFormat, QTextCursor
 
 DURATION_MS = 200
 _FONT_SWAP_AT = 0.5   # midpoint: handwriting -> typeset / strike lifts
@@ -82,6 +82,7 @@ class SuggestionAnimator:
             fmt.setFontFamilies([self._body_family])
             if drop_strike:
                 fmt.setFontStrikeOut(False)
+                fmt.setFontWeight(QFont.Weight.Normal)   # un-bold the strong strike
         self._style(rng, fmt)
 
     def run(self, *, accept: bool, removed, added, on_finish):

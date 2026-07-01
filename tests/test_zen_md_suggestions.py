@@ -49,14 +49,17 @@ def test_no_raw_markup_in_rendered_text():
         assert marker not in txt
 
 
-def test_removed_text_is_struck_and_bold():
+def test_removed_text_has_painted_strike_not_char_strikeout():
     from PySide6.QtGui import QFont
     ed = _reading_editor("the {--very --}quick fox\n")
     fmt = _fmt_of(ed, "very")
     assert fmt is not None
-    assert fmt.fontStrikeOut() is True
-    assert fmt.fontWeight() == QFont.Weight.Bold        # strong strike
-    assert fmt.foreground().color().name() != "#a83e2e"  # body ink, not the add red
+    assert fmt.fontStrikeOut() is False                 # not the thin built-in line
+    assert fmt.fontWeight() != QFont.Weight.Bold        # regular weight — no bolding
+    # instead the view paints a strong strike over the removed range
+    txt = ed._rendered.document().toPlainText()
+    i = txt.index("very")
+    assert any(s <= i < e for (s, e, _a) in ed._rendered._strikes)
 
 
 def test_added_text_is_red_body_font():
@@ -68,13 +71,14 @@ def test_added_text_is_red_body_font():
     assert fmt.foreground().color().name() == "#a83e2e"
 
 
-def test_substitution_shows_struck_old_and_red_new():
+def test_substitution_paints_strike_over_old_and_reds_new():
     ed = _reading_editor("the {~~quick~>swift~~} fox\n")
-    old = _fmt_of(ed, "quick")
     new = _fmt_of(ed, "swift")
-    assert old.fontStrikeOut() is True
     assert new.fontStrikeOut() is False
     assert new.foreground().color().name() == "#a83e2e"
+    txt = ed._rendered.document().toPlainText()
+    i = txt.index("quick")
+    assert any(s <= i < e for (s, e, _a) in ed._rendered._strikes)   # old struck
 
 
 def test_block_rewrite_is_red_body_font_no_wash():

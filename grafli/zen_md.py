@@ -12,6 +12,7 @@ from PySide6.QtCore import (
     QEventLoop,
     QFileSystemWatcher,
     QPoint,
+    QPointF,
     QPropertyAnimation,
     QRect,
     QRectF,
@@ -27,6 +28,7 @@ from PySide6.QtGui import (
     QFontMetricsF,
     QKeyEvent,
     QPainter,
+    QPen,
     QTextBlockFormat,
     QTextCharFormat,
     QTextCursor,
@@ -83,9 +85,86 @@ _SUGGEST_ROLE_PROP = QTextFormat.Property.UserProperty + 9
 _ROLE_REMOVED, _ROLE_ADDED = 0, 1
 
 # A rendered suggestion: its overall [start, end) range, the source ``Mark``, and
-# the rendered sub-ranges of its removed (struck) and added (handwritten) text —
-# either may be None (an insertion has no removed; a deletion no added).
+# the rendered sub-ranges of its removed (struck) and added text — either may be
+# None (an insertion has no removed; a deletion no added).
 RSuggestion = namedtuple("RSuggestion", "start end mark removed added")
+
+
+class _ReadingView(QTextBrowser):
+    """The rendered read view. Paints a *thick* strike line over removed-text
+    ranges itself — Qt derives the built-in strikeout's thickness from the font
+    metrics (too thin, and it would only get heavier by bolding the glyphs), so a
+    strong, calm line is drawn on top of regular-weight text instead. Each strike
+    carries its own alpha so the accept/reject animation can fade it."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._strikes: list[list] = []          # [start, end, alpha]
+        self._strike_color = QColor(ZEN_TEXT_COLOR)
+
+    def set_strikes(self, ranges):
+        """Replace the strike set with ``ranges`` (each a rendered ``(start, end)``
+        removed sub-range), all fully opaque; repaint."""
+        self._strikes = [[s, e, 1.0] for (s, e) in ranges]
+        self.viewport().update()
+
+    def set_strike_alpha(self, rng, frac: float):
+        """Fade the strike over ``rng`` (a ``(start, end)`` tuple) to ``frac`` of
+        its ink — used by the animation as a removal leaves / un-strikes."""
+        for st in self._strikes:
+            if st[0] == rng[0] and st[1] == rng[1]:
+                st[2] = max(0.0, min(1.0, frac))
+        self.viewport().update()
+
+    def _strike_width(self) -> float:
+        """Line thickness scaled to the current font — strong but not heavy."""
+        return max(2.0, self.font().pointSizeF() * 0.16)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self._strikes:
+            return
+        doc = self.document()
+        layout = doc.documentLayout()
+        off = QPointF(-self.horizontalScrollBar().value(),
+                      -self.verticalScrollBar().value())
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        width = self._strike_width()
+        for start, end, alpha in self._strikes:
+            if alpha <= 0 or end <= start:
+                continue
+            color = QColor(self._strike_color)
+            color.setAlphaF(color.alphaF() * alpha)
+            pen = QPen(color)
+            pen.setWidthF(width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            self._paint_strike_range(painter, doc, layout, start, end, off)
+        painter.end()
+
+    def _paint_strike_range(self, painter, doc, layout, start, end, off):
+        """Draw the strike across ``[start, end)`` line by line (a range can wrap),
+        each segment a horizontal line through the text's vertical midline."""
+        block = doc.findBlock(start)
+        while block.isValid() and block.position() < end:
+            bl = block.layout()
+            bpos = block.position()
+            btop = layout.blockBoundingRect(block).top()
+            for i in range(bl.lineCount()):
+                line = bl.lineAt(i)
+                ls = bpos + line.textStart()
+                le = ls + line.textLength()
+                s, e = max(start, ls), min(end, le)
+                if s >= e:
+                    continue
+                x1 = line.cursorToX(s - bpos)[0]
+                x2 = line.cursorToX(e - bpos)[0]
+                rect = line.naturalTextRect()
+                y = btop + rect.top() + rect.height() * 0.58
+                painter.drawLine(QPointF(x1 + off.x(), y + off.y()),
+                                 QPointF(x2 + off.x(), y + off.y()))
+            block = block.next()
 
 
 class ZenMarkdownEditor(QWidget):
@@ -209,7 +288,7 @@ class ZenMarkdownEditor(QWidget):
         layout.addWidget(self._editor, stretch=1)
 
         # Read-only rendered Markdown view (⌘R toggles editor <-> this).
-        self._rendered = QTextBrowser()
+        self._rendered = _ReadingView()
         self._rendered.setOpenExternalLinks(True)
         self._rendered.setFont(QFont(FONT_FAMILY, self._font_size))
         self._rendered.setStyleSheet(
@@ -601,11 +680,11 @@ class ZenMarkdownEditor(QWidget):
     def _format_for_span(self, span, comment_idx: int,
                          suggest_idx: int) -> QTextCharFormat:
         """The char format for one rendered span by its role. Comments wear the
-        highlight (tagged with their comment index); a removed span is struck out
-        with a strong (bold-weight) line so it's unmistakable, keeping the body
-        ink; an added span is body text in a subtle zen red, which stands out on
-        its own and works equally for inline edits and block rewrites. Suggestion
-        spans are tagged with their suggestion index."""
+        highlight (tagged with their comment index); a removed span keeps the body
+        ink and regular weight — the strong strike line is painted over it by
+        :class:`_ReadingView`; an added span is body text in a subtle zen red,
+        which stands out on its own and works equally for inline edits and block
+        rewrites. Suggestion spans are tagged with their suggestion index."""
         fmt = QTextCharFormat()
         if span.role == "comment":
             fmt.setBackground(QBrush(ZEN_MD_COMMENT_HL))
@@ -613,9 +692,7 @@ class ZenMarkdownEditor(QWidget):
             return fmt
         fmt.setProperty(_SUGGEST_IDX_PROP, suggest_idx)
         if span.role == "removed":
-            fmt.setProperty(_SUGGEST_ROLE_PROP, _ROLE_REMOVED)
-            fmt.setFontStrikeOut(True)
-            fmt.setFontWeight(QFont.Weight.Bold)   # thicker strike — strong, clear
+            fmt.setProperty(_SUGGEST_ROLE_PROP, _ROLE_REMOVED)   # painted strike
         elif span.role == "added":
             fmt.setProperty(_SUGGEST_ROLE_PROP, _ROLE_ADDED)
             fmt.setForeground(QBrush(ZEN_MD_SUGGEST_ADD))
@@ -688,6 +765,8 @@ class ZenMarkdownEditor(QWidget):
         self._rendered_comments = self._collect_rendered_comments(doc, comments)
         self._rendered_suggestions = self._collect_rendered_suggestions(
             doc, sugg_marks)
+        self._rendered.set_strikes(
+            [s.removed for s in self._rendered_suggestions if s.removed])
 
     def _collect_rendered_suggestions(self, doc, marks):
         """Recover each suggestion as an :class:`RSuggestion` — its overall range

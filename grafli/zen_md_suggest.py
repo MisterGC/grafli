@@ -14,7 +14,7 @@ edit. Kept out of ``zen_md`` so that file stays a coordinator.
 from __future__ import annotations
 
 from PySide6.QtCore import QEasingCurve, QVariantAnimation
-from PySide6.QtGui import QBrush, QColor, QFont, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QBrush, QColor, QTextCharFormat, QTextCursor
 
 DURATION_MS = 200
 _FONT_SWAP_AT = 0.5   # midpoint: handwriting -> typeset / strike lifts
@@ -73,17 +73,19 @@ class SuggestionAnimator:
         fmt.setForeground(QBrush(_scaled_alpha(color, 1.0 - t)))
         self._style(rng, fmt)
 
-    def _settle(self, rng, from_color: QColor, t: float, drop_strike: bool):
+    def _settle(self, rng, from_color: QColor, t: float):
         """Converge a range that stays toward typeset body: ink blends to the body
-        colour, and at the midpoint the font becomes body / the strike lifts."""
+        colour, and at the midpoint the font becomes the body family."""
         fmt = QTextCharFormat()
         fmt.setForeground(QBrush(_lerp(from_color, self._body_color, t)))
         if t >= _FONT_SWAP_AT:
             fmt.setFontFamilies([self._body_family])
-            if drop_strike:
-                fmt.setFontStrikeOut(False)
-                fmt.setFontWeight(QFont.Weight.Normal)   # un-bold the strong strike
         self._style(rng, fmt)
+
+    def _fade_strike(self, rng, frac: float):
+        """Fade the painted strike over ``rng`` to ``frac`` of its ink."""
+        if rng is not None:
+            self._view.set_strike_alpha(rng, frac)
 
     def run(self, *, accept: bool, removed, added, on_finish):
         """Animate one accept/reject over the given rendered sub-ranges (either
@@ -93,11 +95,13 @@ class SuggestionAnimator:
 
         def tick(t: float):
             if accept:
-                self._leave(removed, self._del_color, t)                 # old goes
-                self._settle(added, self._add_color, t, drop_strike=False)  # new stays
+                self._leave(removed, self._del_color, t)          # old text goes
+                self._fade_strike(removed, 1.0 - t)               # its strike too
+                self._settle(added, self._add_color, t)           # new stays
             else:
-                self._leave(added, self._add_color, t)                   # new goes
-                self._settle(removed, self._del_color, t, drop_strike=True)  # old stays
+                self._leave(added, self._add_color, t)            # new goes
+                self._settle(removed, self._del_color, t)         # old stays...
+                self._fade_strike(removed, 1.0 - t)               # ...un-struck
 
         anim = QVariantAnimation(self._view)
         anim.setStartValue(0.0)

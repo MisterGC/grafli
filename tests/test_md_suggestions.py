@@ -171,6 +171,24 @@ def test_wrap_suggestion_deletion_on_empty_replacement():
     assert m.kind == K.DELETE and m.removed == "very "
 
 
+def test_overlaps_mark_detects_intersection():
+    src = "the {~~quick~>swift~~} fox and a {>>c<<} cat"
+    # the substitution runs [4, 21); a span landing inside it overlaps
+    inside = src.index("swift")
+    assert mc.overlaps_mark(src, inside, inside + 5) is True
+    # a clear span elsewhere does not
+    clear = src.index("fox")
+    assert mc.overlaps_mark(src, clear, clear + 3) is False
+
+
+def test_overlaps_mark_caret_only_inside_counts():
+    src = "the {--very--} fox"
+    a, b = src.index("{--"), src.index("--}") + 3
+    assert mc.overlaps_mark(src, a + 4, a + 4) is True     # caret strictly inside
+    assert mc.overlaps_mark(src, a, a) is False            # caret at the boundary
+    assert mc.overlaps_mark(src, b, b) is False            # caret past the end
+
+
 # ── to_rendered: visible text + role-tagged spans ──
 
 def test_to_rendered_drops_markup_and_tags_roles():

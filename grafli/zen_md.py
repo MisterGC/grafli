@@ -186,6 +186,8 @@ class ZenMarkdownEditor(QWidget):
         # Authoring: vim visual mode in the read view selects the span to comment.
         self._visual = False
         self._authoring_span: tuple | None = None
+        # True while the inline field is authoring a suggestion (vs a comment).
+        self._authoring_suggestion = False
         # Transient READ/WRITE flash shown when toggling the rendered view.
         self._mode_flash: QLabel | None = None
         layout = QVBoxLayout(self)
@@ -503,6 +505,7 @@ class ZenMarkdownEditor(QWidget):
             self._rendered_pending_bracket = ""
             self._visual = False
             self._authoring_span = None
+            self._authoring_suggestion = False
             src = self._editor.toPlainText()
             src_caret = self._editor.textCursor().position()
             self._rendered.setFont(QFont(FONT_FAMILY, self._font_size))
@@ -929,6 +932,7 @@ class ZenMarkdownEditor(QWidget):
         """Discard the open comment editor without writing changes (abandons a
         new comment; leaves an edited one untouched)."""
         self._authoring_span = None
+        self._authoring_suggestion = False
         self._hide_comment_field()
 
     # ── Key handling ──
@@ -1007,9 +1011,12 @@ class ZenMarkdownEditor(QWidget):
     def _handle_rendered_key(self, event: QKeyEvent) -> bool:
         """Vim-style read view. Motions move a caret (h/l/j/k, w/b/e, 0/$, gg/G,
         Ctrl-d/u half-page, Ctrl-f/b/Space page). `v` enters visual mode so the
-        same motions extend a selection; `c` comments the selection. `]c`/`[c`
-        step between comments, Enter reveals/edits one, ⇧D deletes. Esc leaves
-        visual mode, or — when not selecting — saves & closes (⇧Esc cancels)."""
+        same motions extend a selection; `c` comments the selection, `s` suggests
+        an alternative for it (empty = delete; no selection = insert at the caret).
+        `]c`/`[c` step between comments, `]s`/`[s` between suggestions; on a
+        suggestion `a`/`x` accept/reject it (⇧ = all). Enter reveals/edits a
+        comment, ⇧D deletes it. Esc leaves visual mode, or — when not selecting —
+        saves & closes (⇧Esc cancels)."""
         key = event.key()
         mods = event.modifiers()
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
@@ -1049,6 +1056,11 @@ class ZenMarkdownEditor(QWidget):
             return True
         if key == Qt.Key.Key_C and not ctrl and not shift:
             self._comment_selection()
+            return True
+        # s — suggest an alternative for the selection (type it; empty = delete);
+        # with no selection, propose an insertion at the caret.
+        if key == Qt.Key.Key_S and not ctrl and not shift:
+            self._suggest_selection()
             return True
 
         # a / x — accept / reject the suggestion under the caret (⇧ = all).
@@ -1249,9 +1261,13 @@ class ZenMarkdownEditor(QWidget):
         a new comment / deletes an edited one. Then re-render, back to reading."""
         if self._comment_field is None:
             return
-        body = self._comment_field.toPlainText().strip()
+        raw = self._comment_field.toPlainText()
+        body = raw.strip()
         if self._authoring_span is not None:
-            self._commit_new_comment(body)
+            if self._authoring_suggestion:
+                self._commit_new_suggestion(raw)   # keep spaces — they're content
+            else:
+                self._commit_new_comment(body)
             return
         if self._active_comment < 0:
             return
@@ -1325,6 +1341,81 @@ class ZenMarkdownEditor(QWidget):
         for i, (_s, _e, comment) in enumerate(self._rendered_comments):
             if comment.full_start == full_start:
                 return i
+        return None
+
+    # ── Authoring: suggest an alternative for the selection ──
+
+    def _suggest_selection(self):
+        """s — propose a change. With a visual selection, open the inline field to
+        type its replacement (an empty field commits a deletion); with no
+        selection, propose an insertion at the caret."""
+        cur = self._rendered.textCursor()
+        if cur.hasSelection():
+            if not cur.selectedText().strip():
+                self._set_visual(False)     # whitespace-only — ignore
+                return
+            r0, r1 = cur.selectionStart(), cur.selectionEnd()
+            self._set_visual(False)
+            self._begin_suggestion_for_span(r0, r1)
+            return
+        pos = cur.position()
+        self._begin_suggestion_for_span(pos, pos)   # insertion at the caret
+
+    def _begin_suggestion_for_span(self, r0: int, r1: int):
+        """Map the rendered span back to source and open an empty field for the
+        replacement text. A zero-width span authors an insertion; a real span a
+        substitution (or a deletion if the field is left empty). Unmappable spans,
+        spans crossing existing markup, or spans overlapping another mark are quiet
+        no-ops — they never yank you out of the reading view."""
+        rendered = self._rendered.document().toPlainText()
+        src = self._editor.toPlainText()
+        if r0 == r1:
+            s0 = s1 = md_comments.map_position(rendered, src, r0)
+        else:
+            mapped = md_comments.map_rendered_span(rendered, src, r0, r1)
+            if mapped is None:
+                return
+            s0, s1 = md_comments.snap_out_of_code(src, *mapped)
+            if md_comments.contains_markup(src[s0:s1]):
+                return
+        if md_comments.overlaps_mark(src, s0, s1):
+            return
+        self._authoring_span = (s0, s1, rendered[r0:r1])
+        self._authoring_suggestion = True
+        cur = self._rendered.textCursor()
+        cur.setPosition(r0)
+        cur.setPosition(r1, QTextCursor.MoveMode.KeepAnchor)
+        self._rendered.setTextCursor(cur)        # show what will be changed
+        self._show_comment_field(r1, "")
+
+    def _commit_new_suggestion(self, body: str):
+        """Wrap the authored span as a CriticMarkup suggestion and re-render,
+        staying in the reading view with the new suggestion under the caret. The
+        gesture branches on the span and the (unstripped) body: a caret authors an
+        insertion (empty body abandons it, surrounding spaces are kept); a real
+        selection substitutes — or, when the body is blank, deletes it."""
+        s0, s1, _sel = self._authoring_span
+        self._authoring_span = None
+        self._authoring_suggestion = False
+        self._hide_comment_field()
+        if s0 == s1:
+            if not body.strip():
+                return                           # insert-nothing — abandoned
+            replacement = body                   # keep leading/trailing spaces
+        else:
+            replacement = "" if not body.strip() else body   # blank → deletion
+        new_src = md_comments.wrap_suggestion(
+            self._editor.toPlainText(), s0, s1, replacement)
+        self._apply_source_change_pos(
+            new_src, lambda: self._rendered_suggestion_pos_for_source(s0)
+        )
+
+    def _rendered_suggestion_pos_for_source(self, full_start: int):
+        """Rendered start position of the suggestion whose source mark begins at
+        ``full_start`` — i.e. the one just wrapped there."""
+        for s in self._rendered_suggestions:
+            if s.mark.full_start == full_start:
+                return s.start
         return None
 
     def _delete_active_comment(self):

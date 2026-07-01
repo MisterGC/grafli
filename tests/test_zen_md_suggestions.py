@@ -20,7 +20,6 @@ def _reading_editor(text: str) -> ZenMarkdownEditor:
     QApplication.instance() or QApplication([])
     parent = QWidget()
     parent.resize(900, 600)
-    parent.show()
     ed = ZenMarkdownEditor(parent, text, title="t")
     ed._parent = parent
     ed._suggest_animate = False   # deterministic: apply instantly (no timer)
@@ -203,6 +202,83 @@ def test_new_review_settles_previous_animation_first():
     _key(ed, Qt.Key.Key_A)                 # should settle the first, then start next
     # first edit (insertion) has been applied by the settle
     assert "{++brown ++}" not in ed._editor.toPlainText()
+
+
+# ── authoring: mark text and suggest an alternative (Phase 4) ──
+
+def _select(ed, word):
+    """Select the first occurrence of ``word`` in the read view."""
+    txt = ed._rendered.document().toPlainText()
+    i = txt.index(word)
+    cur = ed._rendered.textCursor()
+    cur.setPosition(i)
+    cur.setPosition(i + len(word), cur.MoveMode.KeepAnchor)
+    ed._rendered.setTextCursor(cur)
+
+
+def _commit_field(ed, text):
+    ed._comment_field.setPlainText(text)
+    ed._commit_comment_field()
+
+
+def test_author_substitution_wraps_the_selection():
+    ed = _reading_editor("the quick fox\n")
+    _select(ed, "quick")
+    _key(ed, Qt.Key.Key_S)                 # s -> open the field
+    assert ed._authoring_suggestion is True
+    _commit_field(ed, "swift")
+    assert ed._editor.toPlainText() == "the {~~quick~>swift~~} fox\n"
+
+
+def test_author_deletion_on_empty_body():
+    ed = _reading_editor("the very quick fox\n")
+    _select(ed, "very")
+    _key(ed, Qt.Key.Key_S)
+    _commit_field(ed, "")                   # empty body on a selection = delete
+    assert ed._editor.toPlainText() == "the {--very--} quick fox\n"
+
+
+def test_author_insertion_at_caret():
+    ed = _reading_editor("the fox\n")
+    _caret_on(ed, "fox")
+    _key(ed, Qt.Key.Key_S)                  # no selection -> insertion
+    _commit_field(ed, "quick ")
+    assert "{++quick ++}" in ed._editor.toPlainText()
+
+
+def test_author_insertion_empty_is_abandoned():
+    ed = _reading_editor("the fox\n")
+    _caret_on(ed, "fox")
+    _key(ed, Qt.Key.Key_S)
+    _commit_field(ed, "")                   # inserting nothing -> no change
+    assert ed._editor.toPlainText() == "the fox\n"
+
+
+def test_author_cancel_leaves_source_untouched():
+    ed = _reading_editor("the quick fox\n")
+    _select(ed, "quick")
+    _key(ed, Qt.Key.Key_S)
+    ed._cancel_comment_field()              # Esc
+    assert ed._editor.toPlainText() == "the quick fox\n"
+    assert ed._authoring_suggestion is False
+
+
+def test_author_refuses_overlap_with_existing_mark():
+    ed = _reading_editor("the {~~quick~>swift~~} fox\n")
+    _select(ed, "swift")                    # the added side of a substitution
+    _key(ed, Qt.Key.Key_S)
+    assert ed._authoring_suggestion is False   # refused — field never opened
+    assert ed._editor.toPlainText() == "the {~~quick~>swift~~} fox\n"
+
+
+def test_authored_suggestion_is_reviewable_and_undoable():
+    ed = _reading_editor("the quick fox\n")
+    _select(ed, "quick")
+    _key(ed, Qt.Key.Key_S)
+    _commit_field(ed, "swift")
+    assert len(ed._rendered_suggestions) == 1   # it renders as a track-change
+    ed._editor.undo()
+    assert ed._editor.toPlainText() == "the quick fox\n"   # one undo step
 
 
 def test_color_helpers():

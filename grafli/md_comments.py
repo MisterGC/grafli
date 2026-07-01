@@ -177,6 +177,20 @@ def contains_markup(text: str) -> bool:
     return bool(_RE_ANY_MARKER.search(text))
 
 
+def overlaps_mark(source: str, s0: int, s1: int) -> bool:
+    """True if ``[s0, s1)`` intersects any existing mark (comment or suggestion),
+    so wrapping it as a new suggestion would nest / corrupt markup. A zero-width
+    caret (``s0 == s1``, an insertion) counts as overlapping only when it falls
+    strictly inside a mark; touching a boundary is fine."""
+    for mk in parse_marks(source):
+        if s0 == s1:
+            if mk.full_start < s0 < mk.full_end:
+                return True
+        elif not (s1 <= mk.full_start or s0 >= mk.full_end):
+            return True
+    return False
+
+
 def snap_out_of_code(source: str, s0: int, s1: int) -> tuple[int, int]:
     """Expand a span so neither boundary falls *inside* a code region (inline
     `` `code` `` or a fenced block). A wrapped comment's ``{==`` / ``==}`` markers

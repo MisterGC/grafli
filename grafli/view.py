@@ -74,7 +74,6 @@ from grafli.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_po
 from grafli.buffers import ViewState
 from grafli.commands import CommandsMixin
 from grafli.complexity import ComplexityMixin
-from grafli.editor import InlineVimEditor
 from grafli.constants import (
     ANNOTATION_ARROW_COLOR,
     ANNOTATION_ARROW_WIDTH,
@@ -119,7 +118,7 @@ from grafli.lod import CHILD_COLLAPSE_PX, LodModel, should_collapse, should_coll
 from grafli.md_note import note_is_md, toggle_task
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
-from grafli.zen_md import ZenMarkdownEditor
+from textli import InlineVimEditor, ZenMarkdownEditor
 
 
 _JUMP_KEYS = "asdfjklghqweruioptyzxcvbnm"

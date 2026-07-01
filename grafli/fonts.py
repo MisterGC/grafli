@@ -1,9 +1,4 @@
-"""Bundled-font registration, shared by the grafli app and the textli editor.
-
-Lives apart from app.py so the standalone editor (textli) can register the
-same fonts without importing the diagram app — keeping the editor extractable
-into its own package later.
-"""
+"""Bundled-font registration for the grafli app."""
 
 from __future__ import annotations
 

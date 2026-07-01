@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The Markdown editor is now [textli](https://github.com/MisterGC/textli), its
+  own package.** The editor that grew inside grafli (zen writing surface, reading
+  view, comments, suggestions) moved to a separate repository and is consumed as
+  the [`textli-editor`](https://pypi.org/project/textli-editor/) dependency —
+  same editor, same keys, now also installable standalone. The bundled copy and
+  grafli's own `textli` console script are gone; the `textli` command now comes
+  with the package.
+
 ### Added
 - **The Markdown editor owns its help (<kbd>F1</kbd>).** The zen / `textli` editor
   now shows its own, up-to-date help — covering the reading view, comments, and

@@ -9,7 +9,7 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
-dependencies = ["PySide6>=6.7", "python-pptx>=1.0"]
+dependencies = ["PySide6>=6.7", "python-pptx>=1.0", "textli-editor>=0.1"]
 keywords = ["diagram", "whiteboard", "vim", "architecture", "plain-text"]
 authors = [
     { name = "Serein Pfeiffer", email = "s.pfeiffer@klebert-engineering.de" },
@@ -38,7 +38,6 @@ docs = [
 
 [project.scripts]
 grafli = "grafli.app:main"
-textli = "grafli.textli:main"
 
 [project.urls]
 Documentation = "https://grafli.mistergc.dev"

@@ -8575,6 +8575,9 @@ return out  @parser.py:44</div>
           <tr><td style='{key_cell}'>Ctrl++ / Ctrl+- / Ctrl+0</td>
               <td style='{cell}'>Bigger / smaller / reset font size
                   (persists across sessions).</td></tr>
+          <tr><td style='{key_cell}'>Ctrl+Shift+&rarr; / &larr; / &darr;</td>
+              <td style='{cell}'>Wider / narrower / reset editor width
+                  (persists across sessions).</td></tr>
           <tr><td style='{key_cell}'>Ctrl+J</td>
               <td style='{cell}'>Activate word-jump overlay
                   (Easymotion-style two-key jump to any visible word).</td></tr>

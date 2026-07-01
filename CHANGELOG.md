@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Adjustable editor width.** The textli / zen markdown editor's content column
+  can now be widened or narrowed from the keyboard — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd>
+  wider, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd> narrower,
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↓</kbd> reset — alongside the existing
+  font-size zoom (<kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>-</kbd>/<kbd>0</kbd>). The
+  preference persists across sessions.
+
 ## [0.4.0] - 2026-06-28
 
 ### Added

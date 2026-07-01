@@ -11,6 +11,7 @@ from PySide6.QtCore import QEvent, Qt  # noqa: E402
 from PySide6.QtGui import QKeyEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
+from grafli.constants import _CTRL_MOD  # noqa: E402
 from grafli.zen_md import ZenMarkdownEditor  # noqa: E402
 
 MD = "# Heading\n\nSome **bold** text and a list:\n\n- one\n- two\n"
@@ -114,6 +115,56 @@ def test_full_width_toggle_grows_the_card():
     assert full_w >= ed.width() - 81   # ~fills the window
     ed._toggle_full_width()
     assert ed._card_rect().width() == column_w
+
+
+def test_width_steps_widen_and_narrow_the_column():
+    ed = _editor()
+    ed._change_width(0)                  # known baseline (default width)
+    base = ed._card_rect().width()
+    ed._change_width(+1)
+    assert ed._card_rect().width() > base
+    ed._change_width(-1)
+    assert ed._card_rect().width() == base
+
+
+def test_width_step_reset_returns_to_default():
+    from grafli.constants import ZEN_MD_MAX_WIDTH
+    ed = _editor()
+    ed._change_width(+1)
+    ed._change_width(+1)
+    assert ed._content_width > ZEN_MD_MAX_WIDTH
+    ed._change_width(0)
+    assert ed._content_width == ZEN_MD_MAX_WIDTH
+
+
+def test_width_narrow_clamps_at_minimum():
+    from grafli.constants import ZEN_MD_MAX_WIDTH_MIN
+    ed = _editor()
+    for _ in range(50):
+        ed._change_width(-1)
+    assert ed._content_width == ZEN_MD_MAX_WIDTH_MIN
+
+
+def test_width_step_exits_full_width_mode():
+    ed = _editor()
+    ed._toggle_full_width()
+    assert ed._full_width is True
+    ed._change_width(+1)
+    assert ed._full_width is False
+
+
+def test_ctrl_shift_arrows_drive_width():
+    from grafli.constants import ZEN_MD_MAX_WIDTH
+    shift_ctrl = _CTRL_MOD | Qt.KeyboardModifier.ShiftModifier
+    ed = _editor()
+    ed._change_width(0)                  # known baseline (default width)
+    assert _press(ed, Qt.Key.Key_Right, shift_ctrl)
+    assert ed._content_width > ZEN_MD_MAX_WIDTH
+    assert _press(ed, Qt.Key.Key_Left, shift_ctrl)
+    assert ed._content_width == ZEN_MD_MAX_WIDTH
+    ed._change_width(+1)
+    assert _press(ed, Qt.Key.Key_Down, shift_ctrl)   # reset
+    assert ed._content_width == ZEN_MD_MAX_WIDTH
 
 
 def test_opens_editable_with_focus_dim_off():

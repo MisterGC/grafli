@@ -435,8 +435,23 @@ def emphasis_tokens(emphasis: str) -> str:
 
 # ── Regex patterns ──────────────────────────────────────────────
 
+# Quoted text slots accept `\"` as an escaped quote (and `\n` stays the
+# newline escape) — see unescape_quoted / escape_quoted below.
+_QT = r'((?:[^"\\]|\\.)*)'
+
+
+def unescape_quoted(s: str) -> str:
+    """Decode the quoted-text escapes: `\\"` -> `"`, `\\n` -> newline."""
+    return s.replace('\\"', '"').replace("\\n", "\n")
+
+
+def escape_quoted(s: str) -> str:
+    """Encode text for a quoted slot: `"` -> `\\"`, newline -> `\\n`."""
+    return s.replace('"', '\\"').replace("\n", "\\n")
+
+
 _RE_BOX = re.compile(
-    r'^@\s+box\s+(\S+)\s+"([^"]*)"\s+'
+    r'^@\s+box\s+(\S+)\s+"' + _QT + r'"\s+'
     r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
@@ -451,7 +466,7 @@ _RE_BOX = re.compile(
 
 _RE_ARROW = re.compile(
     r'^@\s+arrow\s+(\S+)\s+(<->|->|<-|--)\s+(\S+)'
-    r'(?:\s+"([^"]*)")?'
+    r'(?:\s+"' + _QT + r'")?'
     r'(?:\s+@(-?[\d.]+),(-?[\d.]+))?'
     r'(?:\s+!(dashed|dotted|thick))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl))?'
@@ -463,7 +478,7 @@ _RE_ARROW = re.compile(
 
 _RE_NOTE = re.compile(
     r'^@\s+note\s+(?:([a-zA-Z_]\S*)\s+)?(-?[\d.]+),\s*(-?[\d.]+)'
-    r'(?:\s+"([^"]*)")?'    # text slot — absent on doc-bodied notes
+    r'(?:\s+"' + _QT + r'")?'    # text slot — absent on doc-bodied notes
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'(?:\s+~width=(\d+))?'
@@ -503,21 +518,21 @@ _RE_IMAGE = re.compile(
 )
 
 _RE_BOOKMARK = re.compile(
-    r'^@\s+bookmark\s+(\S+)\s+"([^"]*)"'
+    r'^@\s+bookmark\s+(\S+)\s+"' + _QT + r'"'
     r'(?:\s+@(\S+))?'                  # focus: comma-separated item ids
     r'(?:\s+~pad=(\d+))?'
     r'(?:\s+~view=(-?\d+),(-?\d+),(\d+),(\d+))?'   # exact scene rect fallback
     r'(\s+~iso)?'                      # focus items are a narrowed selection
-    r'(?:\s+"([^"]*)")?'               # optional description
+    r'(?:\s+"' + _QT + r'")?'          # optional description
     r'\s*$'
 )
 
 _RE_FLOW = re.compile(
-    r'^@\s+flow\s+(\S+)\s+"([^"]*)"\s*(.*)$'
+    r'^@\s+flow\s+(\S+)\s+"' + _QT + r'"\s*(.*)$'
 )
 
 _RE_FOOTER = re.compile(
-    r'^@\s+footer\s+"([^"]*)"\s*$'      # board-global markdown branding footer
+    r'^@\s+footer\s+"' + _QT + r'"\s*$'  # board-global markdown branding footer
 )
 
 _RE_TITLE_BG = re.compile(
@@ -540,7 +555,9 @@ def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str]:
     if '"' in rest:
         head, _, tail = rest.partition('"')
         rest = head.strip()
-        description = tail.split('"', 1)[0]
+        # The description runs to the first *unescaped* quote.
+        dm = re.match(r'(?:[^"\\]|\\.)*', tail)
+        description = tail[:dm.end()]
     steps: list[FlowStep] = []
     auto_start = ""
     for token in rest.split():
@@ -592,7 +609,7 @@ def parse(text: str) -> Board:
             kind, url = split_attach(m.group(12) or "") if m.group(12) else ("", "")
             box = Box(
                 id=m.group(1),
-                label=ensure_text_presentation(m.group(2).replace("\\n", "\n")),
+                label=ensure_text_presentation(unescape_quoted(m.group(2))),
                 x=float(m.group(3)),
                 y=float(m.group(4)),
                 w=float(m.group(5)),
@@ -620,7 +637,7 @@ def parse(text: str) -> Board:
             arrow = Arrow(
                 from_id=m.group(1),
                 to_id=m.group(3),
-                label=m.group(4) or "",
+                label=unescape_quoted(m.group(4) or ""),
                 label_dx=float(m.group(5)) if m.group(5) else 0.0,
                 label_dy=float(m.group(6)) if m.group(6) else 0.0,
                 style=m.group(7) or "",
@@ -706,7 +723,7 @@ def parse(text: str) -> Board:
                 x=float(m.group(2)),
                 y=float(m.group(3)),
                 text=ensure_text_presentation(
-                    (m.group(4) or "").replace("\\n", "\n")),
+                    unescape_quoted(m.group(4) or "")),
                 color=m.group(5) or "",
                 textsize=m.group(6) or "",
                 wrap_chars=int(m.group(7)) if m.group(7)
@@ -737,11 +754,11 @@ def parse(text: str) -> Board:
                 )
             bookmark = Bookmark(
                 id=m.group(1),
-                label=ensure_text_presentation(m.group(2).replace("\\n", "\n")),
+                label=ensure_text_presentation(unescape_quoted(m.group(2))),
                 focus=focus,
                 pad=int(m.group(4)) if m.group(4) else 0,
                 description=ensure_text_presentation(
-                    (m.group(10) or "").replace("\\n", "\n")
+                    unescape_quoted(m.group(10) or "")
                 ),
                 view=view,
                 isolate=m.group(9) is not None,
@@ -753,7 +770,7 @@ def parse(text: str) -> Board:
         m = _RE_FOOTER.match(stripped)
         if m:
             board.footer = ensure_text_presentation(
-                m.group(1).replace("\\n", "\n")
+                unescape_quoted(m.group(1))
             )
             continue
 
@@ -767,10 +784,10 @@ def parse(text: str) -> Board:
             steps, description, auto_start = _parse_flow_rest(m.group(3))
             flow = Flow(
                 id=m.group(1),
-                label=ensure_text_presentation(m.group(2).replace("\\n", "\n")),
+                label=ensure_text_presentation(unescape_quoted(m.group(2))),
                 steps=steps,
                 description=ensure_text_presentation(
-                    description.replace("\\n", "\n")
+                    unescape_quoted(description)
                 ),
                 auto_start=auto_start,
             )
@@ -859,7 +876,7 @@ def _serialize_box(box: Box) -> str:
     y = _q(box.y)
     w = _q(box.w)
     h = _q(box.h)
-    escaped_label = box.label.replace("\n", "\\n")
+    escaped_label = escape_quoted(box.label)
     s = f'@ box {box.id} "{escaped_label}" {x},{y} {w}x{h}'
     if box.color:
         s += f" {box.color}"
@@ -889,7 +906,7 @@ def _serialize_arrow(arrow: Arrow) -> str:
         op = "--"
     base = f"@ arrow {arrow.from_id} {op} {arrow.to_id}"
     if arrow.label:
-        base += f' "{arrow.label}"'
+        base += f' "{escape_quoted(arrow.label)}"'
     dx = _q(arrow.label_dx)
     dy = _q(arrow.label_dy)
     if dx or dy:
@@ -962,7 +979,7 @@ def _serialize_image(image: Image) -> str:
 
 
 def _serialize_bookmark(bm: Bookmark) -> str:
-    label = bm.label.replace("\n", "\\n")
+    label = escape_quoted(bm.label)
     s = f'@ bookmark {bm.id} "{label}"'
     if bm.focus:
         s += f' @{",".join(bm.focus)}'
@@ -974,13 +991,13 @@ def _serialize_bookmark(bm: Bookmark) -> str:
     if bm.isolate:
         s += " ~iso"
     if bm.description:
-        desc = bm.description.replace("\n", "\\n")
+        desc = escape_quoted(bm.description)
         s += f' "{desc}"'
     return s
 
 
 def _serialize_flow(flow: Flow) -> str:
-    label = flow.label.replace("\n", "\\n")
+    label = escape_quoted(flow.label)
     s = f'@ flow {flow.id} "{label}"'
     for step in flow.steps:
         s += f" {step.ref}"
@@ -990,13 +1007,13 @@ def _serialize_flow(flow: Flow) -> str:
     if flow.auto_start:
         s += f" ~auto={flow.auto_start}"
     if flow.description:
-        desc = flow.description.replace("\n", "\\n")
+        desc = escape_quoted(flow.description)
         s += f' "{desc}"'
     return s
 
 
 def _serialize_footer(footer: str) -> str:
-    escaped = footer.replace("\n", "\\n")
+    escaped = escape_quoted(footer)
     return f'@ footer "{escaped}"'
 
 

@@ -1741,3 +1741,66 @@ def test_non_grafli_file_has_no_header_and_mostly_warnings():
                   + len(b.images) + len(b.bookmarks) + len(b.flows))
     assert recognized == 0
     assert len(b.parse_warnings) >= 5
+
+
+# ── quoted-text escaping (\" inside labels and descriptions) ───────
+
+
+def test_box_label_quote_roundtrip():
+    from grafli.format import parse, serialize
+
+    text = '@ box a "Say \\"hi\\" politely" 0,0 200x100\n'
+    board = parse(text)
+    assert board.parse_warnings == []
+    assert board.boxes[0].label == 'Say "hi" politely'
+    assert '\\"hi\\"' in serialize(board)
+
+
+def test_arrow_label_quote_roundtrip():
+    from grafli.format import parse, serialize
+
+    text = (
+        '@ box a "A" 0,0 200x100\n'
+        '@ box b "B" 300,0 200x100\n'
+        '@ arrow a -> b "emit \\"done\\""\n'
+    )
+    board = parse(text)
+    assert board.parse_warnings == []
+    assert board.arrows[0].label == 'emit "done"'
+    reparsed = parse(serialize(board))
+    assert reparsed.arrows[0].label == 'emit "done"'
+
+
+def test_note_inline_quote_parses():
+    from grafli.format import parse
+
+    board = parse('@ note n1 0,0 "a \\"quoted\\" word"\n')
+    assert board.parse_warnings == []
+    assert board.notes[0].text == 'a "quoted" word'
+
+
+def test_bookmark_and_flow_quote_roundtrip():
+    from grafli.format import parse, serialize
+
+    text = (
+        '#!grafli v2\n'
+        '@ box a "A" 0,0 200x100\n'
+        '@ bookmark bm "The \\"gateway\\"" @a "It says \\"hello\\"."\n'
+        '@ flow tour "A \\"tour\\"" bm "Ends with \\"done\\"."\n'
+    )
+    board = parse(text)
+    assert board.parse_warnings == []
+    assert board.bookmarks[0].label == 'The "gateway"'
+    assert board.bookmarks[0].description == 'It says "hello".'
+    assert board.flows[0].label == 'A "tour"'
+    assert board.flows[0].description == 'Ends with "done".'
+    reparsed = parse(serialize(board))
+    assert reparsed.bookmarks[0].description == 'It says "hello".'
+    assert reparsed.flows[0].description == 'Ends with "done".'
+
+
+def test_unescaped_quotes_still_roundtrip_plain_text():
+    from grafli.format import parse, serialize
+
+    text = '@ box a "No quotes here" 0,0 200x100\n'
+    assert 'No quotes here' in serialize(parse(text))

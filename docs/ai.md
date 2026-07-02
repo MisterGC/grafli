@@ -21,44 +21,62 @@ crossed arrows in the actual app.
 
 The skill gives the agent:
 
-- **Tight format reference** — every keyword, modifier, and edge style.
 - **A planning loop** — "what question does the diagram answer?"
   before any boxes get placed, so the diagram has a point.
 - **Layout discipline** — grid alignment, container margin model,
-  flow direction, fan-out handling, the typography scale.
+  flow direction, fan-out handling, the typography scale, and the
+  zoomed-out (semantic-zoom) reading as a second thing to author.
+- **Collaboration etiquette** — working `T:`/`Q:` notes on a shared
+  board, minimal diffs, proposals instead of unilateral restructuring.
 - **Code-mode authoring style** — predicate-style names, contract
   keywords for review focus, when to use a code-block versus split
   the logic into multiple nodes.
+- **Presentation authoring** — flows, scoped stops, text slides,
+  container-as-slide composition, PDF/PPTX export incl. templates.
+- **Thinking-board patterns** — decision boards, tension maps,
+  question landscapes, and the deliberate-incompleteness rules that
+  keep the board a tool for *your* thinking.
 - **Common-mistakes checklist** — quote escaping, disconnected nodes,
   truncated labels, deprecated keywords. The things that recur.
 
+It's structured as a lean, always-loaded core (`SKILL.md` — triggers,
+workflow, etiquette, checklist) plus `references/` files the agent
+reads on demand (full format tables, design principles, presenting,
+thinking boards) — deep coverage without a heavyweight prompt.
+
 ## Install
 
-The skill ships **inside the Python package**. Pull it out and place
+The skill ships **inside the Python package** as a directory —
+`SKILL.md` plus its `references/` files. The built-in installer places
 it where your AI tool expects skills:
 
 ```bash
-# Save to a file
-grafli skill -o SKILL.md
+# Install for one or all supported tools (copies SKILL.md + references/)
+grafli skill install claude
+grafli skill install all
 
-# Pipe straight into the right place
-grafli skill > ~/.claude/skills/grafli/SKILL.md
+# Report install status per tool (and whether a newer version shipped)
+grafli skill check
 
-# Print the path of the bundled copy (so you can symlink it)
+# Single-file consumers: stdout is the FULL skill, references inlined
+grafli skill -o GRAFLI-SKILL.md
+grafli skill --core          # just the lean core, no references
+
+# Print the path of the bundled skill directory (so you can symlink it)
 grafli skill --where
-
-# Show install hints + per-tool docs URLs
-grafli skill --help
 ```
 
 | AI tool | Where the skill goes | Docs |
 |---------|---------------------|------|
-| Claude Code | `~/.claude/skills/grafli/SKILL.md` (or per-project under `.claude/skills/...`) | <https://code.claude.com/docs/en/skills> |
-| OpenCode | `~/.config/opencode/skills/grafli/SKILL.md` | <https://opencode.ai/docs/skills> |
-| Codex CLI | append to `~/.codex/AGENTS.md` (or per-repo `AGENTS.md`) | <https://agents.md/> |
+| Claude Code | `~/.claude/skills/grafli/` (or per-project under `.claude/skills/...`) | <https://code.claude.com/docs/en/skills> |
+| Codex | `~/.agents/skills/grafli/` | <https://developers.openai.com/codex/skills> |
+| OpenCode | `~/.config/opencode/skills/grafli/` (also reads the claude/codex paths) | <https://opencode.ai/docs/skills> |
 
-A symbolic link keeps the on-disk skill in sync with `pip install --upgrade grafli`. A copy is fine if your platform doesn't support
-symlinks comfortably (Windows non-developer mode).
+`grafli skill check` compares the installed version against the
+packaged one, so re-running `grafli skill install` after
+`pip install --upgrade grafli` keeps agents on the latest skill. A
+symlink to `grafli skill --where` works too if your platform supports
+it comfortably.
 
 ## What the skill triggers on
 
@@ -76,12 +94,18 @@ It also activates when you ask the agent to **explain, walk through, or
 present** an existing graph — it authors a [flow](bookmarks-flows.md): an
 ordered sequence of saved viewpoints with narration, so a big diagram is
 taught as a guided tour (playable in-app, presentable fullscreen, exportable
-to PDF slides) instead of dumped all at once.
+to PDF / PPTX slides) instead of dumped all at once.
+
+And it activates on **thinking-board requests** — "help me think
+through X", "weigh the options", "map out the unknowns" — the moments a
+human explainer would walk to a whiteboard. The agent then authors a
+board that structures the problem (a decision board, a tension map, a
+question landscape) rather than one that documents a system.
 
 It does **not** activate on generic "review this code", "explain this
 function", or "summarize this module" requests unless the user also
-asks for a visual or diagram. Keeping the trigger tight keeps your
-agent fast and focused on the task at hand.
+asks for a visual, a board, or a diagram. Keeping the trigger tight
+keeps your agent fast and focused on the task at hand.
 
 ## A typical session
 
@@ -90,8 +114,11 @@ Once the skill is installed, the agent:
 1. Listens for a visualization request.
 2. Asks any clarifying question (the planning loop).
 3. Produces a `.grafli` file using `Write`.
-4. Optionally launches the desktop app or renders headless to PNG /
-   SVG via `grafli render`, and shows you the result.
+4. Verifies its own work headlessly: `grafli render` (with `--focus`,
+   `--lod`, and `--bookmark` for targeted looks), `grafli diagnose`
+   (incl. `parse-error` findings for lines that would silently drop),
+   `grafli inspect` for placement geometry, and `grafli export --check`
+   when a deck is involved.
 5. Iterates on the layout / labels based on feedback.
 
 The agent's output is just text. You can edit it, diff it, version it,

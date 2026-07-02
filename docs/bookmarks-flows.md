@@ -39,6 +39,12 @@ region. So you can show a single child of a parent without the parent and its
 siblings bleeding in. No selection keeps the default "everything visible"
 framing. The capture badge confirms the scope (e.g. *scoped: 1 item*).
 
+In the file a scoped bookmark carries the `~iso` token
+(`@ bookmark bm "One child" @child ~iso`) — so an agent or hand edit can
+author scoped steps directly; see the [format reference](format.md#bookmarks-and-flows-v2).
+`grafli render <file> out.png --bookmark bm` renders a stop exactly as
+framed, honouring the scope.
+
 ### Text slides (clickable links)
 
 Select a **single text note** and capture it with **no description**, and that

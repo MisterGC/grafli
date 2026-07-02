@@ -98,6 +98,13 @@ return ok
 The serializer auto-promotes single-line notes that contain `"` to the
 triple-quoted form.
 
+## Quoted-text escapes
+
+Single-line quoted slots (box / arrow / bookmark / flow labels,
+descriptions, note text, the footer) support two escapes: `\n` for a
+newline and `\"` for a literal quote — `@ box a "Say \"hi\"" 0,0 200x100`.
+Triple-quoted blocks take quotes and newlines literally.
+
 ## A complete example
 
 ```text
@@ -120,19 +127,30 @@ Saved viewpoints and guided tours are stored in the file too. A file that
 contains them uses the `v2` header; pure-diagram files stay on `v1`.
 
 ```text
-@ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
+@ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] [~iso] ["<description>"]
 @ bookmark <id> "<label>" ~view=<x>,<y>,<w>,<h> ["<description>"]
-@ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
+@ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... [~auto=<start_id>] ["<description>"]
+@ footer "<markdown>"
+@ title-bg <empty|thumbnail-art>
 ```
 
 - `@<ids>` is the **semantic anchor** — the item ids the view frames. The
   pan/zoom is computed by fitting them, so the bookmark survives layout edits.
   `~pad=<n>` overrides the framing padding.
+- `~iso` marks the anchor as a **narrowed selection**: thumbnails and exported
+  slides render only the anchored items (and the arrows between them), not
+  everything inside the framed region — see
+  [scoping a step](bookmarks-flows.md#scoping-a-step-to-a-selection).
 - `~view=<x>,<y>,<w>,<h>` stores an **exact scene rect** instead, used for a
   hand-tuned framing or a viewpoint that contains no nodes. A bookmark uses
   one or the other.
 - A `@ flow` lists bookmark ids in order; `:<dwell>` sets that stop's
-  auto-play time in seconds (omit for the flow default).
+  auto-play time in seconds (omit for the flow default). `~auto=<start_id>`
+  marks an [auto-generated flow](bookmarks-flows.md#auto-generated-flows),
+  regenerable from that start node.
+- `@ footer` is the board-global markdown branding line on exported content
+  slides; `@ title-bg thumbnail-art` selects the title slide's collage
+  backdrop. Both are one-per-file.
 
 ```text
 #!grafli v2

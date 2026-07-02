@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The AI skill is now a lean core plus on-demand references.** The bundled
+  skill splits into an always-loaded `SKILL.md` (workflow, collaboration
+  etiquette, common-mistakes checklist, syntax card) and `references/` files
+  the agent opens when needed — full format tables, design principles
+  (now covering semantic-zoom authoring, the depth ladder, and a quality bar),
+  a much richer presenting guide (`~iso` scoped stops, text slides,
+  container-as-slide, auto-flows, PDF/PPTX export incl. corporate templates),
+  and a new **thinking-boards** reference (decision boards, tension maps,
+  question landscapes, deliberate incompleteness). `grafli skill install`
+  copies the whole directory, `check` compares versions, and bare
+  `grafli skill` prints the full single-file build (`--core` for just the
+  core). ([#108](https://github.com/MisterGC/grafli/issues/108))
+- **`grafli diagnose` reports dropped lines as errors.** A malformed directive
+  or misplaced modifier used to silently remove the element from the render;
+  it now surfaces as a `parse-error` finding with the line number — the
+  scariest AI/hand-edit failure class is machine-checkable.
+  ([#109](https://github.com/MisterGC/grafli/issues/109))
+- **Agent-support CLI.** `grafli inspect --json` reports resolved geometry
+  (element bounds, container inner rects, sibling gaps, next free slot);
+  `grafli render` gains `--focus <ids>`, `--bookmark <id>` and `--lod`
+  (the zoomed-out semantic-zoom reading) for targeted verification; and
+  `grafli export --check [--json]` dry-runs a deck and reports overloaded
+  slides, dangling bookmark/step refs, and missing vault docs without
+  writing the file. ([#110](https://github.com/MisterGC/grafli/issues/110))
+- **Quotes inside labels.** Single-line quoted text (box/arrow/bookmark/flow
+  labels, descriptions, note text, the footer) now supports the `\"` escape,
+  and the serializer emits it — `@ box a "Say \"hi\"" …` round-trips.
+  ([#110](https://github.com/MisterGC/grafli/issues/110))
+
 ### Changed
 - **The Markdown editor is now [textli](https://github.com/MisterGC/textli), its
   own package.** The editor that grew inside grafli (zen writing surface, reading

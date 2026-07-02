@@ -1164,26 +1164,65 @@ Subcommands:
             is available).
   uninstall Remove the installed grafli skill from one or more tools.
 
-Supported targets (user-level paths follow the agentskills.io convention):
+Supported targets (user-level paths follow the agentskills.io convention;
+each gets the skill directory — SKILL.md plus references/):
 
-  claude    ~/.claude/skills/grafli/SKILL.md
+  claude    ~/.claude/skills/grafli/
             https://code.claude.com/docs/en/skills
-  codex     ~/.agents/skills/grafli/SKILL.md
+  codex     ~/.agents/skills/grafli/
             https://developers.openai.com/codex/skills
-  opencode  ~/.config/opencode/skills/grafli/SKILL.md
+  opencode  ~/.config/opencode/skills/grafli/
             https://opencode.ai/docs/skills
 
 (OpenCode also reads from `~/.claude/skills/` and `~/.agents/skills/`, so
 installing for `claude` or `codex` is automatically picked up by OpenCode.)
 
-Without a subcommand, `grafli skill` prints the bundled SKILL.md to stdout.
+Without a subcommand, `grafli skill` prints the full skill to stdout —
+SKILL.md with every reference file inlined, for single-file consumers.
+Pass --core for just the lean core SKILL.md.
 """
+
+# Concat / inline order for the reference files; unknown names sort after.
+_REFERENCE_ORDER = ("format.md", "design.md", "presenting.md", "thinking.md")
+
+
+def _skill_dir() -> Path:
+    """Return the path to the bundled skill directory."""
+    from importlib.resources import files
+    return Path(str(files("grafli.skills.grafli")))
 
 
 def _skill_path() -> Path:
     """Return the path to the bundled SKILL.md."""
-    from importlib.resources import files
-    return Path(str(files("grafli.skills.grafli") / "SKILL.md"))
+    return _skill_dir() / "SKILL.md"
+
+
+def _skill_references() -> dict[str, str]:
+    """Return the bundled reference files as ``{name: content}``, in
+    the canonical inline order.
+    """
+    ref_dir = _skill_dir() / "references"
+    if not ref_dir.is_dir():
+        return {}
+    def order(p: Path) -> tuple[int, str]:
+        try:
+            return (_REFERENCE_ORDER.index(p.name), p.name)
+        except ValueError:
+            return (len(_REFERENCE_ORDER), p.name)
+    return {
+        p.name: p.read_text(encoding="utf-8")
+        for p in sorted(ref_dir.glob("*.md"), key=order)
+    }
+
+
+def _skill_concat() -> str:
+    """The single-file build: SKILL.md with every reference inlined."""
+    parts = [_skill_path().read_text(encoding="utf-8")]
+    for name, content in _skill_references().items():
+        parts.append(
+            f"\n\n---\n\n<!-- inlined from references/{name} -->\n\n{content}"
+        )
+    return "".join(parts)
 
 
 def _grafli_version() -> str:
@@ -1206,25 +1245,32 @@ def _cmd_skill(argv: list[str]) -> int:
 
     parser = argparse.ArgumentParser(
         prog="grafli skill",
-        description="Print the bundled grafli AI skill (SKILL.md).",
+        description="Print the bundled grafli AI skill (SKILL.md + references).",
         epilog=SKILL_DOCS,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "-o", "--output", type=Path, default=None,
-        help="Write SKILL.md to this path instead of stdout",
+        help="Write the skill to this path instead of stdout",
+    )
+    parser.add_argument(
+        "--core", action="store_true",
+        help="Emit only the lean core SKILL.md, without inlining the "
+             "reference files",
     )
     parser.add_argument(
         "--where", action="store_true",
-        help="Print the path of the bundled SKILL.md and exit",
+        help="Print the path of the bundled skill directory and exit",
     )
     args = parser.parse_args(argv)
 
-    src = _skill_path()
     if args.where:
-        print(src)
+        print(_skill_dir())
         return 0
-    text = src.read_text(encoding="utf-8")
+    text = (
+        _skill_path().read_text(encoding="utf-8") if args.core
+        else _skill_concat()
+    )
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(text, encoding="utf-8")
@@ -1310,13 +1356,14 @@ def _cmd_skill_install(argv: list[str]) -> int:
         return 2
 
     packaged = _skill_path().read_text(encoding="utf-8")
+    references = _skill_references()
     version = _grafli_version()
 
     any_drift = False
     any_action = False
 
     for t in targets:
-        st = compute_status(t, packaged, version)
+        st = compute_status(t, packaged, version, references)
         # Show context line so the user always sees the destination.
         if st.status == OK:
             print(f"[ok]      {t}: already current at {st.path} (grafli {version})")
@@ -1368,8 +1415,10 @@ def _cmd_skill_install(argv: list[str]) -> int:
                 print(f"  skipped {t}")
                 continue
 
-        path = write_skill(t, packaged, version)
+        path = write_skill(t, packaged, version, references)
         print(f"  wrote {path}")
+        if references:
+            print(f"  wrote {path.parent / 'references'} ({len(references)} files)")
         any_action = True
 
     if args.dry_run and any_drift:
@@ -1400,9 +1449,10 @@ def _cmd_skill_check(argv: list[str]) -> int:
 
     targets = _resolve_targets(args.target)
     packaged = _skill_path().read_text(encoding="utf-8")
+    references = _skill_references()
     version = _grafli_version()
 
-    statuses = [compute_status(t, packaged, version) for t in targets]
+    statuses = [compute_status(t, packaged, version, references) for t in targets]
 
     if args.json:
         print(_json.dumps([s.to_dict() for s in statuses], indent=2))
@@ -1462,10 +1512,11 @@ def _cmd_skill_uninstall(argv: list[str]) -> int:
         return 2
 
     packaged = _skill_path().read_text(encoding="utf-8")
+    references = _skill_references()
     version = _grafli_version()
 
     for t in targets:
-        st = compute_status(t, packaged, version)
+        st = compute_status(t, packaged, version, references)
         if st.status == MISSING:
             print(f"[missing] {t}: nothing to remove at {st.path.parent}")
             continue
@@ -1505,7 +1556,26 @@ def _cmd_render(argv: list[str]) -> int:
         "--padding", type=int, default=40,
         help="Padding around the diagram bounds (default 40)",
     )
+    parser.add_argument(
+        "--focus", default=None, metavar="IDS",
+        help="Comma-separated element ids — render only the region around "
+             "them (context stays visible, the crop is the focus)",
+    )
+    parser.add_argument(
+        "--bookmark", default=None, metavar="ID",
+        help="Render the viewpoint a bookmark frames (honours its ~pad and "
+             "~iso scoping)",
+    )
+    parser.add_argument(
+        "--lod", action="store_true",
+        help="Render the zoomed-out semantic-zoom reading (containers "
+             "collapse to tiles, as when the whole board is fitted on screen)",
+    )
     args = parser.parse_args(argv)
+
+    if args.focus and args.bookmark:
+        print("--focus and --bookmark are mutually exclusive", file=sys.stderr)
+        return 2
 
     if not args.input.exists():
         print(f"Input not found: {args.input}", file=sys.stderr)
@@ -1522,21 +1592,70 @@ def _cmd_render(argv: list[str]) -> int:
     app = QApplication.instance() or QApplication([])
     _register_bundled_fonts()
 
+    from contextlib import nullcontext
+    from PySide6.QtCore import QRectF
     from grafli.view import GrafliView
     text = args.input.resolve().read_text(encoding="utf-8")
     board = parse(text)
     view = GrafliView()
     view.load_board(board)
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    if suffix == ".svg":
-        svg_bytes = view._render_svg_bytes(padding=args.padding)
-        with open(args.output, "wb") as f:
-            f.write(bytes(svg_bytes))
-    else:
-        view._render_png_to_path(
-            args.output, padding=args.padding, width=args.width,
+    region = None
+    iso_ctx = nullcontext()
+    if args.bookmark:
+        from grafli.flows import bookmark_target_rect, isolate_focus
+        bm = board.bookmark_by_id(args.bookmark)
+        if bm is None:
+            ids = ", ".join(b.id for b in board.bookmarks) or "none"
+            print(f"Bookmark '{args.bookmark}' not found. Available: {ids}",
+                  file=sys.stderr)
+            return 2
+        region = bookmark_target_rect(view, bm)
+        if region.isNull():
+            print(f"Bookmark '{args.bookmark}' resolves to no region "
+                  f"(dangling focus ids?)", file=sys.stderr)
+            return 2
+        if bm.isolate and bm.focus:
+            iso_ctx = isolate_focus(view, bm.focus)
+    elif args.focus:
+        wanted = [i.strip() for i in args.focus.split(",") if i.strip()]
+        items = {**view._box_items, **view._note_items, **view._image_items}
+        missing = [i for i in wanted if i not in items]
+        if missing:
+            print(f"Unknown element id(s): {', '.join(missing)}",
+                  file=sys.stderr)
+            return 2
+        region = QRectF()
+        for i in wanted:
+            region = region.united(items[i].sceneBoundingRect())
+        region = region.adjusted(
+            -args.padding, -args.padding, args.padding, args.padding,
         )
+
+    if args.lod:
+        # Reproduce the fit-whole-board-on-screen zoom so the semantic-zoom
+        # state matches what a human sees when they step back.
+        bounds = view._scene.itemsBoundingRect()
+        if bounds.width() > 0 and bounds.height() > 0:
+            fit = min(1280.0 / bounds.width(), 800.0 / bounds.height(), 0.999)
+            view.resetTransform()
+            view.scale(fit, fit)
+        view._lod_dirty = True
+        view._refresh_lod()
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with iso_ctx:
+        if suffix == ".svg":
+            svg_bytes = view._render_svg_bytes(
+                padding=args.padding, region=region,
+            )
+            with open(args.output, "wb") as f:
+                f.write(bytes(svg_bytes))
+        else:
+            view._render_png_to_path(
+                args.output, padding=args.padding, width=args.width,
+                region=region,
+            )
     print(f"Wrote {args.output}", file=sys.stderr)
     # Drop the QApplication reference to avoid lingering process state.
     del view
@@ -1550,10 +1669,23 @@ def _cmd_export(argv: list[str]) -> int:
         description="Export a flow as a slide-style presentation (PDF or PPTX).",
     )
     parser.add_argument("input", type=Path, help="Input .grafli file")
-    parser.add_argument("output", type=Path, help="Output .pdf or .pptx")
+    parser.add_argument(
+        "output", type=Path, nargs="?", default=None,
+        help="Output .pdf or .pptx (optional with --check)",
+    )
     parser.add_argument(
         "--flow", default=None,
         help="Flow id to export (default: the only flow; required if several)",
+    )
+    parser.add_argument(
+        "--check", action="store_true",
+        help="Dry-run: report slide count, overloaded slides, dangling "
+             "bookmark/step refs and missing vault docs — without writing "
+             "the deck. Exit 1 when anything needs fixing.",
+    )
+    parser.add_argument(
+        "--json", action="store_true",
+        help="With --check: emit the report as JSON",
     )
     parser.add_argument(
         "--theme", default="grafli", choices=("grafli", "blank"),
@@ -1584,7 +1716,11 @@ def _cmd_export(argv: list[str]) -> int:
     if not args.input.exists():
         print(f"Input not found: {args.input}", file=sys.stderr)
         return 2
-    suffix = args.output.suffix.lower()
+    if args.output is None and not args.check:
+        print("output is required (or pass --check for a dry-run)",
+              file=sys.stderr)
+        return 2
+    suffix = args.output.suffix.lower() if args.output else ".pdf"
     if suffix not in (".pdf", ".pptx"):
         print(f"Unsupported output format: {args.output.suffix} "
               f"(expected .pdf or .pptx)", file=sys.stderr)
@@ -1593,8 +1729,9 @@ def _cmd_export(argv: list[str]) -> int:
     text = args.input.resolve().read_text(encoding="utf-8")
     board = parse(text)
     missing = _load_vault(args.input.resolve(), board)
-    for name in missing:
-        print(f"Warning: missing vault doc {name}.md", file=sys.stderr)
+    if not args.check:
+        for name in missing:
+            print(f"Warning: missing vault doc {name}.md", file=sys.stderr)
     if not board.flows:
         print("No flows in this file — nothing to export.", file=sys.stderr)
         return 1
@@ -1612,12 +1749,86 @@ def _cmd_export(argv: list[str]) -> int:
               file=sys.stderr)
         return 2
 
+    # Flow-integrity findings (cheap, no Qt needed): steps referencing a
+    # missing bookmark, bookmark focus ids that resolve to no element.
+    element_ids = (
+        {b.id for b in board.boxes}
+        | {n.id for n in board.notes}
+        | {im.id for im in board.images}
+    )
+    dangling: list[str] = []
+    for step in flow.steps:
+        if board.bookmark_by_id(step.ref) is None:
+            dangling.append(
+                f"flow '{flow.id}' step references missing bookmark "
+                f"'{step.ref}'"
+            )
+    for bm in board.bookmarks:
+        for fid in bm.focus:
+            if fid not in element_ids:
+                dangling.append(
+                    f"bookmark '{bm.id}' anchors missing element '{fid}'"
+                )
+
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
     _register_bundled_fonts()
     from grafli.view import GrafliView
     view = GrafliView()
     view.load_board(board)
+
+    if args.check:
+        # Dry-run through the real exporter (text sizing needs the real
+        # layout), written to a scratch file that is removed afterwards.
+        import json as _json
+        import tempfile
+        with tempfile.NamedTemporaryFile(
+            suffix=suffix, delete=False,
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            if suffix == ".pptx":
+                from grafli.pptxexport import export_flow_to_pptx
+                slides, overloaded = export_flow_to_pptx(
+                    view, flow, tmp_path, theme=args.theme,
+                    template=args.template,
+                    title_layout=args.title_layout,
+                    content_layout=args.content_layout)
+            else:
+                from grafli.pdfexport import export_flow_to_pdf
+                slides, overloaded = export_flow_to_pdf(view, flow, tmp_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+        report = {
+            "flow": flow.id,
+            "slides": slides,
+            "overloaded": [
+                {"slide": i + 1, "label": lbl} for i, lbl in overloaded
+            ],
+            "dangling": dangling,
+            "missing_docs": list(missing),
+        }
+        clean = not (overloaded or dangling or missing)
+        if args.json:
+            print(_json.dumps(report, indent=2))
+        else:
+            print(f"flow '{flow.id}': {slides} slides")
+            for entry in report["overloaded"]:
+                print(f"[overloaded] slide #{entry['slide']} "
+                      f"{entry['label']}".rstrip()
+                      + " — trim the text or split the slide")
+            for msg in dangling:
+                print(f"[dangling] {msg}")
+            for name in missing:
+                print(f"[missing-doc] vault doc {name}.md")
+            if clean:
+                print("No findings.")
+        del view
+        del app
+        return 0 if clean else 1
+
+    for msg in dangling:
+        print(f"Warning: {msg}", file=sys.stderr)
     if suffix == ".pptx":
         from grafli.pptxexport import export_flow_to_pptx
         slides, overloaded = export_flow_to_pptx(
@@ -1709,14 +1920,6 @@ def _cmd_diagnose(argv: list[str]) -> int:
     text = args.input.read_text(encoding="utf-8")
     board = parse(text)
     from grafli.diagnostics import Diagnostic
-    # Parse-level problems come first and as errors: a demoted line is lost data,
-    # the highest-severity thing a check can find.
-    parse_diags = [
-        Diagnostic(code="parse-error", severity="error",
-                   message=f"line {w.line}: {w.reason} — {w.text.strip()}",
-                   item_ids=[], fixable=False)
-        for w in getattr(board, "parse_warnings", [])
-    ]
     note_rect = _make_note_rect_provider()
     arrow_label_size = _make_arrow_label_size_provider()
     diags = run_all(
@@ -1744,8 +1947,6 @@ def _cmd_diagnose(argv: list[str]) -> int:
             item_ids=[name], fixable=False,
         ))
 
-    diags = parse_diags + diags
-
     if args.json:
         print(_json.dumps([d.to_dict() for d in diags], indent=2))
         return 0
@@ -1758,6 +1959,52 @@ def _cmd_diagnose(argv: list[str]) -> int:
         suffix = "" if d.fixable else "  (may be intentional)"
         print(f"[{d.severity}] {d.code}: {d.message}{suffix}")
     print(f"\n{len(diags)} finding(s).")
+    return 0
+
+
+def _cmd_inspect(argv: list[str]) -> int:
+    """Resolved-geometry report (JSON) for agents: element bounds,
+    container inner rects, sibling gaps, next free slot per container."""
+    import json as _json
+    from grafli.board_info import board_info
+
+    parser = argparse.ArgumentParser(
+        prog="grafli inspect",
+        description=(
+            "Report a board's resolved geometry as JSON: element bounds, "
+            "container inner rects after the margin model, sibling gaps, "
+            "and the next free slot per container. Query-only — it never "
+            "moves anything."
+        ),
+    )
+    parser.add_argument("input", type=Path, help="Input .grafli file")
+    parser.add_argument(
+        "--ids", default=None,
+        help="Comma-separated element ids — restrict the elements/"
+             "containers sections to these (arrows touching them included)",
+    )
+    args = parser.parse_args(argv)
+
+    if not args.input.exists():
+        print(f"Input not found: {args.input}", file=sys.stderr)
+        return 2
+
+    board = parse(args.input.read_text(encoding="utf-8"))
+    info = board_info(board, note_rect=_make_note_rect_provider())
+
+    if args.ids:
+        wanted = {i.strip() for i in args.ids.split(",") if i.strip()}
+        info["elements"] = [e for e in info["elements"] if e["id"] in wanted]
+        info["containers"] = [
+            c for c in info["containers"]
+            if c["id"] in wanted or wanted.intersection(c["children"])
+        ]
+        info["arrows"] = [
+            a for a in info["arrows"]
+            if a["from"] in wanted or a["to"] in wanted
+        ]
+
+    print(_json.dumps(info, indent=2))
     return 0
 
 
@@ -1830,7 +2077,7 @@ def _cmd_vault(argv: list[str]) -> int:
 def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
     if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
-                                              "export", "vault"):
+                                              "export", "vault", "inspect"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
         if sub == "skill":
@@ -1841,12 +2088,14 @@ def main():
             sys.exit(_cmd_export(rest))
         if sub == "vault":
             sys.exit(_cmd_vault(rest))
+        if sub == "inspect":
+            sys.exit(_cmd_inspect(rest))
         sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
         description="Grafli whiteboard. Subcommands: skill, render, diagnose, "
-                    "export, vault.",
+                    "inspect, export, vault.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

@@ -59,6 +59,7 @@ packages = ["grafli"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "grafli/skills/grafli/SKILL.md" = "grafli/skills/grafli/SKILL.md"
+"grafli/skills/grafli/references" = "grafli/skills/grafli/references"
 
 [tool.hatch.build.targets.sdist]
 include = [

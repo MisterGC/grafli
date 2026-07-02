@@ -7970,11 +7970,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     # ── Export (SVG file / PNG clipboard) ──
 
     @contextmanager
-    def _export_scene_context(self, padding: int = 20):
+    def _export_scene_context(self, padding: int = 20, region=None):
         """Prepare the scene for clean export, yield the padded bounding rect.
 
         Hides unselected items when there is a selection, clears selection
         decorations, and hides the mode badge.  Restores everything on exit.
+        A non-null *region* (QRectF, already padded by the caller) overrides
+        the default whole-scene bounding rect — used for targeted renders.
         """
         selected = [
             i for i in self._scene.selectedItems()
@@ -8030,10 +8032,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             badge_items.append(self._mode_badge_bg)
             self._mode_badge_bg.setVisible(False)
 
-        rect = self._scene.itemsBoundingRect()
-        if rect.isNull():
-            rect = QRectF(0, 0, 100, 100)
-        rect = rect.adjusted(-padding, -padding, padding, padding)
+        if region is not None and not region.isNull():
+            rect = QRectF(region)
+        else:
+            rect = self._scene.itemsBoundingRect()
+            if rect.isNull():
+                rect = QRectF(0, 0, 100, 100)
+            rect = rect.adjusted(-padding, -padding, padding, padding)
 
         try:
             yield rect
@@ -8045,9 +8050,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             for item in badge_items:
                 item.setVisible(True)
 
-    def _render_svg_bytes(self, padding: int = 20) -> QByteArray:
+    def _render_svg_bytes(self, padding: int = 20, region=None) -> QByteArray:
         """Render the current diagram (or selection) to SVG bytes."""
-        with self._export_scene_context(padding=padding) as rect:
+        with self._export_scene_context(padding=padding, region=region) as rect:
             buf = QByteArray()
             io = QBuffer(buf)
             io.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -8063,9 +8068,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             io.close()
         return buf
 
-    def _render_png_image(self, scale: int = 2, padding: int = 20) -> QImage:
+    def _render_png_image(
+        self, scale: int = 2, padding: int = 20, region=None,
+    ) -> QImage:
         """Render the current diagram (or selection) to a QImage."""
-        with self._export_scene_context(padding=padding) as rect:
+        with self._export_scene_context(padding=padding, region=region) as rect:
             size = rect.size().toSize()
             image = QImage(
                 size.width() * scale,
@@ -8091,6 +8098,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _render_png_to_path(
         self, path, padding: int = 20, width: int | None = None,
+        region=None,
     ) -> None:
         """Render the current diagram to a PNG file at *path*.
 
@@ -8098,7 +8106,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         preserving aspect ratio. Otherwise the natural 2× scale is used.
         """
         from PySide6.QtCore import Qt as _Qt
-        image = self._render_png_image(padding=padding)
+        image = self._render_png_image(padding=padding, region=region)
         if width is not None and width > 0:
             image = image.scaledToWidth(
                 width, _Qt.TransformationMode.SmoothTransformation,

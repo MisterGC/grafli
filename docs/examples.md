@@ -37,6 +37,24 @@ grafli export grafli/examples/flows-demo.grafli tour.pdf --flow tour
 
 See [Bookmarks & flows](bookmarks-flows.md) for the full feature.
 
+## Presentation settings demo
+
+`examples/presentation-demo.grafli` shows the
+[per-stop detail & focus settings](bookmarks-flows.md#per-stop-detail--focus)
+in one flow: the flow pins `~detail=full` as its default, the wide opening
+stop overrides it with `detail=summary` (both containers fold to headline
+tiles), and the closing stop repeats the previous framing with
+`focus=complete` — everything the frame clips fades, while a fully framed
+note stays crisp. The captions are written near the 280-character budget so
+you can see them wrap in full during playback.
+
+Play the `showcase` flow in the app, or verify single stops headless:
+
+```bash
+grafli render grafli/examples/presentation-demo.grafli /tmp/stop.png --step showcase:2
+grafli render grafli/examples/presentation-demo.grafli /tmp/stop.png --step showcase:5
+```
+
 ## Try it yourself
 
 The format is small enough that the fastest way to learn is to read a

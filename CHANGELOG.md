@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Per-stop level-of-detail for flows.** A flow can now say how its stops
+  render under semantic zoom: `~detail=full|summary|auto` on the flow sets
+  the default, a step's `detail=` segment (`bm_all:6:detail=summary`)
+  overrides it, and unset keeps today's behavior (follow the global LoD
+  toggle). `summary` collapses containers to their headline tiles regardless
+  of zoom — ideal for a wide opening stop. Honoured in playback, present
+  mode, PDF/PPTX export, and `grafli render`
+  (`--detail`, `--step <flow>:<n>`).
+  ([#112](https://github.com/MisterGC/grafli/issues/112))
+- **Presentation focus fades edge-bleed.** `~focus=complete` (flow-wide or
+  per step, `bm_api:focus=complete`) keeps only elements *completely* inside
+  the framed viewport at full opacity and blends out the partially visible
+  slivers at the frame's edges; a connector stays opaque only when both its
+  endpoints are fully shown. `none` (default) shows the frame as-is. Works
+  in playback, exports, and `grafli render --focus-mode complete`.
+  ([#113](https://github.com/MisterGC/grafli/issues/113))
+- **`grafli render --step <flow>:<n>`** renders one flow step exactly as
+  playback shows it — the bookmark's framing with the step's resolved
+  detail/focus settings — for headless verification of a deck's stops.
+  ([#112](https://github.com/MisterGC/grafli/issues/112),
+  [#113](https://github.com/MisterGC/grafli/issues/113))
 - **The AI skill is now a lean core plus on-demand references.** The bundled
   skill splits into an always-loaded `SKILL.md` (workflow, collaboration
   etiquette, common-mistakes checklist, syntax card) and `references/` files
@@ -36,6 +57,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   labels, descriptions, note text, the footer) now supports the `\"` escape,
   and the serializer emits it — `@ box a "Say \"hi\"" …` round-trips.
   ([#110](https://github.com/MisterGC/grafli/issues/110))
+
+### Fixed
+- **Playback captions no longer cut off.** The flow overlay used to elide
+  the stop's title and description to one line each; it now shows the full
+  text, word-wrapped, and surfaces the stop's active detail/focus settings
+  in its hint line. Descriptions get a 280-character authoring budget:
+  enforced in the Flows-tab inline editor, flagged by `grafli export
+  --check` (`[overlong-caption]`) for existing files — never truncated.
+  ([#111](https://github.com/MisterGC/grafli/issues/111))
 
 ### Changed
 - **The Markdown editor is now [textli](https://github.com/MisterGC/textli), its

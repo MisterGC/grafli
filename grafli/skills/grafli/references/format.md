@@ -499,10 +499,15 @@ yourself.
 ```
 @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] [~iso] ["<description>"]
 @ bookmark <id> "<label>" ~view=<x>,<y>,<w>,<h> ["<description>"]
-@ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... [~auto=<start_id>] ["<description>"]
+@ flow <id> "<label>" <step> ... [~auto=<start_id>] [~detail=<v>] [~focus=<v>] ["<description>"]
 @ footer "<markdown>"
 @ title-bg <empty|thumbnail-art>
 ```
+
+A flow `<step>` is `<bookmark_ref>` plus optional `:`-separated segments in
+any order: a bare number is the dwell, `detail=<v>` / `focus=<v>` override
+the flow's presentation settings for that stop —
+`bm_all:6:detail=summary`, `bm_api:focus=complete`.
 
 * `@<ids>` is the **semantic anchor** — the item ids the view frames; the
   pan/zoom is computed at display time by fitting them, so a bookmark
@@ -515,6 +520,17 @@ yourself.
 * `:<dwell>` is a stop's auto-play time in seconds (omit for the default).
 * `~auto=<start_id>` marks an auto-generated flow (regenerable from that
   start node).
+* `~detail=<full|summary|auto>` sets how the flow's stops render under
+  level-of-detail: `full` = as authored, `summary` = containers collapse
+  to headline tiles, `auto` = follow the app's global LoD toggle (also the
+  unset default). Per-step `detail=` overrides the flow.
+* `~focus=<none|complete>` fades distraction: `complete` keeps only
+  elements *completely* inside the framed viewport at full opacity and
+  blends out partially visible ones (connectors stay opaque only when both
+  ends are fully shown). Per-step `focus=` overrides the flow.
+* A bookmark **description** (the playback/slide caption) renders in full,
+  wrapped — keep it ≤ **280 chars**; `grafli export --check` flags longer
+  ones.
 * `@ footer` is a board-global markdown branding line rendered at the
   bottom of every exported content slide; `@ title-bg thumbnail-art`
   gives the export's title slide a faint thumbnail-collage backdrop.

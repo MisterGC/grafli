@@ -11,7 +11,7 @@ text, so you write it the same way you write boxes.
 
 ```
 @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] [~iso] ["<description>"]
-@ flow     <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
+@ flow     <id> "<label>" <ref>[:<dwell>][:detail=<v>][:focus=<v>] ... [~detail=<v>] [~focus=<v>] ["<description>"]
 @ footer   "<markdown>"
 @ title-bg thumbnail-art
 ```
@@ -46,6 +46,30 @@ arrows between them):
 
 Use `~iso` when the stop's point is *this element, isolated*; skip it when
 surrounding context helps.
+
+## Per-stop detail & focus
+
+Two presentation settings, set on the flow as the default and overridden per
+step where one stop needs something else (unset = inherit: step ← flow ←
+the app's global state). Both are honoured in playback, present mode,
+PDF/PPTX export, and `grafli render`.
+
+* **detail** — `full` renders the stop as authored; `summary` collapses
+  containers to headline tiles (the zoomed-out semantic-zoom reading,
+  regardless of zoom); `auto` follows the app's global LoD toggle. The
+  classic pattern: `~detail=full` on the flow, `detail=summary` on the
+  wide opening stop of a big board.
+* **focus** — `complete` keeps only elements *completely* inside the framed
+  viewport at full opacity and blends the partially visible edge-slivers
+  out (a connector stays opaque only when both endpoints are fully shown);
+  `none` is off. Use it when neighbours bleeding in at the frame's edges
+  would distract from the stop's claim; skip it when that context helps.
+  Note `~iso` is the stronger tool for *isolating anchored items* — `focus`
+  merely de-emphasizes, keeping faint context visible.
+
+```
+@ flow tour "Demo" bm_wide:6:detail=summary bm_svc:detail=full bm_api:focus=complete ~focus=none
+```
 
 ## Text slides
 
@@ -115,7 +139,9 @@ The *order and framing* are the explanation:
 
 * Each stop's **description is the narration**: it's the on-canvas caption
   during playback and the floating caption card on the exported slide. Write
-  *why this stop matters*, not what's already visibly labeled.
+  *why this stop matters*, not what's already visibly labeled. The caption
+  renders in full, word-wrapped — **budget it at ≤ 280 characters** (the
+  format's `MAX_DESCRIPTION_CHARS`); `export --check` flags anything longer.
 * **Let the graph speak when it already does.** If the framed boxes, arrows,
   and notes already carry the point, give the stop a **blank label and no
   description** — it exports as a clean diagram-only slide. Add words only to
@@ -179,12 +205,16 @@ grafli export deck.grafli tour.pptx --flow tour \
 * `grafli export <file> --check [--flow <id>] [--json]` dry-runs the export
   and reports: slide count, **overloaded slides** (text that can't fit at
   the legible floor — an overloaded slide is hard for an audience anyway),
+  **over-long captions** (a description past the 280-char budget),
   **dangling refs** (a flow step naming a missing bookmark, a bookmark
   anchoring a deleted id), and missing vault docs. Exit 1 means fix and
   re-check.
-* `grafli render <file> stop.png --bookmark <id>` renders one stop exactly
-  as framed (honouring `~pad` and `~iso`) — look at the slides that matter
-  before shipping the deck.
+* `grafli render <file> stop.png --step <flow>:<n>` renders step *n*
+  (1-based) exactly as playback shows it — framing plus the step's resolved
+  `detail`/`focus`. `--bookmark <id>` renders a bare bookmark (honouring
+  `~pad` and `~iso`); add `--detail full|summary` / `--focus-mode complete`
+  to preview a setting before writing it into the flow. Look at the stops
+  that matter before shipping the deck.
 
 ## Worked example
 

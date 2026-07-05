@@ -129,10 +129,15 @@ contains them uses the `v2` header; pure-diagram files stay on `v1`.
 ```text
 @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] [~iso] ["<description>"]
 @ bookmark <id> "<label>" ~view=<x>,<y>,<w>,<h> ["<description>"]
-@ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... [~auto=<start_id>] ["<description>"]
+@ flow <id> "<label>" <step> ... [~auto=<start_id>] [~detail=<v>] [~focus=<v>] ["<description>"]
 @ footer "<markdown>"
 @ title-bg <empty|thumbnail-art>
 ```
+
+A flow `<step>` is a bookmark ref with optional `:`-separated segments, in
+any order: a bare number is the auto-play dwell in seconds, and
+`detail=<v>` / `focus=<v>` override the flow's presentation settings for
+just that stop — `bm_all:6:detail=summary` or `bm_api:focus=complete`.
 
 - `@<ids>` is the **semantic anchor** — the item ids the view frames. The
   pan/zoom is computed by fitting them, so the bookmark survives layout edits.
@@ -148,6 +153,20 @@ contains them uses the `v2` header; pure-diagram files stay on `v1`.
   auto-play time in seconds (omit for the flow default). `~auto=<start_id>`
   marks an [auto-generated flow](bookmarks-flows.md#auto-generated-flows),
   regenerable from that start node.
+- `~detail=<v>` sets how the flow's stops render under
+  [level-of-detail](navigating.md): `full` (everything as authored),
+  `summary` (containers collapse to tiles), or `auto` (follow the app's
+  global LoD toggle — the default when unset). A step's own `detail=` segment
+  overrides the flow.
+- `~focus=<v>` controls distraction fading: `complete` shows only elements
+  *completely* inside the framed viewport at full opacity and blends out
+  partially visible ones (a connector stays opaque only when both its ends
+  do); `none` (default) shows the frame as-is. A step's `focus=` segment
+  overrides the flow. See
+  [per-stop detail & focus](bookmarks-flows.md#per-stop-detail--focus).
+- A bookmark **description** is the playback / slide caption: it renders in
+  full (wrapped), so keep it within **280 characters** — the GUI editor
+  enforces the budget and `grafli export --check` flags older files past it.
 - `@ footer` is the board-global markdown branding line on exported content
   slides; `@ title-bg thumbnail-art` selects the title slide's collage
   backdrop. Both are one-per-file.

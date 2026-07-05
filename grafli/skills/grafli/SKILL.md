@@ -277,7 +277,7 @@ a talk for memory" in `references/design.md` instead.)
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [# annotation]
 @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] [~iso] ["<description>"]
-@ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
+@ flow <id> "<label>" <ref>[:<dwell>][:detail=<v>][:focus=<v>] ... [~detail=<v>] [~focus=<v>] ["<description>"]
 @ footer "<markdown>"                             # board-global slide-export branding line
 ```
 
@@ -446,6 +446,7 @@ grafli render input.grafli /tmp/check.png --width 1600   # higher detail
 grafli render input.grafli /tmp/check.png --focus api,auth  # crop to a region
 grafli render input.grafli /tmp/check.png --lod  # zoomed-out (semantic zoom) reading
 grafli render input.grafli /tmp/stop.png --bookmark bm_x  # one flow stop as framed
+grafli render input.grafli /tmp/stop.png --step tour:3    # step 3 with its detail/focus resolved
 ```
 
 Workflow:

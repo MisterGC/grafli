@@ -109,7 +109,7 @@ from grafli.constants import (
     _resolve_color,
 )
 from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
-from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, emphasis_from_flags, parse, serialize
+from grafli.format import MAX_DESCRIPTION_CHARS, Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, emphasis_from_flags, parse, serialize
 from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.iconset import ICON_NAMES, icon_pixmap
@@ -413,6 +413,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._flow_player: FlowPlayer | None = None
         self._recording_flow: Flow | None = None
         self._flow_overlay: dict | None = None
+        # Presentation overrides, in force while a flow step (or an export /
+        # headless render honouring one) is shown. _present_detail overrides
+        # the global LoD toggle ("full" | "summary" | None = follow global);
+        # _present_focus_rect, when set, dims every element not completely
+        # inside that scene rect ("complete" focus mode).
+        self._present_detail: str | None = None
+        self._present_focus_rect: QRectF | None = None
         # Flows-panel edit target: a captured bookmark is inserted after the
         # selected step of this flow (instead of just creating a loose one).
         self._active_flow: Flow | None = None
@@ -1213,6 +1220,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if self._arrows_dimmed and not self._focus_active and not self._complexity_active:
             for gfx in self._arrow_items:
                 gfx.setOpacity(0.08)
+        if self._present_focus_rect is not None:
+            # Rebuilt arrow gfx start at full opacity — refresh the focus fade.
+            self._apply_presentation_focus()
 
     # ── Subgraph focus filter ──
 
@@ -3992,15 +4002,21 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._rebuild_lod_model()
         scale = self._current_zoom()
         model = self._lod
+        # A presentation override (flow step / export honouring one) trumps
+        # the global toggle: "full" renders everything as authored, "summary"
+        # collapses every container to its tile regardless of zoom.
+        force_summary = self._present_detail == "summary"
+        lod_on = (self._lod_enabled if self._present_detail is None
+                  else force_summary)
         # Container aggregation is a zoom-OUT affordance: at 100%+ the board is
         # at (or above) authored size, so everything stays fully detailed. This
         # also guarantees a small-child container (a notes legend, tiny boxes)
         # can always reach detail — the collapse threshold sits above such
         # children's on-screen size, so without this floor the hysteresis would
         # keep them tiled even at full zoom.
-        may_collapse = scale < 1.0
+        may_collapse = scale < 1.0 or force_summary
         collapsed: set[str] = set()
-        if self._lod_enabled and may_collapse and model is not None:
+        if lod_on and may_collapse and model is not None:
             prev_c = self._lod_collapsed
             # Size-driven, per container: each folds when its own children get
             # too small on screen (a small container no longer waits for a large
@@ -4010,6 +4026,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             extents = model.collapse_extents()
             for cid in model.containers:
                 if cid not in self._box_items:
+                    continue
+                if force_summary:
+                    collapsed.add(cid)
                     continue
                 ext = extents.get(cid, float("inf"))
                 if ext == float("inf"):
@@ -4031,7 +4050,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Leaf shells: visible, non-container leaves whose own label is illegible.
         shells: set[str] = set()
-        if self._lod_enabled:
+        if lod_on:
             for bid, item in self._box_items.items():
                 if bid in hidden or bid in tiles or item._is_parent:
                     continue
@@ -4045,7 +4064,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # equivalent of a container folding when its children get too small to
         # read. Compactness ignores boxes already subsumed by a collapsed tile.
         clusters: dict[tuple, list] = {}
-        if self._lod_enabled and may_collapse and model is not None:
+        if lod_on and may_collapse and model is not None:
             for comp in model.components:
                 if (len(comp) >= 3 and all(m in shells for m in comp)
                         and self._cluster_compact(comp, hidden)):
@@ -4064,7 +4083,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if model is not None and any(a in collapsed
                                          for a in model.ancestors(nid)):
                 hidden_notes.add(nid)
-            elif self._lod_enabled:
+            elif lod_on:
                 px = resolve_textsize_px(nitem.note.textsize, "") * scale
                 if should_collapse(px, nid in self._lod_note_shells):
                     note_shells.add(nid)
@@ -4087,7 +4106,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             a = it.data(0)
             key = (a.from_id, a.to_id) if a is not None else id(it)
             px = resolve_textsize_px(getattr(a, "textsize", ""), "") * scale
-            if self._lod_enabled and should_collapse(px, key in prev_labels_hidden):
+            if lod_on and should_collapse(px, key in prev_labels_hidden):
                 arrow_labels_hidden.add(key)
 
         state = (frozenset(collapsed), frozenset(shells), frozenset(clusters),
@@ -4136,6 +4155,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             # Hidden endpoints re-route to their tile/hull; illegible labels
             # drop out and their lines redraw unbroken.
             self._redraw_arrows()
+        if self._present_focus_rect is not None:
+            # Tiles appearing / elements hiding change what counts as fully
+            # framed — recompute the focus fade against the new composition.
+            self._apply_presentation_focus()
 
     def _cluster_compact(self, comp, hidden=frozenset()) -> bool:
         """A component is compact when no *visible* non-member box centre falls
@@ -7062,6 +7085,86 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._flow_overlay = None
         self.viewport().update()
 
+    # ── Presentation overrides (per-step detail / focus) ──
+
+    def _set_presentation_detail(self, detail: str | None):
+        """Override the global LoD toggle while a step is shown: "full" keeps
+        everything as authored, "summary" collapses containers to tiles, and
+        None returns control to the global GUI setting."""
+        detail = detail if detail in ("full", "summary") else None
+        if detail == self._present_detail:
+            return
+        self._present_detail = detail
+        self._refresh_lod()
+
+    def _set_presentation_focus(self, rect: QRectF | None):
+        """Set (or clear, with None) the "complete" focus frame: elements not
+        completely inside ``rect`` dim to the standard 0.08 blend level, and a
+        connector stays at full opacity only when both its endpoints do."""
+        if rect is None and self._present_focus_rect is None:
+            return
+        self._present_focus_rect = QRectF(rect) if rect is not None else None
+        self._apply_presentation_focus()
+        self.viewport().update()
+
+    def _presentation_focus_contained(self) -> set[str]:
+        """Ids of the visible boxes/notes/images completely inside the focus
+        frame. Only meaningful while a focus frame is set."""
+        rect = self._present_focus_rect
+        contained: set[str] = set()
+        if rect is None:
+            return contained
+        for items in (self._box_items, self._note_items, self._image_items):
+            for eid, item in items.items():
+                if item.isVisible() and rect.contains(item.sceneBoundingRect()):
+                    contained.add(eid)
+        return contained
+
+    def _apply_presentation_focus(self):
+        """(Re)apply the focus fade — or restore the resting opacities, which
+        must respect the standing dim toggles (⇧N notes, "," arrows) and the
+        subgraph-focus / complexity filters when clearing."""
+        if self._present_focus_rect is None:
+            for item in self._box_items.values():
+                item.setOpacity(1.0)
+                item._label.setOpacity(1.0)
+            for item in self._note_items.values():
+                item.setOpacity(1.0)
+            for item in self._image_items.values():
+                item.setOpacity(1.0)
+            for gfx in self._arrow_items:
+                gfx.setOpacity(1.0)
+            if self._focus_active:
+                self._apply_focus_filter()
+            elif self._complexity_active:
+                self._apply_complexity_heatmap()
+            else:
+                if self._arrows_dimmed:
+                    for gfx in self._arrow_items:
+                        gfx.setOpacity(0.08)
+                if self._notes_hidden:
+                    self._apply_notes_hidden()
+            return
+        contained = self._presentation_focus_contained()
+        for bid, item in self._box_items.items():
+            opacity = 1.0 if bid in contained else 0.08
+            item.setOpacity(opacity)
+            item._label.setOpacity(opacity)
+        for nid, item in self._note_items.items():
+            item.setOpacity(1.0 if nid in contained else 0.08)
+        for iid, item in self._image_items.items():
+            item.setOpacity(1.0 if iid in contained else 0.08)
+        for gfx in self._arrow_items:
+            arrow = gfx.data(0)
+            if arrow is None:
+                continue
+            # Endpoints may be re-routed to a collapsed tile under LoD — judge
+            # the connector by what is actually drawn on screen.
+            from_id = self._lod_reroute(arrow.from_id)
+            to_id = self._lod_reroute(arrow.to_id)
+            both_in = from_id in contained and to_id in contained
+            gfx.setOpacity(1.0 if both_in else 0.08)
+
     # ── Transient confirmation overlays (flashes) ──
 
     _FLASH_BLUE = (43, 108, 176)     # bookmark goto confirmation
@@ -7347,6 +7450,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     "loop": "playing ⟳"}.get(ov.get("mode", "paused"), "paused")
             hint = (f"Space/→ next · ← prev · "
                     f"t:{transition} · p:{play} · Esc exit")
+            # Surface active per-step presentation settings so a viewer can
+            # tell why this stop renders summarized / faded.
+            for key in ("detail", "focus"):
+                if ov.get(key):
+                    hint += f" · {key}:{ov[key]}"
 
             title_font = QFont(FONT_FAMILY, 14, QFont.Weight.Bold)
             desc_font = QFont(FONT_FAMILY, 11)
@@ -7355,28 +7463,30 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             pad = 12
             gap = 5
             max_w = min(640, vp.width() - 40)
+            # The caption shows its full text, word-wrapped — authoring keeps
+            # it within MAX_DESCRIPTION_CHARS, so the card stays a caption.
+            # The measurement bound still caps a runaway description so the
+            # panel never swallows the whole stage.
+            flags = int(Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignLeft)
+            bound = QRectF(0, 0, max_w, vp.height() * 0.6)
 
             painter.setFont(title_font)
-            tfm = painter.fontMetrics()
-            title_disp = tfm.elidedText(title, Qt.TextElideMode.ElideRight, max_w)
-            title_w = tfm.horizontalAdvance(title_disp)
-            title_h = tfm.height()
+            title_rect = painter.boundingRect(bound, flags, title)
 
-            painter.setFont(desc_font)
-            dfm = painter.fontMetrics()
             desc = ov["description"] or ""
-            desc_disp = dfm.elidedText(desc, Qt.TextElideMode.ElideRight, max_w) if desc else ""
-            desc_w = dfm.horizontalAdvance(desc_disp) if desc_disp else 0
-            desc_h = dfm.height() if desc_disp else 0
+            painter.setFont(desc_font)
+            desc_rect = (painter.boundingRect(bound, flags, desc)
+                         if desc else QRectF())
 
             painter.setFont(hint_font)
-            hfm = painter.fontMetrics()
-            hint_w = hfm.horizontalAdvance(hint)
-            hint_h = hfm.height()
+            hint_rect = painter.boundingRect(bound, flags, hint)
 
-            content_w = max(title_w, desc_w, hint_w)
+            content_w = max(title_rect.width(), desc_rect.width(),
+                            hint_rect.width())
             panel_w = content_w + pad * 2
-            panel_h = title_h + (gap + desc_h if desc_disp else 0) + gap + hint_h + pad * 2
+            panel_h = (title_rect.height()
+                       + (gap + desc_rect.height() if desc else 0)
+                       + gap + hint_rect.height() + pad * 2)
             panel_x = (vp.width() - panel_w) / 2
             panel_y = vp.height() - panel_h - 20
 
@@ -7389,18 +7499,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             cy = panel_y + pad
             painter.setFont(title_font)
             painter.setPen(QPen(QColor(255, 255, 255)))
-            painter.drawText(QPointF(panel_x + pad, cy + tfm.ascent()), title_disp)
-            cy += title_h
-            if desc_disp:
+            painter.drawText(
+                QRectF(panel_x + pad, cy, content_w, title_rect.height()),
+                flags, title)
+            cy += title_rect.height()
+            if desc:
                 cy += gap
                 painter.setFont(desc_font)
                 painter.setPen(QPen(QColor(220, 220, 220)))
-                painter.drawText(QPointF(panel_x + pad, cy + dfm.ascent()), desc_disp)
-                cy += desc_h
+                painter.drawText(
+                    QRectF(panel_x + pad, cy, content_w, desc_rect.height()),
+                    flags, desc)
+                cy += desc_rect.height()
             cy += gap
             painter.setFont(hint_font)
             painter.setPen(QPen(QColor(150, 150, 150)))
-            painter.drawText(QPointF(panel_x + pad, cy + hfm.ascent()), hint)
+            painter.drawText(
+                QRectF(panel_x + pad, cy, content_w, hint_rect.height()),
+                flags, hint)
 
         painter.restore()
 
@@ -8243,6 +8359,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("p", "Cycle paused / playing / loop"),
                 ("F5", "Present flow fullscreen"),
                 ("Esc", "Exit playback / present"),
+                ("Caption", f"Shown in full, wrapped — keep it ≤ "
+                            f"{MAX_DESCRIPTION_CHARS} chars"),
+                ("~detail=", "Flow/step LoD: full / summary (file token, "
+                             "step overrides flow)"),
+                ("~focus=", "Flow/step focus: complete fades partly framed "
+                            "elements"),
             ]),
             ("Export", [
                 ("Y", "Yank diagram as PNG to clipboard"),

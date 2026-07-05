@@ -48,7 +48,9 @@ from grafli.slideplan import (  # noqa: F401
     _container_box,
     _slide_source,
     build_slide_plan,
+    live_overlays,
     playback_text_fit,
+    slide_presentation,
 )
 
 # Slide palette — the slide IS the canvas: paper background everywhere so the
@@ -432,13 +434,17 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     ip.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     # Keep notes out of the raster: they are redrawn below as native text at
     # their mapped scene position, so links stay clickable and text selectable.
-    # Suppress the container box's own chrome too — its label is in the title bar.
-    with _hidden(list(plan.overlays) + list(plan.chrome_suppress)):
-        if plan.isolate:
-            with isolate_focus(view, plan.isolate):
+    # Suppress the container box's own chrome too — its label is in the title
+    # bar. The step's detail/focus settings apply for the raster's duration;
+    # notes they hide or fade stay in the raster instead of overlaying as text.
+    with slide_presentation(view, plan):
+        overlays = live_overlays(view, plan)
+        with _hidden(overlays + list(plan.chrome_suppress)):
+            if plan.isolate:
+                with isolate_focus(view, plan.isolate):
+                    view._scene.render(ip, QRectF(0, 0, iw, ih), source)
+            else:
                 view._scene.render(ip, QRectF(0, 0, iw, ih), source)
-        else:
-            view._scene.render(ip, QRectF(0, 0, iw, ih), source)
     ip.end()
     # Slide and diagram share the paper background, so the image drops in with
     # no visible seam — no frame needed.
@@ -447,7 +453,7 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     # Overlay each note as real text at its mapped position (same source->fitted
     # transform as the image), sized to the scene scale so it reads in place.
     overloaded = False
-    for item in plan.overlays:
+    for item in overlays:
         nr = item.sceneBoundingRect()
         mapped = QRectF(fitted.left() + (nr.left() - source.left()) * scale,
                         fitted.top() + (nr.top() - source.top()) * scale,

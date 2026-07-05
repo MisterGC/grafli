@@ -39,7 +39,8 @@ from PySide6.QtGui import QFont, QImage, QPainter, QTextDocument
 from grafli.constants import FONT_FAMILY, resolve_textsize_px
 from grafli.flows import isolate_focus, render_thumbnail_art
 from grafli.md_note import note_is_md, note_md_body
-from grafli.slideplan import SlidePlan, build_slide_plan, playback_text_fit
+from grafli.slideplan import (SlidePlan, build_slide_plan, live_overlays,
+                              playback_text_fit, slide_presentation)
 
 # PowerPoint 16:9 canvas in points — same fixed geometry as the PDF exporter, so
 # the fractional layout math below mirrors pdfexport on a 960x540 pt page. When
@@ -470,7 +471,11 @@ def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
     fitted = QRectF(hero.left() + (hero.width() - tw) / 2,
                     hero.top() + (hero.height() - th_) / 2, tw, th_)
 
-    img = _render_region(view, plan, fitted)
+    # The step's detail/focus settings apply for the raster's duration; notes
+    # they hide or fade stay in the raster instead of overlaying as text.
+    with slide_presentation(view, plan):
+        overlays = live_overlays(view, plan)
+        img = _render_region(view, plan, fitted, overlays)
     slide.shapes.add_picture(_png_stream(img), Pt(fitted.left()),
                              Pt(fitted.top()), Pt(fitted.width()),
                              Pt(fitted.height()))
@@ -478,7 +483,7 @@ def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
     # Overlay each note as an editable textbox at its mapped position, sized to
     # the same scene scale the diagram was scaled by so it reads in place.
     overloaded = False
-    for item in plan.overlays:
+    for item in overlays:
         if _build_note_overlay(slide, item, source, fitted, scale):
             overloaded = True
 
@@ -744,11 +749,16 @@ def _add_run(para, text: str, size_pt: float, font_ref: str, color, *,
 
 # ── raster ───────────────────────────────────────────────────────────────────
 
-def _render_region(view, plan: SlidePlan, fitted: QRectF) -> QImage:
+def _render_region(view, plan: SlidePlan, fitted: QRectF,
+                   overlays: list | None = None) -> QImage:
     """Rasterize the plan's framed scene region to a transparent QImage at the
     fitted size (capped), with overlay notes and container chrome hidden and an
-    isolate scope applied — identical to the PDF exporter's diagram raster."""
+    isolate scope applied — identical to the PDF exporter's diagram raster.
+    ``overlays`` narrows which notes are kept out of the raster (defaults to
+    all of the plan's)."""
     source = plan.source
+    if overlays is None:
+        overlays = list(plan.overlays)
     iw, ih = max(1, round(fitted.width())), max(1, round(fitted.height()))
     cap = 4096
     # Render at 4x slide points (~288 DPI, on par with the PDF's 300) so the
@@ -766,7 +776,7 @@ def _render_region(view, plan: SlidePlan, fitted: QRectF) -> QImage:
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     ip.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     from grafli.pdfexport import _hidden
-    with _hidden(list(plan.overlays) + list(plan.chrome_suppress)):
+    with _hidden(list(overlays) + list(plan.chrome_suppress)):
         if plan.isolate:
             with isolate_focus(view, plan.isolate):
                 view._scene.render(ip, QRectF(0, 0, iw, ih), source)

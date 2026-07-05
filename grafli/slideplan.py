@@ -14,11 +14,14 @@ out is the decision logic, not the Qt dependency.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QRectF
 
-from grafli.flows import bookmark_target_rect, text_slide_note
+from grafli.flows import (bookmark_target_rect, presentation_detail,
+                          presentation_focus, step_detail, step_focus,
+                          text_slide_note)
 
 
 @dataclass
@@ -52,6 +55,10 @@ class SlidePlan:
     isolate: list[str] | None = None
     overlays: list = field(default_factory=list)        # note items → live text
     chrome_suppress: list = field(default_factory=list)  # items hidden in raster
+    # Effective per-step presentation settings (step ← flow, "" = inherit /
+    # off) — applied around the raster via slide_presentation().
+    detail: str = ""
+    focus: str = ""
 
 
 def build_slide_plan(view, flow) -> list[SlidePlan]:
@@ -68,8 +75,39 @@ def build_slide_plan(view, flow) -> list[SlidePlan]:
     total = len(flow.steps)
     for i, step in enumerate(flow.steps):
         bm = board.bookmark_by_id(step.ref)
-        plans.append(_content_plan(view, bm, i, total))
+        plan = _content_plan(view, bm, i, total)
+        plan.detail = step_detail(flow, step)
+        plan.focus = step_focus(flow, step)
+        plans.append(plan)
     return plans
+
+
+@contextmanager
+def slide_presentation(view, plan: SlidePlan):
+    """Apply a plan's detail/focus settings for the duration of its raster.
+
+    The focus frame is the plan's own source rect: the exported image shows
+    exactly that region, so "completely inside the frame" and "completely on
+    the slide" coincide."""
+    with presentation_detail(view, plan.detail):
+        rect = (plan.source if plan.focus == "complete"
+                and plan.source is not None else None)
+        with presentation_focus(view, rect):
+            yield
+
+
+def live_overlays(view, plan: SlidePlan) -> list:
+    """The plan's overlay notes that should still be drawn as native text
+    under its presentation settings — call inside :func:`slide_presentation`.
+
+    A note hidden by a "summary" collapse is subsumed by its container's tile;
+    a note faded by "complete" focus must keep its faded raster look instead
+    of being re-drawn as full-opacity text."""
+    items = [it for it in plan.overlays if it.isVisible()]
+    if plan.focus == "complete" and plan.source is not None:
+        contained = view._presentation_focus_contained()
+        items = [it for it in items if it.note.id in contained]
+    return items
 
 
 def _content_plan(view, bm, index: int, total: int) -> SlidePlan:

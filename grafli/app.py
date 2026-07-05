@@ -1571,10 +1571,32 @@ def _cmd_render(argv: list[str]) -> int:
         help="Render the zoomed-out semantic-zoom reading (containers "
              "collapse to tiles, as when the whole board is fitted on screen)",
     )
+    parser.add_argument(
+        "--step", default=None, metavar="FLOW:N",
+        help="Render step N (1-based) of a flow exactly as playback shows it: "
+             "the step's bookmark framing with its detail/focus settings "
+             "resolved (step ← flow ← default)",
+    )
+    parser.add_argument(
+        "--detail", default=None, choices=("full", "summary"),
+        help="Presentation detail override: 'full' renders everything as "
+             "authored, 'summary' collapses containers to tiles (with --step: "
+             "overrides the step's own setting)",
+    )
+    parser.add_argument(
+        "--focus-mode", default=None, choices=("none", "complete"),
+        help="Presentation focus: 'complete' dims elements not completely "
+             "inside the framed region — needs --bookmark or --step (with "
+             "--step: overrides the step's own setting)",
+    )
     args = parser.parse_args(argv)
 
-    if args.focus and args.bookmark:
-        print("--focus and --bookmark are mutually exclusive", file=sys.stderr)
+    exclusive = [n for n, v in (("--focus", args.focus),
+                                ("--bookmark", args.bookmark),
+                                ("--step", args.step)) if v]
+    if len(exclusive) > 1:
+        print(f"{' and '.join(exclusive)} are mutually exclusive",
+              file=sys.stderr)
         return 2
 
     if not args.input.exists():
@@ -1602,17 +1624,44 @@ def _cmd_render(argv: list[str]) -> int:
 
     region = None
     iso_ctx = nullcontext()
-    if args.bookmark:
+    detail = args.detail
+    focus_mode = args.focus_mode
+    bookmark_id = args.bookmark
+    if args.step:
+        from grafli.flows import step_detail, step_focus
+        flow_id, _, step_no = args.step.partition(":")
+        flow = board.flow_by_id(flow_id)
+        if flow is None:
+            ids = ", ".join(f.id for f in board.flows) or "none"
+            print(f"Flow '{flow_id}' not found. Available: {ids}",
+                  file=sys.stderr)
+            return 2
+        try:
+            idx = int(step_no) - 1
+        except ValueError:
+            idx = -1
+        if not 0 <= idx < len(flow.steps):
+            print(f"--step wants FLOW:N with N in 1..{len(flow.steps)} "
+                  f"for flow '{flow_id}'", file=sys.stderr)
+            return 2
+        step = flow.steps[idx]
+        bookmark_id = step.ref
+        # Explicit CLI flags override the step's resolved settings.
+        if detail is None:
+            detail = step_detail(flow, step) or None
+        if focus_mode is None:
+            focus_mode = step_focus(flow, step) or None
+    if bookmark_id:
         from grafli.flows import bookmark_target_rect, isolate_focus
-        bm = board.bookmark_by_id(args.bookmark)
+        bm = board.bookmark_by_id(bookmark_id)
         if bm is None:
             ids = ", ".join(b.id for b in board.bookmarks) or "none"
-            print(f"Bookmark '{args.bookmark}' not found. Available: {ids}",
+            print(f"Bookmark '{bookmark_id}' not found. Available: {ids}",
                   file=sys.stderr)
             return 2
         region = bookmark_target_rect(view, bm)
         if region.isNull():
-            print(f"Bookmark '{args.bookmark}' resolves to no region "
+            print(f"Bookmark '{bookmark_id}' resolves to no region "
                   f"(dangling focus ids?)", file=sys.stderr)
             return 2
         if bm.isolate and bm.focus:
@@ -1642,6 +1691,17 @@ def _cmd_render(argv: list[str]) -> int:
             view.scale(fit, fit)
         view._lod_dirty = True
         view._refresh_lod()
+
+    if detail:
+        view._set_presentation_detail(detail)
+    if focus_mode == "complete":
+        if region is None:
+            print("--focus-mode complete needs a framed region — pass "
+                  "--bookmark or --step", file=sys.stderr)
+            return 2
+        # The output image has the region's aspect, so "completely inside the
+        # frame" and "completely in the picture" coincide.
+        view._set_presentation_focus(region)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with iso_ctx:
@@ -1770,6 +1830,17 @@ def _cmd_export(argv: list[str]) -> int:
                     f"bookmark '{bm.id}' anchors missing element '{fid}'"
                 )
 
+    # Over-long captions: playback and slides show the full description
+    # wrapped, so a caption past the budget stops being a caption.
+    from grafli.format import MAX_DESCRIPTION_CHARS
+    overlong: list[dict] = []
+    for bm_id in dict.fromkeys(step.ref for step in flow.steps):
+        bm = board.bookmark_by_id(bm_id)
+        if bm is not None and len(bm.description) > MAX_DESCRIPTION_CHARS:
+            overlong.append({"bookmark": bm.id,
+                             "chars": len(bm.description),
+                             "max": MAX_DESCRIPTION_CHARS})
+
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
     _register_bundled_fonts()
@@ -1805,10 +1876,11 @@ def _cmd_export(argv: list[str]) -> int:
             "overloaded": [
                 {"slide": i + 1, "label": lbl} for i, lbl in overloaded
             ],
+            "overlong": overlong,
             "dangling": dangling,
             "missing_docs": list(missing),
         }
-        clean = not (overloaded or dangling or missing)
+        clean = not (overloaded or overlong or dangling or missing)
         if args.json:
             print(_json.dumps(report, indent=2))
         else:
@@ -1817,6 +1889,10 @@ def _cmd_export(argv: list[str]) -> int:
                 print(f"[overloaded] slide #{entry['slide']} "
                       f"{entry['label']}".rstrip()
                       + " — trim the text or split the slide")
+            for entry in overlong:
+                print(f"[overlong-caption] bookmark '{entry['bookmark']}' — "
+                      f"{entry['chars']} chars (max {entry['max']}); "
+                      f"shorten it or split the stop")
             for msg in dangling:
                 print(f"[dangling] {msg}")
             for name in missing:
@@ -1829,6 +1905,10 @@ def _cmd_export(argv: list[str]) -> int:
 
     for msg in dangling:
         print(f"Warning: {msg}", file=sys.stderr)
+    for entry in overlong:
+        print(f"Warning: bookmark '{entry['bookmark']}' caption is "
+              f"{entry['chars']} chars (max {entry['max']}) — shorten it or "
+              f"split the stop", file=sys.stderr)
     if suffix == ".pptx":
         from grafli.pptxexport import export_flow_to_pptx
         slides, overloaded = export_flow_to_pptx(

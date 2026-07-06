@@ -60,7 +60,7 @@ your diagram is the graph; the detail lives in notes adjacent to it.
 ## Arrow syntax
 
 ```
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [!style] [~size] [~kind=graph|annotation] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [~size] [~kind=graph|annotation] [# annotation]
 ```
 
 | Feature | Syntax | Effect |
@@ -70,10 +70,13 @@ your diagram is the graph; the detail lives in notes adjacent to it.
 | Direction | `<->` | bidirectional |
 | Direction | `--` | line only (no arrowheads) |
 | Label offset | `@dx,dy` | shift label position by `dx,dy` px from center |
-| Style | (default) | solid line |
-| Style | `!dashed` | dashed line |
-| Style | `!dotted` | dotted line |
-| Style | `!thick` | double-width solid line |
+| Colour | `%token` / `#hex` | override the kind-derived line colour (same palette as boxes) |
+| Pattern | (default) | solid line |
+| Pattern | `!dashed` | dashed line |
+| Pattern | `!dotted` | dotted line |
+| Thickness | (default) | width tracks the linked nodes' size |
+| Thickness | `!thin` | half-width line |
+| Thickness | `!thick` | double-width line |
 | Text size | `~size` | as for boxes |
 | Connector kind | `~kind=graph` / `~kind=annotation` | override the endpoint default (see below) |
 | Annotation | `# text` | authoring metadata (indicator dot, not visible text) |

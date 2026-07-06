@@ -147,9 +147,11 @@ section.
 |-----|--------|
 | <kbd>e</kbd> | Edit arrow label |
 | <kbd>s</kbd> | Arrow style mode |
-| <kbd>h</kbd> / <kbd>l</kbd> | Toggle arrowheads |
-| <kbd>j</kbd> / <kbd>k</kbd> | Arrow label size |
-| <kbd>Shift</kbd>+<kbd>J</kbd> / <kbd>Shift</kbd>+<kbd>K</kbd> | Cycle arrow style |
+| <kbd>s</kbd> then <kbd>c</kbd> | Connector appearance overlay — heads, line pattern, thickness, colour (`j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels) |
+| <kbd>s</kbd> then <kbd>t</kbd> | Connector label-text overlay (size) |
+| <kbd>h</kbd> / <kbd>l</kbd> | Toggle arrowheads (in style mode) |
+| <kbd>j</kbd> / <kbd>k</kbd> | Arrow label size (in style mode) |
+| <kbd>Shift</kbd>+<kbd>J</kbd> / <kbd>Shift</kbd>+<kbd>K</kbd> | Cycle line pattern (in style mode) |
 | <kbd>s</kbd> then <kbd>a</kbd> | Toggle connector kind: **graph edge** ⇄ **annotation** (a graph edge to a note or image makes it a node) |
 
 ## Buffers

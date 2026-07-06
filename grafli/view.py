@@ -353,6 +353,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._icon_picker_index: int = 0
         self._icon_picker_placement: str = ""
         self._icon_picker_original: dict[str, tuple[str, str]] = {}
+        # Connector option overlay (arrow style mode -> c / t): a multi-row
+        # picker over a connector's axes (heads, line, thickness, colour) or its
+        # label text, with live preview. Generalises the colour grid to N axes.
+        self._conn_overlay_active: bool = False
+        self._conn_overlay_axes: list = []
+        self._conn_overlay_row: int = 0
+        self._conn_overlay_kind: str = "appearance"   # "appearance" | "text"
+        self._conn_overlay_original: dict = {}
         # Type grid (style mode -> s): size rows x emphasis columns, live.
         self._type_picker_active: bool = False
         self._type_picker_size_idx: int = 1   # "" (medium)
@@ -538,6 +546,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._draw_color_picker(painter)
         self._draw_icon_picker(painter)
         self._draw_type_picker(painter)
+        self._draw_connector_overlay(painter)
         self._draw_toast(painter)
 
     # Grid mode cycle order for the # key / "grid" action.
@@ -1048,7 +1057,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 # Thickness tracks the size of the linked nodes (visual hierarchy).
                 arrow_width = self._connector_width(from_elem, to_elem)
 
+            # A per-connector colour overrides the kind-derived default.
+            if fwd.color:
+                resolved = _resolve_color(fwd.color)
+                if resolved:
+                    arrow_color = QColor(resolved)
+
             # Arrowheads grow with the line, but gently, so they stay tasteful.
+            # Sized off the base width so an explicit thickness doesn't bloat them.
             head_size = ARROWHEAD_SIZE * (arrow_width / ARROW_WIDTH) ** 0.6
 
             pen = QPen(arrow_color, arrow_width)
@@ -1057,8 +1073,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 pen.setStyle(Qt.PenStyle.DashLine)
             elif fwd.style == "dotted":
                 pen.setStyle(Qt.PenStyle.DotLine)
-            elif fwd.style == "thick":
+            if fwd.thickness == "thick":
                 pen.setWidthF(arrow_width * 2)
+            elif fwd.thickness == "thin":
+                pen.setWidthF(max(0.5, arrow_width * 0.5))
 
             # Calculate start/end points
             if both_boxes:
@@ -3029,7 +3047,282 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             )
 
     def _clear_arrow_mode(self):
+        if self._conn_overlay_active:
+            self._close_connector_overlay()
         self._set_arrow_mode("")
+
+    # ── Connector option overlay (style mode -> c / t) ──
+
+    _CONN_HEAD_OPTIONS = (
+        ("None", (False, False)),
+        ("To →", (False, True)),
+        ("← From", (True, False)),
+        ("↔ Both", (True, True)),
+    )
+    _CONN_LINE_OPTIONS = (("Solid", ""), ("Dashed", "dashed"), ("Dotted", "dotted"))
+    _CONN_THICK_OPTIONS = (("Thin", "thin"), ("Normal", ""), ("Thick", "thick"))
+    _CONN_SIZE_OPTIONS = (
+        ("S", "small"), ("M", ""), ("L", "large"), ("XL", "xlarge"),
+        ("2XL", "xxlarge"), ("3XL", "xxxlarge"), ("4XL", "4xl"),
+    )
+    # Fields snapshotted for undo/restore across the overlay's lifetime.
+    _CONN_OVERLAY_FIELDS = ("head_from", "head_to", "style", "thickness",
+                            "color", "textsize")
+
+    def _connector_axes(self, arrow) -> list:
+        """The axis spec for the active overlay kind, bound to ``arrow``."""
+        if self._conn_overlay_kind == "text":
+            return [{
+                "label": "Text size", "kind": "size",
+                "options": list(self._CONN_SIZE_OPTIONS),
+                "get": lambda: arrow.textsize,
+                "set": lambda v: setattr(arrow, "textsize", v),
+            }]
+        return [
+            {"label": "Heads", "kind": "heads", "options": list(self._CONN_HEAD_OPTIONS),
+             "get": lambda: (arrow.head_from, arrow.head_to),
+             "set": lambda v: (setattr(arrow, "head_from", v[0]),
+                               setattr(arrow, "head_to", v[1]))},
+            {"label": "Line", "kind": "line", "options": list(self._CONN_LINE_OPTIONS),
+             "get": lambda: arrow.style,
+             "set": lambda v: setattr(arrow, "style", v)},
+            {"label": "Thickness", "kind": "thickness", "options": list(self._CONN_THICK_OPTIONS),
+             "get": lambda: arrow.thickness,
+             "set": lambda v: setattr(arrow, "thickness", v)},
+            {"label": "Colour", "kind": "color", "options": list(COLOR_PALETTE),
+             "get": lambda: arrow.color,
+             "set": lambda v: setattr(arrow, "color", v)},
+        ]
+
+    def _open_connector_overlay(self, kind: str):
+        arrow = self._selected_arrow
+        if not arrow:
+            return
+        self._conn_overlay_kind = kind
+        self._conn_overlay_axes = self._connector_axes(arrow)
+        self._conn_overlay_row = 0
+        self._conn_overlay_original = {f: getattr(arrow, f)
+                                       for f in self._CONN_OVERLAY_FIELDS}
+        self._conn_overlay_active = True
+        self.viewport().update()
+
+    @staticmethod
+    def _conn_axis_index(axis) -> int:
+        cur = axis["get"]()
+        for i, (_disp, value) in enumerate(axis["options"]):
+            if value == cur:
+                return i
+        return 0
+
+    def _apply_connector_overlay_live(self):
+        """Preview the current choice on the connector (no undo/dirty)."""
+        self._redraw_arrows()
+        if self._selected_arrow:
+            self._select_arrow(self._selected_arrow, keep_mode=True)
+        self._update_arrow_mode_badge_pos()
+        self.viewport().update()
+
+    def _conn_overlay_move_row(self, delta: int):
+        n = len(self._conn_overlay_axes)
+        self._conn_overlay_row = max(0, min(n - 1, self._conn_overlay_row + delta))
+        self.viewport().update()
+
+    def _conn_overlay_cycle(self, delta: int):
+        axis = self._conn_overlay_axes[self._conn_overlay_row]
+        opts = axis["options"]
+        idx = max(0, min(len(opts) - 1, self._conn_axis_index(axis) + delta))
+        axis["set"](opts[idx][1])
+        self._apply_connector_overlay_live()
+
+    def _handle_connector_overlay_key(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self._cancel_connector_overlay()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._commit_connector_overlay()
+        elif key == Qt.Key.Key_K:
+            self._conn_overlay_move_row(-1)
+        elif key == Qt.Key.Key_J:
+            self._conn_overlay_move_row(1)
+        elif key == Qt.Key.Key_H:
+            self._conn_overlay_cycle(-1)
+        elif key == Qt.Key.Key_L:
+            self._conn_overlay_cycle(1)
+
+    def _commit_connector_overlay(self):
+        arrow = self._selected_arrow
+        if not arrow:
+            self._close_connector_overlay()
+            return
+        # Capture the chosen values, restore the pre-overlay state so the undo
+        # snapshot is the original, then re-apply as one undoable step.
+        chosen = {f: getattr(arrow, f) for f in self._CONN_OVERLAY_FIELDS}
+        for f, v in self._conn_overlay_original.items():
+            setattr(arrow, f, v)
+        if chosen != self._conn_overlay_original:
+            self._push_undo()
+            for f, v in chosen.items():
+                setattr(arrow, f, v)
+            self.mark_dirty()
+        self._redraw_arrows()
+        self._select_arrow(arrow, keep_mode=True)
+        self._update_arrow_mode_badge_pos()
+        self._close_connector_overlay()
+
+    def _cancel_connector_overlay(self):
+        arrow = self._selected_arrow
+        if arrow:
+            for f, v in self._conn_overlay_original.items():
+                setattr(arrow, f, v)
+            self._redraw_arrows()
+            self._select_arrow(arrow, keep_mode=True)
+            self._update_arrow_mode_badge_pos()
+        self._close_connector_overlay()
+
+    def _close_connector_overlay(self):
+        self._conn_overlay_active = False
+        self._conn_overlay_axes = []
+        self._conn_overlay_original = {}
+        self.viewport().update()
+
+    @staticmethod
+    def _conn_cell_size(kind: str) -> tuple:
+        """(width, height, gap) for one option cell of the given axis kind."""
+        if kind == "color":
+            return 18.0, 18.0, 4.0
+        if kind == "size":
+            return 26.0, 22.0, 4.0
+        return 44.0, 22.0, 6.0   # heads / line / thickness sample strips
+
+    def _draw_connector_overlay(self, painter: QPainter):
+        """A picker matrix anchored beside the selected connector: one row per
+        axis, each option a preview cell (line sample, colour swatch, arrowhead
+        icon). The selected cell is ringed; the active row glows cyan, the
+        others sit muted so it reads as a grid of choices."""
+        if not self._conn_overlay_active or not self._conn_overlay_axes:
+            return
+        items = list(self._selected_arrow_items)
+        if items:
+            scene_rect = items[0].sceneBoundingRect()
+            for it in items[1:]:
+                scene_rect = scene_rect.united(it.sceneBoundingRect())
+            anchor = self.mapFromScene(scene_rect).boundingRect()
+        else:
+            anchor = self.viewport().rect()
+
+        axes = self._conn_overlay_axes
+        pad, title_h, row_h, label_w = 10, 18, 30, 66
+        content_w = 0.0
+        for axis in axes:
+            cw, _ch, gap = self._conn_cell_size(axis["kind"])
+            n = len(axis["options"])
+            content_w = max(content_w, n * cw + (n - 1) * gap)
+        panel_w = pad * 2 + label_w + content_w
+        panel_h = pad * 2 + title_h + row_h * len(axes)
+        margin = 14
+        vw, vh = self.viewport().width(), self.viewport().height()
+        px = anchor.right() + margin
+        if px + panel_w > vw - 4:
+            px = anchor.left() - margin - panel_w
+        px = max(4, min(px, vw - panel_w - 4))
+        py = anchor.center().y() - panel_h / 2
+        py = max(4, min(py, vh - panel_h - 4))
+
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.96)
+        painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
+
+        cyan = QColor(0, 209, 224)
+        dim_ring = QColor(120, 140, 142)
+        title = ("Connector text" if self._conn_overlay_kind == "text"
+                 else "Connector style")
+        painter.setPen(QPen(QColor(150, 150, 146)))
+        painter.setFont(QFont(FONT_FAMILY, 8))
+        painter.drawText(QRectF(px, py + 4, panel_w, title_h),
+                         Qt.AlignmentFlag.AlignHCenter, title)
+
+        for r, axis in enumerate(axes):
+            ry = py + pad + title_h + r * row_h
+            active = r == self._conn_overlay_row
+            cw, ch, gap = self._conn_cell_size(axis["kind"])
+            cur = self._conn_axis_index(axis)
+            painter.setFont(QFont(FONT_FAMILY, 9))
+            painter.setPen(QPen(QColor(210, 210, 206) if active
+                                else QColor(150, 150, 146)))
+            painter.drawText(QRectF(px + pad, ry, label_w - 4, row_h),
+                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                             axis["label"])
+            cx0 = px + pad + label_w
+            cy = ry + (row_h - ch) / 2
+            for i, (disp, val) in enumerate(axis["options"]):
+                cell = QRectF(cx0 + i * (cw + gap), cy, cw, ch)
+                self._draw_conn_cell(painter, axis["kind"], i, disp, val, cell)
+                if i == cur:
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.setPen(QPen(cyan if active else dim_ring,
+                                        2 if active else 1.3))
+                    painter.drawRoundedRect(cell.adjusted(-2, -2, 2, 2), 4, 4)
+        painter.restore()
+
+    def _draw_conn_cell(self, painter: QPainter, kind: str, idx: int,
+                        disp: str, val, cell: QRectF):
+        """Render one option as a small preview inside ``cell``."""
+        ink = QColor(214, 214, 210)
+        mid_y = cell.center().y()
+        x1, x2 = cell.left() + 6, cell.right() - 6
+        if kind == "color":
+            hexv = _resolve_color(val)
+            painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
+            painter.setBrush(QBrush(QColor(hexv) if hexv else QColor("#E8E4DD")))
+            painter.drawRoundedRect(cell, 4, 4)
+            if not hexv:   # "Default" swatch: a red slash marks "no override"
+                painter.setPen(QPen(QColor(150, 60, 60), 1.5))
+                painter.drawLine(QPointF(cell.left() + 3, cell.bottom() - 3),
+                                 QPointF(cell.right() - 3, cell.top() + 3))
+            return
+        if kind == "size":
+            ramp = [8, 10, 12, 14, 16, 18, 20]
+            painter.setPen(QPen(ink))
+            painter.setFont(QFont(FONT_FAMILY, ramp[min(idx, len(ramp) - 1)]))
+            painter.drawText(cell, Qt.AlignmentFlag.AlignCenter, "A")
+            return
+        if kind == "line":
+            pen = QPen(ink, 2)
+            if val == "dashed":
+                pen.setStyle(Qt.PenStyle.DashLine)
+            elif val == "dotted":
+                pen.setStyle(Qt.PenStyle.DotLine)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(x1, mid_y), QPointF(x2, mid_y))
+            return
+        if kind == "thickness":
+            width = {"thin": 1.0, "": 2.5, "thick": 5.0}.get(val, 2.5)
+            pen = QPen(ink, width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(x1, mid_y), QPointF(x2, mid_y))
+            return
+        if kind == "heads":
+            head_from, head_to = val
+            painter.setPen(QPen(ink, 1.6))
+            painter.drawLine(QPointF(x1, mid_y), QPointF(x2, mid_y))
+            painter.setBrush(QBrush(ink))
+            painter.setPen(QPen(ink, 1))
+            s = 3.6
+            if head_to:
+                painter.drawPolygon(QPolygonF([
+                    QPointF(x2, mid_y), QPointF(x2 - 1.7 * s, mid_y - s),
+                    QPointF(x2 - 1.7 * s, mid_y + s)]))
+            if head_from:
+                painter.drawPolygon(QPolygonF([
+                    QPointF(x1, mid_y), QPointF(x1 + 1.7 * s, mid_y - s),
+                    QPointF(x1 + 1.7 * s, mid_y + s)]))
+            return
 
     # ── Inline text editing ──
 
@@ -4824,6 +5117,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
+        # Connector option overlay owns all input while open
+        if self._conn_overlay_active:
+            self._handle_connector_overlay_key(event)
+            event.accept()
+            return
+
         if event.key() == Qt.Key.Key_Escape:
             if self._search_filter_active:
                 self._clear_search_filter()
@@ -4904,6 +5203,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             # Style mode keys
             if self._arrow_mode == "style":
                 shift_only = (mods_a & _SIGNIFICANT_MODS) == Qt.KeyboardModifier.ShiftModifier
+                # c — open the appearance overlay (heads / line / thickness / colour)
+                if no_mod_a and key == Qt.Key.Key_C:
+                    self._open_connector_overlay("appearance")
+                    self._record_shortcut("connector style → appearance")
+                    event.accept()
+                    return
+                # t — open the label-text overlay (size)
+                if no_mod_a and key == Qt.Key.Key_T:
+                    self._open_connector_overlay("text")
+                    self._record_shortcut("connector style → text")
+                    event.accept()
+                    return
                 # a — toggle connector kind (graph edge ⇄ annotation)
                 if no_mod_a and key == Qt.Key.Key_A:
                     self._push_undo()

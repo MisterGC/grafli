@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Connector style mode.** Select a connector and press `s` then `c` for a
+  live overlay over its four appearance axes — heads (none / from / to /
+  both), line pattern (solid / dashed / dotted), thickness (thin / normal /
+  thick), and colour (the box palette) — or `s` then `t` for the label text.
+  `j`/`k` move between rows, `h`/`l` cycle a row, `Enter` commits as one undo
+  step, `Esc` restores. Connectors gain a `%color` / `#hex` override and a
+  `!thin` / `!thick` thickness split out from the old `!thick` style value;
+  legacy `!thick` files migrate automatically. The style-mode direct keys
+  (`h`/`l` heads, `Shift`+`J`/`K` pattern, `j`/`k` label size, `a` kind) are
+  unchanged. ([#114](https://github.com/MisterGC/grafli/issues/114))
 - **Per-stop level-of-detail for flows.** A flow can now say how its stops
   render under semantic zoom: `~detail=full|summary|auto` on the flow sets
   the default, a step's `detail=` segment (`bm_all:6:detail=summary`)

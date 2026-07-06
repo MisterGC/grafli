@@ -272,7 +272,7 @@ a talk for memory" in `references/design.md` instead.)
 ```
 # Comments and titles
 @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat !bold !italic] [*icon] [&attach] [>parent] [# annotation]
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [!style] [~size] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [~size] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [# annotation]

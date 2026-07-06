@@ -203,7 +203,7 @@ _SIZE_SEQUENCE = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge", "4xl"]
 # Stored numerically (e.g. textsize="16"); legacy named sizes still resolve.
 _SIZE_LADDER = [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 40, 48, 56, 64, 72]
 _BOX_STYLE_CYCLE = ["", "flat"]
-_ARROW_STYLE_CYCLE = ["", "thick", "dashed", "dotted"]
+_ARROW_STYLE_CYCLE = ["", "dashed", "dotted"]       # line pattern only
 
 
 def resolve_textsize_px(textsize: str, default_key: str) -> int:

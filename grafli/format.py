@@ -9,7 +9,9 @@ Format spec:
   @ arrow <from_id> <-> <to_id> "<label>"          (bidirectional)
   @ arrow <from_id> -- <to_id> "<label>"           (no heads)
   @ arrow <from_id> -> <to_id> "label" @<dx>,<dy>  (label offset)
-  @ arrow <from_id> -> <to_id> "label" !dashed     (arrow styles: dashed/dotted/thick)
+  @ arrow <from_id> -> <to_id> "label" [%color]    (color override: %token / #hex)
+  @ arrow <from_id> -> <to_id> "label" !dashed     (line pattern: dashed / dotted)
+  @ arrow <from_id> -> <to_id> "label" !thick      (thickness: thin / thick; default tracks node size)
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
   @ arrow <from_id> -> <to_id> "label" ~kind=graph (connector kind: graph / annotation; default derives from endpoints)
   @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&attach] [>parent]
@@ -102,7 +104,9 @@ class Arrow:
     label: str = ""
     label_dx: float = 0.0
     label_dy: float = 0.0
-    style: str = ""       # "dashed", "dotted", "thick", or "" (solid)
+    style: str = ""       # line pattern: "dashed", "dotted", or "" (solid)
+    thickness: str = ""   # "thin", "thick", or "" (= normal, tracks node size)
+    color: str = ""       # "%token" / "#hex" override, or "" (= kind-derived)
     textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
     head_from: bool = False  # arrowhead at from_id end
     head_to: bool = True     # arrowhead at to_id end
@@ -490,7 +494,8 @@ _RE_ARROW = re.compile(
     r'^@\s+arrow\s+(\S+)\s+(<->|->|<-|--)\s+(\S+)'
     r'(?:\s+"' + _QT + r'")?'
     r'(?:\s+@(-?[\d.]+),(-?[\d.]+))?'
-    r'(?:\s+!(dashed|dotted|thick))?'
+    r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'          # color override
+    r'((?:\s+!(?:dashed|dotted|thin|thick))*)'    # line pattern + thickness flags
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+~kind=(graph|annotation))?'
@@ -684,21 +689,29 @@ def parse(text: str) -> Board:
         m = _RE_ARROW.match(stripped)
         if m:
             op = m.group(2)
-            kind, url = split_attach(m.group(9) or "") if m.group(9) else ("", "")
+            kind, url = split_attach(m.group(10) or "") if m.group(10) else ("", "")
+            flags = m.group(8).split() if m.group(8) else []
+            # A run of "!dashed"/"!dotted"/"!thin"/"!thick" flags in any order.
+            # "thick"/"thin" set thickness; the rest set the line pattern.
+            # Legacy files carrying a bare "!thick" migrate to thickness here.
+            style = next((f[1:] for f in flags if f in ("!dashed", "!dotted")), "")
+            thickness = next((f[1:] for f in flags if f in ("!thin", "!thick")), "")
             arrow = Arrow(
                 from_id=m.group(1),
                 to_id=m.group(3),
                 label=unescape_quoted(m.group(4) or ""),
                 label_dx=float(m.group(5)) if m.group(5) else 0.0,
                 label_dy=float(m.group(6)) if m.group(6) else 0.0,
-                style=m.group(7) or "",
-                textsize=m.group(8) or "",
+                color=m.group(7) or "",
+                style=style,
+                thickness=thickness,
+                textsize=m.group(9) or "",
                 head_from=op in ("<->", "<-"),
                 head_to=op in ("<->", "->"),
                 url=url,
                 attach_kind=kind,
-                kind=m.group(10) or "",
-                annotation=(m.group(11) or "").replace("\\n", "\n"),
+                kind=m.group(11) or "",
+                annotation=(m.group(12) or "").replace("\\n", "\n"),
             )
             board.arrows.append(arrow)
             board._lines.append(("arrow", arrow))
@@ -965,8 +978,12 @@ def _serialize_arrow(arrow: Arrow) -> str:
     dy = _q(arrow.label_dy)
     if dx or dy:
         base += f" @{dx},{dy}"
+    if arrow.color:
+        base += f" {arrow.color}"
     if arrow.style:
         base += f" !{arrow.style}"
+    if arrow.thickness:
+        base += f" !{arrow.thickness}"
     if arrow.textsize:
         base += f" ~{arrow.textsize}"
     base += _attach_token(arrow)

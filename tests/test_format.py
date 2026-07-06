@@ -691,9 +691,11 @@ def test_parse_arrow_dotted():
 
 
 def test_parse_arrow_thick():
+    # Legacy "!thick" migrates from the style enum to the thickness field.
     text = '@ arrow a -> b !thick\n'
     board = parse(text)
-    assert board.arrows[0].style == "thick"
+    assert board.arrows[0].style == ""
+    assert board.arrows[0].thickness == "thick"
 
 
 def test_parse_arrow_bidi():
@@ -771,7 +773,7 @@ def test_serialize_arrow_no_heads():
 
 
 def test_serialize_arrow_bidi_style():
-    arrow = Arrow(from_id="a", to_id="b", style="thick", head_from=True, head_to=True)
+    arrow = Arrow(from_id="a", to_id="b", thickness="thick", head_from=True, head_to=True)
     board = Board()
     board.add_arrow(arrow)
     text = serialize(board)
@@ -800,6 +802,46 @@ def test_arrow_bare_style_roundtrip():
     text = '@ arrow a -> b !thick\n'
     board = parse(text)
     assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_thin_roundtrip():
+    text = '@ arrow a -> b !thin\n'
+    board = parse(text)
+    assert board.arrows[0].thickness == "thin"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_color_roundtrip():
+    text = '@ arrow a -> b %teal\n'
+    board = parse(text)
+    assert board.arrows[0].color == "%teal"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_hex_color_roundtrip():
+    text = '@ arrow a -> b #2F3437\n'
+    board = parse(text)
+    assert board.arrows[0].color == "#2F3437"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_pattern_and_thickness_combined():
+    text = '@ arrow a -> b %primary !dashed !thick ~large\n'
+    board = parse(text)
+    ar = board.arrows[0]
+    assert ar.color == "%primary"
+    assert ar.style == "dashed"
+    assert ar.thickness == "thick"
+    assert ar.textsize == "large"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_flag_order_independent():
+    # thickness before pattern still maps to the right fields.
+    board = parse('@ arrow a -> b !thick !dotted\n')
+    ar = board.arrows[0]
+    assert ar.style == "dotted"
+    assert ar.thickness == "thick"
 
 
 def test_arrow_bidi_bare_roundtrip():

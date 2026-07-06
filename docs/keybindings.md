@@ -145,6 +145,7 @@ section.
 
 | Key | Action |
 |-----|--------|
+| <kbd>Shift</kbd>+click | Add / remove a connector from the selection (format many at once) |
 | <kbd>e</kbd> | Edit arrow label |
 | <kbd>s</kbd> | Arrow style mode |
 | <kbd>s</kbd> then <kbd>c</kbd> | Connector appearance overlay — heads, line pattern, thickness, colour (`j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels) |

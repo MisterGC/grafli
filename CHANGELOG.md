@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Connector multi-select.** Shift+click connectors to build a connector
+  selection, then format them all at once — the `s c` / `s t` overlay and the
+  style-mode direct keys (`h`/`l`, `Shift`+`J`/`K`, `j`/`k`, `a`) apply to
+  every selected connector and commit as one undo step; delete removes them
+  all. The picks are driven by the last-clicked connector and unify the rest.
+  Connector selection stays its own channel (touching a node clears it, and
+  vice-versa). ([#115](https://github.com/MisterGC/grafli/issues/115))
 - **Connector style mode.** Select a connector and press `s` then `c` for a
   live overlay over its four appearance axes — heads (none / from / to /
   both), line pattern (solid / dashed / dotted), thickness (thin / normal /

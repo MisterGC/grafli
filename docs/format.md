@@ -57,9 +57,10 @@ its version. It is required.
   `t` opens the text grid; `Tab` there toggles a note's font.)
 - *(arrows)* a bare `%color` / `#hex` overrides the connector colour;
   `!dashed` / `!dotted` set the line pattern and `!thin` / `!thick` set the
-  thickness (default width tracks the linked nodes). Select a connector and
-  press `s` then `c` for a live overlay over all four axes — heads, line,
-  thickness, colour — or `s` then `t` for the label text.
+  thickness (default width tracks the linked nodes). Select a connector (or
+  shift+click several) and press `s` then `c` for a live overlay over all four
+  axes — heads, line, thickness, colour — or `s` then `t` for the label text;
+  the picks apply to every selected connector at once.
 - `!bold` / `!italic` — *(boxes and notes)* text emphasis layered on the
   size, e.g. `~large !bold` for a heading. Combine freely (`!bold !italic`).
   (Style mode → `t` opens a size × style text grid.)

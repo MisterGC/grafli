@@ -312,8 +312,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._jump_prefix = ""
         self._jump_two_letter = False
 
-        # Arrow selection state
-        self._selected_arrow: Arrow | None = None
+        # Arrow selection state. Connectors are their own selection channel
+        # (separate from Qt scene selection). ``_selected_arrows`` is the full
+        # set; ``_selected_arrow`` (property below) is the primary/last-clicked
+        # one that single-target ops (label edit/drag) act on.
+        self._selected_arrows: list[Arrow] = []
         self._selected_arrow_items: list[QGraphicsItem] = []
 
         # Arrow label drag state
@@ -660,18 +663,44 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     # ── Arrow selection ──
 
-    def _select_arrow(self, arrow: Arrow, keep_mode: bool = False):
+    @property
+    def _selected_arrow(self) -> "Arrow | None":
+        """The primary (last-clicked) connector, or None. Single-target ops
+        use this; bulk ops iterate ``_selected_arrows``."""
+        return self._selected_arrows[-1] if self._selected_arrows else None
+
+    def _select_arrow(self, arrow: Arrow, keep_mode: bool = False,
+                      additive: bool = False):
         if keep_mode:
-            # Lightweight re-select: just refresh graphics items
+            # Lightweight re-highlight of the current selection's graphics.
             self._selected_arrow_items.clear()
-            self._selected_arrow = arrow
+        elif additive:
+            # Shift+click: toggle this connector in/out of the selection. A
+            # re-clicked connector drops out; the selection survives as long as
+            # one connector remains. Identity, not ==, since equal-valued
+            # Arrow dataclasses must stay distinct.
+            if any(a is arrow for a in self._selected_arrows):
+                self._selected_arrows = [a for a in self._selected_arrows
+                                         if a is not arrow]
+                if not self._selected_arrows:
+                    self._deselect_arrow()
+                    return
+            else:
+                self._selected_arrows.append(arrow)
+            self._selected_arrow_items.clear()
         else:
             self._deselect_arrow()
-            self._selected_arrow = arrow
+            self._selected_arrows = [arrow]
         self._scene.clearSelection()
+        self._highlight_selected_arrows()
+
+    def _highlight_selected_arrows(self):
+        """Repaint every selected connector's graphics in the selection blue."""
+        self._selected_arrow_items.clear()
+        selected = self._selected_arrows
         sel_color = QColor("#0178D4")
         for gfx in self._arrow_items:
-            if gfx.data(0) is arrow:
+            if any(gfx.data(0) is a for a in selected):
                 self._selected_arrow_items.append(gfx)
                 if isinstance(gfx, (QGraphicsLineItem, ArrowLineItem)):
                     old_pen = gfx.pen()
@@ -686,10 +715,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     gfx.setBrush(QBrush(sel_color))
 
     def _deselect_arrow(self):
-        if not self._selected_arrow:
+        if not self._selected_arrows:
             return
         self._clear_arrow_mode()
-        self._selected_arrow = None
+        self._selected_arrows = []
         self._selected_arrow_items.clear()
         self._redraw_arrows()
 
@@ -903,7 +932,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._rect_preview = None
         self._connect_line = None
         self._connect_source = None
-        self._selected_arrow = None
+        self._selected_arrows = []
         self._selected_arrow_items.clear()
         self._grow_preview = None
         self._mode_badge = None
@@ -3069,40 +3098,50 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     _CONN_OVERLAY_FIELDS = ("head_from", "head_to", "style", "thickness",
                             "color", "textsize")
 
-    def _connector_axes(self, arrow) -> list:
-        """The axis spec for the active overlay kind, bound to ``arrow``."""
+    def _set_all_arrows(self, field: str, value):
+        for a in self._selected_arrows:
+            setattr(a, field, value)
+
+    def _connector_axes(self) -> list:
+        """The axis spec for the active overlay kind. ``get`` reads the primary
+        connector (what the matrix highlights); ``set`` unifies every selected
+        connector to the pick."""
+        primary = self._selected_arrow
         if self._conn_overlay_kind == "text":
             return [{
                 "label": "Text size", "kind": "size",
                 "options": list(self._CONN_SIZE_OPTIONS),
-                "get": lambda: arrow.textsize,
-                "set": lambda v: setattr(arrow, "textsize", v),
+                "get": lambda: primary.textsize,
+                "set": lambda v: self._set_all_arrows("textsize", v),
             }]
+        def set_heads(v):
+            for a in self._selected_arrows:
+                a.head_from, a.head_to = v
         return [
             {"label": "Heads", "kind": "heads", "options": list(self._CONN_HEAD_OPTIONS),
-             "get": lambda: (arrow.head_from, arrow.head_to),
-             "set": lambda v: (setattr(arrow, "head_from", v[0]),
-                               setattr(arrow, "head_to", v[1]))},
+             "get": lambda: (primary.head_from, primary.head_to),
+             "set": set_heads},
             {"label": "Line", "kind": "line", "options": list(self._CONN_LINE_OPTIONS),
-             "get": lambda: arrow.style,
-             "set": lambda v: setattr(arrow, "style", v)},
+             "get": lambda: primary.style,
+             "set": lambda v: self._set_all_arrows("style", v)},
             {"label": "Thickness", "kind": "thickness", "options": list(self._CONN_THICK_OPTIONS),
-             "get": lambda: arrow.thickness,
-             "set": lambda v: setattr(arrow, "thickness", v)},
+             "get": lambda: primary.thickness,
+             "set": lambda v: self._set_all_arrows("thickness", v)},
             {"label": "Colour", "kind": "color", "options": list(COLOR_PALETTE),
-             "get": lambda: arrow.color,
-             "set": lambda v: setattr(arrow, "color", v)},
+             "get": lambda: primary.color,
+             "set": lambda v: self._set_all_arrows("color", v)},
         ]
 
     def _open_connector_overlay(self, kind: str):
-        arrow = self._selected_arrow
-        if not arrow:
+        if not self._selected_arrows:
             return
         self._conn_overlay_kind = kind
-        self._conn_overlay_axes = self._connector_axes(arrow)
+        self._conn_overlay_axes = self._connector_axes()
         self._conn_overlay_row = 0
-        self._conn_overlay_original = {f: getattr(arrow, f)
-                                       for f in self._CONN_OVERLAY_FIELDS}
+        # Snapshot every selected connector so commit/cancel are exact.
+        self._conn_overlay_original = {
+            id(a): {f: getattr(a, f) for f in self._CONN_OVERLAY_FIELDS}
+            for a in self._selected_arrows}
         self._conn_overlay_active = True
         self.viewport().update()
 
@@ -3150,32 +3189,39 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._conn_overlay_cycle(1)
 
     def _commit_connector_overlay(self):
-        arrow = self._selected_arrow
-        if not arrow:
+        arrows = list(self._selected_arrows)
+        if not arrows:
             self._close_connector_overlay()
             return
-        # Capture the chosen values, restore the pre-overlay state so the undo
-        # snapshot is the original, then re-apply as one undoable step.
-        chosen = {f: getattr(arrow, f) for f in self._CONN_OVERLAY_FIELDS}
-        for f, v in self._conn_overlay_original.items():
-            setattr(arrow, f, v)
-        if chosen != self._conn_overlay_original:
+        # Capture each connector's chosen (live-previewed) values, restore the
+        # pre-overlay state so the undo snapshot is the original, then re-apply
+        # every connector's choice as one undoable step.
+        chosen = {id(a): {f: getattr(a, f) for f in self._CONN_OVERLAY_FIELDS}
+                  for a in arrows}
+        changed = any(chosen[id(a)] != self._conn_overlay_original.get(id(a))
+                      for a in arrows)
+        for a in arrows:
+            for f, v in self._conn_overlay_original.get(id(a), {}).items():
+                setattr(a, f, v)
+        if changed:
             self._push_undo()
-            for f, v in chosen.items():
-                setattr(arrow, f, v)
+            for a in arrows:
+                for f, v in chosen[id(a)].items():
+                    setattr(a, f, v)
             self.mark_dirty()
         self._redraw_arrows()
-        self._select_arrow(arrow, keep_mode=True)
+        self._select_arrow(self._selected_arrow, keep_mode=True)
         self._update_arrow_mode_badge_pos()
         self._close_connector_overlay()
 
     def _cancel_connector_overlay(self):
-        arrow = self._selected_arrow
-        if arrow:
-            for f, v in self._conn_overlay_original.items():
-                setattr(arrow, f, v)
+        arrows = list(self._selected_arrows)
+        if arrows:
+            for a in arrows:
+                for f, v in self._conn_overlay_original.get(id(a), {}).items():
+                    setattr(a, f, v)
             self._redraw_arrows()
-            self._select_arrow(arrow, keep_mode=True)
+            self._select_arrow(self._selected_arrow, keep_mode=True)
             self._update_arrow_mode_badge_pos()
         self._close_connector_overlay()
 
@@ -5154,11 +5200,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            if self._selected_arrow:
+            if self._selected_arrows:
                 self._push_undo()
                 self._clear_arrow_mode()
-                self._board.remove_arrow(self._selected_arrow)
-                self._selected_arrow = None
+                for arrow in self._selected_arrows:
+                    self._board.remove_arrow(arrow)
+                self._selected_arrows = []
                 self._selected_arrow_items.clear()
                 self._redraw_arrows()
                 self.mark_dirty()
@@ -5215,19 +5262,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     self._record_shortcut("connector style → text")
                     event.accept()
                     return
-                # a — toggle connector kind (graph edge ⇄ annotation)
+                # a — toggle connector kind (graph edge ⇄ annotation); the
+                # primary drives the new value, which unifies the whole selection
                 if no_mod_a and key == Qt.Key.Key_A:
                     self._push_undo()
-                    arrow = self._selected_arrow
-                    arrow.kind = ("graph" if self._is_annotation_link(arrow)
-                                  else "annotation")
-                    self._last_connector_kind = arrow.kind
+                    primary = self._selected_arrow
+                    new_kind = ("graph" if self._is_annotation_link(primary)
+                                else "annotation")
+                    for a in self._selected_arrows:
+                        a.kind = new_kind
+                    self._last_connector_kind = new_kind
                     self._redraw_arrows()
-                    self._select_arrow(arrow, keep_mode=True)
+                    self._select_arrow(self._selected_arrow, keep_mode=True)
                     self._update_arrow_mode_badge_pos()
                     self.mark_dirty()
                     self._record_shortcut(
-                        "connector → graph edge" if arrow.kind == "graph"
+                        "connector → graph edge" if new_kind == "graph"
                         else "connector → annotation")
                     event.accept()
                     return
@@ -5238,25 +5288,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     Qt.Key.Key_J, Qt.Key.Key_K,
                 )):
                     self._push_undo()
-                    arrow = self._selected_arrow
+                    primary = self._selected_arrow
                     if no_mod_a and key == Qt.Key.Key_H:
-                        arrow.head_from = not arrow.head_from
+                        self._set_all_arrows("head_from", not primary.head_from)
                     elif no_mod_a and key == Qt.Key.Key_L:
-                        arrow.head_to = not arrow.head_to
+                        self._set_all_arrows("head_to", not primary.head_to)
                     elif no_mod_a and key == Qt.Key.Key_J:
-                        idx = _SIZE_SEQUENCE.index(arrow.textsize) if arrow.textsize in _SIZE_SEQUENCE else 0
-                        arrow.textsize = _SIZE_SEQUENCE[min(idx + 1, len(_SIZE_SEQUENCE) - 1)]
+                        idx = _SIZE_SEQUENCE.index(primary.textsize) if primary.textsize in _SIZE_SEQUENCE else 0
+                        self._set_all_arrows("textsize", _SIZE_SEQUENCE[min(idx + 1, len(_SIZE_SEQUENCE) - 1)])
                     elif no_mod_a and key == Qt.Key.Key_K:
-                        idx = _SIZE_SEQUENCE.index(arrow.textsize) if arrow.textsize in _SIZE_SEQUENCE else 0
-                        arrow.textsize = _SIZE_SEQUENCE[max(idx - 1, 0)]
+                        idx = _SIZE_SEQUENCE.index(primary.textsize) if primary.textsize in _SIZE_SEQUENCE else 0
+                        self._set_all_arrows("textsize", _SIZE_SEQUENCE[max(idx - 1, 0)])
                     elif shift_only and key == Qt.Key.Key_J:
-                        idx = _ARROW_STYLE_CYCLE.index(arrow.style) if arrow.style in _ARROW_STYLE_CYCLE else 0
-                        arrow.style = _ARROW_STYLE_CYCLE[(idx + 1) % len(_ARROW_STYLE_CYCLE)]
+                        idx = _ARROW_STYLE_CYCLE.index(primary.style) if primary.style in _ARROW_STYLE_CYCLE else 0
+                        self._set_all_arrows("style", _ARROW_STYLE_CYCLE[(idx + 1) % len(_ARROW_STYLE_CYCLE)])
                     elif shift_only and key == Qt.Key.Key_K:
-                        idx = _ARROW_STYLE_CYCLE.index(arrow.style) if arrow.style in _ARROW_STYLE_CYCLE else 0
-                        arrow.style = _ARROW_STYLE_CYCLE[(idx - 1) % len(_ARROW_STYLE_CYCLE)]
+                        idx = _ARROW_STYLE_CYCLE.index(primary.style) if primary.style in _ARROW_STYLE_CYCLE else 0
+                        self._set_all_arrows("style", _ARROW_STYLE_CYCLE[(idx - 1) % len(_ARROW_STYLE_CYCLE)])
                     self._redraw_arrows()
-                    self._select_arrow(arrow, keep_mode=True)
+                    self._select_arrow(self._selected_arrow, keep_mode=True)
                     self._update_arrow_mode_badge_pos()
                     self.mark_dirty()
                     event.accept()
@@ -5317,10 +5367,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
         if event.key() == Qt.Key.Key_X and no_mod:
-            if self._selected_arrow:
+            if self._selected_arrows:
                 self._push_undo()
-                self._board.remove_arrow(self._selected_arrow)
-                self._selected_arrow = None
+                self._clear_arrow_mode()
+                for arrow in self._selected_arrows:
+                    self._board.remove_arrow(arrow)
+                self._selected_arrows = []
                 self._selected_arrow_items.clear()
                 self._redraw_arrows()
                 self.mark_dirty()
@@ -5847,7 +5899,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Shift+click toggles selection on individual items
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Shift+click on a connector: accumulate it in the connector
+            # selection (its own channel, so bulk-format many at once).
+            if isinstance(item, (ArrowLineItem, QGraphicsLineItem,
+                                 QGraphicsPolygonItem, QGraphicsSimpleTextItem)):
+                arrow_data = item.data(0)
+                if isinstance(arrow_data, Arrow):
+                    self._select_arrow(arrow_data, additive=True)
+                    event.accept()
+                    return
             if isinstance(resolved, (BoxItem, NoteItem, ImageItem)):
+                # Cross-channel: touching a node clears any connector selection.
+                self._deselect_arrow()
                 # Shift on a resize handle of an already-selected item starts a
                 # ratio-locked scale, not a selection toggle — let the item's
                 # own mousePressEvent begin the drag.

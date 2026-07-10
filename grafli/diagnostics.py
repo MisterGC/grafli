@@ -90,6 +90,30 @@ def _items_with_rects(board: Board, note_rect: NoteRectFn | None = None):
                 yield n, n.id, r
 
 
+def check_parse_errors(board: Board) -> list[Diagnostic]:
+    """Surface lines the parser dropped (demoted to comments) as errors.
+
+    This is the scariest failure class for hand/AI edits: a misordered
+    modifier or unterminated triple-quote makes the whole element vanish
+    from the render with no visible trace. The parser records these as
+    ``board.parse_warnings``; here they become machine-checkable.
+    """
+    diags: list[Diagnostic] = []
+    for w in getattr(board, "parse_warnings", []) or []:
+        excerpt = w.text if len(w.text) <= 60 else w.text[:57] + "..."
+        diags.append(Diagnostic(
+            code="parse-error",
+            severity=ERROR,
+            message=(
+                f"line {w.line}: {w.reason} — the element does not render "
+                f"({excerpt!r})"
+            ),
+            item_ids=[],
+            fixable=True,
+        ))
+    return diags
+
+
 def check_child_outside_parent(
     board: Board, note_rect: NoteRectFn | None = None,
 ) -> list[Diagnostic]:
@@ -418,6 +442,7 @@ def run_all(
     arrow_label_size: ArrowLabelSizeFn | None = None,
 ) -> list[Diagnostic]:
     diags: list[Diagnostic] = []
+    diags.extend(check_parse_errors(board))
     diags.extend(check_child_outside_parent(board, note_rect=note_rect))
     diags.extend(check_sibling_overlap(board, note_rect=note_rect))
     diags.extend(check_cramped_container(board, note_rect=note_rect))

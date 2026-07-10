@@ -3,7 +3,8 @@
 Pure logic lives here; the CLI orchestrator in ``app.py`` adds prompts,
 TTY detection, and exit codes. Each target maps to a user-level skill
 directory following the agentskills.io convention — one directory per
-skill, named ``grafli``, containing a ``SKILL.md``.
+skill, named ``grafli``, containing a ``SKILL.md`` plus a ``references/``
+directory of on-demand reference files.
 """
 
 from __future__ import annotations
@@ -105,10 +106,28 @@ def target_path(target: str) -> Path:
     return TARGETS[target] / "SKILL.md"
 
 
+def _references_match(target: str, references: dict[str, str]) -> bool:
+    """True when the installed ``references/`` directory carries exactly
+    the packaged set — same file names, same content. An empty packaged
+    set matches a missing/empty directory (pre-multi-file installs).
+    """
+    ref_dir = TARGETS[target] / "references"
+    installed = (
+        {p.name: p for p in ref_dir.glob("*.md")} if ref_dir.is_dir() else {}
+    )
+    if set(installed) != set(references):
+        return False
+    return all(
+        installed[name].read_text(encoding="utf-8") == content
+        for name, content in references.items()
+    )
+
+
 # ── status detection ──────────────────────────────────────────────
 
 def compute_status(
     target: str, packaged_content: str, packaged_version: str,
+    references: dict[str, str] | None = None,
 ) -> TargetStatus:
     path = target_path(target)
     if not path.exists():
@@ -119,7 +138,9 @@ def compute_status(
 
     installed = path.read_text(encoding="utf-8")
     installed_ver = extract_version(installed)
-    if _canonical(installed) == _canonical(packaged_content):
+    skill_ok = _canonical(installed) == _canonical(packaged_content)
+    refs_ok = _references_match(target, references or {})
+    if skill_ok and refs_ok:
         status = OK
     elif installed_ver is None:
         status = UNKNOWN
@@ -135,22 +156,35 @@ def compute_status(
 
 def compute_all(
     targets: Iterable[str], packaged_content: str, packaged_version: str,
+    references: dict[str, str] | None = None,
 ) -> list[TargetStatus]:
-    return [compute_status(t, packaged_content, packaged_version) for t in targets]
+    return [
+        compute_status(t, packaged_content, packaged_version, references)
+        for t in targets
+    ]
 
 
 # ── write / remove primitives ─────────────────────────────────────
 
 def write_skill(
     target: str, packaged_content: str, packaged_version: str,
+    references: dict[str, str] | None = None,
 ) -> Path:
-    """Write the stamped SKILL.md for ``target``. Creates parent dirs.
-    Returns the written path.
+    """Write the stamped SKILL.md and the ``references/`` set for
+    ``target``. Creates parent dirs; replaces any existing references
+    directory so stale files never linger. Returns the SKILL.md path.
     """
     path = target_path(target)
     path.parent.mkdir(parents=True, exist_ok=True)
     stamped = stamp_skill(packaged_content, packaged_version)
     path.write_text(stamped, encoding="utf-8")
+    ref_dir = path.parent / "references"
+    if ref_dir.exists():
+        shutil.rmtree(ref_dir)
+    if references:
+        ref_dir.mkdir()
+        for name, content in references.items():
+            (ref_dir / name).write_text(content, encoding="utf-8")
     return path
 
 

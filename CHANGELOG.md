@@ -5,7 +5,118 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-07-10
+
+### Added
+- **Connector multi-select.** Shift+click connectors to build a connector
+  selection, then format them all at once — the `s c` / `s t` overlay and the
+  style-mode direct keys (`h`/`l`, `Shift`+`J`/`K`, `j`/`k`, `a`) apply to
+  every selected connector and commit as one undo step; delete removes them
+  all. The picks are driven by the last-clicked connector and unify the rest.
+  Connector selection stays its own channel (touching a node clears it, and
+  vice-versa). ([#115](https://github.com/MisterGC/grafli/issues/115))
+- **Connector style mode.** Select a connector and press `s` then `c` for a
+  live overlay over its four appearance axes — heads (none / from / to /
+  both), line pattern (solid / dashed / dotted), thickness (thin / normal /
+  thick), and colour (the box palette) — or `s` then `t` for the label text.
+  `j`/`k` move between rows, `h`/`l` cycle a row, `Enter` commits as one undo
+  step, `Esc` restores. Connectors gain a `%color` / `#hex` override and a
+  `!thin` / `!thick` thickness split out from the old `!thick` style value;
+  legacy `!thick` files migrate automatically. The style-mode direct keys
+  (`h`/`l` heads, `Shift`+`J`/`K` pattern, `j`/`k` label size, `a` kind) are
+  unchanged. ([#114](https://github.com/MisterGC/grafli/issues/114))
+- **Per-stop level-of-detail for flows.** A flow can now say how its stops
+  render under semantic zoom: `~detail=full|summary|auto` on the flow sets
+  the default, a step's `detail=` segment (`bm_all:6:detail=summary`)
+  overrides it, and unset keeps today's behavior (follow the global LoD
+  toggle). `summary` collapses containers to their headline tiles regardless
+  of zoom — ideal for a wide opening stop. Honoured in playback, present
+  mode, PDF/PPTX export, and `grafli render`
+  (`--detail`, `--step <flow>:<n>`).
+  ([#112](https://github.com/MisterGC/grafli/issues/112))
+- **Presentation focus fades edge-bleed.** `~focus=complete` (flow-wide or
+  per step, `bm_api:focus=complete`) keeps only elements *completely* inside
+  the framed viewport at full opacity and blends out the partially visible
+  slivers at the frame's edges; a connector stays opaque only when both its
+  endpoints are fully shown. `none` (default) shows the frame as-is. Works
+  in playback, exports, and `grafli render --focus-mode complete`.
+  ([#113](https://github.com/MisterGC/grafli/issues/113))
+- **`grafli render --step <flow>:<n>`** renders one flow step exactly as
+  playback shows it — the bookmark's framing with the step's resolved
+  detail/focus settings — for headless verification of a deck's stops.
+  ([#112](https://github.com/MisterGC/grafli/issues/112),
+  [#113](https://github.com/MisterGC/grafli/issues/113))
+- **The AI skill is now a lean core plus on-demand references.** The bundled
+  skill splits into an always-loaded `SKILL.md` (workflow, collaboration
+  etiquette, common-mistakes checklist, syntax card) and `references/` files
+  the agent opens when needed — full format tables, design principles
+  (now covering semantic-zoom authoring, the depth ladder, and a quality bar),
+  a much richer presenting guide (`~iso` scoped stops, text slides,
+  container-as-slide, auto-flows, PDF/PPTX export incl. corporate templates),
+  and a new **thinking-boards** reference (decision boards, tension maps,
+  question landscapes, deliberate incompleteness). `grafli skill install`
+  copies the whole directory, `check` compares versions, and bare
+  `grafli skill` prints the full single-file build (`--core` for just the
+  core). ([#108](https://github.com/MisterGC/grafli/issues/108))
+- **`grafli diagnose` reports dropped lines as errors.** A malformed directive
+  or misplaced modifier used to silently remove the element from the render;
+  it now surfaces as a `parse-error` finding with the line number — the
+  scariest AI/hand-edit failure class is machine-checkable.
+  ([#109](https://github.com/MisterGC/grafli/issues/109))
+- **Agent-support CLI.** `grafli inspect --json` reports resolved geometry
+  (element bounds, container inner rects, sibling gaps, next free slot);
+  `grafli render` gains `--focus <ids>`, `--bookmark <id>` and `--lod`
+  (the zoomed-out semantic-zoom reading) for targeted verification; and
+  `grafli export --check [--json]` dry-runs a deck and reports overloaded
+  slides, dangling bookmark/step refs, and missing vault docs without
+  writing the file. ([#110](https://github.com/MisterGC/grafli/issues/110))
+- **Quotes inside labels.** Single-line quoted text (box/arrow/bookmark/flow
+  labels, descriptions, note text, the footer) now supports the `\"` escape,
+  and the serializer emits it — `@ box a "Say \"hi\"" …` round-trips.
+  ([#110](https://github.com/MisterGC/grafli/issues/110))
+
+- **The Markdown editor owns its help (<kbd>F1</kbd>).** The zen / `textli` editor
+  now shows its own, up-to-date help — covering the reading view, comments, and
+  suggestions — with <kbd>F1</kbd>, whether it's hosted in grafli or (soon) run
+  standalone. grafli's canvas <kbd>F1</kbd> now covers only the diagram.
+- **Suggestions (track changes) in the reading view.** Beyond comments, the zen /
+  `textli` reading view now speaks the full [CriticMarkup](http://criticmarkup.com/)
+  vocabulary — `{++insert++}`, `{--delete--}`, `{~~old~>new~~}` — rendered as
+  track changes: removals wear a strong strike line, additions are in a subtle
+  zen red. Step through with <kbd>]</kbd><kbd>s</kbd> / <kbd>[</kbd><kbd>s</kbd>
+  and **accept** (<kbd>a</kbd>) / **reject** (<kbd>x</kbd>) each — advancing to the
+  next decision — or all at once (<kbd>Shift</kbd>+<kbd>A</kbd> /
+  <kbd>Shift</kbd>+<kbd>X</kbd>), with an animated swap and single-undo source
+  edits. **Author** a change by selecting a
+  span and pressing <kbd>s</kbd> (replace / delete / insert). <kbd>g</kbd><kbd>c</kbd>
+  opens a changes overview jump-list; <kbd>p</kbd> toggles a clean preview of the
+  accepted prose. Marks live inline in the Markdown, so AI-proposed edits
+  round-trip through the file and git and are reviewed key-by-key instead of
+  diff-hunted.
+- **Adjustable editor width.** The textli / zen markdown editor's content column
+  can now be widened or narrowed from the keyboard — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd>
+  wider, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd> narrower,
+  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↓</kbd> reset — alongside the existing
+  font-size zoom (<kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>-</kbd>/<kbd>0</kbd>). The
+  preference persists across sessions.
+
+### Changed
+- **The Markdown editor is now [textli](https://github.com/MisterGC/textli), its
+  own package.** The editor that grew inside grafli (zen writing surface, reading
+  view, comments, suggestions) moved to a separate repository and is consumed as
+  the [`textli-editor`](https://pypi.org/project/textli-editor/) dependency —
+  same editor, same keys, now also installable standalone. The bundled copy and
+  grafli's own `textli` console script are gone; the `textli` command now comes
+  with the package. grafli now requires `textli-editor` 0.2 or newer.
+
+### Fixed
+- **Playback captions no longer cut off.** The flow overlay used to elide
+  the stop's title and description to one line each; it now shows the full
+  text, word-wrapped, and surfaces the stop's active detail/focus settings
+  in its hint line. Descriptions get a 280-character authoring budget:
+  enforced in the Flows-tab inline editor, flagged by `grafli export
+  --check` (`[overlong-caption]`) for existing files — never truncated.
+  ([#111](https://github.com/MisterGC/grafli/issues/111))
 
 ## [0.4.0] - 2026-06-28
 

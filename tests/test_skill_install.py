@@ -156,3 +156,97 @@ def test_remove_deletes_skill_directory(isolated_targets):
 
 def test_remove_when_already_missing_returns_false(isolated_targets):
     assert remove_skill("claude") is False
+
+
+# ── multi-file skill (SKILL.md + references/) ─────────────────────
+
+
+REFS = {
+    "format.md": "# Format reference\n\nTables.\n",
+    "design.md": "# Design reference\n\nPrinciples.\n",
+}
+
+
+def test_write_installs_references(isolated_targets):
+    path = write_skill("claude", SAMPLE, "0.5.0", REFS)
+    ref_dir = path.parent / "references"
+    assert sorted(p.name for p in ref_dir.glob("*.md")) == sorted(REFS)
+    assert (ref_dir / "format.md").read_text() == REFS["format.md"]
+
+
+def test_write_replaces_stale_references(isolated_targets):
+    write_skill("claude", SAMPLE, "0.4.0", {"old.md": "gone soon\n"})
+    path = write_skill("claude", SAMPLE, "0.5.0", REFS)
+    names = {p.name for p in (path.parent / "references").glob("*.md")}
+    assert names == set(REFS)
+
+
+def test_status_ok_with_matching_references(isolated_targets):
+    write_skill("claude", SAMPLE, "0.5.0", REFS)
+    st = compute_status("claude", SAMPLE, "0.5.0", REFS)
+    assert st.status == OK
+
+
+def test_status_modified_when_reference_edited(isolated_targets):
+    write_skill("claude", SAMPLE, "0.5.0", REFS)
+    ref = isolated_targets["claude"] / "references/format.md"
+    ref.write_text(ref.read_text() + "\nlocal tweak\n")
+    st = compute_status("claude", SAMPLE, "0.5.0", REFS)
+    assert st.status == MODIFIED
+
+
+def test_status_stale_for_old_single_file_install(isolated_targets):
+    # A pre-multi-file install (no references dir) with an older version.
+    write_skill("claude", SAMPLE, "0.4.0")
+    st = compute_status("claude", SAMPLE, "0.5.0", REFS)
+    assert st.status == STALE
+
+
+def test_status_ok_without_references_stays_compatible(isolated_targets):
+    # Single-file callers (no references) keep the old behaviour.
+    write_skill("claude", SAMPLE, "0.4.0")
+    st = compute_status("claude", SAMPLE, "0.4.0")
+    assert st.status == OK
+
+
+# ── bundled skill integrity ───────────────────────────────────────
+
+
+def _bundled_dir() -> Path:
+    from importlib.resources import files
+    return Path(str(files("grafli.skills.grafli")))
+
+
+def test_bundled_core_references_exist():
+    """Every references/<name>.md the core mentions must be bundled."""
+    import re
+    root = _bundled_dir()
+    core = (root / "SKILL.md").read_text(encoding="utf-8")
+    names = set(re.findall(r"references/([a-z-]+\.md)", core))
+    assert names, "the lean core must point at its reference files"
+    for name in names:
+        assert (root / "references" / name).is_file(), name
+
+
+def test_bundled_skill_install_roundtrip(isolated_targets):
+    """Installing the real bundled skill lands every referenced path."""
+    import re
+    root = _bundled_dir()
+    core = (root / "SKILL.md").read_text(encoding="utf-8")
+    refs = {
+        p.name: p.read_text(encoding="utf-8")
+        for p in (root / "references").glob("*.md")
+    }
+    path = write_skill("claude", core, "9.9.9", refs)
+    for name in set(re.findall(r"references/([a-z-]+\.md)", core)):
+        assert (path.parent / "references" / name).is_file(), name
+    assert compute_status("claude", core, "9.9.9", refs).status == OK
+
+
+def test_bundled_concat_inlines_all_references():
+    from grafli.app import _skill_concat, _skill_references
+    concat = _skill_concat()
+    refs = _skill_references()
+    assert refs, "bundled skill must carry reference files"
+    for name in refs:
+        assert f"<!-- inlined from references/{name} -->" in concat

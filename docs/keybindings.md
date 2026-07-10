@@ -55,7 +55,7 @@ lands on the placeholder ready to type-replace.
 | Key | Action |
 |-----|--------|
 | <kbd>e</kbd> / Double-click | Edit selected element (inline) |
-| <kbd>E</kbd> | Open the full-window zen editor — edits a **note's own text**; for a box/image, opens (or creates) its attached markdown file |
+| <kbd>E</kbd> | Open [textli](https://mistergc.github.io/textli/) (the full-window Markdown editor) — edits a **note's own text**; for a box/image, opens (or creates) its attached markdown file |
 | <kbd>W</kbd> | Set URL on selected item |
 | <kbd>Return</kbd> | Open URL in browser |
 | <kbd>Enter</kbd> | Accept edit |
@@ -68,8 +68,8 @@ lands on the placeholder ready to type-replace.
 ### Editing a note (vim)
 
 Editing a note (<kbd>e</kbd> / double-click) opens a small **vim-capable**
-editor in place — the same keybindings as the full-window zen editor,
-without leaving the canvas. It opens in INSERT mode so you can type right
+editor in place — the same keybindings as textli's full editor, without
+leaving the canvas. It opens in INSERT mode so you can type right
 away; Markdown (`md:`) notes are syntax-highlighted.
 
 | Key | Action |
@@ -78,6 +78,16 @@ away; Markdown (`md:`) notes are syntax-highlighted.
 | <kbd>Esc</kbd> (in NORMAL) | Commit and close |
 | <kbd>Shift</kbd>+<kbd>Esc</kbd> (in NORMAL) | Discard and close |
 | Click elsewhere | Commit and close |
+
+### The full editor (textli)
+
+<kbd>E</kbd> opens [textli](https://mistergc.github.io/textli/), grafli's
+Markdown editor and its own project. Writing keys, the rendered reading view
+(<kbd>⌘</kbd>+<kbd>R</kbd>), and the comment / suggestion review workflow are
+documented in the
+[textli key reference](https://mistergc.github.io/textli/keybindings/) — or
+press <kbd>F1</kbd> inside the editor. See
+[Text annotations](text-annotations.md) for how it fits into a review flow.
 
 ## Create
 
@@ -135,11 +145,14 @@ section.
 
 | Key | Action |
 |-----|--------|
+| <kbd>Shift</kbd>+click | Add / remove a connector from the selection (format many at once) |
 | <kbd>e</kbd> | Edit arrow label |
 | <kbd>s</kbd> | Arrow style mode |
-| <kbd>h</kbd> / <kbd>l</kbd> | Toggle arrowheads |
-| <kbd>j</kbd> / <kbd>k</kbd> | Arrow label size |
-| <kbd>Shift</kbd>+<kbd>J</kbd> / <kbd>Shift</kbd>+<kbd>K</kbd> | Cycle arrow style |
+| <kbd>s</kbd> then <kbd>c</kbd> | Connector appearance overlay — heads, line pattern, thickness, colour (`j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels) |
+| <kbd>s</kbd> then <kbd>t</kbd> | Connector label-text overlay (size) |
+| <kbd>h</kbd> / <kbd>l</kbd> | Toggle arrowheads (in style mode) |
+| <kbd>j</kbd> / <kbd>k</kbd> | Arrow label size (in style mode) |
+| <kbd>Shift</kbd>+<kbd>J</kbd> / <kbd>Shift</kbd>+<kbd>K</kbd> | Cycle line pattern (in style mode) |
 | <kbd>s</kbd> then <kbd>a</kbd> | Toggle connector kind: **graph edge** ⇄ **annotation** (a graph edge to a note or image makes it a node) |
 
 ## Buffers

@@ -29,6 +29,70 @@ from grafli.format import DEFAULT_BOOKMARK_PAD, Bookmark, Flow
 DEFAULT_DWELL = 4.0   # seconds to rest on a stop during auto-play
 
 
+def step_detail(flow, step) -> str:
+    """A step's effective detail setting: step wins over flow; "" = inherit
+    the global GUI state (as does an explicit "auto", which lets a step reset
+    a flow-wide default)."""
+    value = step.detail or flow.detail
+    return "" if value == "auto" else value
+
+
+def step_focus(flow, step) -> str:
+    """A step's effective focus setting: step wins over flow; "" and "none"
+    both mean off (an explicit "none" lets a step opt out of a flow-wide
+    "complete")."""
+    value = step.focus or flow.focus
+    return "" if value == "none" else value
+
+
+def frame_rect(target: QRectF, aspect: float) -> QRectF:
+    """The scene rect actually shown when ``target`` is fitted into a surface
+    of the given width/height ``aspect`` (viewport or slide hero): the target
+    grown symmetrically on its shorter-fitting axis. This is the rect the
+    "complete" focus mode tests containment against — an element inside the
+    letterboxed margin is fully visible too."""
+    if target.isNull() or target.height() <= 0 or aspect <= 0:
+        return QRectF(target)
+    if target.width() / target.height() < aspect:
+        w = target.height() * aspect
+        return QRectF(target.center().x() - w / 2, target.y(),
+                      w, target.height())
+    h = target.width() / aspect
+    return QRectF(target.x(), target.center().y() - h / 2,
+                  target.width(), h)
+
+
+@contextmanager
+def presentation_detail(view, detail: str):
+    """Temporarily force the view's presentation detail ("full"/"summary");
+    "" yields unchanged. Restores the previous override on exit — used by the
+    exporters and headless render so a step's setting scopes to its slide."""
+    if detail not in ("full", "summary"):
+        yield
+        return
+    prev = view._present_detail
+    view._set_presentation_detail(detail)
+    try:
+        yield
+    finally:
+        view._set_presentation_detail(prev)
+
+
+@contextmanager
+def presentation_focus(view, rect: QRectF | None):
+    """Temporarily apply the "complete" focus fade against ``rect`` (None
+    yields unchanged), restoring the previous state on exit."""
+    if rect is None:
+        yield
+        return
+    prev = view._present_focus_rect
+    view._set_presentation_focus(rect)
+    try:
+        yield
+    finally:
+        view._set_presentation_focus(prev)
+
+
 @contextmanager
 def isolate_focus(view, focus_ids: list[str]):
     """Temporarily hide everything except the focus items while rendering.
@@ -254,6 +318,8 @@ class FlowPlayer:
         self.active = False
         self.mode = "paused"
         self._timer.stop()
+        self.view._set_presentation_detail(None)
+        self.view._set_presentation_focus(None)
         self.view._clear_flow_overlay()
         if self.view._flow_player is self:
             self.view._flow_player = None
@@ -268,10 +334,23 @@ class FlowPlayer:
         self.index = max(0, min(index, len(steps) - 1))
         step = steps[self.index]
         bookmark = self.view.board.bookmark_by_id(step.ref) if self.view.board else None
+        # Presentation settings resolve per step (step ← flow ← global) and
+        # must be in force before the camera moves, so the stop lands on the
+        # intended reading. Detail "" clears the override back to the global
+        # GUI state; focus fades everything not fully inside the frame the
+        # viewport will actually show (the target grown to viewport aspect).
+        self.view._set_presentation_detail(step_detail(self.flow, step) or None)
+        focus_frame = None
+        rect = QRectF()
         if bookmark is not None:
             rect = bookmark_target_rect(self.view, bookmark)
             if not rect.isNull():
                 self.view.goto_rect(rect, animate=self.smooth)
+        if step_focus(self.flow, step) == "complete" and not rect.isNull():
+            vp = self.view.viewport().rect()
+            if vp.height() > 0:
+                focus_frame = frame_rect(rect, vp.width() / vp.height())
+        self.view._set_presentation_focus(focus_frame)
         self._refresh_overlay(bookmark)
         if self.playing:
             self._schedule_next(step)
@@ -323,6 +402,7 @@ class FlowPlayer:
         total = len(self.flow.steps)
         label = bookmark.label if bookmark else "(missing bookmark)"
         description = bookmark.description if bookmark else ""
+        step = self.flow.steps[self.index] if self.flow.steps else None
         self.view._set_flow_overlay({
             "flow": self.flow.label,
             "index": self.index,
@@ -331,6 +411,8 @@ class FlowPlayer:
             "description": description,
             "smooth": self.smooth,
             "mode": self.mode,
+            "detail": step_detail(self.flow, step) if step else "",
+            "focus": step_focus(self.flow, step) if step else "",
         })
 
     # ── input ──────────────────────────────────────────────────

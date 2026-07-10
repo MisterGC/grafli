@@ -691,9 +691,11 @@ def test_parse_arrow_dotted():
 
 
 def test_parse_arrow_thick():
+    # Legacy "!thick" migrates from the style enum to the thickness field.
     text = '@ arrow a -> b !thick\n'
     board = parse(text)
-    assert board.arrows[0].style == "thick"
+    assert board.arrows[0].style == ""
+    assert board.arrows[0].thickness == "thick"
 
 
 def test_parse_arrow_bidi():
@@ -771,7 +773,7 @@ def test_serialize_arrow_no_heads():
 
 
 def test_serialize_arrow_bidi_style():
-    arrow = Arrow(from_id="a", to_id="b", style="thick", head_from=True, head_to=True)
+    arrow = Arrow(from_id="a", to_id="b", thickness="thick", head_from=True, head_to=True)
     board = Board()
     board.add_arrow(arrow)
     text = serialize(board)
@@ -800,6 +802,46 @@ def test_arrow_bare_style_roundtrip():
     text = '@ arrow a -> b !thick\n'
     board = parse(text)
     assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_thin_roundtrip():
+    text = '@ arrow a -> b !thin\n'
+    board = parse(text)
+    assert board.arrows[0].thickness == "thin"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_color_roundtrip():
+    text = '@ arrow a -> b %teal\n'
+    board = parse(text)
+    assert board.arrows[0].color == "%teal"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_hex_color_roundtrip():
+    text = '@ arrow a -> b #2F3437\n'
+    board = parse(text)
+    assert board.arrows[0].color == "#2F3437"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_pattern_and_thickness_combined():
+    text = '@ arrow a -> b %primary !dashed !thick ~large\n'
+    board = parse(text)
+    ar = board.arrows[0]
+    assert ar.color == "%primary"
+    assert ar.style == "dashed"
+    assert ar.thickness == "thick"
+    assert ar.textsize == "large"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_flag_order_independent():
+    # thickness before pattern still maps to the right fields.
+    board = parse('@ arrow a -> b !thick !dotted\n')
+    ar = board.arrows[0]
+    assert ar.style == "dotted"
+    assert ar.thickness == "thick"
 
 
 def test_arrow_bidi_bare_roundtrip():
@@ -1741,3 +1783,66 @@ def test_non_grafli_file_has_no_header_and_mostly_warnings():
                   + len(b.images) + len(b.bookmarks) + len(b.flows))
     assert recognized == 0
     assert len(b.parse_warnings) >= 5
+
+
+# ── quoted-text escaping (\" inside labels and descriptions) ───────
+
+
+def test_box_label_quote_roundtrip():
+    from grafli.format import parse, serialize
+
+    text = '@ box a "Say \\"hi\\" politely" 0,0 200x100\n'
+    board = parse(text)
+    assert board.parse_warnings == []
+    assert board.boxes[0].label == 'Say "hi" politely'
+    assert '\\"hi\\"' in serialize(board)
+
+
+def test_arrow_label_quote_roundtrip():
+    from grafli.format import parse, serialize
+
+    text = (
+        '@ box a "A" 0,0 200x100\n'
+        '@ box b "B" 300,0 200x100\n'
+        '@ arrow a -> b "emit \\"done\\""\n'
+    )
+    board = parse(text)
+    assert board.parse_warnings == []
+    assert board.arrows[0].label == 'emit "done"'
+    reparsed = parse(serialize(board))
+    assert reparsed.arrows[0].label == 'emit "done"'
+
+
+def test_note_inline_quote_parses():
+    from grafli.format import parse
+
+    board = parse('@ note n1 0,0 "a \\"quoted\\" word"\n')
+    assert board.parse_warnings == []
+    assert board.notes[0].text == 'a "quoted" word'
+
+
+def test_bookmark_and_flow_quote_roundtrip():
+    from grafli.format import parse, serialize
+
+    text = (
+        '#!grafli v2\n'
+        '@ box a "A" 0,0 200x100\n'
+        '@ bookmark bm "The \\"gateway\\"" @a "It says \\"hello\\"."\n'
+        '@ flow tour "A \\"tour\\"" bm "Ends with \\"done\\"."\n'
+    )
+    board = parse(text)
+    assert board.parse_warnings == []
+    assert board.bookmarks[0].label == 'The "gateway"'
+    assert board.bookmarks[0].description == 'It says "hello".'
+    assert board.flows[0].label == 'A "tour"'
+    assert board.flows[0].description == 'Ends with "done".'
+    reparsed = parse(serialize(board))
+    assert reparsed.bookmarks[0].description == 'It says "hello".'
+    assert reparsed.flows[0].description == 'Ends with "done".'
+
+
+def test_unescaped_quotes_still_roundtrip_plain_text():
+    from grafli.format import parse, serialize
+
+    text = '@ box a "No quotes here" 0,0 200x100\n'
+    assert 'No quotes here' in serialize(parse(text))

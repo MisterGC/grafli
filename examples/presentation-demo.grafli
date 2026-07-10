@@ -1,0 +1,53 @@
+#!grafli v2
+# Presentation-settings demo — per-stop detail & focus, wrapped captions
+# Play the 'showcase' flow (Flows tab, or F5): the flow pins ~detail=full,
+# the wide opening stop overrides it with detail=summary (containers fold
+# to tiles), and the closing stop uses focus=complete to fade everything
+# the frame clips. Captions render in full, wrapped (budget: 280 chars).
+# Verify a stop headless, exactly as playback resolves it:
+#   grafli render examples/presentation-demo.grafli /tmp/stop.png --step showcase:2
+
+# ── sources ──
+@ box source "Producers" -300,60 200x80 %primary
+
+# ── ingest pipeline ──
+@ box ingest "Ingest pipeline" 0,0 560x200 !flat
+@ box collector "Collector" 40,60 220x80 %secondary >ingest
+@ box parser "Parser" 300,60 220x80 %secondary >ingest
+
+# ── serving platform ──
+@ box serving "Serving platform" 760,0 560x400 !flat
+@ box api "Query API" 800,60 220x80 %tertiary >serving
+@ box cache "Redis cache" 800,280 220x80 %subtle >serving
+@ box db "Postgres" 1060,280 220x80 %muted >serving
+@ note perf 1080,90 "p99 < 40 ms" >serving
+
+# ── consumers ──
+@ box consumer "Dashboards" 1480,60 200x80 %primary
+
+@ arrow source -> collector "event: raw"
+@ arrow collector -> parser
+@ arrow parser -> api "data: curated"
+@ arrow api -> cache "hot reads"
+@ arrow api -> db "query"
+@ arrow api -> consumer "serve"
+
+# ── intro text slide ──
+@ note intro -300,560 """
+md:
+# Per-stop presentation
+
+One flow, three tricks:
+
+1. `~detail=` / `detail=` — summaries or full detail, per flow and per stop
+2. `~focus=` / `focus=` — fade whatever the frame clips
+3. Captions render in full, wrapped — budget them at 280 chars
+""" ~width=60
+
+# ── tour ──
+@ bookmark bm_intro "" @intro
+@ bookmark bm_wide "The platform" @source,ingest,serving,consumer ~pad=80 "detail=summary overrides the flow default here: both containers fold to headline tiles, so the audience reads the shape of the system first. This caption is long on purpose — it wraps over several lines instead of being cut off, and still fits the 280-character budget."
+@ bookmark bm_ingest "Ingest pipeline" @ingest "No override on this stop, so it inherits the flow's ~detail=full: the pipeline renders exactly as authored, even when the app's global LoD toggle would summarize."
+@ bookmark bm_api "Query API, as-is" @api ~pad=160 "Framed as-is: the serving container's border, Redis and Postgres bleed in half-visible at the frame's edges."
+@ bookmark bm_api_focus "Query API, focused" @api ~pad=160 "focus=complete keeps only elements completely inside the frame at full opacity and fades the clipped ones — a connector stays crisp only when both of its ends are fully shown."
+@ flow showcase "Presentation settings" bm_intro:6 bm_wide:8:detail=summary bm_ingest:6 bm_api:5 bm_api_focus:8:focus=complete ~detail=full "Flow-wide defaults with per-step overrides: a summarized overview, a full-detail dive, and a focused closing stop that fades everything its frame clips."

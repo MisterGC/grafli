@@ -348,3 +348,43 @@ def test_qt_arrow_label_provider_catches_test_grafli_pipeline_case():
         board, arrow_label_size=_make_arrow_label_size_provider(),
     )
     assert any(d.code == "arrow-label-crowded" for d in diags)
+
+
+# ── parse-error surfacing (run_all includes dropped lines) ─────────
+
+
+def test_parse_errors_reported_by_run_all():
+    from grafli.diagnostics import check_parse_errors, run_all
+    from grafli.format import parse
+
+    text = (
+        '@ box ok "Fine" 0,0 200x100\n'
+        '@ box bad "Broken" 0,200 200x100 *lead:gear !bold\n'
+    )
+    board = parse(text)
+    diags = check_parse_errors(board)
+    assert len(diags) == 1
+    d = diags[0]
+    assert d.code == "parse-error"
+    assert d.severity == "error"
+    assert "line 2" in d.message
+    # run_all sorts errors first, so the dropped line leads the report.
+    all_diags = run_all(board)
+    assert all_diags and all_diags[0].code == "parse-error"
+
+
+def test_parse_errors_flag_unterminated_block():
+    from grafli.diagnostics import check_parse_errors
+    from grafli.format import parse
+
+    board = parse('@ note nb 0,0 """\ncode:\nnever closed\n')
+    diags = check_parse_errors(board)
+    assert any("line 1" in d.message for d in diags)
+
+
+def test_clean_board_has_no_parse_errors():
+    from grafli.diagnostics import check_parse_errors
+    from grafli.format import parse
+
+    board = parse('@ box a "A" 0,0 200x100\n@ arrow a -> a\n')
+    assert check_parse_errors(board) == []

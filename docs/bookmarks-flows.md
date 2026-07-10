@@ -39,6 +39,12 @@ region. So you can show a single child of a parent without the parent and its
 siblings bleeding in. No selection keeps the default "everything visible"
 framing. The capture badge confirms the scope (e.g. *scoped: 1 item*).
 
+In the file a scoped bookmark carries the `~iso` token
+(`@ bookmark bm "One child" @child ~iso`) — so an agent or hand edit can
+author scoped steps directly; see the [format reference](format.md#bookmarks-and-flows-v2).
+`grafli render <file> out.png --bookmark bm` renders a stop exactly as
+framed, honouring the scope.
+
 ### Text slides (clickable links)
 
 Select a **single text note** and capture it with **no description**, and that
@@ -121,7 +127,11 @@ one slide per node:
 ## Playback
 
 Launch a flow with the ▶ button on its header (or present it, below). During
-playback an on-canvas caption shows the current stop and its description.
+playback an on-canvas caption shows the current stop and its description —
+**in full, word-wrapped** over as many lines as it needs. To keep a caption a
+caption, descriptions are budgeted at **280 characters**: the inline editor
+stops there, and `grafli export --check` flags older files past the budget
+(nothing is ever truncated — long text still renders, wrapped).
 
 | Key | Action |
 |-----|--------|
@@ -130,6 +140,45 @@ playback an on-canvas caption shows the current stop and its description.
 | <kbd>t</kbd> | Toggle **smooth** camera ↔ **instant** cuts (flip mid-flow to step quickly, then settle) |
 | <kbd>p</kbd> | Cycle **paused → playing → playing (loop)** — looping wraps to the first stop |
 | <kbd>Esc</kbd> | Exit playback |
+
+## Per-stop detail & focus
+
+Two optional presentation settings shape how each stop renders — set once on
+the flow as the default for all its steps, and override per step where a
+single stop needs something else. Unset means *inherit*: step ← flow ←
+global. The active values show in the caption's hint line
+(`detail:summary · focus:complete`), and both are honoured everywhere a step
+is shown: playback, present mode, PDF/PPTX export, and headless rendering.
+
+- **detail** — whether the stop shows [level-of-detail](navigating.md)
+  summaries or everything: `full` renders the diagram exactly as authored;
+  `summary` collapses containers to their headline tiles (the zoomed-out
+  reading, regardless of zoom); `auto` explicitly follows the app's global
+  LoD toggle (<kbd>⇧D</kbd>) — which is also the behavior when nothing is
+  set. Use `summary` for an overview stop over a big board, `full` for the
+  deep-dive stops.
+- **focus** — whether the stop fades what it doesn't frame cleanly:
+  `complete` keeps only elements *completely* inside the shown viewport at
+  full opacity and blends out the partially visible slivers at the frame's
+  edges (a connector stays opaque only when both of its endpoints are fully
+  shown); `none` (default) shows the viewport as-is. Use it when edge-bleed
+  from neighbouring elements distracts from the stop's point.
+
+In the file these are the `~detail=` / `~focus=` flow tokens and the
+`detail=` / `focus=` step segments (see the
+[format reference](format.md#bookmarks-and-flows-v2)):
+
+```text
+@ flow tour "Demo" bm_wide:6:detail=summary bm_svc:detail=full bm_api:focus=complete ~focus=none
+```
+
+Verify a stop headless, exactly as playback resolves it:
+
+```bash
+grafli render deck.grafli stop.png --step tour:3         # step 3 of flow 'tour'
+grafli render deck.grafli stop.png --bookmark bm_api --detail summary
+grafli render deck.grafli stop.png --bookmark bm_api --focus-mode complete
+```
 
 ## Present mode
 

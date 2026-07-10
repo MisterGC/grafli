@@ -74,7 +74,6 @@ from grafli.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_po
 from grafli.buffers import ViewState
 from grafli.commands import CommandsMixin
 from grafli.complexity import ComplexityMixin
-from grafli.editor import InlineVimEditor
 from grafli.constants import (
     ANNOTATION_ARROW_COLOR,
     ANNOTATION_ARROW_WIDTH,
@@ -110,7 +109,7 @@ from grafli.constants import (
     _resolve_color,
 )
 from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
-from grafli.format import Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, emphasis_from_flags, parse, serialize
+from grafli.format import MAX_DESCRIPTION_CHARS, Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, emphasis_from_flags, parse, serialize
 from grafli.flows import FlowPlayer
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 from grafli.iconset import ICON_NAMES, icon_pixmap
@@ -119,7 +118,7 @@ from grafli.lod import CHILD_COLLAPSE_PX, LodModel, should_collapse, should_coll
 from grafli.md_note import note_is_md, toggle_task
 from grafli.minimap import MinimapMixin
 from grafli.zen import ZenOverlay
-from grafli.zen_md import ZenMarkdownEditor
+from textli import InlineVimEditor, ZenMarkdownEditor
 
 
 _JUMP_KEYS = "asdfjklghqweruioptyzxcvbnm"
@@ -313,8 +312,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._jump_prefix = ""
         self._jump_two_letter = False
 
-        # Arrow selection state
-        self._selected_arrow: Arrow | None = None
+        # Arrow selection state. Connectors are their own selection channel
+        # (separate from Qt scene selection). ``_selected_arrows`` is the full
+        # set; ``_selected_arrow`` (property below) is the primary/last-clicked
+        # one that single-target ops (label edit/drag) act on.
+        self._selected_arrows: list[Arrow] = []
         self._selected_arrow_items: list[QGraphicsItem] = []
 
         # Arrow label drag state
@@ -354,6 +356,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._icon_picker_index: int = 0
         self._icon_picker_placement: str = ""
         self._icon_picker_original: dict[str, tuple[str, str]] = {}
+        # Connector option overlay (arrow style mode -> c / t): a multi-row
+        # picker over a connector's axes (heads, line, thickness, colour) or its
+        # label text, with live preview. Generalises the colour grid to N axes.
+        self._conn_overlay_active: bool = False
+        self._conn_overlay_axes: list = []
+        self._conn_overlay_row: int = 0
+        self._conn_overlay_kind: str = "appearance"   # "appearance" | "text"
+        self._conn_overlay_original: dict = {}
         # Type grid (style mode -> s): size rows x emphasis columns, live.
         self._type_picker_active: bool = False
         self._type_picker_size_idx: int = 1   # "" (medium)
@@ -414,6 +424,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._flow_player: FlowPlayer | None = None
         self._recording_flow: Flow | None = None
         self._flow_overlay: dict | None = None
+        # Presentation overrides, in force while a flow step (or an export /
+        # headless render honouring one) is shown. _present_detail overrides
+        # the global LoD toggle ("full" | "summary" | None = follow global);
+        # _present_focus_rect, when set, dims every element not completely
+        # inside that scene rect ("complete" focus mode).
+        self._present_detail: str | None = None
+        self._present_focus_rect: QRectF | None = None
         # Flows-panel edit target: a captured bookmark is inserted after the
         # selected step of this flow (instead of just creating a loose one).
         self._active_flow: Flow | None = None
@@ -532,6 +549,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._draw_color_picker(painter)
         self._draw_icon_picker(painter)
         self._draw_type_picker(painter)
+        self._draw_connector_overlay(painter)
         self._draw_toast(painter)
 
     # Grid mode cycle order for the # key / "grid" action.
@@ -645,18 +663,44 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     # ── Arrow selection ──
 
-    def _select_arrow(self, arrow: Arrow, keep_mode: bool = False):
+    @property
+    def _selected_arrow(self) -> "Arrow | None":
+        """The primary (last-clicked) connector, or None. Single-target ops
+        use this; bulk ops iterate ``_selected_arrows``."""
+        return self._selected_arrows[-1] if self._selected_arrows else None
+
+    def _select_arrow(self, arrow: Arrow, keep_mode: bool = False,
+                      additive: bool = False):
         if keep_mode:
-            # Lightweight re-select: just refresh graphics items
+            # Lightweight re-highlight of the current selection's graphics.
             self._selected_arrow_items.clear()
-            self._selected_arrow = arrow
+        elif additive:
+            # Shift+click: toggle this connector in/out of the selection. A
+            # re-clicked connector drops out; the selection survives as long as
+            # one connector remains. Identity, not ==, since equal-valued
+            # Arrow dataclasses must stay distinct.
+            if any(a is arrow for a in self._selected_arrows):
+                self._selected_arrows = [a for a in self._selected_arrows
+                                         if a is not arrow]
+                if not self._selected_arrows:
+                    self._deselect_arrow()
+                    return
+            else:
+                self._selected_arrows.append(arrow)
+            self._selected_arrow_items.clear()
         else:
             self._deselect_arrow()
-            self._selected_arrow = arrow
+            self._selected_arrows = [arrow]
         self._scene.clearSelection()
+        self._highlight_selected_arrows()
+
+    def _highlight_selected_arrows(self):
+        """Repaint every selected connector's graphics in the selection blue."""
+        self._selected_arrow_items.clear()
+        selected = self._selected_arrows
         sel_color = QColor("#0178D4")
         for gfx in self._arrow_items:
-            if gfx.data(0) is arrow:
+            if any(gfx.data(0) is a for a in selected):
                 self._selected_arrow_items.append(gfx)
                 if isinstance(gfx, (QGraphicsLineItem, ArrowLineItem)):
                     old_pen = gfx.pen()
@@ -671,10 +715,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     gfx.setBrush(QBrush(sel_color))
 
     def _deselect_arrow(self):
-        if not self._selected_arrow:
+        if not self._selected_arrows:
             return
         self._clear_arrow_mode()
-        self._selected_arrow = None
+        self._selected_arrows = []
         self._selected_arrow_items.clear()
         self._redraw_arrows()
 
@@ -888,7 +932,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._rect_preview = None
         self._connect_line = None
         self._connect_source = None
-        self._selected_arrow = None
+        self._selected_arrows = []
         self._selected_arrow_items.clear()
         self._grow_preview = None
         self._mode_badge = None
@@ -1042,7 +1086,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 # Thickness tracks the size of the linked nodes (visual hierarchy).
                 arrow_width = self._connector_width(from_elem, to_elem)
 
+            # A per-connector colour overrides the kind-derived default.
+            if fwd.color:
+                resolved = _resolve_color(fwd.color)
+                if resolved:
+                    arrow_color = QColor(resolved)
+
             # Arrowheads grow with the line, but gently, so they stay tasteful.
+            # Sized off the base width so an explicit thickness doesn't bloat them.
             head_size = ARROWHEAD_SIZE * (arrow_width / ARROW_WIDTH) ** 0.6
 
             pen = QPen(arrow_color, arrow_width)
@@ -1051,8 +1102,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 pen.setStyle(Qt.PenStyle.DashLine)
             elif fwd.style == "dotted":
                 pen.setStyle(Qt.PenStyle.DotLine)
-            elif fwd.style == "thick":
+            if fwd.thickness == "thick":
                 pen.setWidthF(arrow_width * 2)
+            elif fwd.thickness == "thin":
+                pen.setWidthF(max(0.5, arrow_width * 0.5))
 
             # Calculate start/end points
             if both_boxes:
@@ -1214,6 +1267,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         if self._arrows_dimmed and not self._focus_active and not self._complexity_active:
             for gfx in self._arrow_items:
                 gfx.setOpacity(0.08)
+        if self._present_focus_rect is not None:
+            # Rebuilt arrow gfx start at full opacity — refresh the focus fade.
+            self._apply_presentation_focus()
 
     # ── Subgraph focus filter ──
 
@@ -3020,7 +3076,299 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             )
 
     def _clear_arrow_mode(self):
+        if self._conn_overlay_active:
+            self._close_connector_overlay()
         self._set_arrow_mode("")
+
+    # ── Connector option overlay (style mode -> c / t) ──
+
+    _CONN_HEAD_OPTIONS = (
+        ("None", (False, False)),
+        ("To →", (False, True)),
+        ("← From", (True, False)),
+        ("↔ Both", (True, True)),
+    )
+    _CONN_LINE_OPTIONS = (("Solid", ""), ("Dashed", "dashed"), ("Dotted", "dotted"))
+    _CONN_THICK_OPTIONS = (("Thin", "thin"), ("Normal", ""), ("Thick", "thick"))
+    _CONN_SIZE_OPTIONS = (
+        ("S", "small"), ("M", ""), ("L", "large"), ("XL", "xlarge"),
+        ("2XL", "xxlarge"), ("3XL", "xxxlarge"), ("4XL", "4xl"),
+    )
+    # Fields snapshotted for undo/restore across the overlay's lifetime.
+    _CONN_OVERLAY_FIELDS = ("head_from", "head_to", "style", "thickness",
+                            "color", "textsize")
+
+    def _set_all_arrows(self, field: str, value):
+        for a in self._selected_arrows:
+            setattr(a, field, value)
+
+    def _connector_axes(self) -> list:
+        """The axis spec for the active overlay kind. ``get`` reads the primary
+        connector (what the matrix highlights); ``set`` unifies every selected
+        connector to the pick."""
+        primary = self._selected_arrow
+        if self._conn_overlay_kind == "text":
+            return [{
+                "label": "Text size", "kind": "size",
+                "options": list(self._CONN_SIZE_OPTIONS),
+                "get": lambda: primary.textsize,
+                "set": lambda v: self._set_all_arrows("textsize", v),
+            }]
+        def set_heads(v):
+            for a in self._selected_arrows:
+                a.head_from, a.head_to = v
+        return [
+            {"label": "Heads", "kind": "heads", "options": list(self._CONN_HEAD_OPTIONS),
+             "get": lambda: (primary.head_from, primary.head_to),
+             "set": set_heads},
+            {"label": "Line", "kind": "line", "options": list(self._CONN_LINE_OPTIONS),
+             "get": lambda: primary.style,
+             "set": lambda v: self._set_all_arrows("style", v)},
+            {"label": "Thickness", "kind": "thickness", "options": list(self._CONN_THICK_OPTIONS),
+             "get": lambda: primary.thickness,
+             "set": lambda v: self._set_all_arrows("thickness", v)},
+            {"label": "Colour", "kind": "color", "options": list(COLOR_PALETTE),
+             "get": lambda: primary.color,
+             "set": lambda v: self._set_all_arrows("color", v)},
+        ]
+
+    def _open_connector_overlay(self, kind: str):
+        if not self._selected_arrows:
+            return
+        self._conn_overlay_kind = kind
+        self._conn_overlay_axes = self._connector_axes()
+        self._conn_overlay_row = 0
+        # Snapshot every selected connector so commit/cancel are exact.
+        self._conn_overlay_original = {
+            id(a): {f: getattr(a, f) for f in self._CONN_OVERLAY_FIELDS}
+            for a in self._selected_arrows}
+        self._conn_overlay_active = True
+        self.viewport().update()
+
+    @staticmethod
+    def _conn_axis_index(axis) -> int:
+        cur = axis["get"]()
+        for i, (_disp, value) in enumerate(axis["options"]):
+            if value == cur:
+                return i
+        return 0
+
+    def _apply_connector_overlay_live(self):
+        """Preview the current choice on the connector (no undo/dirty)."""
+        self._redraw_arrows()
+        if self._selected_arrow:
+            self._select_arrow(self._selected_arrow, keep_mode=True)
+        self._update_arrow_mode_badge_pos()
+        self.viewport().update()
+
+    def _conn_overlay_move_row(self, delta: int):
+        n = len(self._conn_overlay_axes)
+        self._conn_overlay_row = max(0, min(n - 1, self._conn_overlay_row + delta))
+        self.viewport().update()
+
+    def _conn_overlay_cycle(self, delta: int):
+        axis = self._conn_overlay_axes[self._conn_overlay_row]
+        opts = axis["options"]
+        idx = max(0, min(len(opts) - 1, self._conn_axis_index(axis) + delta))
+        axis["set"](opts[idx][1])
+        self._apply_connector_overlay_live()
+
+    def _handle_connector_overlay_key(self, event):
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self._cancel_connector_overlay()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._commit_connector_overlay()
+        elif key == Qt.Key.Key_K:
+            self._conn_overlay_move_row(-1)
+        elif key == Qt.Key.Key_J:
+            self._conn_overlay_move_row(1)
+        elif key == Qt.Key.Key_H:
+            self._conn_overlay_cycle(-1)
+        elif key == Qt.Key.Key_L:
+            self._conn_overlay_cycle(1)
+
+    def _commit_connector_overlay(self):
+        arrows = list(self._selected_arrows)
+        if not arrows:
+            self._close_connector_overlay()
+            return
+        # Capture each connector's chosen (live-previewed) values, restore the
+        # pre-overlay state so the undo snapshot is the original, then re-apply
+        # every connector's choice as one undoable step.
+        chosen = {id(a): {f: getattr(a, f) for f in self._CONN_OVERLAY_FIELDS}
+                  for a in arrows}
+        changed = any(chosen[id(a)] != self._conn_overlay_original.get(id(a))
+                      for a in arrows)
+        for a in arrows:
+            for f, v in self._conn_overlay_original.get(id(a), {}).items():
+                setattr(a, f, v)
+        if changed:
+            self._push_undo()
+            for a in arrows:
+                for f, v in chosen[id(a)].items():
+                    setattr(a, f, v)
+            self.mark_dirty()
+        self._redraw_arrows()
+        self._select_arrow(self._selected_arrow, keep_mode=True)
+        self._update_arrow_mode_badge_pos()
+        self._close_connector_overlay()
+
+    def _cancel_connector_overlay(self):
+        arrows = list(self._selected_arrows)
+        if arrows:
+            for a in arrows:
+                for f, v in self._conn_overlay_original.get(id(a), {}).items():
+                    setattr(a, f, v)
+            self._redraw_arrows()
+            self._select_arrow(self._selected_arrow, keep_mode=True)
+            self._update_arrow_mode_badge_pos()
+        self._close_connector_overlay()
+
+    def _close_connector_overlay(self):
+        self._conn_overlay_active = False
+        self._conn_overlay_axes = []
+        self._conn_overlay_original = {}
+        self.viewport().update()
+
+    @staticmethod
+    def _conn_cell_size(kind: str) -> tuple:
+        """(width, height, gap) for one option cell of the given axis kind."""
+        if kind == "color":
+            return 18.0, 18.0, 4.0
+        if kind == "size":
+            return 26.0, 22.0, 4.0
+        return 44.0, 22.0, 6.0   # heads / line / thickness sample strips
+
+    def _draw_connector_overlay(self, painter: QPainter):
+        """A picker matrix anchored beside the selected connector: one row per
+        axis, each option a preview cell (line sample, colour swatch, arrowhead
+        icon). The selected cell is ringed; the active row glows cyan, the
+        others sit muted so it reads as a grid of choices."""
+        if not self._conn_overlay_active or not self._conn_overlay_axes:
+            return
+        items = list(self._selected_arrow_items)
+        if items:
+            scene_rect = items[0].sceneBoundingRect()
+            for it in items[1:]:
+                scene_rect = scene_rect.united(it.sceneBoundingRect())
+            anchor = self.mapFromScene(scene_rect).boundingRect()
+        else:
+            anchor = self.viewport().rect()
+
+        axes = self._conn_overlay_axes
+        pad, title_h, row_h, label_w = 10, 18, 30, 66
+        content_w = 0.0
+        for axis in axes:
+            cw, _ch, gap = self._conn_cell_size(axis["kind"])
+            n = len(axis["options"])
+            content_w = max(content_w, n * cw + (n - 1) * gap)
+        panel_w = pad * 2 + label_w + content_w
+        panel_h = pad * 2 + title_h + row_h * len(axes)
+        margin = 14
+        vw, vh = self.viewport().width(), self.viewport().height()
+        px = anchor.right() + margin
+        if px + panel_w > vw - 4:
+            px = anchor.left() - margin - panel_w
+        px = max(4, min(px, vw - panel_w - 4))
+        py = anchor.center().y() - panel_h / 2
+        py = max(4, min(py, vh - panel_h - 4))
+
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        bg = QColor("#2F3437")
+        bg.setAlphaF(0.96)
+        painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
+
+        cyan = QColor(0, 209, 224)
+        dim_ring = QColor(120, 140, 142)
+        title = ("Connector text" if self._conn_overlay_kind == "text"
+                 else "Connector style")
+        painter.setPen(QPen(QColor(150, 150, 146)))
+        painter.setFont(QFont(FONT_FAMILY, 8))
+        painter.drawText(QRectF(px, py + 4, panel_w, title_h),
+                         Qt.AlignmentFlag.AlignHCenter, title)
+
+        for r, axis in enumerate(axes):
+            ry = py + pad + title_h + r * row_h
+            active = r == self._conn_overlay_row
+            cw, ch, gap = self._conn_cell_size(axis["kind"])
+            cur = self._conn_axis_index(axis)
+            painter.setFont(QFont(FONT_FAMILY, 9))
+            painter.setPen(QPen(QColor(210, 210, 206) if active
+                                else QColor(150, 150, 146)))
+            painter.drawText(QRectF(px + pad, ry, label_w - 4, row_h),
+                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                             axis["label"])
+            cx0 = px + pad + label_w
+            cy = ry + (row_h - ch) / 2
+            for i, (disp, val) in enumerate(axis["options"]):
+                cell = QRectF(cx0 + i * (cw + gap), cy, cw, ch)
+                self._draw_conn_cell(painter, axis["kind"], i, disp, val, cell)
+                if i == cur:
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.setPen(QPen(cyan if active else dim_ring,
+                                        2 if active else 1.3))
+                    painter.drawRoundedRect(cell.adjusted(-2, -2, 2, 2), 4, 4)
+        painter.restore()
+
+    def _draw_conn_cell(self, painter: QPainter, kind: str, idx: int,
+                        disp: str, val, cell: QRectF):
+        """Render one option as a small preview inside ``cell``."""
+        ink = QColor(214, 214, 210)
+        mid_y = cell.center().y()
+        x1, x2 = cell.left() + 6, cell.right() - 6
+        if kind == "color":
+            hexv = _resolve_color(val)
+            painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
+            painter.setBrush(QBrush(QColor(hexv) if hexv else QColor("#E8E4DD")))
+            painter.drawRoundedRect(cell, 4, 4)
+            if not hexv:   # "Default" swatch: a red slash marks "no override"
+                painter.setPen(QPen(QColor(150, 60, 60), 1.5))
+                painter.drawLine(QPointF(cell.left() + 3, cell.bottom() - 3),
+                                 QPointF(cell.right() - 3, cell.top() + 3))
+            return
+        if kind == "size":
+            ramp = [8, 10, 12, 14, 16, 18, 20]
+            painter.setPen(QPen(ink))
+            painter.setFont(QFont(FONT_FAMILY, ramp[min(idx, len(ramp) - 1)]))
+            painter.drawText(cell, Qt.AlignmentFlag.AlignCenter, "A")
+            return
+        if kind == "line":
+            pen = QPen(ink, 2)
+            if val == "dashed":
+                pen.setStyle(Qt.PenStyle.DashLine)
+            elif val == "dotted":
+                pen.setStyle(Qt.PenStyle.DotLine)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(x1, mid_y), QPointF(x2, mid_y))
+            return
+        if kind == "thickness":
+            width = {"thin": 1.0, "": 2.5, "thick": 5.0}.get(val, 2.5)
+            pen = QPen(ink, width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(x1, mid_y), QPointF(x2, mid_y))
+            return
+        if kind == "heads":
+            head_from, head_to = val
+            painter.setPen(QPen(ink, 1.6))
+            painter.drawLine(QPointF(x1, mid_y), QPointF(x2, mid_y))
+            painter.setBrush(QBrush(ink))
+            painter.setPen(QPen(ink, 1))
+            s = 3.6
+            if head_to:
+                painter.drawPolygon(QPolygonF([
+                    QPointF(x2, mid_y), QPointF(x2 - 1.7 * s, mid_y - s),
+                    QPointF(x2 - 1.7 * s, mid_y + s)]))
+            if head_from:
+                painter.drawPolygon(QPolygonF([
+                    QPointF(x1, mid_y), QPointF(x1 + 1.7 * s, mid_y - s),
+                    QPointF(x1 + 1.7 * s, mid_y + s)]))
+            return
 
     # ── Inline text editing ──
 
@@ -3993,15 +4341,21 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             self._rebuild_lod_model()
         scale = self._current_zoom()
         model = self._lod
+        # A presentation override (flow step / export honouring one) trumps
+        # the global toggle: "full" renders everything as authored, "summary"
+        # collapses every container to its tile regardless of zoom.
+        force_summary = self._present_detail == "summary"
+        lod_on = (self._lod_enabled if self._present_detail is None
+                  else force_summary)
         # Container aggregation is a zoom-OUT affordance: at 100%+ the board is
         # at (or above) authored size, so everything stays fully detailed. This
         # also guarantees a small-child container (a notes legend, tiny boxes)
         # can always reach detail — the collapse threshold sits above such
         # children's on-screen size, so without this floor the hysteresis would
         # keep them tiled even at full zoom.
-        may_collapse = scale < 1.0
+        may_collapse = scale < 1.0 or force_summary
         collapsed: set[str] = set()
-        if self._lod_enabled and may_collapse and model is not None:
+        if lod_on and may_collapse and model is not None:
             prev_c = self._lod_collapsed
             # Size-driven, per container: each folds when its own children get
             # too small on screen (a small container no longer waits for a large
@@ -4011,6 +4365,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             extents = model.collapse_extents()
             for cid in model.containers:
                 if cid not in self._box_items:
+                    continue
+                if force_summary:
+                    collapsed.add(cid)
                     continue
                 ext = extents.get(cid, float("inf"))
                 if ext == float("inf"):
@@ -4032,7 +4389,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Leaf shells: visible, non-container leaves whose own label is illegible.
         shells: set[str] = set()
-        if self._lod_enabled:
+        if lod_on:
             for bid, item in self._box_items.items():
                 if bid in hidden or bid in tiles or item._is_parent:
                     continue
@@ -4046,7 +4403,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         # equivalent of a container folding when its children get too small to
         # read. Compactness ignores boxes already subsumed by a collapsed tile.
         clusters: dict[tuple, list] = {}
-        if self._lod_enabled and may_collapse and model is not None:
+        if lod_on and may_collapse and model is not None:
             for comp in model.components:
                 if (len(comp) >= 3 and all(m in shells for m in comp)
                         and self._cluster_compact(comp, hidden)):
@@ -4065,7 +4422,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             if model is not None and any(a in collapsed
                                          for a in model.ancestors(nid)):
                 hidden_notes.add(nid)
-            elif self._lod_enabled:
+            elif lod_on:
                 px = resolve_textsize_px(nitem.note.textsize, "") * scale
                 if should_collapse(px, nid in self._lod_note_shells):
                     note_shells.add(nid)
@@ -4088,7 +4445,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             a = it.data(0)
             key = (a.from_id, a.to_id) if a is not None else id(it)
             px = resolve_textsize_px(getattr(a, "textsize", ""), "") * scale
-            if self._lod_enabled and should_collapse(px, key in prev_labels_hidden):
+            if lod_on and should_collapse(px, key in prev_labels_hidden):
                 arrow_labels_hidden.add(key)
 
         state = (frozenset(collapsed), frozenset(shells), frozenset(clusters),
@@ -4137,6 +4494,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             # Hidden endpoints re-route to their tile/hull; illegible labels
             # drop out and their lines redraw unbroken.
             self._redraw_arrows()
+        if self._present_focus_rect is not None:
+            # Tiles appearing / elements hiding change what counts as fully
+            # framed — recompute the focus fade against the new composition.
+            self._apply_presentation_focus()
 
     def _cluster_compact(self, comp, hidden=frozenset()) -> bool:
         """A component is compact when no *visible* non-member box centre falls
@@ -4802,6 +5163,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
 
+        # Connector option overlay owns all input while open
+        if self._conn_overlay_active:
+            self._handle_connector_overlay_key(event)
+            event.accept()
+            return
+
         if event.key() == Qt.Key.Key_Escape:
             if self._search_filter_active:
                 self._clear_search_filter()
@@ -4833,11 +5200,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             return
 
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            if self._selected_arrow:
+            if self._selected_arrows:
                 self._push_undo()
                 self._clear_arrow_mode()
-                self._board.remove_arrow(self._selected_arrow)
-                self._selected_arrow = None
+                for arrow in self._selected_arrows:
+                    self._board.remove_arrow(arrow)
+                self._selected_arrows = []
                 self._selected_arrow_items.clear()
                 self._redraw_arrows()
                 self.mark_dirty()
@@ -4882,19 +5250,34 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             # Style mode keys
             if self._arrow_mode == "style":
                 shift_only = (mods_a & _SIGNIFICANT_MODS) == Qt.KeyboardModifier.ShiftModifier
-                # a — toggle connector kind (graph edge ⇄ annotation)
+                # c — open the appearance overlay (heads / line / thickness / colour)
+                if no_mod_a and key == Qt.Key.Key_C:
+                    self._open_connector_overlay("appearance")
+                    self._record_shortcut("connector style → appearance")
+                    event.accept()
+                    return
+                # t — open the label-text overlay (size)
+                if no_mod_a and key == Qt.Key.Key_T:
+                    self._open_connector_overlay("text")
+                    self._record_shortcut("connector style → text")
+                    event.accept()
+                    return
+                # a — toggle connector kind (graph edge ⇄ annotation); the
+                # primary drives the new value, which unifies the whole selection
                 if no_mod_a and key == Qt.Key.Key_A:
                     self._push_undo()
-                    arrow = self._selected_arrow
-                    arrow.kind = ("graph" if self._is_annotation_link(arrow)
-                                  else "annotation")
-                    self._last_connector_kind = arrow.kind
+                    primary = self._selected_arrow
+                    new_kind = ("graph" if self._is_annotation_link(primary)
+                                else "annotation")
+                    for a in self._selected_arrows:
+                        a.kind = new_kind
+                    self._last_connector_kind = new_kind
                     self._redraw_arrows()
-                    self._select_arrow(arrow, keep_mode=True)
+                    self._select_arrow(self._selected_arrow, keep_mode=True)
                     self._update_arrow_mode_badge_pos()
                     self.mark_dirty()
                     self._record_shortcut(
-                        "connector → graph edge" if arrow.kind == "graph"
+                        "connector → graph edge" if new_kind == "graph"
                         else "connector → annotation")
                     event.accept()
                     return
@@ -4905,25 +5288,25 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     Qt.Key.Key_J, Qt.Key.Key_K,
                 )):
                     self._push_undo()
-                    arrow = self._selected_arrow
+                    primary = self._selected_arrow
                     if no_mod_a and key == Qt.Key.Key_H:
-                        arrow.head_from = not arrow.head_from
+                        self._set_all_arrows("head_from", not primary.head_from)
                     elif no_mod_a and key == Qt.Key.Key_L:
-                        arrow.head_to = not arrow.head_to
+                        self._set_all_arrows("head_to", not primary.head_to)
                     elif no_mod_a and key == Qt.Key.Key_J:
-                        idx = _SIZE_SEQUENCE.index(arrow.textsize) if arrow.textsize in _SIZE_SEQUENCE else 0
-                        arrow.textsize = _SIZE_SEQUENCE[min(idx + 1, len(_SIZE_SEQUENCE) - 1)]
+                        idx = _SIZE_SEQUENCE.index(primary.textsize) if primary.textsize in _SIZE_SEQUENCE else 0
+                        self._set_all_arrows("textsize", _SIZE_SEQUENCE[min(idx + 1, len(_SIZE_SEQUENCE) - 1)])
                     elif no_mod_a and key == Qt.Key.Key_K:
-                        idx = _SIZE_SEQUENCE.index(arrow.textsize) if arrow.textsize in _SIZE_SEQUENCE else 0
-                        arrow.textsize = _SIZE_SEQUENCE[max(idx - 1, 0)]
+                        idx = _SIZE_SEQUENCE.index(primary.textsize) if primary.textsize in _SIZE_SEQUENCE else 0
+                        self._set_all_arrows("textsize", _SIZE_SEQUENCE[max(idx - 1, 0)])
                     elif shift_only and key == Qt.Key.Key_J:
-                        idx = _ARROW_STYLE_CYCLE.index(arrow.style) if arrow.style in _ARROW_STYLE_CYCLE else 0
-                        arrow.style = _ARROW_STYLE_CYCLE[(idx + 1) % len(_ARROW_STYLE_CYCLE)]
+                        idx = _ARROW_STYLE_CYCLE.index(primary.style) if primary.style in _ARROW_STYLE_CYCLE else 0
+                        self._set_all_arrows("style", _ARROW_STYLE_CYCLE[(idx + 1) % len(_ARROW_STYLE_CYCLE)])
                     elif shift_only and key == Qt.Key.Key_K:
-                        idx = _ARROW_STYLE_CYCLE.index(arrow.style) if arrow.style in _ARROW_STYLE_CYCLE else 0
-                        arrow.style = _ARROW_STYLE_CYCLE[(idx - 1) % len(_ARROW_STYLE_CYCLE)]
+                        idx = _ARROW_STYLE_CYCLE.index(primary.style) if primary.style in _ARROW_STYLE_CYCLE else 0
+                        self._set_all_arrows("style", _ARROW_STYLE_CYCLE[(idx - 1) % len(_ARROW_STYLE_CYCLE)])
                     self._redraw_arrows()
-                    self._select_arrow(arrow, keep_mode=True)
+                    self._select_arrow(self._selected_arrow, keep_mode=True)
                     self._update_arrow_mode_badge_pos()
                     self.mark_dirty()
                     event.accept()
@@ -4984,10 +5367,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             event.accept()
             return
         if event.key() == Qt.Key.Key_X and no_mod:
-            if self._selected_arrow:
+            if self._selected_arrows:
                 self._push_undo()
-                self._board.remove_arrow(self._selected_arrow)
-                self._selected_arrow = None
+                self._clear_arrow_mode()
+                for arrow in self._selected_arrows:
+                    self._board.remove_arrow(arrow)
+                self._selected_arrows = []
                 self._selected_arrow_items.clear()
                 self._redraw_arrows()
                 self.mark_dirty()
@@ -5514,7 +5899,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
         # Shift+click toggles selection on individual items
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Shift+click on a connector: accumulate it in the connector
+            # selection (its own channel, so bulk-format many at once).
+            if isinstance(item, (ArrowLineItem, QGraphicsLineItem,
+                                 QGraphicsPolygonItem, QGraphicsSimpleTextItem)):
+                arrow_data = item.data(0)
+                if isinstance(arrow_data, Arrow):
+                    self._select_arrow(arrow_data, additive=True)
+                    event.accept()
+                    return
             if isinstance(resolved, (BoxItem, NoteItem, ImageItem)):
+                # Cross-channel: touching a node clears any connector selection.
+                self._deselect_arrow()
                 # Shift on a resize handle of an already-selected item starts a
                 # ratio-locked scale, not a selection toggle — let the item's
                 # own mousePressEvent begin the drag.
@@ -7063,6 +7459,86 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         self._flow_overlay = None
         self.viewport().update()
 
+    # ── Presentation overrides (per-step detail / focus) ──
+
+    def _set_presentation_detail(self, detail: str | None):
+        """Override the global LoD toggle while a step is shown: "full" keeps
+        everything as authored, "summary" collapses containers to tiles, and
+        None returns control to the global GUI setting."""
+        detail = detail if detail in ("full", "summary") else None
+        if detail == self._present_detail:
+            return
+        self._present_detail = detail
+        self._refresh_lod()
+
+    def _set_presentation_focus(self, rect: QRectF | None):
+        """Set (or clear, with None) the "complete" focus frame: elements not
+        completely inside ``rect`` dim to the standard 0.08 blend level, and a
+        connector stays at full opacity only when both its endpoints do."""
+        if rect is None and self._present_focus_rect is None:
+            return
+        self._present_focus_rect = QRectF(rect) if rect is not None else None
+        self._apply_presentation_focus()
+        self.viewport().update()
+
+    def _presentation_focus_contained(self) -> set[str]:
+        """Ids of the visible boxes/notes/images completely inside the focus
+        frame. Only meaningful while a focus frame is set."""
+        rect = self._present_focus_rect
+        contained: set[str] = set()
+        if rect is None:
+            return contained
+        for items in (self._box_items, self._note_items, self._image_items):
+            for eid, item in items.items():
+                if item.isVisible() and rect.contains(item.sceneBoundingRect()):
+                    contained.add(eid)
+        return contained
+
+    def _apply_presentation_focus(self):
+        """(Re)apply the focus fade — or restore the resting opacities, which
+        must respect the standing dim toggles (⇧N notes, "," arrows) and the
+        subgraph-focus / complexity filters when clearing."""
+        if self._present_focus_rect is None:
+            for item in self._box_items.values():
+                item.setOpacity(1.0)
+                item._label.setOpacity(1.0)
+            for item in self._note_items.values():
+                item.setOpacity(1.0)
+            for item in self._image_items.values():
+                item.setOpacity(1.0)
+            for gfx in self._arrow_items:
+                gfx.setOpacity(1.0)
+            if self._focus_active:
+                self._apply_focus_filter()
+            elif self._complexity_active:
+                self._apply_complexity_heatmap()
+            else:
+                if self._arrows_dimmed:
+                    for gfx in self._arrow_items:
+                        gfx.setOpacity(0.08)
+                if self._notes_hidden:
+                    self._apply_notes_hidden()
+            return
+        contained = self._presentation_focus_contained()
+        for bid, item in self._box_items.items():
+            opacity = 1.0 if bid in contained else 0.08
+            item.setOpacity(opacity)
+            item._label.setOpacity(opacity)
+        for nid, item in self._note_items.items():
+            item.setOpacity(1.0 if nid in contained else 0.08)
+        for iid, item in self._image_items.items():
+            item.setOpacity(1.0 if iid in contained else 0.08)
+        for gfx in self._arrow_items:
+            arrow = gfx.data(0)
+            if arrow is None:
+                continue
+            # Endpoints may be re-routed to a collapsed tile under LoD — judge
+            # the connector by what is actually drawn on screen.
+            from_id = self._lod_reroute(arrow.from_id)
+            to_id = self._lod_reroute(arrow.to_id)
+            both_in = from_id in contained and to_id in contained
+            gfx.setOpacity(1.0 if both_in else 0.08)
+
     # ── Transient confirmation overlays (flashes) ──
 
     _FLASH_BLUE = (43, 108, 176)     # bookmark goto confirmation
@@ -7348,6 +7824,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                     "loop": "playing ⟳"}.get(ov.get("mode", "paused"), "paused")
             hint = (f"Space/→ next · ← prev · "
                     f"t:{transition} · p:{play} · Esc exit")
+            # Surface active per-step presentation settings so a viewer can
+            # tell why this stop renders summarized / faded.
+            for key in ("detail", "focus"):
+                if ov.get(key):
+                    hint += f" · {key}:{ov[key]}"
 
             title_font = QFont(FONT_FAMILY, 14, QFont.Weight.Bold)
             desc_font = QFont(FONT_FAMILY, 11)
@@ -7356,28 +7837,30 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             pad = 12
             gap = 5
             max_w = min(640, vp.width() - 40)
+            # The caption shows its full text, word-wrapped — authoring keeps
+            # it within MAX_DESCRIPTION_CHARS, so the card stays a caption.
+            # The measurement bound still caps a runaway description so the
+            # panel never swallows the whole stage.
+            flags = int(Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignLeft)
+            bound = QRectF(0, 0, max_w, vp.height() * 0.6)
 
             painter.setFont(title_font)
-            tfm = painter.fontMetrics()
-            title_disp = tfm.elidedText(title, Qt.TextElideMode.ElideRight, max_w)
-            title_w = tfm.horizontalAdvance(title_disp)
-            title_h = tfm.height()
+            title_rect = painter.boundingRect(bound, flags, title)
 
-            painter.setFont(desc_font)
-            dfm = painter.fontMetrics()
             desc = ov["description"] or ""
-            desc_disp = dfm.elidedText(desc, Qt.TextElideMode.ElideRight, max_w) if desc else ""
-            desc_w = dfm.horizontalAdvance(desc_disp) if desc_disp else 0
-            desc_h = dfm.height() if desc_disp else 0
+            painter.setFont(desc_font)
+            desc_rect = (painter.boundingRect(bound, flags, desc)
+                         if desc else QRectF())
 
             painter.setFont(hint_font)
-            hfm = painter.fontMetrics()
-            hint_w = hfm.horizontalAdvance(hint)
-            hint_h = hfm.height()
+            hint_rect = painter.boundingRect(bound, flags, hint)
 
-            content_w = max(title_w, desc_w, hint_w)
+            content_w = max(title_rect.width(), desc_rect.width(),
+                            hint_rect.width())
             panel_w = content_w + pad * 2
-            panel_h = title_h + (gap + desc_h if desc_disp else 0) + gap + hint_h + pad * 2
+            panel_h = (title_rect.height()
+                       + (gap + desc_rect.height() if desc else 0)
+                       + gap + hint_rect.height() + pad * 2)
             panel_x = (vp.width() - panel_w) / 2
             panel_y = vp.height() - panel_h - 20
 
@@ -7390,18 +7873,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             cy = panel_y + pad
             painter.setFont(title_font)
             painter.setPen(QPen(QColor(255, 255, 255)))
-            painter.drawText(QPointF(panel_x + pad, cy + tfm.ascent()), title_disp)
-            cy += title_h
-            if desc_disp:
+            painter.drawText(
+                QRectF(panel_x + pad, cy, content_w, title_rect.height()),
+                flags, title)
+            cy += title_rect.height()
+            if desc:
                 cy += gap
                 painter.setFont(desc_font)
                 painter.setPen(QPen(QColor(220, 220, 220)))
-                painter.drawText(QPointF(panel_x + pad, cy + dfm.ascent()), desc_disp)
-                cy += desc_h
+                painter.drawText(
+                    QRectF(panel_x + pad, cy, content_w, desc_rect.height()),
+                    flags, desc)
+                cy += desc_rect.height()
             cy += gap
             painter.setFont(hint_font)
             painter.setPen(QPen(QColor(150, 150, 150)))
-            painter.drawText(QPointF(panel_x + pad, cy + hfm.ascent()), hint)
+            painter.drawText(
+                QRectF(panel_x + pad, cy, content_w, hint_rect.height()),
+                flags, hint)
 
         painter.restore()
 
@@ -7971,11 +8460,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
     # ── Export (SVG file / PNG clipboard) ──
 
     @contextmanager
-    def _export_scene_context(self, padding: int = 20):
+    def _export_scene_context(self, padding: int = 20, region=None):
         """Prepare the scene for clean export, yield the padded bounding rect.
 
         Hides unselected items when there is a selection, clears selection
         decorations, and hides the mode badge.  Restores everything on exit.
+        A non-null *region* (QRectF, already padded by the caller) overrides
+        the default whole-scene bounding rect — used for targeted renders.
         """
         selected = [
             i for i in self._scene.selectedItems()
@@ -8031,10 +8522,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             badge_items.append(self._mode_badge_bg)
             self._mode_badge_bg.setVisible(False)
 
-        rect = self._scene.itemsBoundingRect()
-        if rect.isNull():
-            rect = QRectF(0, 0, 100, 100)
-        rect = rect.adjusted(-padding, -padding, padding, padding)
+        if region is not None and not region.isNull():
+            rect = QRectF(region)
+        else:
+            rect = self._scene.itemsBoundingRect()
+            if rect.isNull():
+                rect = QRectF(0, 0, 100, 100)
+            rect = rect.adjusted(-padding, -padding, padding, padding)
 
         try:
             yield rect
@@ -8046,9 +8540,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             for item in badge_items:
                 item.setVisible(True)
 
-    def _render_svg_bytes(self, padding: int = 20) -> QByteArray:
+    def _render_svg_bytes(self, padding: int = 20, region=None) -> QByteArray:
         """Render the current diagram (or selection) to SVG bytes."""
-        with self._export_scene_context(padding=padding) as rect:
+        with self._export_scene_context(padding=padding, region=region) as rect:
             buf = QByteArray()
             io = QBuffer(buf)
             io.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -8064,9 +8558,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
             io.close()
         return buf
 
-    def _render_png_image(self, scale: int = 2, padding: int = 20) -> QImage:
+    def _render_png_image(
+        self, scale: int = 2, padding: int = 20, region=None,
+    ) -> QImage:
         """Render the current diagram (or selection) to a QImage."""
-        with self._export_scene_context(padding=padding) as rect:
+        with self._export_scene_context(padding=padding, region=region) as rect:
             size = rect.size().toSize()
             image = QImage(
                 size.width() * scale,
@@ -8092,6 +8588,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
 
     def _render_png_to_path(
         self, path, padding: int = 20, width: int | None = None,
+        region=None,
     ) -> None:
         """Render the current diagram to a PNG file at *path*.
 
@@ -8099,7 +8596,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         preserving aspect ratio. Otherwise the natural 2× scale is used.
         """
         from PySide6.QtCore import Qt as _Qt
-        image = self._render_png_image(padding=padding)
+        image = self._render_png_image(padding=padding, region=region)
         if width is not None and width > 0:
             image = image.scaledToWidth(
                 width, _Qt.TransformationMode.SmoothTransformation,
@@ -8236,6 +8733,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
                 ("p", "Cycle paused / playing / loop"),
                 ("F5", "Present flow fullscreen"),
                 ("Esc", "Exit playback / present"),
+                ("Caption", f"Shown in full, wrapped — keep it ≤ "
+                            f"{MAX_DESCRIPTION_CHARS} chars"),
+                ("~detail=", "Flow/step LoD: full / summary (file token, "
+                             "step overrides flow)"),
+                ("~focus=", "Flow/step focus: complete fades partly framed "
+                            "elements"),
             ]),
             ("Export", [
                 ("Y", "Yank diagram as PNG to clipboard"),
@@ -8371,17 +8874,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, QGraphicsView):
         )
         notes_browser.setHtml(self._notes_help_html())
         tabs.addTab(notes_browser, "Text Annotations")
-
-        # ── Tab 3: markdown editor ──
-        md_browser = QTextBrowser(tabs)
-        md_browser.setOpenLinks(False)
-        md_browser.setFont(font)
-        md_browser.setStyleSheet(
-            "QTextBrowser { background: #2A2A2A; color: #E0E0E0; border: none;"
-            " padding: 8px; }"
-        )
-        md_browser.setHtml(self._md_editor_help_html())
-        tabs.addTab(md_browser, "Markdown Editor")
+        # The Markdown editor (textli) owns its own help now — press F1 while the
+        # zen editor is open to see it. grafli's F1 covers only the diagram.
 
         btn = QPushButton("Close", dlg)
         btn.clicked.connect(dlg.accept)
@@ -8528,108 +9022,6 @@ return out  @parser.py:44</div>
         <p>Notes can use triple-quoted text in the file format when the text
         contains quotes or should stay readable across multiple lines. In the
         canvas this is still just an ordinary editable note.</p>
-        """
-
-    def _md_editor_help_html(self) -> str:
-        hdr = (
-            "color:#6A9FB5;font-weight:bold;"
-            "padding-top:10px;padding-bottom:4px"
-        )
-        kw = "color:#6A9FB5;font-weight:bold"
-        mono = "font-family:monospace"
-        cell = "padding:4px 8px;vertical-align:top"
-        key_cell = (
-            "padding:4px 8px;font-family:monospace;"
-            "white-space:nowrap;vertical-align:top"
-        )
-        return f"""
-        <p style='{hdr}'>MARKDOWN EDITOR (ZEN MODE)</p>
-        <p>Opens when you follow a link to a local <span style='{mono}'>.md</span>
-        file from a node URL, or when you edit an annotation. Pure text, no
-        chrome &mdash; the shortcuts below are the controls. The editor opens
-        ready to type (vim NORMAL mode); switch to a rendered reading view with
-        <b>Ctrl+R</b>.</p>
-
-        <p style='{kw}'>Session</p>
-        <table cellpadding='2' style='margin-left:8px'>
-          <tr><td style='{key_cell}'>Esc</td>
-              <td style='{cell}'>Save &amp; close
-                  (annotation mode emits the new text; file mode just
-                  closes &mdash; writes happen via autosave).</td></tr>
-          <tr><td style='{key_cell}'>Shift+Esc</td>
-              <td style='{cell}'>Cancel &mdash; discard pending changes
-                  in annotation mode.</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+R</td>
-              <td style='{cell}'>Toggle a read-only <b>rendered</b> Markdown
-                  view (formatted headings, bold, lists, links) and back to
-                  the editor. Scroll it with vim keys
-                  (j/k, Ctrl+d/u, Ctrl+f/b, gg/G).</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+Enter</td>
-              <td style='{cell}'>Toggle full-window width
-                  (focused column &harr; fills the window).</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+.</td>
-              <td style='{cell}'>Toggle section focus &mdash; dim everything
-                  but the current paragraph (off by default).</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+P</td>
-              <td style='{cell}'>Open the native print dialog.</td></tr>
-          <tr><td style='{key_cell}'>Ctrl++ / Ctrl+- / Ctrl+0</td>
-              <td style='{cell}'>Bigger / smaller / reset font size
-                  (persists across sessions).</td></tr>
-          <tr><td style='{key_cell}'>Ctrl+J</td>
-              <td style='{cell}'>Activate word-jump overlay
-                  (Easymotion-style two-key jump to any visible word).</td></tr>
-        </table>
-
-        <p style='{kw}'>Vim Motion (NORMAL mode)</p>
-        <table cellpadding='2' style='margin-left:8px'>
-          <tr><td style='{key_cell}'>h j k l</td>
-              <td style='{cell}'>Left / down / up / right.</td></tr>
-          <tr><td style='{key_cell}'>w / b / e</td>
-              <td style='{cell}'>Next word start / previous word /
-                  word end.</td></tr>
-          <tr><td style='{key_cell}'>0 / $</td>
-              <td style='{cell}'>Line start / line end.</td></tr>
-          <tr><td style='{key_cell}'>gg / G</td>
-              <td style='{cell}'>Document start / end.</td></tr>
-        </table>
-
-        <p style='{kw}'>Entering INSERT mode</p>
-        <table cellpadding='2' style='margin-left:8px'>
-          <tr><td style='{key_cell}'>i / a</td>
-              <td style='{cell}'>Insert before / after the cursor.</td></tr>
-          <tr><td style='{key_cell}'>I / A</td>
-              <td style='{cell}'>Insert at line start / line end.</td></tr>
-          <tr><td style='{key_cell}'>o / O</td>
-              <td style='{cell}'>Open new line below / above.</td></tr>
-          <tr><td style='{key_cell}'>Esc</td>
-              <td style='{cell}'>Back to NORMAL mode
-                  (cursor steps left, vim convention).</td></tr>
-        </table>
-
-        <p style='{kw}'>Edits (NORMAL mode)</p>
-        <table cellpadding='2' style='margin-left:8px'>
-          <tr><td style='{key_cell}'>x</td>
-              <td style='{cell}'>Delete character under cursor.</td></tr>
-          <tr><td style='{key_cell}'>dd</td>
-              <td style='{cell}'>Delete line.</td></tr>
-          <tr><td style='{key_cell}'>dw</td>
-              <td style='{cell}'>Delete to next word.</td></tr>
-        </table>
-
-        <p style='{kw}'>Display</p>
-        <p>iA Writer-inspired: the current paragraph stays at full opacity,
-        surrounding text is muted to keep focus on what you're writing.
-        Headings, lists, links, inline <span style='{mono}'>code</span>,
-        and code fences get light syntax highlighting; muted in read-only
-        mode (no focus paragraph) so the whole document reads as one piece.</p>
-
-        <p style='{kw}'>Layout</p>
-        <p>The editor opens as a centered modal card with a drop shadow.
-        The dim wash falls over grafli's chrome (toolbars, side panel,
-        minimap) but spares the graph canvas, so the diagram you're
-        annotating stays fully saturated behind the card. The card holds
-        just the text &mdash; no title, no hint bar, no badges. Card width
-        hugs the text column (max ≈700&nbsp;px).</p>
         """
 
     def _show_graph_stats_dialog(self):

@@ -90,7 +90,7 @@ Notes aren't just sticky labels. Grafli recognizes lightweight conventions and r
 - **Code-mode notes** (lines starting with `code:`) render minimal pseudocode: a bold function signature on the first line, blue **flow** keywords (`if`, `for`, `call`, `emit`, …), red **contract** keywords (`pre`, `post`, `verify`, `risk`, …), and clickable `@file:line` refs that open in your editor.
 - **Markdown-mode notes** (lines starting with `md:` / `markdown:`) render a small subset of GitHub-flavoured Markdown — headings, lists, click-to-toggle task checkboxes, blockquotes, inline emphasis, and clickable links.
 - **Semantic edge labels** — prefixes like `call:`, `data:`, `event:`, `verify:`, `risk:` render as colored chips on the arrow itself.
-- **Markdown resources** — attach a markdown note to any element and edit it in a full-window zen editor.
+- **Markdown resources** — attach a markdown note to any element and edit it in [textli](https://mistergc.github.io/textli/), grafli's full-window Markdown editor (its own project, bundled as a dependency).
 
 ![A guard's threat-reaction behavior under design review — task, question, discussion thread, code-mode note, and chip-labeled arrows](assets/screenshots/annotations.png)
 

@@ -18,7 +18,7 @@ its version. It is required.
 ```text
 @ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]
 @ note [<id>] <x>,<y> "<text>" [color] [~size] [~width=N] [!style] [>parent]
-@ arrow <from> <op> <to> ["label"] [!style] [~size]
+@ arrow <from> <op> <to> ["label"] [color] [!pattern] [!thickness] [~size]
 ```
 
 | Element | Purpose |
@@ -55,6 +55,12 @@ its version. It is required.
   a handwritten face by default**; `!mono` (and `code:` notes) switch to the
   monospace face — handwriting for prose, monospace for code. (Style mode →
   `t` opens the text grid; `Tab` there toggles a note's font.)
+- *(arrows)* a bare `%color` / `#hex` overrides the connector colour;
+  `!dashed` / `!dotted` set the line pattern and `!thin` / `!thick` set the
+  thickness (default width tracks the linked nodes). Select a connector (or
+  shift+click several) and press `s` then `c` for a live overlay over all four
+  axes — heads, line, thickness, colour — or `s` then `t` for the label text;
+  the picks apply to every selected connector at once.
 - `!bold` / `!italic` — *(boxes and notes)* text emphasis layered on the
   size, e.g. `~large !bold` for a heading. Combine freely (`!bold !italic`).
   (Style mode → `t` opens a size × style text grid.)
@@ -98,6 +104,13 @@ return ok
 The serializer auto-promotes single-line notes that contain `"` to the
 triple-quoted form.
 
+## Quoted-text escapes
+
+Single-line quoted slots (box / arrow / bookmark / flow labels,
+descriptions, note text, the footer) support two escapes: `\n` for a
+newline and `\"` for a literal quote — `@ box a "Say \"hi\"" 0,0 200x100`.
+Triple-quoted blocks take quotes and newlines literally.
+
 ## A complete example
 
 ```text
@@ -120,19 +133,49 @@ Saved viewpoints and guided tours are stored in the file too. A file that
 contains them uses the `v2` header; pure-diagram files stay on `v1`.
 
 ```text
-@ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
+@ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] [~iso] ["<description>"]
 @ bookmark <id> "<label>" ~view=<x>,<y>,<w>,<h> ["<description>"]
-@ flow <id> "<label>" <bookmark_ref>[:<dwell>] ... ["<description>"]
+@ flow <id> "<label>" <step> ... [~auto=<start_id>] [~detail=<v>] [~focus=<v>] ["<description>"]
+@ footer "<markdown>"
+@ title-bg <empty|thumbnail-art>
 ```
+
+A flow `<step>` is a bookmark ref with optional `:`-separated segments, in
+any order: a bare number is the auto-play dwell in seconds, and
+`detail=<v>` / `focus=<v>` override the flow's presentation settings for
+just that stop — `bm_all:6:detail=summary` or `bm_api:focus=complete`.
 
 - `@<ids>` is the **semantic anchor** — the item ids the view frames. The
   pan/zoom is computed by fitting them, so the bookmark survives layout edits.
   `~pad=<n>` overrides the framing padding.
+- `~iso` marks the anchor as a **narrowed selection**: thumbnails and exported
+  slides render only the anchored items (and the arrows between them), not
+  everything inside the framed region — see
+  [scoping a step](bookmarks-flows.md#scoping-a-step-to-a-selection).
 - `~view=<x>,<y>,<w>,<h>` stores an **exact scene rect** instead, used for a
   hand-tuned framing or a viewpoint that contains no nodes. A bookmark uses
   one or the other.
 - A `@ flow` lists bookmark ids in order; `:<dwell>` sets that stop's
-  auto-play time in seconds (omit for the flow default).
+  auto-play time in seconds (omit for the flow default). `~auto=<start_id>`
+  marks an [auto-generated flow](bookmarks-flows.md#auto-generated-flows),
+  regenerable from that start node.
+- `~detail=<v>` sets how the flow's stops render under
+  [level-of-detail](navigating.md): `full` (everything as authored),
+  `summary` (containers collapse to tiles), or `auto` (follow the app's
+  global LoD toggle — the default when unset). A step's own `detail=` segment
+  overrides the flow.
+- `~focus=<v>` controls distraction fading: `complete` shows only elements
+  *completely* inside the framed viewport at full opacity and blends out
+  partially visible ones (a connector stays opaque only when both its ends
+  do); `none` (default) shows the frame as-is. A step's `focus=` segment
+  overrides the flow. See
+  [per-stop detail & focus](bookmarks-flows.md#per-stop-detail--focus).
+- A bookmark **description** is the playback / slide caption: it renders in
+  full (wrapped), so keep it within **280 characters** — the GUI editor
+  enforces the budget and `grafli export --check` flags older files past it.
+- `@ footer` is the board-global markdown branding line on exported content
+  slides; `@ title-bg thumbnail-art` selects the title slide's collage
+  backdrop. Both are one-per-file.
 
 ```text
 #!grafli v2

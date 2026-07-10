@@ -34,7 +34,7 @@ from grafli.constants import (
 )
 from grafli.flows import (bookmark_target_rect, render_bookmark_pixmap,
                           text_slide_note)
-from grafli.format import FlowStep
+from grafli.format import MAX_DESCRIPTION_CHARS, FlowStep
 
 # Thumbnail render resolution — rendered at 2x the display max so the
 # _ThumbLabel has the device pixels to paint crisply on a hi-dpi screen.
@@ -96,7 +96,7 @@ class _InlineDesc(QPlainTextEdit):
 
     _MAX_H = 130
 
-    def __init__(self, text: str, parent=None):
+    def __init__(self, text: str, parent=None, max_chars: int | None = None):
         super().__init__(text, parent)
         self.setFont(QFont(FONT_FAMILY, 10))
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -112,7 +112,26 @@ class _InlineDesc(QPlainTextEdit):
             f" QPlainTextEdit:focus {{ background: #FFFFFF;"
             f" border: 1px solid {_BORDER}; border-radius: 3px; }}")
         self._initial = text
+        self._max_chars = max_chars
+        self.textChanged.connect(self._enforce_cap)
         self.textChanged.connect(self._fit_height)
+
+    def _enforce_cap(self):
+        """Hold a capped field to its character budget (playback captions show
+        their full text, so the budget is what keeps them caption-sized)."""
+        if self._max_chars is None:
+            return
+        text = self.toPlainText()
+        if len(text) <= self._max_chars:
+            return
+        pos = self.textCursor().position()
+        self.blockSignals(True)
+        self.setPlainText(text[:self._max_chars])
+        cursor = self.textCursor()
+        cursor.setPosition(min(pos, self._max_chars))
+        self.setTextCursor(cursor)
+        self.blockSignals(False)
+        self._fit_height()
 
     def _fit_height(self):
         # Grow with content (clamped) so a 1-line description doesn't reserve
@@ -474,7 +493,10 @@ class FlowsPanel(QWidget):
         return title
 
     def _desc_edit(self, bm) -> _InlineDesc:
-        desc = _InlineDesc(bm.description)
+        # Step captions are budgeted: playback shows the full text wrapped,
+        # so the cap is what keeps a caption a caption (flow descriptions —
+        # title-slide markdown — stay uncapped).
+        desc = _InlineDesc(bm.description, max_chars=MAX_DESCRIPTION_CHARS)
         desc.committed.connect(lambda t, b=bm: self._set_description(b, t))
         return desc
 

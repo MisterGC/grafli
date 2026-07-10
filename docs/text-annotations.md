@@ -184,74 +184,45 @@ Two ways to edit a note's text:
 
 * <kbd>e</kbd> (or double-click) — a small **inline** vim editor right on
   the canvas; it grows to fit as you type. Best for quick edits.
-* <kbd>E</kbd> — the **full-window zen editor** (iA-Writer style, vim
-  keybindings) on the note's own text. Best for longer prose. Saving
-  writes straight back to the note — no separate file is created.
+* <kbd>E</kbd> — [textli](https://mistergc.github.io/textli/), the
+  full-window, distraction-free Markdown editor (vim keybindings), on the
+  note's own text. Best for longer prose. Saving writes straight back to
+  the note — no separate file is created.
 
 Both open in INSERT mode; <kbd>Esc</kbd> drops to NORMAL, a second
 <kbd>Esc</kbd> commits, <kbd>Shift</kbd>+<kbd>Esc</kbd> discards.
 
-## Reading & commenting
+## Reviewing prose: comments & suggestions (textli)
 
-In the full-window zen editor, <kbd>⌘</kbd>+<kbd>R</kbd> toggles a **rendered
-reading view** — a clean read of the Markdown, vim-navigable
-(<kbd>j</kbd>/<kbd>k</kbd>, <kbd>Ctrl</kbd>+<kbd>d</kbd>/<kbd>u</kbd>,
-<kbd>gg</kbd>/<kbd>G</kbd>).
+The full-window editor behind <kbd>E</kbd> is
+[textli](https://mistergc.github.io/textli/) — grafli's Markdown editor, now
+its own project, bundled as a dependency. Its rendered reading view
+(<kbd>⌘</kbd>+<kbd>R</kbd>) is where prose review happens: **comment** any
+span, or propose **suggestions** (track changes) that are accepted or
+rejected with single keys. Everything is stored inline in the Markdown as
+[CriticMarkup](http://criticmarkup.com/), so review intent travels with the
+file and diffs in git — the same philosophy as the note prefixes above.
 
-You can **comment on a span of text while reading**. Comments live inline in
-the Markdown itself (as [CriticMarkup](http://criticmarkup.com/) —
-`{==span==}{>>your comment<<}`), so they travel with the file and diff in git
-— no sidecar. In the reading view the comment body is **hidden** and the
-commented span wears a **subtle highlight**; the text stays the focus, and a
-comment only surfaces when you ask for it.
+Suggestions are the natural surface for AI-assisted editing: ask an agent to
+revise a doc and it emits `{++…++}` / `{--…--}` / `{~~old~>new~~}` marks in
+place — then you review its edits key-by-key in the reading view instead of
+hunting for what changed in a wall of new text.
 
-The reading view is **caret-based and vim-navigable** —
-<kbd>h</kbd>/<kbd>j</kbd>/<kbd>k</kbd>/<kbd>l</kbd>, <kbd>w</kbd>/<kbd>b</kbd>/<kbd>e</kbd>,
-<kbd>0</kbd>/<kbd>$</kbd>, <kbd>gg</kbd>/<kbd>G</kbd>, and half/full-page jumps move a
-caret through the rendered text.
+The full story lives in the textli docs —
+[reading & review](https://mistergc.github.io/textli/reading/) and the
+[key reference](https://mistergc.github.io/textli/keybindings/) — or press
+<kbd>F1</kbd> inside the editor.
 
-| Key | Action |
-|-----|--------|
-| <kbd>v</kbd> | Enter **visual mode** — extend a selection with the motions above (you can see the text the whole time, no label clutter) |
-| <kbd>c</kbd> | Comment the visual selection — or, with the caret already on an existing comment, reveal & edit it directly. You never type the markup yourself |
-| <kbd>]</kbd><kbd>c</kbd> / <kbd>[</kbd><kbd>c</kbd> | Step to the next / previous comment |
-| <kbd>Enter</kbd> | Reveal & edit the active comment inline |
-| <kbd>Shift</kbd>+<kbd>D</kbd> | Delete the active comment (the highlight and body are removed) |
-
-While editing a comment: <kbd>Enter</kbd> saves and returns to undisturbed
-reading, <kbd>Shift</kbd>+<kbd>Enter</kbd> inserts a line break, <kbd>Esc</kbd>
-cancels. Clearing the text and saving deletes the comment.
-
-Clearing a comment's text and committing also deletes it. Because comments are
-plain CriticMarkup, you (or a collaborator, or an AI) can also read and edit
-them directly in the source.
-
-## Opening standalone (`textli`)
-
-The same zen editor runs on any Markdown file outside the diagram app:
-
-```
-textli notes.md
-```
-
-It autosaves while you edit (creating the file on first save if needed), so you
-lean on git/SCM for deliberate states rather than a manual save.
-
-Open at a **location** and in a **mode**:
-
-| Form | Effect |
-|------|--------|
-| `textli notes.md#design-decisions` | Scroll to the heading whose slug is `design-decisions` |
-| `textli notes.md -r` / `--read` | Open straight into the rendered reading view (default is the editable write view) |
-
-`path#heading-slug` is a plain Markdown fragment, so a grafli node can link to a
-precise spot in a doc.
+textli also runs standalone on any Markdown file: `textli notes.md`,
+`textli notes.md#heading-slug` to open at a heading, `-r` for the reading
+view. `path#heading-slug` is a plain Markdown fragment, so a grafli node can
+link to a precise spot in a doc.
 
 ## Markdown resources
 
 Boxes and images can link to a separate markdown file. Open (or create)
 the linked resource with <kbd>E</kbd> on the selected element to edit it
-in the full-window zen editor.
+in textli.
 
 The path is stored in the `.grafli` file; grafli tracks it and migrates
 references when you rename the file.

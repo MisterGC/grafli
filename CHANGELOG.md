@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-07-10
 
 ### Added
 - **Connector multi-select.** Shift+click connectors to build a connector
@@ -75,25 +75,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the serializer emits it — `@ box a "Say \"hi\"" …` round-trips.
   ([#110](https://github.com/MisterGC/grafli/issues/110))
 
-### Fixed
-- **Playback captions no longer cut off.** The flow overlay used to elide
-  the stop's title and description to one line each; it now shows the full
-  text, word-wrapped, and surfaces the stop's active detail/focus settings
-  in its hint line. Descriptions get a 280-character authoring budget:
-  enforced in the Flows-tab inline editor, flagged by `grafli export
-  --check` (`[overlong-caption]`) for existing files — never truncated.
-  ([#111](https://github.com/MisterGC/grafli/issues/111))
-
-### Changed
-- **The Markdown editor is now [textli](https://github.com/MisterGC/textli), its
-  own package.** The editor that grew inside grafli (zen writing surface, reading
-  view, comments, suggestions) moved to a separate repository and is consumed as
-  the [`textli-editor`](https://pypi.org/project/textli-editor/) dependency —
-  same editor, same keys, now also installable standalone. The bundled copy and
-  grafli's own `textli` console script are gone; the `textli` command now comes
-  with the package.
-
-### Added
 - **The Markdown editor owns its help (<kbd>F1</kbd>).** The zen / `textli` editor
   now shows its own, up-to-date help — covering the reading view, comments, and
   suggestions — with <kbd>F1</kbd>, whether it's hosted in grafli or (soon) run
@@ -118,6 +99,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↓</kbd> reset — alongside the existing
   font-size zoom (<kbd>Ctrl</kbd>+<kbd>+</kbd>/<kbd>-</kbd>/<kbd>0</kbd>). The
   preference persists across sessions.
+
+### Changed
+- **The Markdown editor is now [textli](https://github.com/MisterGC/textli), its
+  own package.** The editor that grew inside grafli (zen writing surface, reading
+  view, comments, suggestions) moved to a separate repository and is consumed as
+  the [`textli-editor`](https://pypi.org/project/textli-editor/) dependency —
+  same editor, same keys, now also installable standalone. The bundled copy and
+  grafli's own `textli` console script are gone; the `textli` command now comes
+  with the package. grafli now requires `textli-editor` 0.2 or newer.
+
+### Fixed
+- **Playback captions no longer cut off.** The flow overlay used to elide
+  the stop's title and description to one line each; it now shows the full
+  text, word-wrapped, and surfaces the stop's active detail/focus settings
+  in its hint line. Descriptions get a 280-character authoring budget:
+  enforced in the Flows-tab inline editor, flagged by `grafli export
+  --check` (`[overlong-caption]`) for existing files — never truncated.
+  ([#111](https://github.com/MisterGC/grafli/issues/111))
 
 ## [0.4.0] - 2026-06-28
 

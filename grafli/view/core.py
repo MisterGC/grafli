@@ -1,56 +1,36 @@
-"""GrafliView — the main canvas view for the whiteboard app."""
+"""GrafliView — the main canvas view for the whiteboard app.
+
+The composition root and event router of the view package: ``__init__``,
+the Qt event overrides (mouse, wheel, key, gestures), the four interaction
+mode handlers (select / rect / text / connect), background and foreground
+painting, and the drag-time alignment guides. Feature behavior lives in the
+sibling mixin modules this class composes.
+"""
 
 from __future__ import annotations
 
-import math
-import re as _re
-import time
-import shlex
-import shutil
-import subprocess
-from contextlib import contextmanager
-from pathlib import Path
-
 from PySide6.QtCore import (
-    QBuffer,
-    QByteArray,
-    QEasingCurve,
     QEvent,
-    QIODevice,
-    QPoint,
     QPointF,
     QRectF,
     QSettings,
     Qt,
     QTimeLine,
     QTimer,
-    QStringListModel,
-    QVariantAnimation,
-    QUrl,
     Signal,
 )
 from PySide6.QtGui import (
     QBrush,
     QColor,
-    QCursor,
-    QDesktopServices,
     QFont,
-    QFontMetricsF,
-    QImage,
     QPainter,
     QPen,
     QPolygonF,
-    QTextCursor,
     QTransform,
     QWheelEvent,
 )
-from PySide6.QtSvg import QSvgGenerator
 from PySide6.QtWidgets import (
     QApplication,
-    QCompleter,
-    QDialog,
-    QDialogButtonBox,
-    QFileDialog,
     QGraphicsItem,
     QGraphicsLineItem,
     QGraphicsPolygonItem,
@@ -60,45 +40,21 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
     QGraphicsTextItem,
     QGraphicsView,
-    QInputDialog,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QTabWidget,
-    QTextBrowser,
-    QVBoxLayout,
-    QWidget,
 )
 
-from grafli.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_point, _line_rect_clip, _rect_edge_point
-from grafli.buffers import ViewState
 from grafli.view.commands import CommandsMixin
 from grafli.view.complexity import ComplexityMixin
 from grafli.constants import (
-    ANNOTATION_ARROW_COLOR,
-    ANNOTATION_ARROW_WIDTH,
     ARROW_COLOR,
-    ARROW_LABEL_FONT_SIZES,
     ARROW_WIDTH,
-    ARROWHEAD_SIZE,
     BOX_BORDER,
-    BOX_FILL,
-    BOX_FONT_SIZES,
-    resolve_textsize_px,
-    COLOR_PALETTE,
-    CONNECTOR_REF_SIZE,
-    CONNECTOR_WIDTH_MAX,
-    CONNECTOR_WIDTH_MIN,
     CONTENT_BORDER_COLOR,
     DEFAULT_BOX_H,
     DEFAULT_BOX_W,
     FONT_FAMILY,
-    NOTE_PEN_COLOR,
     GRID_COLOR,
-    MINIMAP_MARGIN,
     HEATMAP_CONTENT_BORDER,
     HEATMAP_GRID_COLOR,
-    LAYOUT_PADDING,
     MIN_BOX_SIZE,
     SCENE_BG,
     Mode,
@@ -106,16 +62,11 @@ from grafli.constants import (
     _CTRL_MOD,
     _SIGNIFICANT_MODS,
     _SIZE_SEQUENCE,
-    _resolve_color,
 )
-from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
-from grafli.format import MAX_DESCRIPTION_CHARS, Arrow, Board, Bookmark, Box, Flow, FlowStep, Image, Note, emphasis_from_flags, parse, serialize
+from grafli.format import Arrow, Board, Box, Flow, Image, Note
 from grafli.flows import FlowPlayer
-from grafli.glyphs import GlyphPicker, ensure_text_presentation
-from grafli.iconset import ICON_NAMES, icon_pixmap
-from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ClusterHullItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
-from grafli.lod import CHILD_COLLAPSE_PX, LodModel, should_collapse, should_collapse_container
-from grafli.md_note import note_is_md, toggle_task
+from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ClusterHullItem, ImageItem, NoteItem, ResizeHandle
+from grafli.lod import LodModel
 from grafli.view.minimap import MinimapMixin
 from grafli.view.export import ExportMixin
 from grafli.view.flows import FlowsMixin
@@ -127,7 +78,7 @@ from grafli.view.structure import StructureMixin
 from grafli.view.style_mode import StyleModeMixin
 from grafli.view.viewport import ViewportMixin
 from grafli.zen import ZenOverlay
-from textli import InlineVimEditor, ZenMarkdownEditor
+from textli import InlineVimEditor
 
 
 # ── Canvas view ─────────────────────────────────────────────────

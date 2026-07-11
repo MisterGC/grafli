@@ -72,8 +72,8 @@ from PySide6.QtWidgets import (
 
 from grafli.arrows import _aligned_edge_points, _arrowhead_polygon, _box_edge_point, _line_rect_clip, _rect_edge_point
 from grafli.buffers import ViewState
-from grafli.commands import CommandsMixin
-from grafli.complexity import ComplexityMixin
+from grafli.view.commands import CommandsMixin
+from grafli.view.complexity import ComplexityMixin
 from grafli.constants import (
     ANNOTATION_ARROW_COLOR,
     ANNOTATION_ARROW_WIDTH,
@@ -116,7 +116,7 @@ from grafli.iconset import ICON_NAMES, icon_pixmap
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ClusterHullItem, ImageItem, LabelItem, MIN_SCALE_FONT_PT, NoteItem, ResizeForeshadow, ResizeHandle
 from grafli.lod import CHILD_COLLAPSE_PX, LodModel, should_collapse, should_collapse_container
 from grafli.md_note import note_is_md, toggle_task
-from grafli.minimap import MinimapMixin
+from grafli.view.minimap import MinimapMixin
 from grafli.view.export import ExportMixin
 from grafli.view.flows import FlowsMixin
 from grafli.view.navigation import NavigationMixin

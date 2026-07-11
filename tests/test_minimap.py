@@ -1,10 +1,10 @@
-"""Tests for grafli.minimap helpers (Qt-free portion) and the selection
+"""Tests for grafli.view.minimap helpers (Qt-free portion) and the selection
 glow ring (Qt, offscreen)."""
 
 import os
 
 from grafli.format import Box
-from grafli.minimap import _box_depth_order
+from grafli.view.minimap import _box_depth_order
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 

@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-12
+
+### Added
+- **Sketchnote symbol vocabulary.** The visual vocabulary grows from 16
+  hardcoded glyphs to a curated 30-symbol taxonomy — 20 *semantic* symbols
+  (what a thing is: `person`, `robot`, `gear`, `database`, `target`,
+  `lightbulb`, …) and 10 *emphasis* symbols (how much it matters: `star`,
+  `heart`, `flame`, `brain`, `repeat`, …) — authored as one hand-editable
+  SVG sheet (`grafli/assets/sketchnote_symbols.svg`) and rendered by element
+  id, vector-crisp at any zoom.
+  ([#120](https://github.com/MisterGC/grafli/issues/120))
+- **Badge placement & number badges.** Besides fill (`*star`) and lead
+  (`*lead:star`), symbols gain a corner overlay: `*badge:flame` marks a node
+  without touching its label layout, and digits are symbols too —
+  `*3` / `*badge:7` (1–99) render as circled numbers for sequences and
+  rankings. Badges sit on a soft plate so they read on any node colour.
+  ([#120](https://github.com/MisterGC/grafli/issues/120),
+  [#122](https://github.com/MisterGC/grafli/issues/122))
+- **Categorized symbol picker.** Style mode → `i` shows the full set in
+  Semantic / Emphasis blocks; `Tab` cycles fill → lead → badge, and typing
+  `1`–`9` sets a number badge (a second press appends: `1`,`2` → `12`).
+- **Genre playbooks in the authoring skill.** `references/genres.md` gives
+  agents one playbook per genre — sketchnote, infographic, software diagrams
+  (behavioral / architecture / design) — each with the 10-second job, layout
+  archetypes, a closed feature palette, and an expert self-review checklist.
+  New expert-reviewed examples: `sketchnote-demo.grafli`,
+  `infographic-demo.grafli`; `architecture.grafli` and
+  `oauth-callback.grafli` reworked to exemplar quality.
+  ([#121](https://github.com/MisterGC/grafli/issues/121))
+- **Unknown-symbol diagnostics.** `grafli diagnose` warns when a `*name`
+  doesn't exist instead of failing silently at render time.
+
+### Changed
+- Legacy glyph names `bulb` and `doc` parse as aliases of `lightbulb` /
+  `document` and normalize on the next save; existing boards render
+  unchanged. `money` and `link` remain available.
+
+### Fixed
+- Slide export no longer flags picture-like frames as "overloaded": the
+  readable-size floor now applies only to notes that carry substance, so
+  short annotations may ride a dense frame without a false warning.
+  ([#123](https://github.com/MisterGC/grafli/issues/123))
+- `md:` notes keep authored line breaks inside blockquotes on the canvas and
+  in PDF/PPTX export — quotes keep their ragged edge.
+  ([#124](https://github.com/MisterGC/grafli/issues/124))
+- Level-of-detail aggregation headlines (collapsed tiles and cluster hulls)
+  render above note markers instead of being hidden behind them; corner
+  badges step aside for the attachment glyph and label plates keep clear of
+  badges.
+
 ## [0.5.0] - 2026-07-10
 
 ### Added

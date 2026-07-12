@@ -19,6 +19,7 @@ from typing import Callable, Optional
 
 from grafli.constants import ARROWHEAD_SIZE, BOX_FONT_SIZES, LAYOUT_PADDING
 from grafli.format import Arrow, Board, Box, Image, Note
+from grafli.iconset import has_icon
 
 
 # Optional callable that returns a note's rendered scene rect
@@ -435,6 +436,23 @@ def check_missing_resource(
     return diags
 
 
+def check_unknown_icon(board: Board) -> list[Diagnostic]:
+    """A ``*name`` symbol the iconset doesn't know fails silently at paint
+    time — surface the typo here instead."""
+    diags: list[Diagnostic] = []
+    for el in list(board.boxes) + list(board.notes):
+        if el.icon and not has_icon(el.icon):
+            diags.append(Diagnostic(
+                code="unknown-icon",
+                severity=WARNING,
+                message=(f"{el.id!r} uses unknown symbol *{el.icon} — "
+                         "it will not render"),
+                item_ids=[el.id],
+                fixable=True,
+            ))
+    return diags
+
+
 def run_all(
     board: Board,
     base_dir: Path | None = None,
@@ -443,6 +461,7 @@ def run_all(
 ) -> list[Diagnostic]:
     diags: list[Diagnostic] = []
     diags.extend(check_parse_errors(board))
+    diags.extend(check_unknown_icon(board))
     diags.extend(check_child_outside_parent(board, note_rect=note_rect))
     diags.extend(check_sibling_overlap(board, note_rect=note_rect))
     diags.extend(check_cramped_container(board, note_rect=note_rect))

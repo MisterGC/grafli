@@ -106,7 +106,7 @@ With a selection, press <kbd>s</kbd> to enter style mode, then:
 | Key | Action |
 |-----|--------|
 | <kbd>c</kbd> | Open the color grid — <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> to pick (live preview), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
-| <kbd>i</kbd> | Open the icon grid (visual vocabulary) — same keys; <kbd>Tab</kbd> toggles placement (fill ↔ lead). Fill: big glyph + caption. Lead: small glyph beside the label |
+| <kbd>i</kbd> | Open the symbol grid (sketchnote vocabulary, semantic + emphasis blocks) — same keys; <kbd>Tab</kbd> cycles placement (fill → lead → badge); <kbd>1</kbd>–<kbd>9</kbd> types a number badge (a second press appends: 1,2 → 12). Fill: big symbol + caption. Lead: small symbol beside the label. Badge: compact top-right corner overlay |
 | <kbd>t</kbd> | Open the text grid — rows = sizes, columns = Regular / Bold / Italic / Bold+Italic; <kbd>hjkl</kbd> to move (live preview), <kbd>Tab</kbd> toggles a note's font (handwritten ↔ monospace), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
 | <kbd>j</kbd> / <kbd>k</kbd> | Cycle text size (quick nudge) |
 | <kbd>d</kbd> then <kbd>r</kbd> | Snap selected box(es) to the **slide aspect ratio** — a reusable export frame (re-apply after edits; works on a multi-selection) |

@@ -64,22 +64,33 @@ its version. It is required.
 - `!bold` / `!italic` — *(boxes and notes)* text emphasis layered on the
   size, e.g. `~large !bold` for a heading. Combine freely (`!bold !italic`).
   (Style mode → `t` opens a size × style text grid.)
-- `*icon` — *(boxes and notes)* attach a visual-vocabulary glyph. Bare
-  `*name` is *fill*: a big glyph with the label/text as a caption (a framed
-  node on a box, a borderless marker on a note). `*lead:name` is *lead*: a
-  small glyph to the left of the label, which keeps its normal weight — for
-  labeled items (`*lead:lock` → 🔒 Auth) and flagging existing nodes. Names:
-  `person`, `gear`, `cloud`, `database`, `warning`, `bulb`, `check`, `cross`,
-  `money`, `clock`, `doc`, `lock`, `flag`, `star`, `link`, `question`.
-  (Style mode → `i`; `Tab` toggles fill ↔ lead.)
+- `*symbol` — *(boxes and notes)* attach a sketchnote symbol. Three
+  placements: bare `*name` is *fill* (a big symbol with the label/text as a
+  caption — a framed node on a box, a borderless marker on a note);
+  `*lead:name` is *lead* (a small symbol left of the label, which stays
+  primary — `*lead:lock` → 🔒 Auth); `*badge:name` is *badge* (a compact
+  overlay in the top-right corner, the label keeps its normal layout — for
+  emphasis marks on existing nodes). Digits are *number badges*: `*3`,
+  `*badge:7` (1–99) render as a circled number for sequences and rankings.
+  The symbols live in `grafli/assets/sketchnote_symbols.svg` — one editable
+  sheet, rendered vector-crisp at any zoom.
+  *Semantic* names (what a thing is): `person`, `robot`, `gear`, `database`,
+  `document`, `cloud`, `globe`, `target`, `lightbulb`, `question`, `warning`,
+  `check`, `cross`, `flag`, `clock`, `calendar`, `magnifier`, `puzzle`,
+  `lock`, `plant`, `money`, `link`.
+  *Emphasis* names (how much it matters): `star`, `heart`, `flame`,
+  `exclamation`, `brain`, `lightning`, `repeat`, `exercise`, `performance`.
+  Legacy `bulb`/`doc` still parse as aliases of `lightbulb`/`document`.
+  (Style mode → `i` opens the symbol grid; `Tab` cycles fill → lead → badge;
+  `1`–`9` types a number badge.)
 - `>parent` — nest this element inside the box with the given ID.
 
-> **When to reach for glyphs and emphasis.** They shine when you're
+> **When to reach for symbols and emphasis.** They shine when you're
 > *explaining a concept* — mind maps, idea boards, walkthroughs — where a
-> `*bulb` node or a bold heading aids recognition. On *structural* diagrams
-> (state machines, architecture, data flow) keep it clean: boxes, labels,
-> arrows, and one colour per category read as a system; glyphs and bold are
-> mostly noise there. Default to restraint.
+> `*lightbulb` node or a bold heading aids recognition. On *structural*
+> diagrams (state machines, architecture, data flow) keep it clean: boxes,
+> labels, arrows, and one colour per category read as a system; symbols and
+> bold are mostly noise there. Default to restraint.
 
 Graph connectors are drawn with a thickness proportional to the size of the
 nodes they link — big containers get heavier arrows, small inner children stay

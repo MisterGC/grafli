@@ -375,7 +375,7 @@ class OverlaysMixin:
             ("Style", [
                 ("s", "Style mode — then:"),
                 ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
-                ("  i", "Icon grid (visual vocab; ⇥ fill/lead)"),
+                ("  i", "Symbol grid (⇥ fill/lead/badge, 1-9 number)"),
                 ("  t", "Text grid: size × bold/italic (⇥ font, o outline, s shadow)"),
                 ("  j / k", "Nudge text size"),
                 ("  d", "Dimension mode (resize)"),

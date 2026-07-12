@@ -19,7 +19,7 @@ from grafli.constants import (
     resolve_textsize_px,
 )
 from grafli.format import emphasis_from_flags
-from grafli.iconset import ICON_NAMES, icon_pixmap
+from grafli.iconset import EMPHASIS_NAMES, ICON_NAMES, icon_pixmap
 from grafli.items import BoxItem, NoteItem
 
 
@@ -410,6 +410,24 @@ class StyleModeMixin:
 
     _ICON_GRID_COLS = 6
     _ICON_ENTRIES = [""] + ICON_NAMES   # "" = clear/none
+    _icon_picker_digit = ""             # typed number badge ("", "1".."99")
+    # Captioned category blocks: (header, first entry index, count). The
+    # "none" cell leads the semantic block; emphasis symbols follow.
+    _ICON_BLOCKS = (
+        ("semantic", 0, len(_ICON_ENTRIES) - len(EMPHASIS_NAMES)),
+        ("emphasis", len(_ICON_ENTRIES) - len(EMPHASIS_NAMES),
+         len(EMPHASIS_NAMES)),
+    )
+
+    @classmethod
+    def _icon_grid_rows(cls) -> list[list[int]]:
+        """Visual rows of entry indices — blocks each start on a fresh row."""
+        cols = cls._ICON_GRID_COLS
+        rows: list[list[int]] = []
+        for _, start, count in cls._ICON_BLOCKS:
+            idxs = list(range(start, start + count))
+            rows.extend(idxs[i:i + cols] for i in range(0, len(idxs), cols))
+        return rows
 
     def _icon_picker_targets(self):
         return [it for it in self._scene.selectedItems()
@@ -437,35 +455,41 @@ class StyleModeMixin:
             self._el_id(it): (self._el_icon(it), self._el_placement(it))
             for it in targets}
         cur = self._el_icon(targets[0])
+        self._icon_picker_digit = cur if cur.isdigit() else ""
         self._icon_picker_index = (self._ICON_ENTRIES.index(cur)
                                    if cur in self._ICON_ENTRIES else 0)
         self._icon_picker_placement = self._el_placement(targets[0])
         self._icon_picker_active = True
         self.viewport().update()
 
+    def _icon_picker_name(self) -> str:
+        """The live choice — a typed number badge wins over the grid cell."""
+        return self._icon_picker_digit or self._ICON_ENTRIES[
+            self._icon_picker_index]
+
     def _apply_icon_picker_live(self):
-        name = self._ICON_ENTRIES[self._icon_picker_index]
+        name = self._icon_picker_name()
         for it in self._icon_picker_targets():
             it.set_icon(name, self._icon_picker_placement)
 
     def _icon_picker_move(self, dcol: int, drow: int):
-        cols = self._ICON_GRID_COLS
-        n = len(self._ICON_ENTRIES)
-        rows = (n + cols - 1) // cols
-        col = self._icon_picker_index % cols
-        row = self._icon_picker_index // cols
-        col = max(0, min(cols - 1, col + dcol))
-        row = max(0, min(rows - 1, row + drow))
-        idx = min(row * cols + col, n - 1)
-        if idx != self._icon_picker_index:
+        rows = self._icon_grid_rows()
+        row = next(i for i, r in enumerate(rows)
+                   if self._icon_picker_index in r)
+        col = rows[row].index(self._icon_picker_index)
+        row = max(0, min(len(rows) - 1, row + drow))
+        col = max(0, min(len(rows[row]) - 1, col + dcol))
+        idx = rows[row][col]
+        if idx != self._icon_picker_index or self._icon_picker_digit:
             self._icon_picker_index = idx
+            self._icon_picker_digit = ""
             self._apply_icon_picker_live()
         self.viewport().update()
 
     def _toggle_icon_placement(self):
-        # fill ("") <-> lead; live-preview the change.
-        self._icon_picker_placement = (
-            "lead" if self._icon_picker_placement == "" else "")
+        # fill ("") -> lead -> badge -> fill; live-preview the change.
+        cycle = {"": "lead", "lead": "badge", "badge": ""}
+        self._icon_picker_placement = cycle[self._icon_picker_placement]
         self._apply_icon_picker_live()
         self.viewport().update()
 
@@ -477,6 +501,13 @@ class StyleModeMixin:
             self._commit_icon_picker()
         elif key == Qt.Key.Key_Tab:
             self._toggle_icon_placement()
+        elif Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
+            # number badge: 1-9 direct; a second digit press appends (12, 99…)
+            digit = chr(ord("1") + key - Qt.Key.Key_1)
+            cur = self._icon_picker_digit
+            self._icon_picker_digit = cur + digit if len(cur) == 1 else digit
+            self._apply_icon_picker_live()
+            self.viewport().update()
         elif key == Qt.Key.Key_H:
             self._icon_picker_move(-1, 0)
         elif key == Qt.Key.Key_L:
@@ -488,7 +519,7 @@ class StyleModeMixin:
 
     def _commit_icon_picker(self):
         targets = self._icon_picker_targets()
-        name = self._ICON_ENTRIES[self._icon_picker_index]
+        name = self._icon_picker_name()
         place = self._icon_picker_placement
         for it in targets:
             on, op = self._icon_picker_original.get(self._el_id(it), ("", ""))
@@ -512,8 +543,9 @@ class StyleModeMixin:
         self.viewport().update()
 
     def _draw_icon_picker(self, painter: QPainter):
-        """An icon grid anchored beside the selection, with the live choice
-        ringed in cyan. Static (no animation), viewport coords."""
+        """A category-blocked symbol grid anchored beside the selection, with
+        the live choice ringed in cyan. Static (no animation), viewport
+        coords."""
         if not self._icon_picker_active:
             return
         targets = self._icon_picker_targets()
@@ -525,11 +557,11 @@ class StyleModeMixin:
         anchor = self.mapFromScene(scene_rect).boundingRect()
 
         cols = self._ICON_GRID_COLS
-        n = len(self._ICON_ENTRIES)
-        rows = (n + cols - 1) // cols
-        sw, gap, pad, label_h = 30, 6, 10, 18
+        rows = self._icon_grid_rows()
+        sw, gap, pad, label_h, head_h = 30, 6, 10, 18, 16
         grid_w = cols * sw + (cols - 1) * gap
-        grid_h = rows * sw + (rows - 1) * gap
+        grid_h = (len(rows) * sw + (len(rows) - 1) * gap
+                  + len(self._ICON_BLOCKS) * head_h)
         panel_w = grid_w + pad * 2
         panel_h = grid_h + pad * 2 + label_h
         margin = 14
@@ -550,37 +582,52 @@ class StyleModeMixin:
         painter.setBrush(QBrush(bg))
         painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
 
-        gx0, gy0 = px + pad, py + pad
+        gx0 = px + pad
         cyan = QColor(0, 209, 224)
         ink = QColor(220, 220, 216)
         dpr = self.devicePixelRatioF() or 1.0
-        for i, name in enumerate(self._ICON_ENTRIES):
-            sx = gx0 + (i % cols) * (sw + gap)
-            sy = gy0 + (i // cols) * (sw + gap)
-            cell = QRectF(sx, sy, sw, sw)
-            if name:
-                pm = icon_pixmap(name, ink, sw - 8, dpr)
-                if pm is not None:
-                    painter.drawPixmap(QPointF(sx + 4, sy + 4), pm)
-            else:
-                # "none" cell: a slash marks "no icon".
-                painter.setPen(QPen(QColor(150, 60, 60), 1.5))
-                painter.drawLine(QPointF(sx + 7, sy + sw - 7),
-                                 QPointF(sx + sw - 7, sy + 7))
-            if i == self._icon_picker_index:
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.setPen(QPen(cyan, 2))
-                painter.drawRoundedRect(cell.adjusted(-1, -1, 1, 1), 5, 5)
-
+        head_font = QFont(FONT_FAMILY, 8)
+        head_font.setCapitalization(QFont.Capitalization.AllUppercase)
+        block_starts = {start: header
+                        for header, start, _ in self._ICON_BLOCKS}
+        sy = py + pad
+        for row in rows:
+            if row and row[0] in block_starts:
+                painter.setPen(QPen(QColor(150, 150, 146)))
+                painter.setFont(head_font)
+                painter.drawText(QRectF(gx0, sy, grid_w, head_h),
+                                 Qt.AlignmentFlag.AlignLeft
+                                 | Qt.AlignmentFlag.AlignVCenter,
+                                 block_starts[row[0]])
+                sy += head_h
+            for c, i in enumerate(row):
+                sx = gx0 + c * (sw + gap)
+                cell = QRectF(sx, sy, sw, sw)
+                name = self._ICON_ENTRIES[i]
+                if name:
+                    pm = icon_pixmap(name, ink, sw - 8, dpr)
+                    if pm is not None:
+                        painter.drawPixmap(QPointF(sx + 4, sy + 4), pm)
+                else:
+                    # "none" cell: a slash marks "no icon".
+                    painter.setPen(QPen(QColor(150, 60, 60), 1.5))
+                    painter.drawLine(QPointF(sx + 7, sy + sw - 7),
+                                     QPointF(sx + sw - 7, sy + 7))
+                if i == self._icon_picker_index and not self._icon_picker_digit:
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.setPen(QPen(cyan, 2))
+                    painter.drawRoundedRect(cell.adjusted(-1, -1, 1, 1), 5, 5)
+            sy += sw + gap
         painter.setPen(QPen(QColor(235, 235, 235)))
         painter.setFont(QFont(FONT_FAMILY, 9))
-        name = self._ICON_ENTRIES[self._icon_picker_index]
+        name = self._icon_picker_name()
         if name:
+            shown = f"*{name}" if name.isdigit() else name
             place = self._icon_picker_placement or "fill"
-            cur = f"{name} · {place}   ⇥ placement"
+            cur = f"{shown} · {place}   ⇥ placement · 1-9 number"
         else:
-            cur = "none"
-        painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
+            cur = "none   1-9 number badge"
+        painter.drawText(QRectF(px, sy - gap + 2, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter, cur)
         painter.restore()
 

@@ -35,6 +35,19 @@ from pathlib import Path
 from textli import InlineVimEditor, ZenMarkdownEditor
 
 
+class _InlineEditorItem(QGraphicsTextItem):
+    """Inline label editor with a soft paper backdrop, so the text being
+    typed stays readable on any node fill or connector line (issue #126)."""
+
+    def paint(self, painter, option, widget=None):
+        bg = QColor("#F2F0EB")
+        bg.setAlphaF(0.92)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(bg)
+        painter.drawRoundedRect(self.boundingRect(), 4, 4)
+        super().paint(painter, option, widget)
+
+
 class _ResourcePicker(QPushButton):
     """Inline popup letting the user pick a resource type to create."""
 
@@ -530,7 +543,7 @@ class ResourcesMixin:
         font = target._box_font()
         target._label.setVisible(False)
 
-        editor = QGraphicsTextItem(text)
+        editor = _InlineEditorItem(text)
         editor.setFont(font)
         editor.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         editor.setDefaultTextColor(QColor("#2F3437"))
@@ -663,7 +676,7 @@ class ResourcesMixin:
             return
 
         font = QFont(FONT_FAMILY, ARROW_LABEL_FONT_SIZES.get(arrow.textsize, 10))
-        editor = QGraphicsTextItem(arrow.label)
+        editor = _InlineEditorItem(arrow.label)
         editor.setFont(font)
         editor.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         editor.setDefaultTextColor(QColor("#2F3437"))

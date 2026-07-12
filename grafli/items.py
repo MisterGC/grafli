@@ -253,16 +253,32 @@ def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
 
     total_h = head_h + gap + badge_px
     top = -total_h / 2
-    painter.setPen(QColor("#2F3437"))
-    painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h), flags, label)
 
     badge_font = QFont(FONT_FAMILY)
     badge_font.setPixelSize(round(badge_px))
-    painter.setFont(badge_font)
-    painter.setPen(QColor("#2F3437"))
     text = f"{count} node" + ("" if count == 1 else "s")
     bfm = QFontMetricsF(badge_font)
     bw = bfm.horizontalAdvance(text)
+
+    # Soft paper plate behind the whole caption block — the headline must
+    # stay readable on any hull/tile fill (issue #126).
+    plate_w = min(avail_w, max(bound.width(), bw)) + head_px * 0.9
+    plate_pad = head_px * 0.28
+    plate = QRectF(-plate_w / 2, top - plate_pad,
+                   plate_w, total_h + 2 * plate_pad)
+    bg = QColor("#F2F0EB")
+    bg.setAlphaF(0.85)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(bg)
+    painter.drawRoundedRect(plate, 6, 6)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    painter.setFont(head_font)
+    painter.setPen(QColor("#2F3437"))
+    painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h), flags, label)
+
+    painter.setFont(badge_font)
+    painter.setPen(QColor("#2F3437"))
     painter.drawText(
         QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6),
         int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), text)

@@ -54,6 +54,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   render above note markers instead of being hidden behind them; corner
   badges step aside for the attachment glyph and label plates keep clear of
   badges.
+- Text stays readable on any fill: the inline editors for box labels and
+  connector labels draw on a soft paper backdrop, and LoD aggregation
+  captions ("… / N nodes") sit on the same plate.
+  ([#126](https://github.com/MisterGC/grafli/issues/126))
 
 ## [0.5.0] - 2026-07-10
 

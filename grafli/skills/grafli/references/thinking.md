@@ -106,7 +106,7 @@ their stance without a word. Re-read positions before summarising.
 The investigation itself, as a board: central question, sub-questions
 radiating, colored by state. The board *is* the status of the inquiry.
 
-* Center: the driving question (`*bulb` fill icon works well).
+* Center: the driving question (`*lightbulb` fill symbol works well).
 * Satellites: one box per sub-question — `%clay` open, `%teal`
   answered, `%muted` blocked/parked.
 * An answered sub-question gets its answer as a threaded discussion

@@ -1,0 +1,40 @@
+#!grafli v2
+# Infographic demo — one claim: grafli 0.6 gives boards a visual vocabulary
+# Archetype: hero number + breakdown (references/genres.md → Infographic).
+# Size encodes magnitude: the two vocabulary boxes have a true 2:1 area ratio.
+
+# ── hero claim ──
+@ note hero-n 60,40 "30" ~4xl !flat !bold !shadow
+@ note hero-t 280,65 "curated symbols make a board read at a glance" ~xlarge !flat
+@ note hero-s 283,130 "the grafli 0.6 sketchnote vocabulary" ~small !flat !italic
+
+# ── panel 1: the vocabulary — box area = share ──
+@ box p1 "ONE VOCABULARY, TWO JOBS" 60,280 460x540 %soft ^topleft ~large !flat
+@ box sem "20 semantic" 90,360 300x200 %teal ~large *lead:gear >p1
+@ note sem-c 90,572 "what a thing is" ~small >p1
+@ box emp "10 emphasis" 90,615 210x140 %clay ~large *lead:star >p1
+@ note emp-c 90,762 "how much it matters" ~small >p1
+
+# ── panel 2: three placements, shown as themselves ──
+@ box p2 "THREE PLACEMENTS" 560,280 440x540 %soft ^topleft ~large !flat
+@ box pfill "idea" 590,360 160x120 *lightbulb >p2
+@ note pfill-c 830,395 "fill — the symbol\nIS the node" ~small >p2
+@ box plead "Auth service" 590,520 220x70 *lead:lock >p2
+@ note plead-c 830,530 "lead — the label\nstays primary" ~small >p2
+@ box pbadge "hot topic" 590,630 220x70 *badge:flame >p2
+@ note pbadge-c 830,640 "badge — emphasis\nin the corner" ~small >p2
+
+# ── panel 3: order up to 99 ──
+@ box p3 "ORDER, UP TO 99" 1060,280 440x540 %soft ^topleft ~large !flat
+@ box st1 "capture" 1090,370 180x60 *badge:1 >p3
+@ box st2 "structure" 1090,470 180x60 *badge:2 >p3
+@ box st3 "share" 1090,570 180x60 *badge:3 >p3
+@ arrow st1 -> st2 !thin
+@ arrow st2 -> st3 !thin
+@ box st99 "…" 1090,670 180x60 *badge:99 >p3
+@ arrow st3 -> st99 !dashed !thin
+@ note p3-c 1300,682 "every number\nto 99" ~small >p3
+
+# ── attribution ──
+@ note src 60,860 "source: the 0.6 symbol taxonomy — issues #120/#121 · July 2026" ~small !flat
+@ footer "grafli 0.6 — visual vocabulary"

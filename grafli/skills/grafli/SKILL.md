@@ -195,8 +195,8 @@ Skills produce noticeably better grafli when the model **plans first**
 instead of writing code. Walk through these steps before you produce
 any `@ box` / `@ arrow` / `@ note` lines. (This is the workflow for a
 *precise* diagram — architecture, design, behavior. For a fast, memory-
-first **sketchnote**, skip the ceremony and see "Sketchnotes — capturing
-a talk for memory" in `references/design.md` instead.)
+first **sketchnote**, skip the ceremony and use the sketchnote playbook
+in `references/genres.md` instead.)
 
 1. **Question.** What single question does the diagram answer?
    ("How does an OAuth callback flow?" / "Which services own which
@@ -365,8 +365,14 @@ task needs them:
 * `references/design.md` — diagram design principles: visual hierarchy,
   typography, layout strategy, container margin model, arrow discipline,
   the pattern gallery (architecture, pipeline, hub-and-spoke, visual
-  notes, sketchnotes). Open before you lay out a new board or add
-  meaningfully to an existing one.
+  notes). Open before you lay out a new board or add meaningfully to an
+  existing one.
+* `references/genres.md` — the genre playbooks: sketchnote, infographic,
+  software diagrams (behavioral / architecture / design). Each gives the
+  10-second job, layout archetypes, a closed feature palette, and an
+  expert review checklist. Open BEFORE authoring any board of these
+  genres — the palette decides which features you may use, and the
+  expert checklist is your self-review before shipping.
 * `references/presenting.md` — flows, slide composition, and export:
   bookmarks (incl. `~iso` scoping), text slides, container-as-slide,
   auto-flows, narration craft, PDF/PPTX export (incl. corporate

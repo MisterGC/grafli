@@ -1,39 +1,41 @@
 #!grafli v1
-# Grafli architecture demo
-# file: architecture.grafli
-# Purpose: exercise semantic edge labels, code notes, task/question/discussion notes,
-# nesting, child text notes, block text, markdown resources, and sub-graflis.
+# Shop architecture — who owns what, who talks to whom on the order path.
+# Genre exemplar: architecture (references/genres.md → Software diagrams).
+# Containers = ownership; every edge carries a semantic prefix; depth lives
+# in the code note and the &graph sub-board on Order Processing.
 
-# --- Title / legend ---
-@ note title -143,-93 "Architecture explanation demo" ~xlarge
-@ note legend -335,26 "Edge label prefixes render as chips and color the edge: call:, data:, event:, state:, step:, verify:, owns:, depends:, risk:, note:" ~small
+@ note title 340,-70 "Shop architecture — the order path" ~xlarge
+@ note subtitle 344,-10 "who owns what · who talks to whom" ~small !italic
 
-# --- Visible nesting containers ---
-@ box frontend_layer "Frontend clients" 10,102 500x230 %secondary ^topleft ~small !flat
-@ box api_layer "API boundary" 685,95 500x230 %primary ^topleft ~small !flat
-@ box core_layer "Core domain services" 61,638 760x360 %tertiary ^topleft ~small !flat
-@ box data_layer "Data and external stores" 915,545 560x360 %subtle ^topleft ~small !flat
-@ box observability_layer "Verification / operations" 6,1057 760x280 %muted ^topleft ~small !flat
+# ── clients ──
+@ box clients "Clients" 40,80 540x220 %secondary ^topleft ~large !flat
+@ box web "Web App\nReact + Next.js" 70,130 220x80 %secondary >clients
+@ box mobile "Mobile App\nReact Native" 330,200 220x80 %secondary >clients
 
-# --- Frontend children ---
-@ box web "Web App\nReact + Next.js" 572,-86 190x80 %secondary
-@ box mobile "Mobile App\nReact Native" -236,177 190x80 %secondary
-@ note n_frontend_q 50,267 "Q: Should admin UI bypass mobile-oriented caching?" ~small >frontend_layer
+# ── API boundary ──
+@ box api "API boundary" 660,80 500x220 %primary ^topleft ~large !flat
+@ box gateway "API Gateway\nrate limits + auth" 690,150 200x90 %primary >api
+@ box graphql "GraphQL Federation\nschema stitching" 920,150 190x90 %primary &doc:graphql >api
+@ note n_api_task 690,252 "T: add p95 latency budget to gateway → graphql" ~small >api
 
-# --- API children ---
-@ box gateway "API Gateway\nrate limits + auth" 170,172 200x90 %primary >frontend_layer
-@ box graphql "GraphQL Federation\nschema stitching" 802,152 200x90 %primary &architecture-res/graphql.md >api_layer
-@ note n_api_task 830,269 "T: Add p95 latency budget to gateway -> graphql edge" ~small >api_layer
+# ── core domain services ──
+@ box core "Core domain services" 40,400 1100x230 %tertiary ^topleft ~large !flat
+@ box auth "Auth Service\nOAuth2 + JWT" 80,480 220x90 %tertiary >core
+@ box users "User Profile\nService" 340,480 220x90 %tertiary >core
+@ box orders "Order Processing\n& Fulfillment" 600,480 240x90 %tertiary &graph:orders-flow >core
+@ box catalog "Product Catalog\nService" 880,480 220x90 %tertiary >core
 
-# --- Core service children ---
-@ box auth "Auth Service\nOAuth2 + JWT" 0,400 200x85 %tertiary
-@ box users "User Profile\nService" 240,400 180x85 %tertiary
-@ box orders "Order Processing\n& Fulfillment" 485,414 210x85 %tertiary &architecture-res/orders-flow.grafli
-@ box catalog "Product Catalog\nService" 889,414 210x85 %tertiary
+# ── data & external stores ──
+@ box data "Data and external stores" 40,730 1100x230 %subtle ^topleft ~large !flat
+@ box redis "Redis\nsessions/cache" 80,810 220x85 %subtle >data
+@ box postgres "PostgreSQL\nprimary store" 340,810 220x85 %subtle >data
+@ box queue "Kafka\norder events" 600,810 240x85 %subtle >data
+@ box search "Search Index\nElasticsearch" 880,810 220x85 %subtle >data
 
-@ note n_orders_code -455,364 """
+# ── depth: the one non-obvious algorithm ──
+@ note n_place_order 1220,430 """
 code:
-fn: placeOrder(req) -> OrderId
+placeOrder(req) -> OrderId
 pre: req.user is authenticated
 call: inventory.reserve(req.items)
 try:
@@ -44,79 +46,25 @@ post: audit trail includes "order.created"
 verify: test_order_happy_path @tests/orders_test.py:41
 risk: reservation leak if payment timeout is not compensated
 """ ~small !mono
+@ arrow n_place_order -> orders !dotted
 
-@ note n_core_discussion 116,898 "AI: The graph shows service relationships.\nReviewer: The code note keeps order internals local.\nAI: Deeper order flow is linked as a sub-grafli." ~small >core_layer
+# ── clients → API ──
+@ arrow web -> gateway "call: /api" @0,-20
+@ arrow mobile -> gateway "call: /mobile" @0,26
+@ arrow gateway -> graphql
 
-# --- Data layer children ---
-@ box redis "Redis\nsessions/cache" -173,694 180x85 %subtle
-@ box postgres "PostgreSQL\nprimary store" 85,711 200x85 %subtle >core_layer
-@ box queue "Kafka\norder events" 489,732 180x85 %subtle >core_layer
-@ box search "Search Index\nElasticsearch" 1111,698 200x85 %subtle >data_layer
-@ note n_data_note 955,875 "Plain child notes move with their parent box; use them for local context." ~small >data_layer
+# ── API → core ──
+@ arrow gateway -> auth "verify: JWT" @-16,40
+@ arrow gateway -> users "call: profile lookup" @-10,96
+@ arrow graphql -> users "data: user fields" @16,40
+@ arrow graphql -> orders "call: resolve order" @14,96
+@ arrow graphql -> catalog "call: resolve products" @0,16
+@ arrow graphql -> orders "risk: N+1 resolver path" @40,30 !dashed
 
-# --- Verification / operations children ---
-@ box ci "CI Pipeline\nGitHub Actions" 801,1138 200x85 %muted
-@ box tests "Integration Tests\ncontract + flow" 60,1131 210x85 %muted >observability_layer
-@ box monitor "Prometheus + Grafana\nruntime signals" 368,1195 200x85 %muted >observability_layer
-@ note n_verify_code 46,1242 "code:\nfn: verifyChange(pr)\ncall: pytest(contract_tests)\ncall: smoke(gateway -> graphql)\nassert: no runtime warnings\nverify: dashboard shows p95 below target\nreturn: ready_for_review" ~small !mono >observability_layer
-
-# --- Frontend to API ---
-@ arrow web -> gateway "call: HTTPS /api"
-@ arrow mobile -> gateway "call: HTTPS /mobile"
-@ arrow web -> graphql "data: query document"
-
-# --- API to core ---
-@ arrow gateway -> auth "verify: JWT signature"
-@ arrow gateway -> users "call: profile lookup"
-@ arrow graphql -> users "data: user fields"
-@ arrow graphql -> orders "step: 1"
-@ arrow graphql -> catalog "step: 2"
-@ arrow graphql -> orders "risk: N+1 resolver path" @0,34 !dashed
-
-# --- Core to data / events ---
+# ── core → data / events ──
 @ arrow auth -> redis "owns: sessions"
-@ arrow users -> postgres "data: profile rows"
-@ arrow orders -> postgres "data: order transaction"
+@ arrow users -> postgres "data: profile rows" @-34,-16
+@ arrow orders -> postgres "data: order txn" @6,0
 @ arrow orders -> queue "event: OrderCreated"
 @ arrow catalog -> search "event: ProductIndexed"
-@ arrow queue -> search "depends: async consumer"
-
-# --- Verification edges ---
-@ arrow ci -> tests "call: run suite"
-@ arrow tests -> gateway "verify: API contract"
-@ arrow monitor -> gateway "state: p95 healthy"
-@ arrow monitor -> orders "note: watch payment timeout rate" !dotted
-
-# --- External/context notes ---
-@ note n_block_quote 880,900 """
-Block text note:
-Use triple quotes when the text itself contains "quoted strings".
-The canvas still edits this as normal note text.
-""" ~small
-@ note n_subgraph_hint 914,1133 "Sub-grafli demo: open the linked Order Processing box to inspect the detailed order flow." ~small
-@ arrow n_orders_code -> auth
-@ box box1 "test" -1500,-160 495x517
-@ box box2 "3" -1220,200 160x80 %subtle >box1
-@ box box3 "1" -1464,16 160x80 %subtle >box1
-@ box box4 "2" -1436,176 160x80 %subtle >box1
-@ box box5 "5" -1220,1 160x80 %subtle >box1
-@ box box6 "4" -1320,-120 160x80 %subtle >box1
-@ arrow box3 -> box6
-@ arrow box6 -> box5
-@ arrow box5 -> box2
-@ arrow box5 -> box4
-@ image img1 "architecture-res/img-20260501-190455.png" -1281,633 320x120
-@ note n1 -833,552 """
-code:
-fn: placeOrder(req) -> OrderId
-pre: req.user is authenticated
-call: inventory.reserve(req.items)
-try:
-  call: payment.authorize(req.total)
-  emit: OrderCreated(order.id)
-catch: PaymentDeclined -> err: reject order
-post: audit trail includes "order.created"
-verify: test_order_happy_path @tests/orders_test.py:41
-risk: reservation leak if payment timeout is not compensated
-""" ~small !mono
-@ box box7 "3" -792,175 160x80 %subtle
+@ arrow queue -> search "depends: consumer" @0,58

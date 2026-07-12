@@ -81,8 +81,29 @@ def test_export_graph_only_stop(tmp_path):
 
 
 def test_overload_reported_when_inplace_note_too_small(tmp_path):
-    # A slide whose framed area is dominated by a large sibling maps its small
-    # in-place note below the readable floor, so the step is reported overloaded.
+    # A slide whose framed area is dominated by a large sibling maps its
+    # substantial in-place note below the readable floor, so the step is
+    # reported overloaded.
+    from grafli.pdfexport import export_flow_to_pdf
+    long_body = "every word of this paragraph matters to the reader " * 3
+    wide = f"""\
+#!grafli v2
+@ box frame "Frame" 0,0 4200x2400
+@ box huge "Huge" 50,50 4000x2200 >frame
+@ note cap 80,80 "md:\\n{long_body}" ~width=20 >huge
+@ bookmark bmO "" @frame,huge,cap ~iso
+@ flow f "F" bmO
+"""
+    board = parse(wide)
+    view = _view(board)
+    _, overloaded = export_flow_to_pdf(view, board.flow_by_id("f"),
+                                       tmp_path / "wide.pdf")
+    assert overloaded and overloaded[0][0] == 0
+
+
+def test_short_annotation_below_floor_is_not_overloaded(tmp_path):
+    # A short annotation note rides the picture: rendering below the readable
+    # floor is fine and must not flag the slide (issue #123).
     from grafli.pdfexport import export_flow_to_pdf
     wide = """\
 #!grafli v2
@@ -96,7 +117,7 @@ def test_overload_reported_when_inplace_note_too_small(tmp_path):
     view = _view(board)
     _, overloaded = export_flow_to_pdf(view, board.flow_by_id("f"),
                                        tmp_path / "wide.pdf")
-    assert overloaded and overloaded[0][0] == 0
+    assert overloaded == []
 
 
 def test_container_slide_frames_contents_not_the_box():

@@ -40,7 +40,7 @@ from grafli.constants import (
     resolve_textsize_px,
 )
 from grafli.flows import isolate_focus, render_thumbnail_art
-from grafli.md_note import note_is_md, note_md_body
+from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
 # Slide-typing/decision layer is shared with the PPTX exporter. ``_container_box``
 # and ``_slide_source`` are re-exported here for the existing pdfexport tests.
 from grafli.slideplan import (  # noqa: F401
@@ -101,6 +101,11 @@ _FILL_FLOOR = 0.45
 # too small to read on a slide. We render it anyway (faithful placement wins)
 # but flag the slide as overloaded so the author tightens or splits it.
 _READABLE_MIN_PT = 11.0
+
+# The readable floor only applies to notes that carry substance. Shorter
+# bodies are annotations riding a picture-like frame (sketchnote sections,
+# dense diagrams) — they may render small without flagging (issue #123).
+_ANNOTATION_MAX_CHARS = 80
 
 
 def export_flow_to_pdf(view, flow, out_path: str | Path) -> tuple[int, list]:
@@ -330,7 +335,8 @@ def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
     True when the note renders below the readable floor (an overload signal)."""
     note = item.note
     is_md = note_is_md(note)
-    body = note_md_body(note) if is_md else note.text
+    body = (md_hard_quote_breaks(note_md_body(note)) if is_md
+            else note.text)
     # Scale the note's on-canvas font by the same factor the diagram region was
     # scaled (mapped width / scene width), so the text keeps its relative size.
     scene_w = item.sceneBoundingRect().width() or 1.0
@@ -350,6 +356,8 @@ def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
     _draw_markdown(painter, text_rect, body, markdown=is_md, band=_BODY_BAND,
                    px_per_pt=px_per_pt, color=_TITLE_COLOR, vcenter=False,
                    fixed_px=fixed_px, clip=clip)
+    if len(body.strip()) <= _ANNOTATION_MAX_CHARS:
+        return False   # a short annotation rides the picture (issue #123)
     return fixed_px < _READABLE_MIN_PT * px_per_pt
 
 
@@ -495,7 +503,8 @@ def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float,
     """
     # Notes opt into markdown via a ``md:`` prefix; otherwise render verbatim.
     is_md = note_is_md(note)
-    body = note_md_body(note) if is_md else note.text
+    body = (md_hard_quote_breaks(note_md_body(note)) if is_md
+            else note.text)
     fit = playback_text_fit(resolve_textsize_px(note.textsize, ""), text_rect,
                             hero, _BODY_BAND[0] * px_per_pt,
                             _BODY_MAX_PT * px_per_pt)

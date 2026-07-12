@@ -1,0 +1,64 @@
+#!grafli v2
+# Sketchnote demo — the sketchnote symbol set in action (issue #120)
+# A one-page talk capture: display-lettered headers, symbol memory hooks,
+# a numbered loop, emphasis badges, md: depth notes, and a guided tour.
+
+# ── title band ──
+@ note title 320,50 "Pairing with AI Agents" ~4xl !flat !bold !shadow
+@ note subtitle 340,190 "a field-guide sketchnote — KI Konf '26" !flat !italic
+
+# ── the cast (top right): symbol-only fill nodes ──
+@ box you "You" 1180,120 150x110 %soft *person
+@ box agent "Agent" 1450,120 150x110 %soft *robot
+@ arrow you <-> agent "shared board" @0,-40
+@ note hot 1230,280 "hot: who reviews the diff?" %clay *badge:flame
+
+# ── WHY (left column) ──
+@ note why-h 60,260 "WHY" ~xlarge !flat !outline
+@ box hook "Autonomy without alignment burns trust" 60,340 400x90 %clay ~large *lead:warning
+@ box stamp "Rubber-stamping is not review" 60,470 400x80 %clay ~large *lead:cross
+@ box plant "Trust grows in small steps" 60,600 190x150 %soft *plant
+@ box brain "Deep work stays yours" 270,600 190x150 %soft *brain
+
+# ── THE LOOP (center): number badges make the arc explicit ──
+@ note loop-h 700,260 "THE LOOP" ~xlarge !flat !outline
+@ box s1 "groundwork" 700,340 200x70 %teal *badge:1
+@ box s2 "build" 880,480 200x70 %teal *badge:2
+@ box s3 "verify" 700,620 200x70 %teal *badge:3
+@ box s4 "harvest" 520,480 200x70 %teal *badge:4
+@ arrow s1 -> s2 !thin
+@ arrow s2 -> s3 !thin
+@ arrow s3 -> s4 !thin
+@ arrow s4 -> s1 !thin
+@ note loop-c 745,495 "small steps,\nalways shippable" ~small
+
+# ── PRACTICES (right): a flat container as a lane ──
+@ box practices "PRACTICES" 1140,380 460x480 %soft ~large !flat
+@ box p1 "One goal per loop" 1170,450 400x80 *lead:target >practices
+@ box p2 "Let it investigate — you decide" 1170,550 400x80 *lead:magnifier >practices
+@ box p3 "Guardrails: tests + review" 1170,650 400x80 *lead:lock >practices
+@ box p4 "Retro every friday" 1170,750 400x80 *lead:calendar >practices
+
+# ── takeaway band (bottom) ──
+@ note quote 60,820 """
+md:
+> "The best session ends with a diff
+> you're proud to sign."
+""" ~large *badge:heart
+@ box takeaway "Ship the loop, not the leap" 620,840 500x100 %highlight ~large !bold *badge:star
+@ note kit 1170,880 """
+md:
+starter kit
+- [x] tracker issue
+- [x] groundwork doc
+- [ ] verify skill
+- [ ] friday retro
+""" ~large *badge:check
+
+# ── guided tour ──
+@ bookmark bm-title "The field guide" @title,subtitle,you,agent "One page to remember about pairing with AI agents."
+@ bookmark bm-why "Why" @why-h,hook,stamp,plant,brain "Autonomy without alignment burns trust — and trust only grows in small steps."
+@ bookmark bm-loop "The loop" @loop-h,s1,s2,s3,s4,loop-c "Four beats: groundwork, build, verify, harvest — small and always shippable."
+@ bookmark bm-how "Practices" @practices "Habits that keep the loop honest."
+@ bookmark bm-take "Takeaway" @quote,takeaway,kit "If you keep one line: ship the loop, not the leap."
+@ flow tour "Guided tour" bm-title bm-why bm-loop bm-how bm-take "Replay the sketchnote one section per stop."

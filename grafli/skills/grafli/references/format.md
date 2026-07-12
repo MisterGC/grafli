@@ -28,18 +28,57 @@ class as a misplaced triple-quote modifier.
 | `!bold` / `!italic` | `!bold`, `!italic` | text emphasis, in the `!`-flag group (combine for headings/asides) |
 | `!outline` / `!shadow` | `!outline`, `!shadow` | **note** display lettering — hollow letters / drop-shadow depth, for sketchnote headers (layer with `~size` + `!bold`); render on notes, not boxes |
 | `!flat` (note) | `!flat` | drop the beige background plate — the note's text sits directly on the canvas (for a hand-lettered title/header) |
-| `*icon` | `*bulb` (fill), `*lead:gear` (lead) | visual-vocabulary glyph — fill: big icon + caption; lead: small icon left of the label |
+| `*symbol` | `*lightbulb` (fill), `*lead:gear` (lead), `*badge:star` (badge), `*3` (number) | sketchnote symbol — fill: big symbol + caption; lead: small symbol left of the label; badge: compact top-right overlay; digits 1–99 render as circled number badges |
 | `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>` | typed attachment (see "Attachments") |
 | `>parent` | `>parent_id` | nest inside parent box |
 
-Visual-vocabulary icons (`*name`, on boxes and notes): `person`, `gear`,
-`cloud`, `database`, `warning`, `bulb`, `check`, `cross`, `money`, `clock`,
-`doc`, `lock`, `flag`, `star`, `link`, `question`. Placement: bare `*name`
-*fills* the element (big glyph, label/text becomes a caption) — a framed
-concept node on a box (`*bulb` = idea), a borderless marker on a note.
-`*lead:name` puts a *small* glyph left of the label, which stays primary — for
-labeled items (`*lead:database` → a "Postgres" node) and flagging existing
-nodes (`*lead:warning`). Use fill for visual graphs, lead for accents.
+## Sketchnote symbols (`*name`, on boxes and notes)
+
+Two vocabularies with different jobs. **Semantic** symbols say *what a thing
+is*; **emphasis** symbols say *how much it matters*. Pick by intent, not by
+looks:
+
+| Semantic | Intent | Semantic | Intent |
+|---|---|---|---|
+| `person` | human actor | `calendar` | schedule or deadline |
+| `robot` | automated actor (AI/bot) | `magnifier` | investigation or search |
+| `gear` | process or logic | `puzzle` | dependency or integration |
+| `database` | persistent storage | `lock` | security or protection |
+| `document` | information artifact | `plant` | growth or evolution |
+| `cloud` | remote service | `globe` | external world |
+| `target` | goal or objective | `flag` | marker or milestone |
+| `lightbulb` | new insight or idea | `clock` | time or duration |
+| `question` | unknown or open | `check` | confirmed or done |
+| `warning` | known risk or issue | `cross` | rejected or invalid |
+| `money` | cost or budget | `link` | reference or connection |
+
+| Emphasis | Intent | Emphasis | Intent |
+|---|---|---|---|
+| `star` | important (objective) | `brain` | deep work, concentration |
+| `heart` | valued (subjective) | `lightning` | disruption, interruption |
+| `flame` | urgent, hot topic | `repeat` | iteration, recurrence |
+| `exclamation` | attention, note well | `exercise` | deliberate practice |
+| `1`…`99` | order or sequence | `performance` | powerful, fast |
+
+Near-misses that agents confuse — keep these distinct: `warning` is a *known*
+risk, `lightning` a *sudden* disruption. `flame` means urgent, `exclamation`
+means "don't overlook" even when not urgent. `repeat` is plain recurrence,
+`exercise` is practice meant to improve capability (and `gear` is the process
+itself, not its repetition). `clock` is duration, `calendar` a scheduled
+date. `star` marks objective importance, `heart` subjective value. `target`
+is the destination, `flag` a point along the way. `plant` is gradual growth,
+`performance` current strength. `brain` is the concentrated work,
+`lightbulb` the insight it produces.
+
+Placement: bare `*name` *fills* the element (big symbol, label/text becomes a
+caption) — a framed concept node on a box (`*lightbulb` = idea), a borderless
+marker on a note. `*lead:name` puts a *small* symbol left of the label, which
+stays primary — for labeled items (`*lead:database` → a "Postgres" node).
+`*badge:name` overlays a *compact* symbol in the top-right corner and leaves
+the label/text layout untouched — the emphasis layer (`*badge:flame` on the
+hot topic, `*badge:2` as step two of a sequence). Number badges accept any
+placement (`*3` fill, `*lead:3`, `*badge:3`). Legacy `bulb`/`doc` parse as
+aliases of `lightbulb`/`document` and normalize on save.
 
 Container behavior: when a box has children, its anchor auto-switches
 to `^topleft` and text defaults to `~small` (10 pt). Set `~large`

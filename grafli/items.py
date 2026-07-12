@@ -60,7 +60,7 @@ def note_prefix(text: str) -> tuple[str, str] | None:
         return "Q:", text[m.end():]
     return None
 from grafli.code_note import is_code_note, split_signature, tokenize_line
-from grafli.md_note import note_is_md, note_md_body
+from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
 from grafli.format import Box, Image, Note
 from grafli import iconset
 
@@ -253,16 +253,32 @@ def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
 
     total_h = head_h + gap + badge_px
     top = -total_h / 2
-    painter.setPen(QColor("#2F3437"))
-    painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h), flags, label)
 
     badge_font = QFont(FONT_FAMILY)
     badge_font.setPixelSize(round(badge_px))
-    painter.setFont(badge_font)
-    painter.setPen(QColor("#2F3437"))
     text = f"{count} node" + ("" if count == 1 else "s")
     bfm = QFontMetricsF(badge_font)
     bw = bfm.horizontalAdvance(text)
+
+    # Soft paper plate behind the whole caption block — the headline must
+    # stay readable on any hull/tile fill (issue #126).
+    plate_w = min(avail_w, max(bound.width(), bw)) + head_px * 0.9
+    plate_pad = head_px * 0.28
+    plate = QRectF(-plate_w / 2, top - plate_pad,
+                   plate_w, total_h + 2 * plate_pad)
+    bg = QColor("#F2F0EB")
+    bg.setAlphaF(0.85)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(bg)
+    painter.drawRoundedRect(plate, 6, 6)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+
+    painter.setFont(head_font)
+    painter.setPen(QColor("#2F3437"))
+    painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h), flags, label)
+
+    painter.setFont(badge_font)
+    painter.setPen(QColor("#2F3437"))
     painter.drawText(
         QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6),
         int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), text)
@@ -680,27 +696,55 @@ class BoxItem(QGraphicsRectItem):
                                  "small" if is_parent else "")
         return max(14.0, min(px * 1.7, self.box.h - 8))
 
+    def _lead_icon_w(self) -> float:
+        """Width reserved for the lead icon — wide symbols (e.g. exercise)
+        get aspect-corrected room instead of shrinking into a square."""
+        side = self._lead_icon_side()
+        return side * min(max(iconset.icon_aspect(self.box.icon), 1.0), 1.6)
+
     def _has_lead_icon(self) -> bool:
         return (bool(self.box.icon) and self.box.icon_placement == "lead"
                 and iconset.has_icon(self.box.icon))
 
+    def _has_badge_icon(self) -> bool:
+        return (bool(self.box.icon) and self.box.icon_placement == "badge"
+                and iconset.has_icon(self.box.icon))
+
     def _label_width_for(self, w: float) -> float:
         """Wrap width for the label — leaves room for a lead-icon gutter so
-        the text never runs past the box edge."""
+        the text never runs past the box edge, and keeps the label plate
+        clear of a corner badge (symmetric, so the label stays centred)."""
         if self._has_lead_icon():
-            return w - (self._lead_icon_side() + 24.0)
+            return w - (self._lead_icon_w() + 24.0)
+        if self._has_badge_icon():
+            return w - 2 * (self._badge_icon_side() + 14.0)
         return w - 16.0
+
+    def _badge_icon_side(self) -> float:
+        """Compact corner-badge size, scaled to the box."""
+        return max(18.0, min(28.0, min(self.box.w, self.box.h) * 0.26))
 
     def _paint_icon(self, painter: QPainter):
         """Draw the visual-vocabulary glyph. ``fill`` (default): big icon, the
         label is a caption (positioned by _position_label). ``lead``: a small
-        icon at the left, the label keeps its normal weight beside it."""
+        icon at the left, the label keeps its normal weight beside it.
+        ``badge``: a compact overlay in the top-right corner; the label keeps
+        its normal layout."""
         w, h = self.box.w, self.box.h
         color = QColor("#2F3437")
+        if self.box.icon_placement == "badge":
+            side = self._badge_icon_side()
+            # The attachment glyph owns the very corner — step aside for it.
+            dx = 20.0 if self.box.url else 0.0
+            iconset.paint_badge(painter, self.box.icon,
+                                QRectF(w - side - 8.0 - dx, 8.0, side, side),
+                                color)
+            return
         if self.box.icon_placement == "lead":
             side = self._lead_icon_side()
             iconset.paint_icon(painter, self.box.icon,
-                               QRectF(8.0, (h - side) / 2, side, side), color)
+                               QRectF(8.0, (h - side) / 2,
+                                      self._lead_icon_w(), side), color)
             return
         pad = 10.0
         cap_h = (self._label.boundingRect().height() + 6
@@ -759,10 +803,12 @@ class BoxItem(QGraphicsRectItem):
         doc = self._label.document()
         # Glyph box. ``lead``: a small icon sits at the left and the label
         # keeps its weight beside it. ``fill``: the icon fills the body, so the
-        # label rides at the bottom as a caption.
-        if self.box.icon and iconset.has_icon(self.box.icon):
+        # label rides at the bottom as a caption. ``badge`` overlays a corner
+        # and leaves the label's normal layout alone (falls through below).
+        if (self.box.icon and iconset.has_icon(self.box.icon)
+                and self.box.icon_placement != "badge"):
             if self.box.icon_placement == "lead":
-                gutter = 8.0 + self._lead_icon_side() + 8.0
+                gutter = 8.0 + self._lead_icon_w() + 8.0
                 opt = QTextOption()
                 opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
                 doc.setDefaultTextOption(opt)
@@ -1205,6 +1251,13 @@ class BoxItem(QGraphicsRectItem):
             return
         self.prepareGeometryChange()   # boundingRect grows for the stack mark
         self._lod_tile = tile
+        # The tile headline must read above neighbouring notes' LoD markers
+        # (notes stack over boxes by insertion order); restore z on expand.
+        if tile is not None:
+            self._z_before_tile = self.zValue()
+            self.setZValue(5.0)
+        else:
+            self.setZValue(getattr(self, "_z_before_tile", 0.0))
         # A tile is read-only: dragging it would move the container box but
         # leave its absolutely-positioned children behind (desync). Disable the
         # move flag while collapsed; restore it when expanded.
@@ -1347,7 +1400,10 @@ class ClusterHullItem(QGraphicsPathItem):
         pen.setWidthF(2.0)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         self.setPen(pen)
-        self.setZValue(-100)   # behind the (hidden) nodes and arrows
+        # Above notes' LoD markers so the aggregation headline stays readable
+        # (members are hidden; arrows attach at the boundary, so only their
+        # heads touch the outline). Matches the collapsed-tile z.
+        self.setZValue(5.0)
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
 
     @staticmethod
@@ -1693,6 +1749,30 @@ class NoteItem(QGraphicsSimpleTextItem):
         return (QColor(_resolve_color(self.note.color)) if self.note.color
                 else QColor("#2F3437"))
 
+    # Corner-badge icon size on a note (``*badge:name`` placement).
+    _BADGE_ICON_SIDE = 18.0
+
+    def _is_marker_icon(self) -> bool:
+        """Fill/lead glyph notes render as floating markers; ``badge`` keeps
+        the normal text body and overlays a compact corner icon instead."""
+        return (bool(self.note.icon) and iconset.has_icon(self.note.icon)
+                and self.note.icon_placement != "badge")
+
+    def _has_badge_icon(self) -> bool:
+        return (bool(self.note.icon) and self.note.icon_placement == "badge"
+                and iconset.has_icon(self.note.icon))
+
+    def _paint_badge_icon(self, painter: QPainter):
+        r = self.boundingRect()
+        if self.isSelected():
+            r = r.adjusted(4, 4, -4, -4)
+        side = self._BADGE_ICON_SIDE
+        # The attachment glyph owns the very corner — step aside for it.
+        dx = 18.0 if self.note.url else 0.0
+        iconset.paint_badge(painter, self.note.icon,
+                            QRectF(r.right() - side - 5.0 - dx, r.top() + 5.0,
+                                   side, side), self._icon_color())
+
     def _icon_side(self) -> float:
         px = resolve_textsize_px(self.note.textsize, "")
         if self.note.icon_placement == "lead":
@@ -1716,13 +1796,18 @@ class NoteItem(QGraphicsSimpleTextItem):
             text_h = len(lines) * fm.height()
         if lead:
             gap = 6.0 if lines else 0.0
-            total_w = pad + side + gap + text_w + pad
+            total_w = pad + self._lead_icon_w(side) + gap + text_w + pad
             total_h = pad + max(side, text_h) + pad
         else:
             cap_h = text_h + 4 if lines else 0.0
             total_w = pad + max(side, text_w) + pad
             total_h = pad + side + cap_h + pad
         return side, lines, total_w, total_h
+
+    def _lead_icon_w(self, side: float) -> float:
+        """Width reserved for a lead icon — wide symbols get aspect-corrected
+        room instead of shrinking into a square."""
+        return side * min(max(iconset.icon_aspect(self.note.icon), 1.0), 1.6)
 
     def _paint_icon_note(self, painter: QPainter):
         """A borderless floating glyph. ``fill``: big icon with the text as a
@@ -1734,13 +1819,14 @@ class NoteItem(QGraphicsSimpleTextItem):
         font = self._note_font()
         fm = QFontMetricsF(font)
         if self.note.icon_placement == "lead":
+            lead_w = self._lead_icon_w(side)
             iconset.paint_icon(painter, self.note.icon,
-                               QRectF(pad, (total_h - side) / 2, side, side),
+                               QRectF(pad, (total_h - side) / 2, lead_w, side),
                                color)
             painter.setFont(font)
             painter.setPen(color)
             if lines:
-                x = pad + side + 6
+                x = pad + lead_w + 6
                 y = (total_h - len(lines) * fm.height()) / 2 + fm.ascent()
                 for ln in lines:
                     painter.drawText(QPointF(x, y), ln)
@@ -1956,7 +2042,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         # GitHub-flavoured: task lists, strikethrough, tables. We document
         # a smaller recommended subset; extras degrade rather than break.
         doc.setMarkdown(
-            note_md_body(self.note),
+            md_hard_quote_breaks(note_md_body(self.note)),
             QTextDocument.MarkdownFeature.MarkdownDialectGitHub,
         )
         doc.setTextWidth(self._wrap_width_px(font))
@@ -2171,7 +2257,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             self._display_hidden_lines = cache[3]
             return cache[1]
         target_px = getattr(self, "_resize_target_px", None)
-        if self.note.icon and iconset.has_icon(self.note.icon):
+        if self._is_marker_icon():
             _, _, tw, th = self._icon_metrics()
             r = QRectF(0, 0, tw, th)
         elif self._is_code_note():
@@ -2217,6 +2303,12 @@ class NoteItem(QGraphicsSimpleTextItem):
                     total_w = pad + badge_w + self._BADGE_GAP + body_w + pad
                 else:
                     total_w = pad + body_w + pad
+                if self._has_badge_icon():
+                    # reserve corner room so the first line clears the badge
+                    # (and the attachment glyph the badge steps aside for)
+                    total_w += self._BADGE_ICON_SIDE + 4.0
+                    if self.note.url:
+                        total_w += 18.0
                 if self.note.wrap_chars_explicit:
                     min_w = self._wrap_width_px(body_font) + 2 * pad
                     total_w = max(total_w, min_w)
@@ -2229,8 +2321,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         # notes are a single glyph, not flowing text — never capped.
         self._display_truncated = False
         self._display_hidden_lines = 0
-        is_icon = self.note.icon and iconset.has_icon(self.note.icon)
-        if not is_icon:
+        if not self._is_marker_icon():
             line_h = QFontMetricsF(self._note_font()).height()
             content_cap = self._PAD + self._DISPLAY_CAP_LINES * line_h
             cap_h = content_cap + self._DISPLAY_FOOTER_H
@@ -2330,7 +2421,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             self._paint_lod_marker(painter)
             return
 
-        if self.note.icon and iconset.has_icon(self.note.icon):
+        if self._is_marker_icon():
             self._paint_icon_note(painter)
             return
 
@@ -2347,6 +2438,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         if truncated:
             painter.restore()
             self._paint_truncation_overlay(painter)
+        if self._has_badge_icon():
+            self._paint_badge_icon(painter)
 
     def _paint_text_body(self, painter: QPainter):
         if self._is_code_note():
@@ -2391,6 +2484,12 @@ class NoteItem(QGraphicsSimpleTextItem):
         target_px = getattr(self, "_resize_target_px", None)
         if target_px is not None:
             total_w = max(total_w, target_px)
+        if self._has_badge_icon():
+            # mirror boundingRect's corner reservation so the plate and the
+            # badge agree on where the right edge is
+            total_w += self._BADGE_ICON_SIDE + 4.0
+            if self.note.url:
+                total_w += 18.0
         total_h = pad + n_lines * line_h + pad
         bg_rect = QRectF(0, 0, total_w, total_h)
 

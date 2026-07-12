@@ -1,233 +1,125 @@
-"""Curated visual-vocabulary glyphs for grafli (issue: visual note-taking).
+"""Sketchnote symbol set for grafli (visual vocabulary, issue #120).
 
-A small, fixed set of monochrome line icons drawn as vector paths in a 24-unit
-viewBox, rendered tinted to any colour and cached. Boxes and notes reference
-them by name via the ``*name`` sigil (see grafli.format).
+Symbols are authored as one SVG sheet — ``assets/sketchnote_symbols.svg``,
+hand-tweakable in Inkscape — and rendered by element id via QSvgRenderer, so
+the set stays vector-crisp at any zoom and editable without code changes.
+Boxes and notes reference symbols by name via the ``*name`` sigil (see
+grafli.format). Tinting substitutes the sheet's canonical ink colour in the
+SVG source; one renderer is cached per tint.
 
-These starter icons are hand-drawn in a consistent minimal line style. The
-render path is asset-agnostic, so a fuller SVG set (Lucide/Phosphor, etc.) can
-replace ``_ICONS`` later without touching callers.
+Number badges (``*1`` … ``*99``) are composed at paint time (circle + digit)
+— a static sheet can't carry every number. ``money`` and ``link`` predate the
+sheet and remain hand-drawn painters until it gains them.
 """
 
 from __future__ import annotations
 
-import math
+from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QByteArray, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 
-# Display order for the picker grid; also the set of valid icon names.
-ICON_NAMES = [
-    "person", "gear", "cloud", "database", "warning", "bulb",
-    "check", "cross", "money", "clock", "doc", "lock",
-    "flag", "star", "link", "question",
+from grafli.constants import NOTE_FONT_FAMILY
+from grafli.format import ICON_ALIASES
+
+_SHEET = Path(__file__).parent / "assets" / "sketchnote_symbols.svg"
+# Canonical ink colour of the sheet; tinting substitutes this in the source.
+_SHEET_INK = "#2d3033"
+
+# Display order for the picker grid; also the set of valid (non-digit) names.
+SEMANTIC_NAMES = [
+    "person", "robot", "gear", "database", "document", "cloud", "globe",
+    "target", "lightbulb", "question", "warning", "check", "cross", "flag",
+    "clock", "calendar", "magnifier", "puzzle", "lock", "plant",
 ]
+EMPHASIS_NAMES = [
+    "star", "heart", "flame", "exclamation", "brain", "lightning",
+    "repeat", "exercise", "performance",
+]
+LEGACY_NAMES = ["money", "link"]
+# Legacy names group with the semantic block (they are semantic symbols).
+ICON_NAMES = SEMANTIC_NAMES + LEGACY_NAMES + EMPHASIS_NAMES
 
-_VIEWBOX = 24.0
-_STROKE = 1.8
+_SHEET_NAMES = frozenset(SEMANTIC_NAMES + EMPHASIS_NAMES)
 
+_sheet_bytes: bytes | None = None
+_renderers: dict[int, QSvgRenderer] = {}
 _pixmap_cache: dict[tuple, QPixmap] = {}
 
 
-# ── individual icon painters (24x24 viewBox, stroke already set) ──
-
-def _person(p: QPainter):
-    p.drawEllipse(QRectF(8.8, 4.3, 6.4, 6.4))
-    path = QPainterPath()
-    path.moveTo(5.5, 19.8)
-    path.cubicTo(5.5, 14.6, 18.5, 14.6, 18.5, 19.8)
-    p.drawPath(path)
-
-
-def _gear(p: QPainter):
-    c, r_in, r_out = 12.0, 5.6, 8.0
-    for k in range(8):
-        a = math.radians(k * 45)
-        dx, dy = math.cos(a), math.sin(a)
-        p.drawLine(QPointF(c + dx * r_in, c + dy * r_in),
-                   QPointF(c + dx * r_out, c + dy * r_out))
-    p.drawEllipse(QRectF(6.4, 6.4, 11.2, 11.2))
-    p.drawEllipse(QRectF(9.6, 9.6, 4.8, 4.8))
-
-
-def _cloud(p: QPainter):
-    path = QPainterPath()
-    path.addEllipse(QRectF(3.5, 12.0, 8.0, 8.0))
-    path.addEllipse(QRectF(8.5, 8.5, 10.0, 10.0))
-    path.addEllipse(QRectF(12.0, 12.0, 7.0, 7.0))
-    path.addRect(QRectF(7.0, 16.0, 9.5, 3.5))
-    p.drawPath(path.simplified())
-
-
-def _database(p: QPainter):
-    p.drawEllipse(QRectF(5.0, 3.0, 14.0, 5.0))
-    p.drawLine(QPointF(5.0, 5.5), QPointF(5.0, 18.5))
-    p.drawLine(QPointF(19.0, 5.5), QPointF(19.0, 18.5))
-    # mid ring + bottom, as the front halves of two ellipses
-    p.drawArc(QRectF(5.0, 9.0, 14.0, 5.0), 180 * 16, 180 * 16)
-    p.drawArc(QRectF(5.0, 16.0, 14.0, 5.0), 180 * 16, 180 * 16)
-
-
-def _warning(p: QPainter):
-    path = QPainterPath()
-    path.moveTo(12.0, 3.2)
-    path.lineTo(21.8, 20.2)
-    path.lineTo(2.2, 20.2)
-    path.closeSubpath()
-    p.drawPath(path)
-    p.drawLine(QPointF(12.0, 9.5), QPointF(12.0, 14.8))
-    _dot(p, 12.0, 17.6, 0.95)
-
-
-def _bulb(p: QPainter):
-    p.drawEllipse(QRectF(6.5, 3.0, 11.0, 11.0))
-    p.drawLine(QPointF(9.2, 15.5), QPointF(14.8, 15.5))
-    p.drawLine(QPointF(9.8, 18.0), QPointF(14.2, 18.0))
-    p.drawLine(QPointF(10.6, 20.4), QPointF(13.4, 20.4))
-
-
-def _check(p: QPainter):
-    path = QPainterPath()
-    path.moveTo(4.5, 12.8)
-    path.lineTo(9.8, 18.0)
-    path.lineTo(19.5, 6.5)
-    p.drawPath(path)
-
-
-def _cross(p: QPainter):
-    p.drawLine(QPointF(6.0, 6.0), QPointF(18.0, 18.0))
-    p.drawLine(QPointF(18.0, 6.0), QPointF(6.0, 18.0))
-
-
-def _money(p: QPainter):
-    # banknote: rounded rect + a centre coin
-    p.drawRoundedRect(QRectF(2.5, 7.0, 19.0, 10.0), 2.0, 2.0)
-    p.drawEllipse(QRectF(10.0, 9.5, 4.0, 4.0))
-    _dot(p, 5.6, 12.0, 0.7)
-    _dot(p, 18.4, 12.0, 0.7)
-
-
-def _clock(p: QPainter):
-    p.drawEllipse(QRectF(3.0, 3.0, 18.0, 18.0))
-    p.drawLine(QPointF(12.0, 12.0), QPointF(12.0, 6.8))
-    p.drawLine(QPointF(12.0, 12.0), QPointF(16.0, 13.6))
-
-
-def _doc(p: QPainter):
-    path = QPainterPath()
-    path.moveTo(6.0, 3.0)
-    path.lineTo(14.0, 3.0)
-    path.lineTo(18.0, 7.0)
-    path.lineTo(18.0, 21.0)
-    path.lineTo(6.0, 21.0)
-    path.closeSubpath()
-    p.drawPath(path)
-    fold = QPainterPath()
-    fold.moveTo(14.0, 3.0)
-    fold.lineTo(14.0, 7.0)
-    fold.lineTo(18.0, 7.0)
-    p.drawPath(fold)
-    p.drawLine(QPointF(8.5, 12.0), QPointF(15.5, 12.0))
-    p.drawLine(QPointF(8.5, 15.0), QPointF(15.5, 15.0))
-    p.drawLine(QPointF(8.5, 18.0), QPointF(13.0, 18.0))
-
-
-def _lock(p: QPainter):
-    p.drawRoundedRect(QRectF(5.0, 11.0, 14.0, 9.0), 1.6, 1.6)
-    shackle = QPainterPath()
-    shackle.moveTo(8.0, 11.0)
-    shackle.lineTo(8.0, 8.5)
-    shackle.arcTo(QRectF(8.0, 4.5, 8.0, 8.0), 180, -180)
-    shackle.lineTo(16.0, 11.0)
-    p.drawPath(shackle)
-    _dot(p, 12.0, 14.4, 0.9)
-    p.drawLine(QPointF(12.0, 15.3), QPointF(12.0, 17.2))
-
-
-def _flag(p: QPainter):
-    p.drawLine(QPointF(6.0, 3.0), QPointF(6.0, 21.0))
-    flag = QPainterPath()
-    flag.moveTo(6.0, 4.0)
-    flag.lineTo(19.0, 4.0)
-    flag.quadTo(16.0, 7.5, 19.0, 11.0)
-    flag.lineTo(6.0, 11.0)
-    p.drawPath(flag)
-
-
-def _star(p: QPainter):
-    path = QPainterPath()
-    cx = cy = 12.0
-    r_out, r_in = 9.2, 3.7
-    for k in range(10):
-        r = r_out if k % 2 == 0 else r_in
-        a = math.radians(-90 + k * 36)
-        pt = QPointF(cx + r * math.cos(a), cy + r * math.sin(a))
-        if k == 0:
-            path.moveTo(pt)
-        else:
-            path.lineTo(pt)
-    path.closeSubpath()
-    p.drawPath(path)
-
-
-def _link(p: QPainter):
-    p.drawRoundedRect(QRectF(3.5, 9.0, 10.0, 6.0), 3.0, 3.0)
-    p.drawRoundedRect(QRectF(10.5, 9.0, 10.0, 6.0), 3.0, 3.0)
-
-
-def _question(p: QPainter):
-    path = QPainterPath()
-    path.moveTo(8.4, 9.0)
-    path.cubicTo(8.4, 5.2, 15.6, 5.2, 14.6, 9.4)
-    path.cubicTo(13.9, 11.6, 12.0, 11.8, 12.0, 14.4)
-    p.drawPath(path)
-    _dot(p, 12.0, 17.2, 0.95)
-
-
-def _dot(p: QPainter, cx: float, cy: float, r: float):
-    """A small filled disc in the current pen colour."""
-    color = p.pen().color()
-    p.save()
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(color)
-    p.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
-    p.restore()
-
-
-_ICONS = {
-    "person": _person, "gear": _gear, "cloud": _cloud, "database": _database,
-    "warning": _warning, "bulb": _bulb, "check": _check, "cross": _cross,
-    "money": _money, "clock": _clock, "doc": _doc, "lock": _lock,
-    "flag": _flag, "star": _star, "link": _link, "question": _question,
-}
+def resolve_icon(name: str) -> str:
+    """Canonical name for ``name`` — alias-aware (``bulb`` → ``lightbulb``);
+    digit badges 1–99 pass through zero-stripped. "" if unknown."""
+    name = ICON_ALIASES.get(name, name)
+    if name in _SHEET_NAMES or name in _LEGACY_PAINTERS:
+        return name
+    if name.isdigit() and 1 <= int(name) <= 99:
+        return str(int(name))
+    return ""
 
 
 def has_icon(name: str) -> bool:
-    return name in _ICONS
+    return bool(resolve_icon(name))
+
+
+def _element_id(name: str) -> str:
+    return name.capitalize()
+
+
+def _renderer_for(color: QColor) -> QSvgRenderer:
+    """A renderer of the sheet tinted to ``color`` (cached per tint)."""
+    global _sheet_bytes
+    key = color.rgba()
+    renderer = _renderers.get(key)
+    if renderer is None:
+        if _sheet_bytes is None:
+            _sheet_bytes = _SHEET.read_bytes()
+        data = _sheet_bytes
+        tint = color.name().encode()
+        if tint != _SHEET_INK.encode():
+            data = data.replace(_SHEET_INK.encode(), tint)
+        renderer = QSvgRenderer(QByteArray(data))
+        _renderers[key] = renderer
+    return renderer
+
+
+def icon_aspect(name: str) -> float:
+    """Width/height ratio of the symbol's drawing (1.0 for digits/legacy) —
+    for layout that reserves non-square room (e.g. the lead gutter)."""
+    name = resolve_icon(name)
+    if name in _SHEET_NAMES:
+        b = _renderer_for(QColor(_SHEET_INK)).boundsOnElement(_element_id(name))
+        if b.height() > 0:
+            return b.width() / b.height()
+    return 1.0
 
 
 def paint_icon(painter: QPainter, name: str, rect: QRectF,
                color: QColor) -> None:
-    """Draw ``name`` as vector paths into ``rect`` in the painter's current
-    coordinate system. Resolution-independent — stays crisp at any zoom (use
-    this on the canvas; a cached pixmap would pixelate when scaled up)."""
-    fn = _ICONS.get(name)
-    if fn is None:
-        return
-    side = min(rect.width(), rect.height())
-    if side <= 0:
+    """Draw ``name`` aspect-fitted and centred into ``rect`` in the painter's
+    current coordinate system. Resolution-independent — stays crisp at any
+    zoom (use this on the canvas; a cached pixmap would pixelate)."""
+    name = resolve_icon(name)
+    if not name or rect.width() <= 0 or rect.height() <= 0:
         return
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    painter.translate(rect.left() + (rect.width() - side) / 2,
-                      rect.top() + (rect.height() - side) / 2)
-    painter.scale(side / _VIEWBOX, side / _VIEWBOX)
-    pen = QPen(color, _STROKE)
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    painter.setPen(pen)
-    painter.setBrush(Qt.BrushStyle.NoBrush)
-    fn(painter)
+    if name.isdigit():
+        _paint_number(painter, name, rect, color)
+    elif name in _LEGACY_PAINTERS:
+        _paint_legacy(painter, name, rect, color)
+    else:
+        renderer = _renderer_for(color)
+        eid = _element_id(name)
+        bounds = renderer.boundsOnElement(eid)
+        if bounds.width() > 0 and bounds.height() > 0:
+            s = min(rect.width() / bounds.width(),
+                    rect.height() / bounds.height())
+            w, h = bounds.width() * s, bounds.height() * s
+            target = QRectF(rect.left() + (rect.width() - w) / 2,
+                            rect.top() + (rect.height() - h) / 2, w, h)
+            renderer.render(painter, eid, target)
     painter.restore()
 
 
@@ -236,10 +128,11 @@ def icon_pixmap(name: str, color: QColor, size: float,
     """Return a cached, tinted pixmap for ``name`` at ``size`` logical px.
 
     For fixed-size UI (the picker grid); on the canvas use ``paint_icon`` so
-    the glyph stays vector-crisp under zoom.
+    the symbol stays vector-crisp under zoom.
     """
-    if name not in _ICONS:
+    if not has_icon(name):
         return None
+    name = resolve_icon(name)
     size = max(4.0, float(size))
     key = (name, color.rgba(), round(size, 1), round(dpr, 2))
     cached = _pixmap_cache.get(key)
@@ -257,3 +150,87 @@ def icon_pixmap(name: str, color: QColor, size: float,
 
     _pixmap_cache[key] = pm
     return pm
+
+
+def paint_badge(painter: QPainter, name: str, rect: QRectF,
+                color: QColor) -> None:
+    """Corner-badge rendering (``*badge:`` placement, issue #122): the symbol
+    sits on a soft paper disc so it stays legible on any node fill."""
+    if not has_icon(name) or rect.width() <= 0 or rect.height() <= 0:
+        return
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    plate = QColor("#F7F5F0")
+    plate.setAlphaF(0.95)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(plate)
+    painter.drawEllipse(rect)
+    painter.restore()
+    inset = min(rect.width(), rect.height()) * 0.16
+    paint_icon(painter, name, rect.adjusted(inset, inset, -inset, -inset),
+               color)
+
+
+# ── number badges (composed: circle + digit) ──
+
+def _paint_number(p: QPainter, digits: str, rect: QRectF, color: QColor):
+    side = min(rect.width(), rect.height())
+    stroke = max(1.2, side * 0.055)
+    square = QRectF(rect.left() + (rect.width() - side) / 2,
+                    rect.top() + (rect.height() - side) / 2, side, side)
+    inset = stroke / 2 + side * 0.02
+    pen = QPen(color, stroke)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawEllipse(square.adjusted(inset, inset, -inset, -inset))
+    font = QFont(NOTE_FONT_FAMILY)
+    font.setBold(True)
+    font.setPixelSize(max(6, round(side * (0.52 if len(digits) == 1 else 0.42))))
+    p.setFont(font)
+    p.drawText(square, Qt.AlignmentFlag.AlignCenter, digits)
+
+
+# ── legacy painters (24-unit viewBox) — until the sheet gains these ──
+
+_VIEWBOX = 24.0
+_STROKE = 1.8
+
+
+def _dot(p: QPainter, cx: float, cy: float, r: float):
+    """A small filled disc in the current pen colour."""
+    color = p.pen().color()
+    p.save()
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(color)
+    p.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
+    p.restore()
+
+
+def _money(p: QPainter):
+    # banknote: rounded rect + a centre coin
+    p.drawRoundedRect(QRectF(2.5, 7.0, 19.0, 10.0), 2.0, 2.0)
+    p.drawEllipse(QRectF(10.0, 9.5, 4.0, 4.0))
+    _dot(p, 5.6, 12.0, 0.7)
+    _dot(p, 18.4, 12.0, 0.7)
+
+
+def _link(p: QPainter):
+    p.drawRoundedRect(QRectF(3.5, 9.0, 10.0, 6.0), 3.0, 3.0)
+    p.drawRoundedRect(QRectF(10.5, 9.0, 10.0, 6.0), 3.0, 3.0)
+
+
+_LEGACY_PAINTERS = {"money": _money, "link": _link}
+
+
+def _paint_legacy(p: QPainter, name: str, rect: QRectF, color: QColor):
+    side = min(rect.width(), rect.height())
+    p.translate(rect.left() + (rect.width() - side) / 2,
+                rect.top() + (rect.height() - side) / 2)
+    p.scale(side / _VIEWBOX, side / _VIEWBOX)
+    pen = QPen(color, _STROKE)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    _LEGACY_PAINTERS[name](p)

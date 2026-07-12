@@ -85,7 +85,7 @@ tooling to the intent — this is a judgment call, and the default is restraint:
   title box, `*lead:warning` on a genuinely risky node.
 * **Concept explanations / visual notes / teaching** — mind maps, idea
   boards, walkthroughs, retrospectives, "how it works" sketches. Lean in: a
-  `*bulb` idea node, `*lead:database` labelled items, a bold heading over a
+  `*lightbulb` idea node, `*lead:database` labelled items, a bold heading over a
   small italic aside. Here recognition and hierarchy are the whole point, and
   sketchnote-style glyphs + emphasis make the board graspable at a glance.
 
@@ -409,8 +409,8 @@ the defaults the technical patterns set. Here recognition and hierarchy
 diagrams hold back (see "Visual vocabulary & emphasis"):
 
 * **Center the idea, radiate the rest.** A center-out layout: the
-  concept in the middle, contributing ideas around it. A `*bulb` (or
-  other fill glyph) turns the center box into a framed concept node.
+  concept in the middle, contributing ideas around it. A `*lightbulb` (or
+  other fill symbol) turns the center box into a framed concept node.
 * **Glyphs earn their place here.** `*lead:` icons label the satellites
   (`*lead:star` sunlight, `*lead:cloud` a gas) — recognition at a glance
   is exactly what a teaching board wants.
@@ -430,7 +430,7 @@ diagrams hold back (see "Visual vocabulary & emphasis"):
 @ box water "Water  H2O" 100,300 180x80 %soft
 @ box co2 "CO2 from air" 100,450 180x80 %soft *lead:cloud
 
-@ box leaf "Photosynthesis" 420,270 220x140 %highlight *bulb
+@ box leaf "Photosynthesis" 420,270 220x140 %highlight *lightbulb
 
 @ box sugar "Glucose  food" 780,230 180x80 %forest *lead:check
 @ box o2 "Oxygen out" 780,420 180x80 %teal *lead:cloud
@@ -452,122 +452,9 @@ The same restraint rule still applies in reverse: every glyph and bold
 should make the idea *easier to grasp*. A concept board that's lost its
 hierarchy is as noisy as a state machine covered in icons.
 
-### Sketchnotes — capturing a talk for memory
+### Sketchnotes — moved to the genre playbooks
 
-A conference sketchnote is a different job from a technical diagram: the
-goal is **recall of a few take-aways**, not faithful structure. Optimise
-for memory, and **skip the heavy ceremony** — the plan-first /
-render / diagnose loop is for precise diagrams; a live sketchnote wants
-speed and personality, so capture first and tidy later (if at all).
-
-* **Reduce ruthlessly.** A talk has 3–5 things worth keeping. Capture
-  those as headline boxes; let everything else go. If you're writing
-  full sentences, you're transcribing, not sketchnoting.
-* **Headline hierarchy.** One `~xxlarge !bold` title (the talk's thesis),
-  a handful of `~large` key points, small notes for the supporting
-  detail. Size *is* the memory cue — the biggest things are what you'll
-  recall. For a hand-lettered banner feel, give a header note **display
-  lettering**: `!outline` (hollow letters), `!shadow` (drop-shadow depth),
-  or `!bold !shadow` (a 3D header) — layered on `~size`. Add `!flat` to drop
-  the beige plate so the title sits **directly on the canvas**, the way a
-  sketchnoter letters a heading. Use these on the title and section headers,
-  not body text.
-* **One glyph per point as a memory hook.** `*lead:` icons make a point
-  recognisable at a glance weeks later (`*lead:warning` a pitfall,
-  `*lead:bulb` the key insight, `*lead:check` a recommendation). Here
-  glyphs *aid recall* — the opposite of the restraint a technical diagram
-  needs.
-* **Capture the arc, not the outline.** Hook → 2–4 key points → the
-  one thing to remember. A loose top-to-bottom or center-out flow beats
-  a rigid grid; don't agonise over coordinates.
-* **Let a `md:` note hold a punchline** — a memorable quote or the single
-  call-to-action, in the speaker's words.
-
-```
-@ note title 200,40 "Make it work, then make it fast" ~xxlarge !flat !bold !shadow
-
-@ box hook "Premature optimisation = wasted weeks" 120,180 320x90 %soft ~large *lead:warning
-@ box k1 "Measure before you tune" 120,330 320x80 %soft ~large *lead:bulb
-@ box k2 "90% of time is in 10% of code" 120,470 320x80 %soft ~large *lead:clock
-@ box k3 "A profiler beats a guess" 120,610 320x80 %soft ~large *lead:check
-
-@ note punch 520,330 """
-md:
-> "Find the hot 10% with a profiler,
-> leave the other 90% alone."
-""" ~large
-```
-
-This isn't a diagram of the talk — it's the four things you want to walk
-out remembering, sized so the eye (and memory) keeps them.
-
-
-## 7. The right altitude — depth ladder
-
-A view the eye can hold has **~5–9 nodes per level**. Past that, don't
-add more boxes — move detail down a level. Every level of detail has a
-designated home:
-
-1. **Box label** — the shortest phrase that names the node.
-2. **Note next to it** — behavior, rationale, pseudocode (`code:`),
-   checklists (`md:`).
-3. **`&doc:<name>`** — prose that outgrows a note: a markdown document
-   in the vault, opened on demand.
-4. **`&graph:<name>`** — structure that outgrows the board: a sub-board
-   with its own canvas.
-
-The top level stays graspable; depth is on demand, not on screen. When
-a container's children multiply past the budget, either group them into
-sub-containers (semantic zoom collapses them cleanly — see below) or
-move the detail into a sub-board.
-
-## 8. Author for semantic zoom (LoD)
-
-Zoomed out, grafli summarises the board: containers whose children got
-too small **fold into headline tiles** (label + child count), loose
-connected clusters wrap in a labelled hull, illegible leaves become
-colour shells. That means every board has **two readings you author**:
-the detail view and the collapsed overview. Make both true:
-
-* **Keep container colors homogeneous.** A container whose children
-  share one color collapses to a clean tile; mixed colours read as an
-  accident at overview zoom (heterogeneous loose clusters get a neutral
-  grey hull on purpose).
-* **Cross-container arrows are the overview's story.** Arrows between
-  containers survive collapse as tile-to-tile flow — so the coarse
-  reading is exactly the container-level arrows. Make them meaningful
-  and labelled; an overview that shows "Frontend → Backend → Storage"
-  with nothing else visible must still be a true statement.
-* **Container labels are overview headlines.** A collapsed tile shows
-  only the label — "Backend" earns its tile; "misc" does not.
-* **Verify the zoomed-out reading.** `grafli render <file> out.png --lod`
-  renders the collapsed view headlessly. Look at it the way you look at
-  the detail render: does the overview still tell a true, useful story?
-
-## 9. Title and intro
-
-Open every board with a title note (`~xxlarge`, top area) and — for any
-board someone else will open cold — a short *italic* intro note beside
-it: one or two sentences on what the board shows and where to start.
-The intro is the board's README; it costs two lines.
-
-```
-@ note title 200,-80 "Order pipeline — failure paths" ~xxlarge
-@ note intro 700,-70 "Where orders can fail and what retries them. Start at the gateway, follow the red risk edges." ~width=44 !italic
-```
-
-## 10. The quality bar
-
-Before calling a board done, check it against what "done" means — the
-render-and-look pass has acceptance criteria:
-
-* **The eye lands on the entry point.** First glance finds where the
-  story starts (position, size, or color makes it unmissable).
-* **The board answers its one question.** The question you planned for
-  is answerable from the canvas alone, without asking you.
-* **Depth is on demand.** No level shows more than it must; detail
-  lives one `&doc` / `&graph` / note deeper.
-* **The zoomed-out view tells the truth.** Collapsed tiles + crossing
-  arrows still summarise the system honestly (`render --lod`).
-* **Machine checks pass.** `grafli diagnose` shows no errors (parse
-  errors are always real; warnings get one fix pass, then ship).
+Sketchnote guidance (the job, archetypes, feature palette, the
+master-sketchnoter review) lives in `references/genres.md` alongside the
+infographic and software-diagram playbooks. Open that file before authoring
+a sketchnote; this file keeps the universal design principles it builds on.

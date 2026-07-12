@@ -418,20 +418,33 @@ def doc_name(element) -> str:
 
 
 # Glyph placement on a box/note. "" (bare ``*name``) = "fill" (icon fills the
-# body, label/text becomes a caption); "lead" = a small icon left of the label.
-ICON_PLACEMENTS = ("lead",)
+# body, label/text becomes a caption); "lead" = a small icon left of the
+# label; "badge" = a compact overlay in the top-right corner, label/text keep
+# their normal layout (emphasis markers: ``*badge:star``, ``*badge:3``).
+ICON_PLACEMENTS = ("lead", "badge")
+
+# Legacy glyph names → their sketchnote-set successors (issue #120). Parse
+# normalizes, so a board written with old names migrates on its next save.
+ICON_ALIASES = {"bulb": "lightbulb", "doc": "document"}
+
+
+def _canonical_icon(name: str) -> str:
+    name = ICON_ALIASES.get(name, name)
+    if name.isdigit() and int(name) > 0:
+        return str(int(name))   # zero-strip number badges: *03 → *3
+    return name
 
 
 def split_icon(raw: str) -> tuple[str, str]:
     """Split a raw ``*`` token into (placement, name).
 
     ``*lead:gear`` carries an explicit placement; bare ``*gear`` is the default
-    fill placement (returned as "").
+    fill placement (returned as ""). Names normalize to canonical.
     """
     for place in ICON_PLACEMENTS:
         if raw.startswith(place + ":"):
-            return place, raw[len(place) + 1:]
-    return "", raw
+            return place, _canonical_icon(raw[len(place) + 1:])
+    return "", _canonical_icon(raw)
 
 
 def icon_token(element) -> str:
@@ -483,7 +496,7 @@ _RE_BOX = re.compile(
     r'(?:\s+\^(topleft|topcenter))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'((?:\s+!(?:flat|ratio|fit|bold|italic|outline|shadow))*)'
-    r'(?:\s+\*([a-z][a-z0-9:-]*))?'
+    r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'
@@ -510,7 +523,7 @@ _RE_NOTE = re.compile(
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'(?:\s+~width=(\d+))?'
     r'((?:\s+!(?:mono|flat|bold|italic|outline|shadow))*)'
-    r'(?:\s+\*([a-z][a-z0-9:-]*))?'
+    r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'
@@ -528,7 +541,7 @@ _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'(?:\s+~width=(\d+))?'
     r'((?:\s+!(?:mono|flat|bold|italic|outline|shadow))*)'
-    r'(?:\s+\*([a-z][a-z0-9:-]*))?'
+    r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'

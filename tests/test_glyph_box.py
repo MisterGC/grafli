@@ -33,13 +33,13 @@ def _view(src: str) -> GrafliView:
 def test_box_and_note_icon_roundtrip():
     src = (
         "#!grafli v1\n"
-        '@ box idea "Spawn idea" 0,0 120x120 !flat *bulb\n'
+        '@ box idea "Spawn idea" 0,0 120x120 !flat *lightbulb\n'
         '@ box risk "Risk" 200,0 80x80 %accent *warning >idea\n'
         '@ note m 0,200 *flag\n'
         '@ note cap 200,200 "needs review" *star\n'
     )
     b = parse(src)
-    assert b.boxes[0].icon == "bulb"
+    assert b.boxes[0].icon == "lightbulb"
     assert b.boxes[1].icon == "warning"
     assert b.notes[0].icon == "flag" and b.notes[0].text == ""
     assert b.notes[1].icon == "star" and b.notes[1].text == "needs review"
@@ -68,12 +68,75 @@ def test_lead_placement_roundtrip():
 
 def test_iconset_names_and_render():
     _app()
-    assert len(iconset.ICON_NAMES) == 16
-    assert iconset.has_icon("bulb") and not iconset.has_icon("nope")
+    # 20 semantic + 9 emphasis (sheet) + 2 legacy painters (money, link)
+    assert len(iconset.ICON_NAMES) == 31
+    assert iconset.has_icon("lightbulb") and not iconset.has_icon("nope")
+    assert iconset.has_icon("bulb")          # legacy alias
+    assert iconset.has_icon("3") and iconset.has_icon("42")   # number badges
+    assert not iconset.has_icon("0") and not iconset.has_icon("100")
     pm = iconset.icon_pixmap("bulb", QColor("#2F3437"), 64, 2.0)
     assert pm is not None and not pm.isNull()
     assert pm.devicePixelRatio() == 2.0
     assert iconset.icon_pixmap("nope", QColor("#000"), 64) is None
+    # every advertised name must render to a non-empty pixmap
+    for name in iconset.ICON_NAMES:
+        pm = iconset.icon_pixmap(name, QColor("#2F3437"), 32)
+        assert pm is not None and not pm.isNull(), name
+
+
+def test_iconset_tint_and_aspect():
+    _app()
+    pm = iconset.icon_pixmap("gear", QColor("#C93D3D"), 32)
+    assert pm is not None and not pm.isNull()
+    assert 0.2 < iconset.icon_aspect("flame") < 1.0    # tall symbol
+    assert iconset.icon_aspect("exercise") > 1.5       # wide symbol
+    assert iconset.icon_aspect("7") == 1.0             # digits are square
+
+
+def test_badge_placement_roundtrip():
+    src = (
+        "#!grafli v1\n"
+        '@ box hot "Incident" 0,0 200x80 *badge:flame\n'
+        '@ note n 0,100 "review order" *badge:2\n'
+    )
+    b = parse(src)
+    assert (b.boxes[0].icon, b.boxes[0].icon_placement) == ("flame", "badge")
+    assert (b.notes[0].icon, b.notes[0].icon_placement) == ("2", "badge")
+    assert serialize(b) == src
+
+
+def test_badge_note_keeps_text_body():
+    # A badge note is a normal text note with a corner overlay — not a
+    # floating marker; its bounding rect must track the text, not the glyph.
+    view = _view('@ note n 0,0 "a rather long line of prose" *badge:star\n')
+    n = view._note_items["n"]
+    assert not n._is_marker_icon() and n._has_badge_icon()
+    marker = _view('@ note m 0,0 "hi" *star\n')._note_items["m"]
+    assert marker._is_marker_icon()
+
+
+def test_unknown_icon_diagnostic():
+    from grafli.diagnostics import check_unknown_icon
+    b = parse('#!grafli v1\n@ box a "A" 0,0 100x100 *gaer\n'
+              '@ note n 0,200 "x" *star\n')
+    diags = check_unknown_icon(b)
+    assert [d.item_ids for d in diags] == [["a"]]
+    assert diags[0].code == "unknown-icon"
+
+
+def test_alias_and_digit_normalization_roundtrip():
+    src = (
+        "#!grafli v1\n"
+        '@ box idea "Idea" 0,0 120x120 *bulb\n'
+        '@ box spec "Spec" 200,0 120x120 *lead:doc\n'
+        '@ note step 0,200 "first" *03\n'
+    )
+    b = parse(src)
+    assert b.boxes[0].icon == "lightbulb"
+    assert (b.boxes[1].icon, b.boxes[1].icon_placement) == ("document", "lead")
+    assert b.notes[0].icon == "3"
+    out = serialize(b)
+    assert "*lightbulb" in out and "*lead:document" in out and "*3" in out
 
 
 # ── picker ──────────────────────────────────────────────────────
@@ -182,6 +245,37 @@ def test_plain_box_empty_commit_is_ignored():
     view = _view('@ box k "Keep" 0,0 120x60\n')
     _commit_empty(view, view._box_items["k"])
     assert view.board.box_by_id("k").label == "Keep"
+
+
+def test_picker_placement_cycle_includes_badge():
+    view = _view('@ box a "A" 0,0 140x70\n')
+    view._box_items["a"].setSelected(True)
+    view._open_icon_picker()
+    view._icon_picker_move(1, 0)
+    view._toggle_icon_placement()                # fill -> lead
+    view._toggle_icon_placement()                # lead -> badge
+    assert view._icon_picker_placement == "badge"
+    assert view._box_items["a"].box.icon_placement == "badge"
+    view._toggle_icon_placement()                # badge -> fill
+    assert view._icon_picker_placement == ""
+    view._cancel_icon_picker()
+
+
+def test_picker_digit_entry_sets_number_badge():
+    view = _view('@ box a "A" 0,0 140x70\n')
+    view._box_items["a"].setSelected(True)
+    view._open_icon_picker()
+    view._icon_picker_digit = "4"
+    view._apply_icon_picker_live()
+    assert view._box_items["a"].box.icon == "4"
+    view._commit_icon_picker()
+    assert view.board.box_by_id("a").icon == "4"
+    # moving in the grid clears the typed digit again
+    view._open_icon_picker()
+    assert view._icon_picker_digit == "4"
+    view._icon_picker_move(1, 0)
+    assert view._icon_picker_digit == ""
+    view._cancel_icon_picker()
 
 
 def test_picker_none_cell_clears_icon():

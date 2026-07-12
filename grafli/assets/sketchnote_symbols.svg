@@ -1,0 +1,1127 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="1608.9734"
+   height="1196.2227"
+   viewBox="0 0 1608.9734 1196.2227"
+   role="img"
+   aria-labelledby="title desc"
+   version="1.1"
+   id="svg78"
+   sodipodi:docname="grafli-symbols.svg"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview78"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="0.52527932"
+     inkscape:cx="531.14598"
+     inkscape:cy="657.74529"
+     inkscape:window-width="1920"
+     inkscape:window-height="1022"
+     inkscape:window-x="1512"
+     inkscape:window-y="30"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg78" />
+  <title
+     id="title">Grafli semantic and emphasis symbols</title>
+  <desc
+     id="desc">A reference sheet of semantic and emphasis symbols with their primary intent.</desc>
+  <defs
+     id="defs1">
+    <pattern
+       id="dots"
+       width="24"
+       height="24"
+       patternUnits="userSpaceOnUse">
+      <circle
+         cx="2"
+         cy="2"
+         r="1.25"
+         fill="#d8d2c8"
+         opacity="0.8"
+         id="circle1" />
+    </pattern>
+  </defs>
+  <style
+     id="style2">
+  .heading { font: 700 28px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .5px; }
+  .name { font: 600 18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .intent { font: 15px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #4a4d50; }
+  .section-line { stroke: #d8d2c8; stroke-width: 2; }
+</style>
+  <g
+     id="g3"
+     transform="translate(8.9733887)">
+    <rect
+       x="32"
+       y="26"
+       width="290"
+       height="48"
+       rx="6"
+       fill="#e4ece7"
+       id="rect3" />
+    <text
+       x="48"
+       y="59"
+       class="heading"
+       fill="#16815f"
+       id="text3"
+       style="font-style:normal;font-variant:normal;font-weight:700;font-stretch:normal;font-size:28px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">SEMANTIC SYMBOLS</text>
+  </g>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Person"
+     transform="translate(8.9733887)">
+    <circle
+       cx="130"
+       cy="128"
+       r="15"
+       id="circle3" />
+    <path
+       d="m 99,178 q 4,-31 31,-31 27,0 31,31 z"
+       id="path3" />
+  </g>
+  <text
+     x="138.97339"
+     y="222"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text4"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Person</text>
+  <text
+     x="138.97339"
+     y="252"
+     text-anchor="middle"
+     class="intent"
+     id="text5"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Human actor</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Robot"
+     transform="translate(8.9733887)">
+    <rect
+       x="320"
+       y="128"
+       width="60"
+       height="50"
+       rx="7"
+       id="rect5" />
+    <circle
+       cx="338"
+       cy="150"
+       r="4"
+       id="circle5" />
+    <circle
+       cx="362"
+       cy="150"
+       r="4"
+       id="circle6" />
+    <path
+       d="M 350,128 V 116"
+       id="path6" />
+    <circle
+       cx="350"
+       cy="110"
+       r="5"
+       id="circle7" />
+    <path
+       d="m 311,140 v 25 m 78,-25 v 25"
+       id="path7" />
+  </g>
+  <text
+     x="358.97339"
+     y="222"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text7"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Robot</text>
+  <text
+     x="358.97339"
+     y="252"
+     text-anchor="middle"
+     class="intent"
+     id="text8"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Automated actor</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Gear"
+     transform="translate(8.9733887)">
+    <polygon
+       points="587,120.6 587.7,132.3 599.4,133 594.1,143.5 604,150 594.1,156.5 599.4,167 587.7,167.7 587,179.4 576.5,174.1 570,184 563.5,174.1 553,179.4 552.3,167.7 540.6,167 545.9,156.5 536,150 545.9,143.5 540.6,133 552.3,132.3 553,120.6 563.5,125.9 570,116 576.5,125.9 "
+       id="polygon8" />
+    <circle
+       cx="570"
+       cy="150"
+       r="11"
+       id="circle8" />
+  </g>
+  <text
+     x="578.97339"
+     y="222"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text9"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Gear</text>
+  <text
+     x="578.97339"
+     y="252"
+     text-anchor="middle"
+     class="intent"
+     id="text10"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Process or logic</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Database"
+     transform="translate(8.9733887)">
+    <ellipse
+       cx="790"
+       cy="127"
+       rx="31"
+       ry="12"
+       id="ellipse10" />
+    <path
+       d="m 759,127 v 46 c 0,12 62,12 62,0 v -46"
+       id="path10" />
+    <path
+       d="m 759,147 c 0,12 62,12 62,0 m -62,17 c 0,12 62,12 62,0"
+       id="path11" />
+  </g>
+  <text
+     x="798.97339"
+     y="222"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text11"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Database</text>
+  <text
+     x="798.97339"
+     y="252"
+     text-anchor="middle"
+     class="intent"
+     id="text12"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Persistent storage</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Document"
+     transform="translate(8.9733887)">
+    <path
+       d="m 985,116 h 35 l 18,18 v 50 h -53 z"
+       id="path12" />
+    <path
+       d="m 1020,116 v 18 h 18 m -40,14 h 26 m -26,13 h 26"
+       id="path13" />
+  </g>
+  <text
+     x="1018.9734"
+     y="222"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text13"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Document</text>
+  <text
+     x="1018.9734"
+     y="252"
+     text-anchor="middle"
+     class="intent"
+     id="text14"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Information artifact</text>
+  <path
+     d="m 1204.9734,166 c -15,-6 -11,-28 6,-31 3,-23 36,-29 47,-8 23,-1 31,40 7,42 h -54"
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Cloud" />
+  <text
+     x="1238.9734"
+     y="222"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text15"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Cloud</text>
+  <text
+     x="1238.9734"
+     y="252"
+     text-anchor="middle"
+     class="intent"
+     id="text16"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Remote service</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Globe"
+     transform="translate(8.9733887)">
+    <circle
+       cx="1450"
+       cy="150"
+       r="34"
+       id="circle16" />
+    <path
+       d="m 1416,150 h 68 m -34,-34 c -16,14 -16,54 0,68 m 0,-68 c 16,14 16,54 0,68"
+       id="path16" />
+  </g>
+  <text
+     x="1458.9734"
+     y="222"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text17"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Globe</text>
+  <text
+     x="1458.9734"
+     y="252"
+     text-anchor="middle"
+     class="intent"
+     id="text18"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">External world</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Target"
+     transform="translate(8.9733887)">
+    <circle
+       cx="130"
+       cy="380"
+       r="34"
+       id="circle18" />
+    <circle
+       cx="130"
+       cy="380"
+       r="22"
+       id="circle19" />
+    <circle
+       cx="130"
+       cy="380"
+       r="9"
+       id="circle20" />
+    <path
+       d="m 136,374 32,-32 m -10,0 h 10 v 10"
+       id="path20" />
+  </g>
+  <text
+     x="138.97339"
+     y="452"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text20"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Target</text>
+  <text
+     x="138.97339"
+     y="482"
+     text-anchor="middle"
+     class="intent"
+     id="text21"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Goal or objective</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Lightbulb"
+     transform="translate(8.9733887)">
+    <path
+       d="m 330,370 c 0,-21 40,-21 40,0 0,12 -10,17 -12,26 h -16 c -2,-9 -12,-14 -12,-26"
+       id="path21" />
+    <path
+       d="m 341,396 h 18 m -16,7 h 14 m -7,-62 v -9 m -31,18 -8,-6 m 70,6 8,-6"
+       id="path22" />
+  </g>
+  <text
+     x="358.97339"
+     y="452"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text22"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Lightbulb</text>
+  <text
+     x="358.97339"
+     y="482"
+     text-anchor="middle"
+     class="intent"
+     id="text23"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">New insight or idea</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Question"
+     transform="translate(8.9733887)">
+    <path
+       d="m 554,360 c 4,-21 36,-22 36,2 0,15 -20,18 -20,33"
+       id="path23" />
+    <circle
+       cx="570"
+       cy="409"
+       r="2"
+       fill="#2d3033"
+       stroke="none"
+       id="circle23" />
+  </g>
+  <text
+     x="578.97339"
+     y="452"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text24"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Question</text>
+  <text
+     x="578.97339"
+     y="482"
+     text-anchor="middle"
+     class="intent"
+     id="text25"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Unknown or open</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Warning"
+     transform="translate(8.9733887)">
+    <path
+       d="m 790,342 37,68 h -74 z"
+       id="path25" />
+    <path
+       d="m 790,366 v 22"
+       id="path26" />
+    <circle
+       cx="790"
+       cy="399"
+       r="2"
+       fill="#2d3033"
+       stroke="none"
+       id="circle26" />
+  </g>
+  <text
+     x="798.97339"
+     y="452"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text26"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Warning</text>
+  <text
+     x="798.97339"
+     y="482"
+     text-anchor="middle"
+     class="intent"
+     id="text27"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Risk or issue</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Check"
+     transform="translate(8.9733887)">
+    <circle
+       cx="1010"
+       cy="380"
+       r="34"
+       id="circle27" />
+    <path
+       d="m 993,380 13,14 25,-29"
+       id="path27" />
+  </g>
+  <text
+     x="1018.9734"
+     y="452"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text28"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Check</text>
+  <text
+     x="1018.9734"
+     y="482"
+     text-anchor="middle"
+     class="intent"
+     id="text29"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Confirmed or done</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Cross"
+     transform="translate(8.9733887)">
+    <circle
+       cx="1230"
+       cy="380"
+       r="34"
+       id="circle29" />
+    <path
+       d="m 1215,365 30,30 m 0,-30 -30,30"
+       id="path29" />
+  </g>
+  <text
+     x="1238.9734"
+     y="452"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text30"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Cross</text>
+  <text
+     x="1238.9734"
+     y="482"
+     text-anchor="middle"
+     class="intent"
+     id="text31"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Rejected or invalid</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Flag"
+     transform="translate(8.9733887)">
+    <path
+       d="m 1426,414 v -68 m 0,4 c 20,-12 31,12 52,3 v 29 c -20,9 -32,-15 -52,-4"
+       id="path31" />
+  </g>
+  <text
+     x="1458.9734"
+     y="452"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text32"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Flag</text>
+  <text
+     x="1458.9734"
+     y="482"
+     text-anchor="middle"
+     class="intent"
+     id="text33"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Marker or milestone</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Clock"
+     transform="translate(8.9733887)">
+    <circle
+       cx="130"
+       cy="610"
+       r="34"
+       id="circle33" />
+    <path
+       d="m 130,589 v 23 l 16,10"
+       id="path33" />
+  </g>
+  <text
+     x="138.97339"
+     y="682"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text34"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Clock</text>
+  <text
+     x="138.97339"
+     y="712"
+     text-anchor="middle"
+     class="intent"
+     id="text35"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Time or duration</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Calendar"
+     transform="translate(8.9733887)">
+    <rect
+       x="319"
+       y="582"
+       width="62"
+       height="60"
+       rx="6"
+       id="rect35" />
+    <path
+       d="m 319,598 h 62 m -47,-24 v 16 m 32,-16 v 16"
+       id="path35" />
+    <circle
+       cx="335"
+       cy="612"
+       r="2"
+       fill="#2d3033"
+       id="circle35" />
+    <circle
+       cx="350"
+       cy="612"
+       r="2"
+       fill="#2d3033"
+       id="circle36" />
+    <circle
+       cx="365"
+       cy="612"
+       r="2"
+       fill="#2d3033"
+       id="circle37" />
+  </g>
+  <text
+     x="358.97339"
+     y="682"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text37"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Calendar</text>
+  <text
+     x="358.97339"
+     y="712"
+     text-anchor="middle"
+     class="intent"
+     id="text38"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Schedule or deadline</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Magnifier"
+     transform="translate(8.9733887)">
+    <circle
+       cx="562"
+       cy="602"
+       r="24"
+       id="circle38" />
+    <path
+       d="m 580,620 25,25"
+       id="path38" />
+  </g>
+  <text
+     x="578.97339"
+     y="682"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text39"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Magnifier</text>
+  <text
+     x="578.97339"
+     y="712"
+     text-anchor="middle"
+     class="intent"
+     id="text40"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Investigation or search</text>
+  <path
+     d="m 770.97339,582 h 21 c -8,-14 22,-14 14,0 h 21 v 21 c 14,-8 14,22 0,14 v 21 h -21 c 8,14 -22,14 -14,0 h -21 v -21 c -14,8 -14,-22 0,-14 z"
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Puzzle" />
+  <text
+     x="798.97339"
+     y="682"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text41"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Puzzle</text>
+  <text
+     x="798.97339"
+     y="712"
+     text-anchor="middle"
+     class="intent"
+     id="text42"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Dependency or integration</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Lock"
+     transform="translate(8.9733887)">
+    <rect
+       x="983"
+       y="605"
+       width="54"
+       height="40"
+       rx="6"
+       id="rect42" />
+    <path
+       d="m 994,605 v -14 c 0,-23 32,-23 32,0 v 14"
+       id="path42" />
+    <circle
+       cx="1010"
+       cy="623"
+       r="4"
+       id="circle42" />
+  </g>
+  <text
+     x="1018.9734"
+     y="682"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text43"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Lock</text>
+  <text
+     x="1018.9734"
+     y="712"
+     text-anchor="middle"
+     class="intent"
+     id="text44"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Security or protection</text>
+  <g
+     fill="none"
+     stroke="#2d3033"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Plant"
+     transform="translate(8.9733887)">
+    <path
+       d="m 1230,642 v -44 m 0,9 c -19,-5 -28,-20 -29,-31 16,1 26,12 29,26 m 0,-4 c 9,-19 24,-26 33,-25 -2,17 -15,30 -33,34 m -18,37 q 18,-9 36,0"
+       id="path44" />
+  </g>
+  <text
+     x="1238.9734"
+     y="682"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text45"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Plant</text>
+  <text
+     x="1238.9734"
+     y="712"
+     text-anchor="middle"
+     class="intent"
+     id="text46"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Growth or evolution</text>
+  <line
+     x1="40.973389"
+     y1="775"
+     x2="1576.9734"
+     y2="775"
+     class="section-line"
+     id="line46" />
+  <rect
+     x="40.973389"
+     y="799"
+     width="300"
+     height="48"
+     rx="6"
+     fill="#ece7f6"
+     id="rect46" />
+  <text
+     x="56.973389"
+     y="832"
+     class="heading"
+     fill="#7357c8"
+     id="text47"
+     style="font-style:normal;font-variant:normal;font-weight:700;font-stretch:normal;font-size:28px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">EMPHASIS SYMBOLS</text>
+  <path
+     d="m 138.97339,863 10,25 27,1 -21,17 7,27 -23,-16 -23,16 7,-27 -21,-17 27,-1 z"
+     fill="none"
+     stroke="#7357c8"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Star"
+     style="stroke:#2d3033;stroke-opacity:1" />
+  <text
+     x="138.97339"
+     y="975"
+     text-anchor="middle"
+     class="name"
+     fill="#7357c8"
+     id="text48"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Star</text>
+  <text
+     x="138.97339"
+     y="1005"
+     text-anchor="middle"
+     class="intent"
+     id="text49"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Important or highlight</text>
+  <path
+     d="m 438.97339,931 c -42,-26 -34,-62 -9,-62 11,0 17,8 9,17 8,-9 14,-17 25,-17 25,0 17,36 -25,62 z"
+     fill="none"
+     stroke="#c93d3d"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Heart"
+     style="stroke:#2d3033;stroke-opacity:1" />
+  <text
+     x="438.97339"
+     y="975"
+     text-anchor="middle"
+     class="name"
+     fill="#c93d3d"
+     id="text50"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Heart</text>
+  <text
+     x="438.97339"
+     y="1005"
+     text-anchor="middle"
+     class="intent"
+     id="text51"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Value or preference</text>
+  <path
+     d="m 738.97339,935 c -32,-11 -29,-42 -7,-66 0,17 10,24 12,-11 24,30 30,56 -5,77 z m 0,-8 c -15,-9 -9,-24 3,-36 0,12 11,16 -3,36 z"
+     fill="none"
+     stroke="#e36a13"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Flame"
+     style="stroke:#2d3033;stroke-opacity:1" />
+  <text
+     x="738.97339"
+     y="975"
+     text-anchor="middle"
+     class="name"
+     fill="#e36a13"
+     id="text52"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Flame</text>
+  <text
+     x="738.97339"
+     y="1005"
+     text-anchor="middle"
+     class="intent"
+     id="text53"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">High urgency or hot topic</text>
+  <g
+     fill="none"
+     stroke="#c93d3d"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Exclamation"
+     transform="translate(8.9733887)"
+     style="stroke:#2d3033;stroke-opacity:1">
+    <circle
+       cx="1030"
+       cy="900"
+       r="34"
+       id="circle53"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <path
+       d="m 1030,880 v 28"
+       id="path53"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <circle
+       cx="1030"
+       cy="921"
+       r="2"
+       fill="#c93d3d"
+       stroke="none"
+       id="circle54"
+       style="stroke:#2d3033;stroke-opacity:1" />
+  </g>
+  <text
+     x="1038.9734"
+     y="975"
+     text-anchor="middle"
+     class="name"
+     fill="#c93d3d"
+     id="text54"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Exclamation</text>
+  <text
+     x="1038.9734"
+     y="1005"
+     text-anchor="middle"
+     class="intent"
+     id="text55"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Attention or important note</text>
+  <g
+     fill="none"
+     stroke="#7357c8"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Brain"
+     transform="translate(8.9733887)"
+     style="stroke:#2d3033;stroke-opacity:1">
+    <path
+       d="m 130,1034 c -12,-13 -29,0 -27,13 -17,4 -17,26 -1,31 -6,18 18,27 28,12 z"
+       id="path58"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <path
+       d="m 130,1034 c 12,-13 29,0 27,13 17,4 17,26 1,31 6,18 -18,27 -28,12 z"
+       id="path59"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <path
+       d="m 130,1034 v 56 m -18,-44 q 13,10 0,20 m 36,-20 q -13,10 0,20 m -36,11 q 12,7 18,-1 m 18,1 q -12,7 -18,-1"
+       id="path60"
+       style="stroke:#2d3033;stroke-opacity:1" />
+  </g>
+  <text
+     x="138.97339"
+     y="1140"
+     text-anchor="middle"
+     class="name"
+     fill="#7357c8"
+     id="text60"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Brain</text>
+  <text
+     x="138.97339"
+     y="1170"
+     text-anchor="middle"
+     class="intent"
+     id="text61"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Deep work / needs concentration</text>
+  <path
+     d="m 442.97339,1025 -26,42 h 20 l -8,37 37,-49 h -22 z"
+     fill="none"
+     stroke="#e36a13"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Lightning"
+     style="stroke:#2d3033;stroke-opacity:1" />
+  <text
+     x="438.97339"
+     y="1140"
+     text-anchor="middle"
+     class="name"
+     fill="#e36a13"
+     id="text62"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Lightning</text>
+  <text
+     x="438.97339"
+     y="1170"
+     text-anchor="middle"
+     class="intent"
+     id="text63"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Risk / interrupt</text>
+  <text
+     x="438.97339"
+     y="1193"
+     text-anchor="middle"
+     class="intent"
+     id="text64"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">disruption</text>
+  <g
+     fill="none"
+     stroke="#1769aa"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Repeat"
+     transform="translate(8.9733887)"
+     style="stroke:#2d3033;stroke-opacity:1">
+    <path
+       d="m 700,1061 c 4,-25 35,-34 54,-15"
+       id="path64"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <path
+       d="m 757.87261,1036.8407 2.87762,14.273 -14.27303,2.8776"
+       id="path65"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <path
+       d="m 760,1070 c -4,24 -35,33 -54,14"
+       id="path66"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <path
+       d="m 701.3107,1092.3658 -1.37173,-14.4955 14.49546,-1.3717"
+       id="path67"
+       style="stroke:#2d3033;stroke-opacity:1" />
+  </g>
+  <text
+     x="738.97339"
+     y="1140"
+     text-anchor="middle"
+     class="name"
+     fill="#1769aa"
+     id="text67"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Repeat</text>
+  <text
+     x="738.97339"
+     y="1170"
+     text-anchor="middle"
+     class="intent"
+     id="text68"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Tireless work / practice</text>
+  <text
+     x="738.97339"
+     y="1193"
+     text-anchor="middle"
+     class="intent"
+     id="text69"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">drill</text>
+  <g
+     fill="none"
+     stroke="#16815f"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Exercise"
+     transform="translate(8.9733887)"
+     style="stroke:#2d3033;stroke-opacity:1">
+    <path
+       d="m 1006,1065 h 48"
+       id="path69"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <rect
+       x="994"
+       y="1050"
+       width="10"
+       height="30"
+       rx="2"
+       id="rect69"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <rect
+       x="983"
+       y="1055"
+       width="8"
+       height="20"
+       rx="2"
+       id="rect70"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <rect
+       x="1056"
+       y="1050"
+       width="10"
+       height="30"
+       rx="2"
+       id="rect71"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <rect
+       x="1069"
+       y="1055"
+       width="8"
+       height="20"
+       rx="2"
+       id="rect72"
+       style="stroke:#2d3033;stroke-opacity:1" />
+  </g>
+  <text
+     x="1038.9734"
+     y="1140"
+     text-anchor="middle"
+     class="name"
+     fill="#16815f"
+     id="text72"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Exercise</text>
+  <text
+     x="1038.9734"
+     y="1170"
+     text-anchor="middle"
+     class="intent"
+     id="text73"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Practice / repetition</text>
+  <text
+     x="1038.9734"
+     y="1193"
+     text-anchor="middle"
+     class="intent"
+     id="text74"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">training</text>
+  <g
+     fill="none"
+     stroke="#1769aa"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="Performance"
+     transform="translate(14.358004,9.4230769)"
+     style="stroke:#2d3033;stroke-opacity:1">
+    <path
+       d="m 1303.615,1058.016 a 38,38 0 0 1 68,0"
+       id="path74"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <path
+       d="m 1330,1083 19,-30"
+       id="path75"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <circle
+       cx="1330"
+       cy="1083"
+       r="4"
+       id="circle75"
+       style="stroke:#2d3033;stroke-opacity:1" />
+    <path
+       d="m 1283,1045 h 15 m -20,12 h 16 m -11,12 h 14"
+       id="path76"
+       style="stroke:#2d3033;stroke-opacity:1" />
+  </g>
+  <text
+     x="1338.9734"
+     y="1140"
+     text-anchor="middle"
+     class="name"
+     fill="#1769aa"
+     id="text76"
+     style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:18px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Performance</text>
+  <text
+     x="1338.9734"
+     y="1170"
+     text-anchor="middle"
+     class="intent"
+     id="text77"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">Powerful / fast</text>
+  <text
+     x="1338.9734"
+     y="1193"
+     text-anchor="middle"
+     class="intent"
+     id="text78"
+     style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:15px;line-height:normal;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">high performance</text>
+</svg>

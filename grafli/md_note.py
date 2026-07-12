@@ -67,6 +67,28 @@ def note_md_body(note) -> str:
     return md_body(note.text)
 
 
+# A blockquote line with content: optional indent, ``>``, some text.
+_QUOTE_LINE_RE = re.compile(r"^\s*>\s?\S")
+
+
+def md_hard_quote_breaks(body: str) -> str:
+    """Render-side transform (issue #124): authored line breaks inside a
+    blockquote run become markdown hard breaks (trailing backslash), so a
+    quote keeps its ragged edge on canvas and in exports. The stored note
+    body is never modified — apply this only when feeding a renderer.
+    """
+    lines = body.split("\n")
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        nxt = lines[i + 1] if i + 1 < len(lines) else ""
+        if (_QUOTE_LINE_RE.match(line) and _QUOTE_LINE_RE.match(nxt)
+                and not line.rstrip().endswith("\\")):
+            out.append(line.rstrip() + "\\")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def toggle_task(text: str, index: int) -> tuple[str, bool]:
     """Flip the *index*-th GFM task checkbox (0-based) in *text*.
 

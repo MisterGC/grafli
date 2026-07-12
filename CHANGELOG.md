@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Legacy glyph names `bulb` and `doc` parse as aliases of `lightbulb` /
   `document` and normalize on the next save; existing boards render
   unchanged. `money` and `link` remain available.
+- The bundled Markdown editor now requires
+  [textli](https://github.com/MisterGC/textli) 0.3
+  (`textli-editor>=0.3`).
 
 ### Fixed
 - Slide export no longer flags picture-like frames as "overloaded": the

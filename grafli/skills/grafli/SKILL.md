@@ -296,6 +296,11 @@ to a v1 file, bump the header yourself).
 * `#` lines are comments / metadata.
 * Coordinates: `x,y` position (floats OK), `wxh` size.
 * IDs are short lowercase identifiers (`auth`, `db`, `api-gw`).
+* `%color` is a fixed semantic palette (not literal color names):
+  `%base %primary %secondary %tertiary %subtle %accent %highlight
+  %muted %soft %clay %teal %rose %forest %plum`, or a raw `#RRGGBB`.
+  An unknown token (e.g. `%green`) silently falls back to the default
+  fill — `diagnose` flags it as `unknown-color`.
 * Modifiers in `[]` are optional and order-sensitive as shown.
 * Multi-line text: use `\n` in labels and note text; a literal quote
   inside quoted text is `\"` (triple-quoted blocks need no escapes).
@@ -319,6 +324,11 @@ catches them before the user opens the file.
   ...
   """ ~small
   ```
+* **`@ box` and `@ note` order their arguments differently.** Box puts
+  the label *before* the coordinates (`@ box id "label" x,y wxh`); note
+  puts the coordinates *before* the text (`@ note id x,y "text"`). Writing
+  a box coords-first demotes it to a comment. Notes also take **no**
+  `wxh` — size is `~size`, wrap width is `~width=N`.
 * **Code-mode notes auto-widen to fit their longest line**, so a long
   line spills into a neighbouring column when notes sit side-by-side.
   Default to `~small` (and cap `~width`) in multi-column phases — see

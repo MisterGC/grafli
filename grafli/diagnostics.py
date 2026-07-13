@@ -11,13 +11,16 @@ layout engine — agents should treat findings as guidance, not gates.
 
 from __future__ import annotations
 
+import difflib
 import math
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from grafli.constants import ARROWHEAD_SIZE, BOX_FONT_SIZES, LAYOUT_PADDING
+from grafli.constants import (
+    ARROWHEAD_SIZE, BOX_FONT_SIZES, COLOR_TOKENS, LAYOUT_PADDING,
+)
 from grafli.format import Arrow, Board, Box, Image, Note
 from grafli.iconset import has_icon
 
@@ -453,6 +456,53 @@ def check_unknown_icon(board: Board) -> list[Diagnostic]:
     return diags
 
 
+# Literal color names map to the nearest semantic token by hue — difflib
+# can't bridge "green" → "forest" lexically, so pin the common ones. This
+# only feeds the suggestion text; unknown tokens still fall back to default.
+_COLOR_NAME_HINTS = {
+    "green": "forest", "blue": "primary", "lightblue": "secondary",
+    "red": "clay", "orange": "accent", "yellow": "highlight",
+    "gold": "highlight", "purple": "plum", "violet": "plum",
+    "pink": "rose", "magenta": "rose", "gray": "muted", "grey": "muted",
+    "lavender": "soft", "white": "base", "black": "subtle",
+    "dark": "subtle", "cyan": "teal",
+}
+
+
+def check_unknown_color(board: Board) -> list[Diagnostic]:
+    """A ``%token`` color the palette doesn't define resolves to the
+    default fill with no other trace — the miscolor is invisible until you
+    look at the render. Surface the typo, and the nearest real token, here."""
+    diags: list[Diagnostic] = []
+    valid = list(COLOR_TOKENS.keys())
+
+    def _check(color: str, iid: str) -> None:
+        if not color.startswith("%"):
+            return  # empty or #hex — nothing to validate
+        token = color[1:]
+        if token in COLOR_TOKENS:
+            return
+        suggestion = _COLOR_NAME_HINTS.get(token)
+        if suggestion is None:
+            near = difflib.get_close_matches(token, valid, n=1)
+            suggestion = near[0] if near else None
+        hint = f" — did you mean %{suggestion}?" if suggestion else ""
+        diags.append(Diagnostic(
+            code="unknown-color",
+            severity=WARNING,
+            message=(f"{iid!r} uses unknown color %{token}{hint} — "
+                     "it falls back to the default fill"),
+            item_ids=[iid],
+            fixable=True,
+        ))
+
+    for el in list(board.boxes) + list(board.notes):
+        _check(el.color, el.id)
+    for a in board.arrows:
+        _check(a.color, f"{a.from_id}->{a.to_id}")
+    return diags
+
+
 def run_all(
     board: Board,
     base_dir: Path | None = None,
@@ -462,6 +512,7 @@ def run_all(
     diags: list[Diagnostic] = []
     diags.extend(check_parse_errors(board))
     diags.extend(check_unknown_icon(board))
+    diags.extend(check_unknown_color(board))
     diags.extend(check_child_outside_parent(board, note_rect=note_rect))
     diags.extend(check_sibling_overlap(board, note_rect=note_rect))
     diags.extend(check_cramped_container(board, note_rect=note_rect))

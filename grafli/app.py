@@ -2154,6 +2154,23 @@ def _cmd_vault(argv: list[str]) -> int:
     return 0
 
 
+SCRATCH_FILENAME = "grafli-scratch.grafli"
+
+
+def _resolve_launch_file(file_arg: str | None) -> Path:
+    """Resolve the board to open at startup.
+
+    With no file argument — a bare ``grafli`` or a Dock/Spotlight click,
+    which passes none — fall back to a persistent scratch board in the home
+    dir. ``_open_file`` creates it on first open and autosaves it thereafter,
+    so a no-argument launch lands on a canvas that survives instead of the
+    in-memory untitled buffer that was lost when the window closed.
+    """
+    if file_arg:
+        return Path(file_arg)
+    return Path.home() / SCRATCH_FILENAME
+
+
 def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
     if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
@@ -2180,12 +2197,14 @@ def main():
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")
     args = parser.parse_args()
+    launch_file = str(_resolve_launch_file(args.file))
 
     app = QApplication(sys.argv)
     app.setApplicationName("Grafli")
 
-    # Single-instance: try to hand off to existing instance
-    if args.file and _try_send_to_existing(args.file):
+    # Single-instance: hand off to an already-running instance. With no file
+    # the scratch board is the target, so a re-launch focuses it in place.
+    if _try_send_to_existing(launch_file):
         sys.exit(0)
 
     _register_bundled_fonts()
@@ -2196,7 +2215,7 @@ def main():
     tick.start(200)
     tick.timeout.connect(lambda: None)
 
-    window = MainWindow(args.file, debug=args.debug)
+    window = MainWindow(launch_file, debug=args.debug)
     # Restore saved geometry if it lands on a currently-attached screen;
     # otherwise fall back to maximized on the primary screen so a sleeping
     # or disconnected external display can't swallow the window.

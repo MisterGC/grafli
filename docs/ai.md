@@ -118,7 +118,10 @@ Once the skill is installed, the agent:
    `--lod`, and `--bookmark` for targeted looks), `grafli diagnose`
    (incl. `parse-error` findings for lines that would silently drop),
    `grafli inspect` for placement geometry, and `grafli export --check`
-   when a deck is involved.
+   when a deck is involved. `grafli diagnose --fix` applies the
+   mechanical corrections (clamping, sizing, mistyped tokens) and exits
+   non-zero while errors remain, so the loop can run unattended — what
+   needs a judgment call is left for the agent to decide.
 5. Iterates on the layout / labels based on feedback.
 
 The agent's output is just text. You can edit it, diff it, version it,

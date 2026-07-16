@@ -1985,11 +1985,19 @@ def _cmd_diagnose(argv: list[str]) -> int:
             "Surfaces children outside parents, sibling overlaps, cramped "
             "containers, likely-truncated labels, and missing linked resources."
         ),
+        epilog=(
+            "Exit codes: 0 no gated findings, 1 errors present "
+            "(--strict: errors or warnings), 2 usage/IO problem."
+        ),
     )
     parser.add_argument("input", type=Path, help="Input .grafli file")
     parser.add_argument(
         "--json", action="store_true",
         help="Emit JSON instead of human-readable text",
+    )
+    parser.add_argument(
+        "--strict", action="store_true",
+        help="Exit non-zero on warnings too, not just errors",
     )
     args = parser.parse_args(argv)
 
@@ -2027,9 +2035,14 @@ def _cmd_diagnose(argv: list[str]) -> int:
             item_ids=[name], fixable=False,
         ))
 
+    # Gateable exit: 1 on errors (with --strict also on warnings), 0 otherwise.
+    # 2 stays reserved for usage/IO problems (missing input above).
+    gate = ("error", "warning") if args.strict else ("error",)
+    exit_code = 1 if any(d.severity in gate for d in diags) else 0
+
     if args.json:
         print(_json.dumps([d.to_dict() for d in diags], indent=2))
-        return 0
+        return exit_code
 
     if not diags:
         print("No findings.")
@@ -2039,7 +2052,7 @@ def _cmd_diagnose(argv: list[str]) -> int:
         suffix = "" if d.fixable else "  (may be intentional)"
         print(f"[{d.severity}] {d.code}: {d.message}{suffix}")
     print(f"\n{len(diags)} finding(s).")
-    return 0
+    return exit_code
 
 
 def _cmd_inspect(argv: list[str]) -> int:

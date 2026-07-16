@@ -263,8 +263,12 @@ in `references/genres.md` instead.)
     findings, run it once more to confirm. If the same warnings
     persist, accept them as known limitations and ship — do not
     keep reshuffling the diagram trying to drive the count to zero.
-    Diagnostics are guidance, not a gate. (For flows/decks there is a
-    matching check: `grafli export <file> --check` — see
+    Warnings are guidance; errors gate: the exit code is 1 when
+    errors are present (`--strict` widens the gate to warnings —
+    only for boards that must be spotless), so you can loop on
+    "re-run until `diagnose` exits 0" without parsing output.
+    (For flows/decks there is a matching check:
+    `grafli export <file> --check` — see
     `references/presenting.md`.)
 
 ## File format quick reference

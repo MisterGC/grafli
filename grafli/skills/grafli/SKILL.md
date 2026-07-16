@@ -259,6 +259,18 @@ in `references/genres.md` instead.)
       placeholder reference, an artistic crowding choice).
       Acknowledge once and move on.
 
+    **Let the tool do the mechanical part.** `grafli diagnose <file>
+    --fix` applies the fixes that need no layout judgment — clamp a
+    child back into its parent, grow a cramped container, widen a
+    truncated box, swap a mistyped `%color`/`*icon` to the suggested
+    token — and rewrites the file (add `--dry-run` to preview the
+    plan first). Findings that DO need judgment (sibling overlaps,
+    crowded arrow labels, unknowns without a close match) are left to
+    you — in `--json` each finding carries a `fix` field with the
+    concrete planned edit (or `null`), so decide from data, not
+    prose. Preferred loop: author → `diagnose --fix` → `render` →
+    judge the leftovers yourself.
+
     **One pass, then stop.** Run diagnose, address the obvious
     findings, run it once more to confirm. If the same warnings
     persist, accept them as known limitations and ship — do not

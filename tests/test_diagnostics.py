@@ -188,6 +188,7 @@ def test_diagnostic_to_dict_is_json_safe():
         "message": "m",
         "item_ids": ["a"],
         "fixable": True,
+        "fix": None,
     }
 
 

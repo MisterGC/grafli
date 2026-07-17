@@ -33,7 +33,9 @@ docs = [
     "mkdocs>=1.6",
     "mkdocs-material>=9.5",
     "mkdocs-glightbox>=0.4",
-    "pymdown-extensions>=10",
+    # Floor is a security bound, not a feature one: < 10.21.3 carries
+    # PYSEC-2026-2999.
+    "pymdown-extensions>=10.21.3",
 ]
 
 [project.scripts]

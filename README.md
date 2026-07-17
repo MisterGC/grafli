@@ -44,6 +44,7 @@ desktop app or render headless via `grafli render`.
 ```bash
 pip install grafli
 grafli my-diagram.grafli
+grafli                      # no file? opens your scratch board
 ```
 
 Requirements: Python 3.12+, PySide6 (Qt 6.7+).
@@ -97,6 +98,9 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
   editor (its own project, bundled as a dependency).
 - Auto-save and external file watching — open a `.grafli` next to your
   editor; changes flow both ways.
+- Scratch board — start `grafli` with no file and you land on a persistent
+  `~/grafli-scratch.grafli`, autosaved like any other board, so a quick
+  sketch is still there next time.
 - Yank as PNG (<kbd>Y</kbd>), SVG export (<kbd>Ctrl</kbd>+<kbd>E</kbd>).
 
 ## File format

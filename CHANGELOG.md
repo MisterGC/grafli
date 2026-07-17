@@ -50,6 +50,9 @@ so the judgment calls stay with the author, and a CLI you can gate on.
   (`textli-editor>=0.4`), so markdown notes gain TeX math (`$…$` /
   `$$…$$` typeset in the reading view), followable references, and the
   paper surface.
+- The `docs` extra floors `pymdown-extensions` at 10.21.3, below which it
+  carries PYSEC-2026-2999. Docs tooling only — grafli's runtime
+  dependencies are unaffected.
 
 ### Fixed
 - Unknown `%color` tokens are reported as `unknown-color` warnings with

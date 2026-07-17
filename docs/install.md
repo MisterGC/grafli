@@ -21,7 +21,9 @@ To run grafli on a `.grafli` file:
 grafli my-diagram.grafli
 ```
 
-Without arguments, grafli opens an empty document.
+Without arguments, grafli opens your scratch board —
+`~/grafli-scratch.grafli`, created on first launch and autosaved like any
+other board, so a quick sketch survives closing the window.
 
 ## In an isolated environment
 

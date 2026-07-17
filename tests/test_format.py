@@ -1758,6 +1758,32 @@ def test_unterminated_block_is_flagged_with_its_start_line():
     assert b.parse_warnings[0].line == 3          # the opening `@ note … """`
 
 
+def test_box_coords_first_names_the_transposition():
+    from grafli.format import parse
+    b = parse('@ box bad 0,0 200x80 "B"\n')
+    assert b.boxes == []
+    w = b.parse_warnings[0]
+    assert "label comes first" in w.reason
+    assert '@ box <id> "label" x,y wxh' in w.reason
+
+
+def test_generic_malformed_box_names_the_grammar():
+    from grafli.format import parse
+    b = parse('@ box bad "B" 0,0 200\n')
+    w = b.parse_warnings[0]
+    assert "malformed @ box" in w.reason
+    assert 'x,y wxh' in w.reason
+
+
+def test_note_with_wxh_is_told_to_use_size():
+    from grafli.format import parse
+    b = parse('@ note n 0,0 "hi" 520x120\n')
+    assert b.notes == []
+    w = b.parse_warnings[0]
+    assert "no width" in w.reason
+    assert "~size" in w.reason
+
+
 def test_clean_file_has_no_parse_warnings():
     from grafli.format import parse
     b = parse('#!grafli v1\n@ box a "A" 0,0 200x80\n@ note n 0,0 "hi"\n')

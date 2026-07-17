@@ -9,7 +9,7 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
-dependencies = ["PySide6>=6.7", "python-pptx>=1.0", "textli-editor>=0.3"]
+dependencies = ["PySide6>=6.7", "python-pptx>=1.0", "textli-editor>=0.4"]
 keywords = ["diagram", "whiteboard", "vim", "architecture", "plain-text"]
 authors = [
     { name = "Serein Pfeiffer", email = "s.pfeiffer@klebert-engineering.de" },
@@ -33,7 +33,9 @@ docs = [
     "mkdocs>=1.6",
     "mkdocs-material>=9.5",
     "mkdocs-glightbox>=0.4",
-    "pymdown-extensions>=10",
+    # Floor is a security bound, not a feature one: < 10.21.3 carries
+    # PYSEC-2026-2999.
+    "pymdown-extensions>=10.21.3",
 ]
 
 [project.scripts]

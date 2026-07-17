@@ -11,15 +11,18 @@ layout engine — agents should treat findings as guidance, not gates.
 
 from __future__ import annotations
 
+import difflib
 import math
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from grafli.constants import ARROWHEAD_SIZE, BOX_FONT_SIZES, LAYOUT_PADDING
+from grafli.constants import (
+    ARROWHEAD_SIZE, BOX_FONT_SIZES, COLOR_TOKENS, LAYOUT_PADDING,
+)
 from grafli.format import Arrow, Board, Box, Image, Note
-from grafli.iconset import has_icon
+from grafli.iconset import ICON_NAMES, has_icon
 
 
 # Optional callable that returns a note's rendered scene rect
@@ -47,6 +50,13 @@ class Diagnostic:
     message: str
     item_ids: list[str] = field(default_factory=list)
     fixable: bool = True
+    # Concrete mechanical edit that resolves the finding, when one can be
+    # computed without layout judgment: {"action", "id", "old", "new"}.
+    # Actions: "move" / "resize" / "set-rect" (old/new are coordinate
+    # dicts), "set-color" / "set-icon" (old/new are token strings).
+    # Consumed by apply_fixes() / `grafli diagnose --fix`; None means the
+    # resolution needs the author's judgment.
+    fix: dict | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -141,8 +151,32 @@ def check_child_outside_parent(
                 message=f"{iid!r} is positioned outside its parent {parent_id!r}",
                 item_ids=[iid, parent_id],
                 fixable=True,
+                fix=_clamp_into_parent_fix(iid, rect, _box_rect(parent)),
             ))
     return diags
+
+
+def _clamp_into_parent_fix(
+    iid: str, rect: tuple, parent_rect: tuple,
+) -> dict | None:
+    """Move fix that clamps ``rect`` inside ``parent_rect``.
+
+    Prefers LAYOUT_PADDING clearance, degrades to a zero-padding clamp,
+    and yields None when the child simply does not fit — resizing either
+    side is a layout decision, not a mechanical one.
+    """
+    cw, ch = rect[2] - rect[0], rect[3] - rect[1]
+    px1, py1, px2, py2 = parent_rect
+    for pad in (LAYOUT_PADDING, 0.0):
+        if cw <= (px2 - px1) - 2 * pad and ch <= (py2 - py1) - 2 * pad:
+            nx = min(max(rect[0], px1 + pad), px2 - pad - cw)
+            ny = min(max(rect[1], py1 + pad), py2 - pad - ch)
+            return {
+                "action": "move", "id": iid,
+                "old": {"x": rect[0], "y": rect[1]},
+                "new": {"x": nx, "y": ny},
+            }
+    return None
 
 
 def check_sibling_overlap(
@@ -193,6 +227,12 @@ def check_cramped_container(
         px1, py1, px2, py2 = _box_rect(parent)
         worst = min(cx1 - px1, px2 - cx2, cy1 - py1, py2 - cy2)
         if 0 <= worst < min_padding:
+            # Grow-only union: expand the parent to give every child the
+            # recommended clearance, never shrink or move children.
+            nx1 = min(px1, cx1 - min_padding)
+            ny1 = min(py1, cy1 - min_padding)
+            nx2 = max(px2, cx2 + min_padding)
+            ny2 = max(py2, cy2 + min_padding)
             diags.append(Diagnostic(
                 code="cramped-container",
                 severity=INFO,
@@ -202,6 +242,11 @@ def check_cramped_container(
                 ),
                 item_ids=[pid],
                 fixable=True,
+                fix={
+                    "action": "set-rect", "id": pid,
+                    "old": {"x": px1, "y": py1, "w": px2 - px1, "h": py2 - py1},
+                    "new": {"x": nx1, "y": ny1, "w": nx2 - nx1, "h": ny2 - ny1},
+                },
             ))
     return diags
 
@@ -222,6 +267,7 @@ def check_label_truncated(board: Board) -> list[Diagnostic]:
         est_w = longest * font_px * AVG_CHAR_FACTOR
         avail_w = b.w - H_PADDING
         if avail_w > 0 and est_w > avail_w * TOLERANCE:
+            needed_w = math.ceil(est_w + H_PADDING)
             diags.append(Diagnostic(
                 code="label-truncated",
                 severity=INFO,
@@ -232,6 +278,11 @@ def check_label_truncated(board: Board) -> list[Diagnostic]:
                 ),
                 item_ids=[b.id],
                 fixable=True,
+                fix={
+                    "action": "resize", "id": b.id,
+                    "old": {"w": b.w, "h": b.h},
+                    "new": {"w": float(needed_w), "h": b.h},
+                },
             ))
     return diags
 
@@ -438,18 +489,82 @@ def check_missing_resource(
 
 def check_unknown_icon(board: Board) -> list[Diagnostic]:
     """A ``*name`` symbol the iconset doesn't know fails silently at paint
-    time — surface the typo here instead."""
+    time — surface the typo, and the nearest real symbol, here."""
     diags: list[Diagnostic] = []
     for el in list(board.boxes) + list(board.notes):
         if el.icon and not has_icon(el.icon):
+            near = difflib.get_close_matches(el.icon, ICON_NAMES, n=1)
+            suggestion = near[0] if near else None
+            hint = f" — did you mean *{suggestion}?" if suggestion else ""
+            fix = None
+            if suggestion:
+                fix = {
+                    "action": "set-icon", "id": el.id,
+                    "old": el.icon, "new": suggestion,
+                }
             diags.append(Diagnostic(
                 code="unknown-icon",
                 severity=WARNING,
-                message=(f"{el.id!r} uses unknown symbol *{el.icon} — "
+                message=(f"{el.id!r} uses unknown symbol *{el.icon}{hint} — "
                          "it will not render"),
                 item_ids=[el.id],
                 fixable=True,
+                fix=fix,
             ))
+    return diags
+
+
+# Literal color names map to the nearest semantic token by hue — difflib
+# can't bridge "green" → "forest" lexically, so pin the common ones. This
+# only feeds the suggestion text; unknown tokens still fall back to default.
+_COLOR_NAME_HINTS = {
+    "green": "forest", "blue": "primary", "lightblue": "secondary",
+    "red": "clay", "orange": "accent", "yellow": "highlight",
+    "gold": "highlight", "purple": "plum", "violet": "plum",
+    "pink": "rose", "magenta": "rose", "gray": "muted", "grey": "muted",
+    "lavender": "soft", "white": "base", "black": "subtle",
+    "dark": "subtle", "cyan": "teal",
+}
+
+
+def check_unknown_color(board: Board) -> list[Diagnostic]:
+    """A ``%token`` color the palette doesn't define resolves to the
+    default fill with no other trace — the miscolor is invisible until you
+    look at the render. Surface the typo, and the nearest real token, here."""
+    diags: list[Diagnostic] = []
+    valid = list(COLOR_TOKENS.keys())
+
+    def _check(color: str, iid: str) -> None:
+        if not color.startswith("%"):
+            return  # empty or #hex — nothing to validate
+        token = color[1:]
+        if token in COLOR_TOKENS:
+            return
+        suggestion = _COLOR_NAME_HINTS.get(token)
+        if suggestion is None:
+            near = difflib.get_close_matches(token, valid, n=1)
+            suggestion = near[0] if near else None
+        hint = f" — did you mean %{suggestion}?" if suggestion else ""
+        fix = None
+        if suggestion:
+            fix = {
+                "action": "set-color", "id": iid,
+                "old": color, "new": f"%{suggestion}",
+            }
+        diags.append(Diagnostic(
+            code="unknown-color",
+            severity=WARNING,
+            message=(f"{iid!r} uses unknown color %{token}{hint} — "
+                     "it falls back to the default fill"),
+            item_ids=[iid],
+            fixable=True,
+            fix=fix,
+        ))
+
+    for el in list(board.boxes) + list(board.notes):
+        _check(el.color, el.id)
+    for a in board.arrows:
+        _check(a.color, f"{a.from_id}->{a.to_id}")
     return diags
 
 
@@ -462,6 +577,7 @@ def run_all(
     diags: list[Diagnostic] = []
     diags.extend(check_parse_errors(board))
     diags.extend(check_unknown_icon(board))
+    diags.extend(check_unknown_color(board))
     diags.extend(check_child_outside_parent(board, note_rect=note_rect))
     diags.extend(check_sibling_overlap(board, note_rect=note_rect))
     diags.extend(check_cramped_container(board, note_rect=note_rect))
@@ -475,3 +591,69 @@ def run_all(
     diags.extend(check_missing_resource(board, base_dir))
     diags.sort(key=lambda d: (_SEVERITY_ORDER.get(d.severity, 99), d.code, d.item_ids))
     return diags
+
+
+def apply_fixes(board: Board, diags: list[Diagnostic]) -> list[Diagnostic]:
+    """Mutate ``board`` by applying each diagnostic's mechanical ``fix``.
+
+    Returns the diagnostics whose fix was actually applied. A fix is
+    skipped when its target is gone or its ``old`` value no longer
+    matches (a stale plan must never clobber a newer edit). Pure board
+    mutation — writing the file back is the caller's job.
+    """
+    boxes = {b.id: b for b in board.boxes}
+    notes = {n.id: n for n in board.notes}
+    images = {im.id: im for im in board.images}
+
+    def _element(iid: str):
+        return boxes.get(iid) or notes.get(iid) or images.get(iid)
+
+    applied: list[Diagnostic] = []
+    for d in diags:
+        f = d.fix
+        if not f:
+            continue
+        action, iid = f["action"], f["id"]
+        if action == "set-color":
+            el = _element(iid)
+            if el is not None and el.color == f["old"]:
+                el.color = f["new"]
+                applied.append(d)
+            elif "->" in iid:
+                src, dst = iid.split("->", 1)
+                hit = False
+                for a in board.arrows:
+                    if (a.from_id == src and a.to_id == dst
+                            and a.color == f["old"]):
+                        a.color = f["new"]
+                        hit = True
+                if hit:
+                    applied.append(d)
+        elif action == "set-icon":
+            el = _element(iid)
+            if el is not None and getattr(el, "icon", None) == f["old"]:
+                el.icon = f["new"]
+                applied.append(d)
+        elif action == "move":
+            el = _element(iid)
+            if (el is not None
+                    and el.x == f["old"]["x"] and el.y == f["old"]["y"]):
+                el.x = f["new"]["x"]
+                el.y = f["new"]["y"]
+                applied.append(d)
+        elif action == "resize":
+            el = boxes.get(iid) or images.get(iid)
+            if (el is not None
+                    and el.w == f["old"]["w"] and el.h == f["old"]["h"]):
+                el.w = f["new"]["w"]
+                el.h = f["new"]["h"]
+                applied.append(d)
+        elif action == "set-rect":
+            el = boxes.get(iid) or images.get(iid)
+            if (el is not None
+                    and el.x == f["old"]["x"] and el.y == f["old"]["y"]
+                    and el.w == f["old"]["w"] and el.h == f["old"]["h"]):
+                el.x, el.y = f["new"]["x"], f["new"]["y"]
+                el.w, el.h = f["new"]["w"], f["new"]["h"]
+                applied.append(d)
+    return applied

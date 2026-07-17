@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-17
+
+Sharper tools for the agent authoring loop: diagnostics that say what is
+wrong instead of failing quietly, a `--fix` that does the mechanical part
+so the judgment calls stay with the author, and a CLI you can gate on.
+
+### Added
+- **`grafli diagnose --fix`.** Applies the fixes that need no layout
+  judgment — clamp a child back inside its parent, grow a cramped
+  container, widen a truncated box, swap a mistyped `%color` / `*icon`
+  for the suggested token — and rewrites the file; `--dry-run` prints the
+  plan instead. Fixes iterate to a fixpoint, so a cascade (widening a box
+  pushes it outside its parent) settles in one run. Findings that need
+  judgment — sibling overlaps, crowded arrow labels, unknowns with no
+  close match — are deliberately left alone: in `--json` every finding
+  carries a concrete `fix` plan (or `null`), so an agent decides from data
+  instead of prose hints.
+  ([#132](https://github.com/MisterGC/grafli/issues/132))
+- **Gateable `grafli diagnose` exit codes.** Exit `1` when errors are
+  present, `0` otherwise, `--strict` to gate on warnings too (`2` stays
+  usage/IO). "Re-run until diagnose passes" no longer needs output
+  parsing. ([#131](https://github.com/MisterGC/grafli/issues/131))
+- **Persistent scratch board.** Launching `grafli` with no file — a bare
+  command, or a Dock/Spotlight click — opens `~/grafli-scratch.grafli`
+  instead of a pathless buffer autosave never touched, so a quick sketch
+  survives closing the window.
+  ([#130](https://github.com/MisterGC/grafli/issues/130))
+- **Example-board conformance sweep.** Every board under `examples/` is
+  parsed, diagnosed, and render-smoked on each CI run, so a format change
+  can't quietly break the exemplars agents learn from.
+  ([#133](https://github.com/MisterGC/grafli/issues/133))
+
+### Changed
+- The authoring skill's quick reference now inlines the full `%color`
+  palette, spells out the `@ box` / `@ note` argument-order asymmetry
+  (labels before coordinates for boxes, after for notes; notes take no
+  `wxh`), and documents the verify loop: author → `diagnose --fix` →
+  `render` → judge what remains.
+  ([#127](https://github.com/MisterGC/grafli/issues/127),
+  [#128](https://github.com/MisterGC/grafli/issues/128))
+- The bundled Markdown editor now requires
+  [textli](https://github.com/MisterGC/textli) 0.4
+  (`textli-editor>=0.4`), so markdown notes gain TeX math (`$…$` /
+  `$$…$$` typeset in the reading view), followable references, and the
+  paper surface.
+- The `docs` extra floors `pymdown-extensions` at 10.21.3, below which it
+  carries PYSEC-2026-2999. Docs tooling only — grafli's runtime
+  dependencies are unaffected.
+
+### Fixed
+- Unknown `%color` tokens are reported as `unknown-color` warnings with
+  the nearest real token ("did you mean `%forest`?") instead of silently
+  falling back to the default fill — the miscolor used to be invisible
+  until you looked at the render. `*icon` typos gain the same suggestion.
+  ([#127](https://github.com/MisterGC/grafli/issues/127))
+- Malformed `@ box` / `@ note` lines report what the grammar expected and
+  name the likely mistake — a box written coordinates-first is recognized
+  as a transposition — instead of demoting to a comment with an
+  unhelpful reason.
+  ([#128](https://github.com/MisterGC/grafli/issues/128))
+- `showcase.grafli` dropped a doc-bodied note whose backing `.md` never
+  existed, so it always rendered blank; the new conformance sweep caught
+  it.
+
 ## [0.6.0] - 2026-07-12
 
 ### Added
@@ -793,7 +857,10 @@ First public release of grafli on PyPI.
 - Python 3.12+
 - PySide6 (Qt 6.7+)
 
-[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/MisterGC/grafli/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/MisterGC/grafli/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/MisterGC/grafli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/MisterGC/grafli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/MisterGC/grafli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MisterGC/grafli/releases/tag/v0.2.0

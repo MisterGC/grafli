@@ -91,6 +91,7 @@ Notes aren't just sticky labels. Grafli recognizes lightweight conventions and r
 - **Markdown-mode notes** (lines starting with `md:` / `markdown:`) render a small subset of GitHub-flavoured Markdown — headings, lists, click-to-toggle task checkboxes, blockquotes, inline emphasis, and clickable links.
 - **Semantic edge labels** — prefixes like `call:`, `data:`, `event:`, `verify:`, `risk:` render as colored chips on the arrow itself.
 - **Markdown resources** — attach a markdown note to any element and edit it in [textli](https://mistergc.github.io/textli/), grafli's full-window Markdown editor (its own project, bundled as a dependency).
+- **Scratch board** — start `grafli` with no file and you land on a persistent `~/grafli-scratch.grafli`, autosaved like any other board.
 
 ![A guard's threat-reaction behavior under design review — task, question, discussion thread, code-mode note, and chip-labeled arrows](assets/screenshots/annotations.png)
 
@@ -167,6 +168,7 @@ Embed a `.grafli` next to your markdown. Diff it. Render it on demand. Treat dia
 ```bash
 pip install grafli
 grafli my-diagram.grafli
+grafli                      # no file? opens your scratch board
 ```
 
 Requirements: Python 3.12+, PySide6 (Qt 6.7+).

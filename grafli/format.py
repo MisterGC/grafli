@@ -582,6 +582,41 @@ _RE_TITLE_BG = re.compile(
 
 # ── Parser ──────────────────────────────────────────────────────
 
+# A bare `x,y` coordinate pair, and a `WxH` size token — used to give a
+# demoted `@ box` / `@ note` line a grammar-aware reason instead of the
+# generic "malformed directive".
+_COORD_TOKEN_RE = re.compile(r'^-?[\d.]+,\s*-?[\d.]+$')
+_SIZE_TOKEN_RE = re.compile(r'(?<!\w)[\d.]+x[\d.]+(?!\w)')
+
+
+def _diagnose_malformed_directive(stripped: str) -> str:
+    """Return a grammar-aware reason for an `@` line the parser dropped.
+
+    The two traps agents hit are asymmetries between `@ box` and `@ note`:
+    box wants the label before the coordinates, note wants coordinates
+    before the text and takes no `WxH`. Name the expected grammar, and
+    pinpoint the transposition when it's detectable.
+    """
+    parts = stripped.split()
+    kind = parts[1] if len(parts) >= 2 else ""
+    if kind == "box":
+        # `@ box <id> "label" x,y wxh` — the label sits at parts[3]; a
+        # coordinate token there means the author wrote it note-style.
+        if len(parts) >= 4 and _COORD_TOKEN_RE.match(parts[3]):
+            return ('looks like coordinates where a label is expected — for '
+                    '@ box the label comes first: '
+                    '@ box <id> "label" x,y wxh')
+        return ('malformed @ box — expected '
+                '@ box <id> "label" x,y wxh [%color] [~size]')
+    if kind == "note":
+        if _SIZE_TOKEN_RE.search(stripped):
+            return ('@ note takes no width×height — set size with ~size '
+                    '(e.g. ~large) and wrap width with ~width=. Grammar: '
+                    '@ note <id> x,y "text" [~size] [~width=N]')
+        return ('malformed @ note — expected '
+                '@ note <id> x,y "text" [~size]')
+    return "malformed directive — kept as a comment"
+
 def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:
     """Split a flow line's tail into
     (steps, description, auto_start, detail, focus).
@@ -900,7 +935,7 @@ def parse(text: str) -> Board:
         # it so it isn't silently lost.
         board.comments.append(stripped)
         board._lines.append(("comment", stripped))
-        reason = ("malformed directive — kept as a comment"
+        reason = (_diagnose_malformed_directive(stripped)
                   if stripped.startswith("@")
                   else "unrecognized line — kept as a comment")
         board.parse_warnings.append(ParseWarning(i, stripped, reason))

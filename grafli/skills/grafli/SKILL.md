@@ -259,12 +259,28 @@ in `references/genres.md` instead.)
       placeholder reference, an artistic crowding choice).
       Acknowledge once and move on.
 
+    **Let the tool do the mechanical part.** `grafli diagnose <file>
+    --fix` applies the fixes that need no layout judgment — clamp a
+    child back into its parent, grow a cramped container, widen a
+    truncated box, swap a mistyped `%color`/`*icon` to the suggested
+    token — and rewrites the file (add `--dry-run` to preview the
+    plan first). Findings that DO need judgment (sibling overlaps,
+    crowded arrow labels, unknowns without a close match) are left to
+    you — in `--json` each finding carries a `fix` field with the
+    concrete planned edit (or `null`), so decide from data, not
+    prose. Preferred loop: author → `diagnose --fix` → `render` →
+    judge the leftovers yourself.
+
     **One pass, then stop.** Run diagnose, address the obvious
     findings, run it once more to confirm. If the same warnings
     persist, accept them as known limitations and ship — do not
     keep reshuffling the diagram trying to drive the count to zero.
-    Diagnostics are guidance, not a gate. (For flows/decks there is a
-    matching check: `grafli export <file> --check` — see
+    Warnings are guidance; errors gate: the exit code is 1 when
+    errors are present (`--strict` widens the gate to warnings —
+    only for boards that must be spotless), so you can loop on
+    "re-run until `diagnose` exits 0" without parsing output.
+    (For flows/decks there is a matching check:
+    `grafli export <file> --check` — see
     `references/presenting.md`.)
 
 ## File format quick reference
@@ -296,6 +312,11 @@ to a v1 file, bump the header yourself).
 * `#` lines are comments / metadata.
 * Coordinates: `x,y` position (floats OK), `wxh` size.
 * IDs are short lowercase identifiers (`auth`, `db`, `api-gw`).
+* `%color` is a fixed semantic palette (not literal color names):
+  `%base %primary %secondary %tertiary %subtle %accent %highlight
+  %muted %soft %clay %teal %rose %forest %plum`, or a raw `#RRGGBB`.
+  An unknown token (e.g. `%green`) silently falls back to the default
+  fill — `diagnose` flags it as `unknown-color`.
 * Modifiers in `[]` are optional and order-sensitive as shown.
 * Multi-line text: use `\n` in labels and note text; a literal quote
   inside quoted text is `\"` (triple-quoted blocks need no escapes).
@@ -319,6 +340,11 @@ catches them before the user opens the file.
   ...
   """ ~small
   ```
+* **`@ box` and `@ note` order their arguments differently.** Box puts
+  the label *before* the coordinates (`@ box id "label" x,y wxh`); note
+  puts the coordinates *before* the text (`@ note id x,y "text"`). Writing
+  a box coords-first demotes it to a comment. Notes also take **no**
+  `wxh` — size is `~size`, wrap width is `~width=N`.
 * **Code-mode notes auto-widen to fit their longest line**, so a long
   line spills into a neighbouring column when notes sit side-by-side.
   Default to `~small` (and cap `~width`) in multi-column phases — see

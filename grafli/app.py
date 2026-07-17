@@ -28,7 +28,7 @@ from grafli.buffers import BufferManager, BufferState, ViewState
 from grafli.constants import Mode
 from grafli.fonts import register_bundled_fonts as _register_bundled_fonts
 from grafli.filewatcher import JsonSafeWatcher, MultiFileWatcher
-from grafli.format import Board, parse, serialize
+from grafli.format import Board, parse, serialize, serialize_to_file
 from grafli.sync import Conflict, atomic_write, merge_boards
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
 from grafli.sidepanel import PanelToggleButton, SidePanel
@@ -1985,11 +1985,28 @@ def _cmd_diagnose(argv: list[str]) -> int:
             "Surfaces children outside parents, sibling overlaps, cramped "
             "containers, likely-truncated labels, and missing linked resources."
         ),
+        epilog=(
+            "Exit codes: 0 no gated findings, 1 errors present "
+            "(--strict: errors or warnings), 2 usage/IO problem."
+        ),
     )
     parser.add_argument("input", type=Path, help="Input .grafli file")
     parser.add_argument(
         "--json", action="store_true",
         help="Emit JSON instead of human-readable text",
+    )
+    parser.add_argument(
+        "--strict", action="store_true",
+        help="Exit non-zero on warnings too, not just errors",
+    )
+    parser.add_argument(
+        "--fix", action="store_true",
+        help="Apply the mechanical fixes (findings that carry a fix plan) "
+             "and rewrite the file, then report what remains",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="With --fix: print the fix plan without writing the file",
     )
     args = parser.parse_args(argv)
 
@@ -1999,47 +2016,107 @@ def _cmd_diagnose(argv: list[str]) -> int:
 
     text = args.input.read_text(encoding="utf-8")
     board = parse(text)
-    from grafli.diagnostics import Diagnostic
+    from grafli.diagnostics import Diagnostic, apply_fixes
     note_rect = _make_note_rect_provider()
     arrow_label_size = _make_arrow_label_size_provider()
-    diags = run_all(
-        board,
-        args.input.resolve().parent,
-        note_rect=note_rect,
-        arrow_label_size=arrow_label_size,
-    )
-    # Vault integrity: referenced docs whose file is gone (error — a doc-bodied
-    # note would render blank) and unreferenced docs (info — legitimate state).
     from grafli.resources import classify_attachments, vault_docs
-    classify_attachments(args.input.resolve(), board)
-    inv = vault_docs(args.input.resolve(), board)
-    for name in inv["missing"]:
-        diags.append(Diagnostic(
-            code="missing-doc", severity="error",
-            message=f"vault doc {name}.md is referenced but missing",
-            item_ids=[name], fixable=False,
-        ))
-    for name in inv["unreferenced"]:
-        diags.append(Diagnostic(
-            code="unreferenced-doc", severity="info",
-            message=f"vault doc {name}.md is not referenced by any element "
-                    f"(grafli vault --clean removes it)",
-            item_ids=[name], fixable=False,
-        ))
+
+    def _collect(b) -> list:
+        diags = run_all(
+            b,
+            args.input.resolve().parent,
+            note_rect=note_rect,
+            arrow_label_size=arrow_label_size,
+        )
+        # Vault integrity: referenced docs whose file is gone (error — a
+        # doc-bodied note would render blank) and unreferenced docs (info —
+        # legitimate state).
+        classify_attachments(args.input.resolve(), b)
+        inv = vault_docs(args.input.resolve(), b)
+        for name in inv["missing"]:
+            diags.append(Diagnostic(
+                code="missing-doc", severity="error",
+                message=f"vault doc {name}.md is referenced but missing",
+                item_ids=[name], fixable=False,
+            ))
+        for name in inv["unreferenced"]:
+            diags.append(Diagnostic(
+                code="unreferenced-doc", severity="info",
+                message=f"vault doc {name}.md is not referenced by any "
+                        f"element (grafli vault --clean removes it)",
+                item_ids=[name], fixable=False,
+            ))
+        return diags
+
+    diags = _collect(board)
+
+    applied: list = []
+    if args.fix and not args.dry_run:
+        # Fixes can cascade (widening a box may push it back outside its
+        # parent), so iterate to a fixpoint — bounded, and each pass must
+        # make progress. One write at the end.
+        for _ in range(10):
+            newly = apply_fixes(board, diags)
+            if not newly:
+                break
+            applied.extend(newly)
+            diags = _collect(board)
+        if applied:
+            serialize_to_file(board, str(args.input))
+
+    # Gateable exit: 1 on errors (with --strict also on warnings), 0 otherwise.
+    # 2 stays reserved for usage/IO problems (missing input above). With --fix
+    # the gate judges what remains after the rewrite.
+    gate = ("error", "warning") if args.strict else ("error",)
+    exit_code = 1 if any(d.severity in gate for d in diags) else 0
 
     if args.json:
-        print(_json.dumps([d.to_dict() for d in diags], indent=2))
-        return 0
+        if args.fix and not args.dry_run:
+            print(_json.dumps({
+                "applied": [d.to_dict() for d in applied],
+                "findings": [d.to_dict() for d in diags],
+            }, indent=2))
+        else:
+            print(_json.dumps([d.to_dict() for d in diags], indent=2))
+        return exit_code
+
+    for d in applied:
+        print(f"[fixed] {d.code}: {_describe_fix(d.fix)}")
+    if args.fix and args.dry_run:
+        planned = [d for d in diags if d.fix]
+        for d in planned:
+            print(f"[plan] {d.code}: {_describe_fix(d.fix)}")
+        if planned:
+            print(f"{len(planned)} fix(es) planned — re-run without "
+                  f"--dry-run to apply.\n")
 
     if not diags:
-        print("No findings.")
+        print("No findings." if not applied
+              else f"No findings remain ({len(applied)} fixed).")
         return 0
 
     for d in diags:
         suffix = "" if d.fixable else "  (may be intentional)"
         print(f"[{d.severity}] {d.code}: {d.message}{suffix}")
     print(f"\n{len(diags)} finding(s).")
-    return 0
+    return exit_code
+
+
+def _describe_fix(fix: dict) -> str:
+    """One human line for a fix plan: what moves/changes, old -> new."""
+    action, iid = fix["action"], fix["id"]
+    old, new = fix["old"], fix["new"]
+    if action == "move":
+        return (f"{iid!r} move {old['x']:.0f},{old['y']:.0f} -> "
+                f"{new['x']:.0f},{new['y']:.0f}")
+    if action == "resize":
+        return (f"{iid!r} resize {old['w']:.0f}x{old['h']:.0f} -> "
+                f"{new['w']:.0f}x{new['h']:.0f}")
+    if action == "set-rect":
+        return (f"{iid!r} rect {old['x']:.0f},{old['y']:.0f} "
+                f"{old['w']:.0f}x{old['h']:.0f} -> {new['x']:.0f},"
+                f"{new['y']:.0f} {new['w']:.0f}x{new['h']:.0f}")
+    return f"{iid!r} {action.removeprefix('set-')} {old} -> {new}"
 
 
 def _cmd_inspect(argv: list[str]) -> int:
@@ -2154,6 +2231,23 @@ def _cmd_vault(argv: list[str]) -> int:
     return 0
 
 
+SCRATCH_FILENAME = "grafli-scratch.grafli"
+
+
+def _resolve_launch_file(file_arg: str | None) -> Path:
+    """Resolve the board to open at startup.
+
+    With no file argument — a bare ``grafli`` or a Dock/Spotlight click,
+    which passes none — fall back to a persistent scratch board in the home
+    dir. ``_open_file`` creates it on first open and autosaves it thereafter,
+    so a no-argument launch lands on a canvas that survives instead of the
+    in-memory untitled buffer that was lost when the window closed.
+    """
+    if file_arg:
+        return Path(file_arg)
+    return Path.home() / SCRATCH_FILENAME
+
+
 def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
     if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
@@ -2180,12 +2274,14 @@ def main():
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")
     args = parser.parse_args()
+    launch_file = str(_resolve_launch_file(args.file))
 
     app = QApplication(sys.argv)
     app.setApplicationName("Grafli")
 
-    # Single-instance: try to hand off to existing instance
-    if args.file and _try_send_to_existing(args.file):
+    # Single-instance: hand off to an already-running instance. With no file
+    # the scratch board is the target, so a re-launch focuses it in place.
+    if _try_send_to_existing(launch_file):
         sys.exit(0)
 
     _register_bundled_fonts()
@@ -2196,7 +2292,7 @@ def main():
     tick.start(200)
     tick.timeout.connect(lambda: None)
 
-    window = MainWindow(args.file, debug=args.debug)
+    window = MainWindow(launch_file, debug=args.debug)
     # Restore saved geometry if it lands on a currently-attached screen;
     # otherwise fall back to maximized on the primary screen so a sleeping
     # or disconnected external display can't swallow the window.

@@ -13,6 +13,7 @@ from grafli.diagnostics import (
     check_label_truncated,
     check_missing_resource,
     check_sibling_overlap,
+    check_unknown_color,
     run_all,
 )
 from grafli.format import Arrow, Board, Box, Image, Note
@@ -187,6 +188,7 @@ def test_diagnostic_to_dict_is_json_safe():
         "message": "m",
         "item_ids": ["a"],
         "fixable": True,
+        "fix": None,
     }
 
 
@@ -388,3 +390,43 @@ def test_clean_board_has_no_parse_errors():
 
     board = parse('@ box a "A" 0,0 200x100\n@ arrow a -> a\n')
     assert check_parse_errors(board) == []
+
+
+# ── unknown-color ──────────────────────────────────────────────
+
+def test_unknown_color_flagged_with_suggestion():
+    box = Box(id="b", label="B", x=0, y=0, w=100, h=100, color="%green")
+    diags = check_unknown_color(_make_board(boxes=[box]))
+    assert len(diags) == 1
+    d = diags[0]
+    assert d.code == "unknown-color"
+    assert d.severity == "warning"
+    assert d.item_ids == ["b"]
+    # %green is closest to %forest — the suggestion should surface it.
+    assert "%forest" in d.message
+
+
+def test_known_color_and_hex_are_clean():
+    box = Box(id="b", label="B", x=0, y=0, w=100, h=100, color="%forest")
+    note = Note(id="n", x=0, y=0, text="N", color="#A1B2C3")
+    plain = Box(id="p", label="P", x=0, y=0, w=100, h=100)
+    diags = check_unknown_color(_make_board(boxes=[box, plain], notes=[note]))
+    assert diags == []
+
+
+def test_unknown_color_on_note_and_arrow():
+    note = Note(id="n", x=0, y=0, text="N", color="%blue")
+    arrow = Arrow(from_id="a", to_id="b", color="%blue")
+    diags = check_unknown_color(_make_board(notes=[note], arrows=[arrow]))
+    codes = [d.code for d in diags]
+    assert codes == ["unknown-color", "unknown-color"]
+    ids = [d.item_ids[0] for d in diags]
+    assert "n" in ids and "a->b" in ids
+
+
+def test_unknown_color_reported_by_run_all():
+    from grafli.format import parse
+
+    board = parse('@ box b "B" 0,0 200x100 %green\n')
+    codes = [d.code for d in run_all(board)]
+    assert "unknown-color" in codes

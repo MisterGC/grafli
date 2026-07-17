@@ -45,6 +45,11 @@ so the judgment calls stay with the author, and a CLI you can gate on.
   `render` → judge what remains.
   ([#127](https://github.com/MisterGC/grafli/issues/127),
   [#128](https://github.com/MisterGC/grafli/issues/128))
+- The bundled Markdown editor now requires
+  [textli](https://github.com/MisterGC/textli) 0.4
+  (`textli-editor>=0.4`), so markdown notes gain TeX math (`$…$` /
+  `$$…$$` typeset in the reading view), followable references, and the
+  paper surface.
 
 ### Fixed
 - Unknown `%color` tokens are reported as `unknown-color` warnings with

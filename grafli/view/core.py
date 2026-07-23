@@ -81,6 +81,36 @@ from grafli.zen import ZenOverlay
 from textli import InlineVimEditor
 
 
+# Base caption sizes (title, description, hint) at scale 1.0 — the sizes
+# used before the caption scaled with the stage. Description is the anchor;
+# title and hint keep their ratio to it.
+_FLOW_CAPTION_BASE = {"title_pt": 14.0, "desc_pt": 11.0, "hint_pt": 9.0,
+                      "pad": 12.0, "gap": 5.0}
+
+
+def flow_caption_metrics(vp_w: float, vp_h: float) -> dict:
+    """Font/padding/width sizing for the flow caption, scaled to the stage.
+
+    The caption is a fixed viewport-space overlay, so on a large window or
+    an F5 fullscreen projector a fixed point size reads far smaller than the
+    board content (which fills the stage). Anchor the description on viewport
+    height, floor it to the base 11pt so small windows never regress, and cap
+    it so the card can't dominate the stage; title, hint, and padding follow
+    by the base ratio. The panel's max width grows with the viewport instead
+    of a fixed 640px cap so the larger text gets proportional room.
+    """
+    desc_pt = max(_FLOW_CAPTION_BASE["desc_pt"], min(28.0, vp_h * 0.018))
+    scale = desc_pt / _FLOW_CAPTION_BASE["desc_pt"]
+    return {
+        "title_pt": _FLOW_CAPTION_BASE["title_pt"] * scale,
+        "desc_pt": desc_pt,
+        "hint_pt": _FLOW_CAPTION_BASE["hint_pt"] * scale,
+        "pad": _FLOW_CAPTION_BASE["pad"] * scale,
+        "gap": _FLOW_CAPTION_BASE["gap"] * scale,
+        "max_w": min(vp_w - 40.0, max(640.0, vp_w * 0.4)),
+    }
+
+
 # ── Canvas view ─────────────────────────────────────────────────
 
 class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
@@ -2227,13 +2257,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                 if ov.get(key):
                     hint += f" · {key}:{ov[key]}"
 
-            title_font = QFont(FONT_FAMILY, 14, QFont.Weight.Bold)
-            desc_font = QFont(FONT_FAMILY, 11)
-            hint_font = QFont(FONT_FAMILY, 9)
+            m = flow_caption_metrics(vp.width(), vp.height())
+            title_font = QFont(FONT_FAMILY)
+            title_font.setBold(True)
+            title_font.setPointSizeF(m["title_pt"])
+            desc_font = QFont(FONT_FAMILY)
+            desc_font.setPointSizeF(m["desc_pt"])
+            hint_font = QFont(FONT_FAMILY)
+            hint_font.setPointSizeF(m["hint_pt"])
 
-            pad = 12
-            gap = 5
-            max_w = min(640, vp.width() - 40)
+            pad = m["pad"]
+            gap = m["gap"]
+            max_w = m["max_w"]
             # The caption shows its full text, word-wrapped — authoring keeps
             # it within MAX_DESCRIPTION_CHARS, so the card stays a caption.
             # The measurement bound still caps a runaway description so the

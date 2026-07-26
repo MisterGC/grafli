@@ -425,23 +425,33 @@ DARK = Palette(
     OVERLAY_FG=QColor("#26241F"),
 
     # Semantic %tokens re-resolve per theme, so a board authored in one theme
-    # reads correctly in the other. Hues match the light set; lightness and
-    # saturation are retuned for a dark ground.
+    # reads correctly in the other.
+    #
+    # Each token keeps its *contrast against its own canvas*, which is what
+    # encodes its role: %highlight is a quiet tint in both themes (~1.5:1),
+    # %primary is the loud one in both (~7.8:1). That flips direction — light
+    # fills sit darker than the paper, dark fills sit lighter than the ground —
+    # so %primary inverts from deep navy to bright blue and %subtle from dark
+    # grey to light grey, while the quiet tokens stay quiet. Matching the ratio
+    # alone would land the quiet end so low that the hues stop being tellable
+    # apart, so saturation is raised as luminance drops: these are categorical
+    # colours, and staying distinct from each other is the job. The result
+    # tracks the light palette's own separation (min ΔE 14.6 vs 14.1).
     COLOR_TOKENS={
         "base": "#2C2924",
-        "primary": "#2F6EA8",
-        "secondary": "#3E9BE8",
-        "tertiary": "#55C182",
-        "subtle": "#6E6A63",
-        "accent": "#DB8B5C",
-        "highlight": "#D9C177",
-        "muted": "#57534D",
-        "soft": "#8D7DB0",
-        "clay": "#CD7A62",
-        "teal": "#46AAA0",
-        "rose": "#C98BA8",
-        "forest": "#4E9469",
-        "plum": "#9070B8",
+        "primary": "#66B7F1",
+        "secondary": "#0074CD",
+        "tertiary": "#0C5623",
+        "subtle": "#A6A6A6",
+        "accent": "#923E0D",
+        "highlight": "#584818",
+        "muted": "#4D4A45",
+        "soft": "#4F4562",
+        "clay": "#B33D1F",
+        "teal": "#0E6A61",
+        "rose": "#75415A",
+        "forest": "#2A8B51",
+        "plum": "#9858E7",
     },
 
     EDGE_KIND_COLORS={

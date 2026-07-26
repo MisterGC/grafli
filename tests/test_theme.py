@@ -89,6 +89,70 @@ def test_notifier_fires_only_on_a_real_change():
         theme.set_theme("light")
 
 
+def _rel_lum(c: QColor) -> float:
+    def ch(v):
+        v /= 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * ch(c.red()) + 0.7152 * ch(c.green()) + 0.0722 * ch(c.blue())
+
+
+def _contrast(a: QColor, b: QColor) -> float:
+    la, lb = _rel_lum(a), _rel_lum(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def test_tokens_keep_their_contrast_role_across_themes():
+    """A token's contrast against its own canvas encodes how loud it is.
+
+    %highlight is a quiet tint in both themes, %primary the loud one. Without
+    this, dark fills drift toward light-theme luminance and glow against the
+    dark ground instead of tinting the node.
+    """
+    for token in theme.LIGHT.COLOR_TOKENS:
+        if token == "base":
+            continue  # base *is* the ground; contrast is ~1 by definition
+        light = _contrast(QColor(theme.LIGHT.COLOR_TOKENS[token]),
+                          theme.LIGHT.SCENE_BG)
+        dark = _contrast(QColor(theme.DARK.COLOR_TOKENS[token]),
+                         theme.DARK.SCENE_BG)
+        assert abs(light - dark) < 1.0, (
+            f"%{token}: {light:.2f}:1 on light vs {dark:.2f}:1 on dark — "
+            "the dark fill no longer plays the same role")
+
+
+def test_dark_tokens_stay_as_distinct_as_the_light_ones():
+    """Categorical colours must stay tellable apart, not just correctly toned."""
+    import itertools
+    import math
+
+    def lab(c: QColor):
+        def inv(v):
+            v /= 255
+            return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+
+        def f(t):
+            return t ** (1 / 3) if t > 0.008856 else 7.787 * t + 16 / 116
+
+        r, g, b = inv(c.red()), inv(c.green()), inv(c.blue())
+        x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+        y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+        fx, fy, fz = f(x), f(y), f(z)
+        return (116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz))
+
+    def min_separation(tokens):
+        values = [QColor(v) for k, v in tokens.items() if k != "base"]
+        return min(math.dist(lab(a), lab(b))
+                   for a, b in itertools.combinations(values, 2))
+
+    light_min = min_separation(theme.LIGHT.COLOR_TOKENS)
+    dark_min = min_separation(theme.DARK.COLOR_TOKENS)
+    # The light palette sets the bar; allow a small margin, not a collapse.
+    assert dark_min > light_min - 2.0, (
+        f"dark tokens crowd together (min ΔE {dark_min:.1f} vs "
+        f"light {light_min:.1f})")
+
+
 def test_semantic_tokens_reresolve_per_theme():
     """%tokens are semantic, so the same board reads correctly in both themes."""
     try:

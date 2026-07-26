@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from grafli import theme
 from grafli.constants import FONT_FAMILY, MINIMAP_MARGIN
 from grafli.format import MAX_DESCRIPTION_CHARS
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
@@ -213,10 +214,10 @@ class OverlaysMixin:
         rx = (vp.width() - rw) / 2
         ry = vp.height() - rh - 24
 
-        bg = QColor("#2F3437")
+        bg = QColor(theme.OVERLAY_BG)
         bg.setAlphaF(0.94)
-        accent = QColor("#C75050") if is_error else (
-            QColor("#D4BA6A") if is_warn else QColor("#6BAA8A"))
+        accent = QColor(theme.NOTE_TASK_COLOR) if is_error else (
+            QColor(theme.SELECT_COLOR) if is_warn else QColor(theme.HEATMAP_STOPS[1][1]))
         painter.setPen(QPen(accent, 1))
         painter.setBrush(QBrush(bg))
         painter.drawRoundedRect(QRectF(rx, ry, rw, rh), 8, 8)
@@ -397,6 +398,7 @@ class OverlaysMixin:
                 ("⇧D", "Toggle level-of-detail (semantic zoom)"),
                 ("Dbl-click tile", "Fly into a collapsed group"),
                 ("\\", "Toggle tools panel"),
+                ("⌘⇧D", "Toggle light / dark theme"),
             ]),
             ("Bookmarks & Flows", [
                 ("gb", "Bookmark what's shown (logical)"),
@@ -454,7 +456,7 @@ class OverlaysMixin:
         group_map = {name: entries for name, entries in groups}
 
         hdr = (
-            "color:#6A9FB5;font-weight:bold;"
+            f"color:{theme.INFO_COLOR.name()};font-weight:bold;"
             "padding-top:8px;padding-bottom:2px"
         )
 
@@ -512,11 +514,13 @@ class OverlaysMixin:
 
         tabs = QTabWidget(dlg)
         tabs.setStyleSheet(
-            "QTabWidget::pane { border: 1px solid #6A9FB5; background: #2A2A2A; }"
-            " QTabBar::tab { background: #2A2A2A; color: #E0E0E0;"
-            " padding: 6px 14px; border: 1px solid #444; }"
-            " QTabBar::tab:selected { background: #3A3A3A;"
-            " border-bottom-color: #6A9FB5; }"
+            f"QTabWidget::pane {{ border: 1px solid {theme.INFO_COLOR.name()};"
+            f" background: {theme.HELP_BG.name()}; }}"
+            f" QTabBar::tab {{ background: {theme.HELP_BG.name()};"
+            f" color: {theme.HELP_FG.name()};"
+            f" padding: 6px 14px; border: 1px solid {theme.HELP_BORDER.name()}; }}"
+            f" QTabBar::tab:selected {{ background: {theme.HELP_TAB_SELECTED.name()};"
+            f" border-bottom-color: {theme.INFO_COLOR.name()}; }}"
         )
 
         # ── Tab 1: shortcuts ──
@@ -524,8 +528,9 @@ class OverlaysMixin:
         filter_input = QLineEdit(shortcuts_tab)
         filter_input.setPlaceholderText("Type to filter shortcuts\u2026")
         filter_input.setStyleSheet(
-            "QLineEdit { background: #2A2A2A; color: #E0E0E0;"
-            " border: 1px solid #6A9FB5; padding: 4px; }"
+            f"QLineEdit {{ background: {theme.HELP_BG.name()};"
+            f" color: {theme.HELP_FG.name()};"
+            f" border: 1px solid {theme.INFO_COLOR.name()}; padding: 4px; }}"
         )
         browser = QTextBrowser(shortcuts_tab)
         browser.setOpenLinks(False)
@@ -533,7 +538,8 @@ class OverlaysMixin:
         font.setPointSize(13)
         browser.setFont(font)
         browser.setStyleSheet(
-            "QTextBrowser { background: #2A2A2A; color: #E0E0E0; border: none; }"
+            f"QTextBrowser {{ background: {theme.HELP_BG.name()};"
+            f" color: {theme.HELP_FG.name()}; border: none; }}"
         )
         browser.setHtml(_render_html(""))
         filter_input.textChanged.connect(
@@ -549,8 +555,9 @@ class OverlaysMixin:
         notes_browser.setOpenLinks(False)
         notes_browser.setFont(font)
         notes_browser.setStyleSheet(
-            "QTextBrowser { background: #2A2A2A; color: #E0E0E0; border: none;"
-            " padding: 8px; }"
+            f"QTextBrowser {{ background: {theme.HELP_BG.name()};"
+            f" color: {theme.HELP_FG.name()}; border: none;"
+            " padding: 8px; }}"
         )
         notes_browser.setHtml(self._notes_help_html())
         tabs.addTab(notes_browser, "Text Annotations")
@@ -569,19 +576,20 @@ class OverlaysMixin:
 
     def _notes_help_html(self) -> str:
         hdr = (
-            "color:#6A9FB5;font-weight:bold;"
+            f"color:{theme.INFO_COLOR.name()};font-weight:bold;"
             "padding-top:10px;padding-bottom:4px"
         )
-        kw = "color:#6A9FB5;font-weight:bold"
+        kw = f"color:{theme.INFO_COLOR.name()};font-weight:bold"
         code_bg = (
-            "background:#1E1E1E;color:#E0E0E0;padding:8px;"
+            f"background:{theme.HELP_CODE_BG.name()};color:{theme.HELP_FG.name()};"
+            "padding:8px;"
             "font-family:monospace;white-space:pre;display:block;"
-            "border-left:3px solid #6A9FB5"
+            f"border-left:3px solid {theme.INFO_COLOR.name()}"
         )
         mono = "font-family:monospace"
-        dim = "color:#B8B3AB"
-        kw_blue = "color:#2B6CB0;font-weight:bold"
-        kw_red = "color:#C53030;font-weight:bold"
+        dim = f"color:{theme.INK_DISABLED.name()}"
+        kw_blue = f"color:{theme.NOTE_COLOR.name()};font-weight:bold"
+        kw_red = f"color:{theme.NOTE_TASK_COLOR.name()};font-weight:bold"
         return f"""
         <p style='{hdr}'>TEXT ANNOTATIONS</p>
         <p>Grafli text can annotate nodes, edges, and local logic. Edit mode
@@ -705,7 +713,7 @@ return out  @parser.py:44</div>
         """
 
     def _show_graph_stats_dialog(self):
-        hdr = "color:#6A9FB5;font-weight:bold;font-size:13px"
+        hdr = f"color:{theme.INFO_COLOR.name()};font-weight:bold;font-size:13px"
         cell = "padding:4px 8px"
         html = f"""
         <p style='{hdr}'>GRAPH COMPLEXITY METRICS</p>
@@ -731,8 +739,9 @@ return out  @parser.py:44</div>
         <p style='{hdr}'>FUZZY LABEL THRESHOLDS</p>
         <table border='1' cellpadding='4' cellspacing='0'
                style='border-collapse:collapse;margin-left:8px;
-                      border-color:#555'>
-          <tr style='background:#333;color:#ccc'>
+                      border-color:{theme.HELP_BORDER.name()}'>
+          <tr style='background:{theme.HELP_TAB_SELECTED.name()};
+                     color:{theme.HELP_FG.name()}'>
             <th style='{cell}'>Label</th>
             <th style='{cell}'>Nodes (N)</th>
             <th style='{cell}'>Cyclomatic (C)</th>
@@ -759,7 +768,7 @@ return out  @parser.py:44</div>
           </tr>
         </table>
         <br>
-        <p style='color:#999;font-size:11px;margin-left:8px'>
+        <p style='color:{theme.STATUS_DIM.name()};font-size:11px;margin-left:8px'>
           The overall label is the <i>maximum</i> tier from N and C.
         </p>
         """

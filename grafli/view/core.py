@@ -42,21 +42,15 @@ from PySide6.QtWidgets import (
     QGraphicsView,
 )
 
+from grafli import theme
 from grafli.view.commands import CommandsMixin
 from grafli.view.complexity import ComplexityMixin
 from grafli.constants import (
-    ARROW_COLOR,
     ARROW_WIDTH,
-    BOX_BORDER,
-    CONTENT_BORDER_COLOR,
     DEFAULT_BOX_H,
     DEFAULT_BOX_W,
     FONT_FAMILY,
-    GRID_COLOR,
-    HEATMAP_CONTENT_BORDER,
-    HEATMAP_GRID_COLOR,
     MIN_BOX_SIZE,
-    SCENE_BG,
     Mode,
     _ARROW_STYLE_CYCLE,
     _CTRL_MOD,
@@ -81,6 +75,36 @@ from grafli.zen import ZenOverlay
 from textli import InlineVimEditor
 
 
+# Base caption sizes (title, description, hint) at scale 1.0 — the sizes
+# used before the caption scaled with the stage. Description is the anchor;
+# title and hint keep their ratio to it.
+_FLOW_CAPTION_BASE = {"title_pt": 14.0, "desc_pt": 11.0, "hint_pt": 9.0,
+                      "pad": 12.0, "gap": 5.0}
+
+
+def flow_caption_metrics(vp_w: float, vp_h: float) -> dict:
+    """Font/padding/width sizing for the flow caption, scaled to the stage.
+
+    The caption is a fixed viewport-space overlay, so on a large window or
+    an F5 fullscreen projector a fixed point size reads far smaller than the
+    board content (which fills the stage). Anchor the description on viewport
+    height, floor it to the base 11pt so small windows never regress, and cap
+    it so the card can't dominate the stage; title, hint, and padding follow
+    by the base ratio. The panel's max width grows with the viewport instead
+    of a fixed 640px cap so the larger text gets proportional room.
+    """
+    desc_pt = max(_FLOW_CAPTION_BASE["desc_pt"], min(28.0, vp_h * 0.018))
+    scale = desc_pt / _FLOW_CAPTION_BASE["desc_pt"]
+    return {
+        "title_pt": _FLOW_CAPTION_BASE["title_pt"] * scale,
+        "desc_pt": desc_pt,
+        "hint_pt": _FLOW_CAPTION_BASE["hint_pt"] * scale,
+        "pad": _FLOW_CAPTION_BASE["pad"] * scale,
+        "gap": _FLOW_CAPTION_BASE["gap"] * scale,
+        "max_w": min(vp_w - 40.0, max(640.0, vp_w * 0.4)),
+    }
+
+
 # ── Canvas view ─────────────────────────────────────────────────
 
 class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
@@ -98,7 +122,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
     def __init__(self, parent=None):
         super().__init__(parent)
         self._scene = QGraphicsScene(self)
-        self._scene.setBackgroundBrush(QBrush(SCENE_BG))
+        self._scene.setBackgroundBrush(QBrush(theme.SCENE_BG))
         self.setScene(self._scene)
 
         # TextAntialiasing sharpens the Nerd Font glyphs / labels; SmoothPixmap
@@ -414,8 +438,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
 
     def drawBackground(self, painter: QPainter, rect: QRectF):
         super().drawBackground(painter, rect)
-        grid_color = HEATMAP_GRID_COLOR if self._complexity_active else GRID_COLOR
-        border_color = HEATMAP_CONTENT_BORDER if self._complexity_active else CONTENT_BORDER_COLOR
+        grid_color = theme.HEATMAP_GRID_COLOR if self._complexity_active else theme.GRID_COLOR
+        border_color = theme.HEATMAP_CONTENT_BORDER if self._complexity_active else theme.CONTENT_BORDER_COLOR
         if self._grid_shown:
             spacing = self.GRID_SPACING
             # Skip the grid when zoomed out far enough that it would be a dense
@@ -487,6 +511,27 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         idx = self._GRID_CYCLE.index(self._grid_mode)
         self._grid_mode = self._GRID_CYCLE[(idx + 1) % len(self._GRID_CYCLE)]
         QSettings("Grafli", "Grafli").setValue("grid/mode", self._grid_mode)
+        self.viewport().update()
+
+    def apply_theme(self):
+        """Re-read every cached colour after a theme switch.
+
+        Most of the canvas resolves its colours inside ``paint()``, so a repaint
+        is enough. The exceptions are the items that bake a brush/pen into the
+        QGraphicsItem at build time: boxes (fill + border + label ink), the
+        resize handles, and the arrow items — which are rebuilt outright, since
+        their pens are set once as the connectors are laid out.
+        """
+        self._scene.setBackgroundBrush(QBrush(theme.SCENE_BG))
+        for item in self._scene.items():
+            apply_color = getattr(item, "_apply_color", None)
+            if callable(apply_color):
+                apply_color()
+            handle_theme = getattr(item, "apply_theme", None)
+            if callable(handle_theme):
+                handle_theme()
+        self._redraw_arrows()
+        self._scene.update()
         self.viewport().update()
 
     @property
@@ -1772,7 +1817,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         if (event.modifiers() & Qt.KeyboardModifier.AltModifier) and isinstance(resolved, (BoxItem, NoteItem, ImageItem)):
             self._connect_source = resolved
             center = self._item_center(resolved)
-            pen = QPen(ARROW_COLOR, ARROW_WIDTH, Qt.PenStyle.DashLine)
+            pen = QPen(theme.ARROW_COLOR, ARROW_WIDTH, Qt.PenStyle.DashLine)
             self._connect_line = self._scene.addLine(
                 center.x(), center.y(), scene_pos.x(), scene_pos.y(), pen
             )
@@ -1812,7 +1857,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         if not self._board:
             return
         self._rect_origin = self.mapToScene(event.position().toPoint())
-        pen = QPen(BOX_BORDER, 1, Qt.PenStyle.DashLine)
+        pen = QPen(theme.BOX_BORDER, 1, Qt.PenStyle.DashLine)
         self._rect_preview = self._scene.addRect(
             QRectF(self._rect_origin, self._rect_origin), pen
         )
@@ -1936,7 +1981,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             # First click — set source
             self._connect_source = item
             center = self._item_center(item)
-            pen = QPen(ARROW_COLOR, ARROW_WIDTH, Qt.PenStyle.DashLine)
+            pen = QPen(theme.ARROW_COLOR, ARROW_WIDTH, Qt.PenStyle.DashLine)
             self._connect_line = self._scene.addLine(
                 center.x(), center.y(), scene_pos.x(), scene_pos.y(), pen
             )
@@ -2203,7 +2248,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             h = fm.height() + pad
             x = vp.width() - w - 12
             y = 12
-            bg = QColor("#7A1F1F")
+            bg = QColor(theme.CONFLICT_BG)
             bg.setAlphaF(0.92)
             painter.setPen(QPen(QColor(255, 255, 255, 50), 1))
             painter.setBrush(QBrush(bg))
@@ -2227,13 +2272,18 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                 if ov.get(key):
                     hint += f" · {key}:{ov[key]}"
 
-            title_font = QFont(FONT_FAMILY, 14, QFont.Weight.Bold)
-            desc_font = QFont(FONT_FAMILY, 11)
-            hint_font = QFont(FONT_FAMILY, 9)
+            m = flow_caption_metrics(vp.width(), vp.height())
+            title_font = QFont(FONT_FAMILY)
+            title_font.setBold(True)
+            title_font.setPointSizeF(m["title_pt"])
+            desc_font = QFont(FONT_FAMILY)
+            desc_font.setPointSizeF(m["desc_pt"])
+            hint_font = QFont(FONT_FAMILY)
+            hint_font.setPointSizeF(m["hint_pt"])
 
-            pad = 12
-            gap = 5
-            max_w = min(640, vp.width() - 40)
+            pad = m["pad"]
+            gap = m["gap"]
+            max_w = m["max_w"]
             # The caption shows its full text, word-wrapped — authoring keeps
             # it within MAX_DESCRIPTION_CHARS, so the card stays a caption.
             # The measurement bound still caps a runaway description so the
@@ -2261,7 +2311,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             panel_x = (vp.width() - panel_w) / 2
             panel_y = vp.height() - panel_h - 20
 
-            bg = QColor("#2F3437")
+            bg = QColor(theme.OVERLAY_BG)
             bg.setAlphaF(0.94)
             painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
             painter.setBrush(QBrush(bg))

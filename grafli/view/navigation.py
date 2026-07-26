@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
     QGraphicsTextItem,
 )
+from grafli import theme
 from grafli.constants import FONT_FAMILY
 from grafli.format import Arrow
 from grafli.items import BoxItem, ImageItem, NoteItem
@@ -132,14 +133,13 @@ class NavigationMixin:
         if isinstance(target, BoxItem):
             bg_color = target.brush().color()
             if bg_color.alphaF() < 0.1:
-                bg_color = QColor("#C1086D")
+                bg_color = QColor(theme.BOOKMARK_BG)
             else:
                 bg_color = bg_color.darker(130)
         else:
-            bg_color = QColor("#C1086D")
+            bg_color = QColor(theme.BOOKMARK_BG)
 
-        lum = bg_color.redF() * 0.299 + bg_color.greenF() * 0.587 + bg_color.blueF() * 0.114
-        text_color = "#FFFFFF" if lum < 0.5 else "#2F3437"
+        text_color = theme.ink_on(bg_color).name()
 
         text_item = QGraphicsSimpleTextItem(label_text)
         text_item.setFont(font)
@@ -242,12 +242,12 @@ class NavigationMixin:
         badge = QGraphicsTextItem(display)
         font = QFont(FONT_FAMILY, 9)
         badge.setFont(font)
-        badge.setDefaultTextColor(QColor("#FFFFFF"))
+        badge.setDefaultTextColor(QColor(theme.OVERLAY_FG))
         badge.setZValue(10001)
         br = badge.boundingRect()
 
         bg = QGraphicsRectItem()
-        bg_color = QColor("#2F3437")
+        bg_color = QColor(theme.OVERLAY_BG)
         bg_color.setAlphaF(0.85)
         bg.setBrush(QBrush(bg_color))
         bg.setPen(QPen(Qt.PenStyle.NoPen))
@@ -620,9 +620,11 @@ class NavigationMixin:
         panel_x = (vp.width() - panel_w) / 2
         panel_y = 10
 
-        bg = QColor("#2F3437")
+        bg = QColor(theme.OVERLAY_BG)
         bg.setAlphaF(0.92 * o)
-        painter.setPen(QPen(QColor(255, 255, 255, int(40 * o)), 1))
+        hair = QColor(theme.OVERLAY_FG)
+        hair.setAlpha(int(40 * o))
+        painter.setPen(QPen(hair, 1))
         painter.setBrush(QBrush(bg))
         painter.drawRoundedRect(QRectF(panel_x, panel_y, panel_w, panel_h), 6, 6)
 
@@ -893,10 +895,10 @@ class NavigationMixin:
             mid = QPointF((src_center.x() + tgt_center.x()) / 2,
                           (src_center.y() + tgt_center.y()) / 2)
 
-            bg_color = QColor("#C1086D")
+            bg_color = QColor(theme.BOOKMARK_BG)
             text_item = QGraphicsSimpleTextItem(label_key)
             text_item.setFont(font)
-            text_item.setBrush(QBrush(QColor("#FFFFFF")))
+            text_item.setBrush(QBrush(theme.ink_on(bg_color)))
             tr = text_item.boundingRect()
 
             pad = 3 * scene_size / base_size
@@ -928,7 +930,7 @@ class NavigationMixin:
         br = source_item.sceneBoundingRect()
         text_item = QGraphicsSimpleTextItem("\u26a0 Too many connectors")
         text_item.setFont(font)
-        text_item.setBrush(QBrush(QColor("#FFFFFF")))
+        text_item.setBrush(QBrush(theme.ink_on(QColor(theme.ERROR_BG))))
         tr = text_item.boundingRect()
 
         pad = 6
@@ -938,7 +940,7 @@ class NavigationMixin:
             tr.width() + 2 * pad,
             tr.height() + 2 * pad,
         )
-        bg_color = QColor("#e04040")
+        bg_color = QColor(theme.ERROR_BG)
         bg_color.setAlphaF(0.9)
         bg.setBrush(QBrush(bg_color))
         bg.setPen(QPen(Qt.PenStyle.NoPen))

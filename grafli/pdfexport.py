@@ -33,10 +33,9 @@ from PySide6.QtGui import (
     QTextListFormat,
 )
 
+from grafli import theme
 from grafli.constants import (
     FONT_FAMILY,
-    NOTE_PEN_COLOR,
-    SCENE_BG,
     resolve_textsize_px,
 )
 from grafli.flows import isolate_focus, render_thumbnail_art
@@ -53,19 +52,13 @@ from grafli.slideplan import (  # noqa: F401
     slide_presentation,
 )
 
-# Slide palette — the slide IS the canvas: paper background everywhere so the
-# diagram region blends in seamlessly (boxes stay border-defined, as on-canvas,
-# rather than turning into filled blocks on white).
-_SLIDE_BG = SCENE_BG
-_TITLE_COLOR = QColor("#2F3437")
-_DESC_COLOR = QColor("#4A4A4A")
-_MUTED_COLOR = QColor("#8A8A8A")
-_ACCENT = QColor("#D4804E")
-_FRAME = QColor("#D5D0C8")
-# Floating description caption — a dark rounded card matching the on-canvas
+# Slide palette — the slide IS the canvas: the theme's own ground everywhere so
+# the diagram region blends in seamlessly (boxes stay border-defined, as
+# on-canvas, rather than turning into filled blocks on a foreign background).
+# These read the active theme at call time; binding them at import would freeze
+# the deck to whichever theme happened to be active when the module loaded.
+# The floating description caption is a rounded card matching the on-canvas
 # playback caption, drawn over the content so it reserves no layout space.
-_CAPTION_BG = QColor("#2F3437")
-_CAPTION_TEXT = QColor("#ECECEC")
 
 # PowerPoint 16:9 canvas, in points (72 dpi) — 13.333" x 7.5".
 _PAGE_PT = QSizeF(960, 540)
@@ -260,15 +253,15 @@ def _draw_footer(painter, page: QRectF, footer: str) -> None:
     band_h = ph * 0.05
     band_rect = QRectF(margin, ph - margin * 0.35 - band_h, pw - margin * 2, band_h)
     ry = band_rect.top() - ph * 0.012
-    painter.setPen(QPen(_FRAME, max(1, ph * 0.0015)))
+    painter.setPen(QPen(theme.CONTENT_BORDER_COLOR, max(1, ph * 0.0015)))
     painter.drawLine(int(margin), int(ry), int(pw - margin), int(ry))
     _draw_markdown(painter, band_rect, footer, markdown=True, band=_FOOTER_BAND,
-                   px_per_pt=_px_per_pt(page), color=_MUTED_COLOR, vcenter=True,
+                   px_per_pt=_px_per_pt(page), color=theme.INK_FAINT, vcenter=True,
                    fill_floor=0.0)
 
 
 def _draw_title_slide(painter, page: QRectF, view, board, flow) -> None:
-    painter.fillRect(page, _SLIDE_BG)
+    painter.fillRect(page, theme.SCENE_BG)
     if board is not None and board.title_bg == "thumbnail-art":
         _draw_thumbnail_art(painter, page, view, board, flow)
     ph = page.height()
@@ -278,13 +271,13 @@ def _draw_title_slide(painter, page: QRectF, view, board, flow) -> None:
 
     y = ph * 0.26
     painter.setFont(_font(int(ph * 0.085), bold=True))
-    painter.setPen(QPen(_TITLE_COLOR))
+    painter.setPen(QPen(theme.INK))
     rect = QRectF(x, y, w, ph * 0.18)
     painter.drawText(rect, int(Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignLeft
                                | Qt.AlignmentFlag.AlignTop), flow.label)
 
     # Accent rule under the title.
-    painter.setPen(QPen(_ACCENT, max(1, ph * 0.006)))
+    painter.setPen(QPen(theme.FLOWS_ACCENT, max(1, ph * 0.006)))
     ry = y + ph * 0.20
     painter.drawLine(int(x), int(ry), int(x + w * 0.5), int(ry))
 
@@ -295,7 +288,7 @@ def _draw_title_slide(painter, page: QRectF, view, board, flow) -> None:
         drect = QRectF(x, ry + ph * 0.03, w, ph * 0.60)
         _draw_markdown(painter, drect, flow.description, markdown=True,
                        band=_DESC_BAND, px_per_pt=_px_per_pt(page),
-                       color=_DESC_COLOR, vcenter=False)
+                       color=theme.INK_SUBTLE, vcenter=False)
 
 
 def _draw_thumbnail_art(painter, page: QRectF, view, board, flow) -> None:
@@ -354,7 +347,7 @@ def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
     text_rect = QRectF(mapped.left() + pad, mapped.top() + pad,
                        min(wrap_w, mapped.width() - pad), mapped.height() - pad * 2)
     _draw_markdown(painter, text_rect, body, markdown=is_md, band=_BODY_BAND,
-                   px_per_pt=px_per_pt, color=_TITLE_COLOR, vcenter=False,
+                   px_per_pt=px_per_pt, color=theme.INK, vcenter=False,
                    fixed_px=fixed_px, clip=clip)
     if len(body.strip()) <= _ANNOTATION_MAX_CHARS:
         return False   # a short annotation rides the picture (issue #123)
@@ -366,7 +359,7 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     """Draw one content slide from its plan. Returns True when it is overloaded —
     text that overflows even at the band minimum, or an in-place note below the
     readable floor — so the caller can warn the author."""
-    painter.fillRect(page, _SLIDE_BG)
+    painter.fillRect(page, theme.SCENE_BG)
     pw, ph = page.width(), page.height()
     margin = ph * 0.06
 
@@ -382,19 +375,19 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     if has_title:
         bar_h = ph * 0.12
         painter.setFont(_font(int(ph * 0.050), bold=True))
-        painter.setPen(QPen(_TITLE_COLOR))
+        painter.setPen(QPen(theme.INK))
         painter.drawText(
             QRectF(margin, margin * 0.5, pw - margin * 2, bar_h),
             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
             plan.title)
         painter.setFont(_font(int(ph * 0.034)))
-        painter.setPen(QPen(_MUTED_COLOR))
+        painter.setPen(QPen(theme.INK_FAINT))
         painter.drawText(
             QRectF(margin, margin * 0.5, pw - margin * 2, bar_h),
             int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
             f"{plan.index + 1} / {plan.total}")
         rule_y = margin * 0.5 + bar_h
-        painter.setPen(QPen(_FRAME, max(1, ph * 0.002)))
+        painter.setPen(QPen(theme.CONTENT_BORDER_COLOR, max(1, ph * 0.002)))
         painter.drawLine(int(margin), int(rule_y), int(pw - margin), int(rule_y))
         hero_top = rule_y + margin * 0.5
 
@@ -415,7 +408,7 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     source = plan.source
     if source is None:
         painter.setFont(_font(int(ph * 0.03)))
-        painter.setPen(QPen(_MUTED_COLOR))
+        painter.setPen(QPen(theme.INK_FAINT))
         painter.drawText(hero, int(Qt.AlignmentFlag.AlignCenter),
                          "no anchor to render")
         return False
@@ -512,10 +505,10 @@ def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float,
         size_px, rect = fit
         return _draw_markdown(painter, rect, body, markdown=is_md,
                               band=_BODY_BAND, px_per_pt=px_per_pt,
-                              color=_TITLE_COLOR, vcenter=True,
+                              color=theme.INK, vcenter=True,
                               fixed_px=max(1, round(size_px)))
     return _draw_markdown(painter, hero, body, markdown=is_md, band=_BODY_BAND,
-                          px_per_pt=px_per_pt, color=_TITLE_COLOR, vcenter=True)
+                          px_per_pt=px_per_pt, color=theme.INK, vcenter=True)
 
 
 def render_text_slide_pixmap(note, w: int, h: int, text_rect=None):
@@ -527,7 +520,7 @@ def render_text_slide_pixmap(note, w: int, h: int, text_rect=None):
     from PySide6.QtGui import QPixmap
     w, h = max(1, int(w)), max(1, int(h))
     img = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
-    img.fill(_SLIDE_BG)
+    img.fill(theme.SCENE_BG)
     p = QPainter(img)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
@@ -653,7 +646,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     # formats explicitly — the PDF backend ignores the paint-context Link
     # palette role, so the markdown default (bright blue) would leak through.
     link_fmt = QTextCharFormat()
-    link_fmt.setForeground(NOTE_PEN_COLOR)
+    link_fmt.setForeground(theme.NOTE_PEN_COLOR)
     b = doc.begin()
     while b.isValid():
         it = b.begin()
@@ -689,7 +682,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     painter.translate(rect.left(), oy)
     ctx = QAbstractTextDocumentLayout.PaintContext()
     ctx.palette.setColor(QPalette.ColorRole.Text, color)
-    ctx.palette.setColor(QPalette.ColorRole.Link, NOTE_PEN_COLOR)
+    ctx.palette.setColor(QPalette.ColorRole.Link, theme.NOTE_PEN_COLOR)
     # ``clip`` (when given, e.g. the whole hero) lets an in-place note draw past
     # its own mapped rect without being cut, in document coordinates relative to
     # the translated origin; else keep the original rect-tight clip.
@@ -753,7 +746,7 @@ def _draw_caption(painter, page: QRectF, text: str, footer: str) -> None:
     card_y = ph - margin - _footer_reserve(page, footer) - card_h
     card = QRectF(card_x, card_y, card_w, card_h)
 
-    bg = QColor(_CAPTION_BG)
+    bg = QColor(theme.OVERLAY_BG)
     bg.setAlphaF(0.94)
     painter.setPen(QPen(QColor(255, 255, 255, 36), max(1.0, ph * 0.0012)))
     painter.setBrush(QBrush(bg))
@@ -762,4 +755,4 @@ def _draw_caption(painter, page: QRectF, text: str, footer: str) -> None:
 
     text_rect = QRectF(card_x + pad, card_y + pad, text_w, text_h)
     _draw_markdown(painter, text_rect, text, markdown=True, band=_CAPTION_BAND,
-                   px_per_pt=ppp, color=_CAPTION_TEXT, vcenter=True)
+                   px_per_pt=ppp, color=theme.OVERLAY_FG, vcenter=True)

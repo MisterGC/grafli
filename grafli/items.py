@@ -16,25 +16,20 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem,
 )
 
+from grafli import theme
 from grafli.constants import (
     BOX_BORDER_WIDTH,
     BOX_FONT_SIZES,
     BOX_RADIUS,
     DEFAULT_BOX_H,
     DEFAULT_BOX_W,
-    DISCUSSION_COLORS,
     FONT_FAMILY,
     NOTE_FONT_FAMILY,
     HANDLE_SIZE,
     MIN_BOX_SIZE,
-    NOTE_PEN_COLOR,
-    NOTE_QUESTION_COLOR,
-    NOTE_TASK_COLOR,
     resolve_textsize_px,
-    SCENE_BG,
-    _resolve_color,
 )
-from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
+from grafli.edge_label import edge_kind_color, parse_edge_label
 
 _RE_SPEAKER = re.compile(r"^([A-Z][A-Za-z0-9_-]{0,15}): ")
 
@@ -73,27 +68,20 @@ def _attach_tooltip(el) -> str:
 
 # Code-note palette — deliberately minimal so the snippet doesn't fight
 # the surrounding graph. Two accents only, plus muted comments:
-#   keyword     #2B6CB0  blue   bold     control / effect — flow markers
-#   contract    #C53030  red    bold     pre / post / risk — review focus
-#   ref         #2B6CB0  blue   underlined  clickable @path:line link
-#   comment     #8A8580  grey   italic   skim-past prose
-#   value       (text colour)             "...", #hex, 42, true — self-marked
-#   text        #2F3437  near-black
-NOTE_CODE_BG_COLOR = QColor("#F2F0EB")
-NOTE_CODE_BORDER_COLOR = QColor("#CDC8BF")
-NOTE_CODE_KW_COLOR = QColor("#2B6CB0")
-NOTE_CODE_KW_CONTRACT_COLOR = QColor("#C53030")
-NOTE_CODE_REF_COLOR = QColor("#2B6CB0")
-NOTE_CODE_COMMENT_COLOR = QColor("#8A8580")
-NOTE_CODE_TEXT_COLOR = QColor("#2F3437")
-NOTE_CODE_INDENT_GUIDE_COLOR = QColor("#B5B0A8")
-
+#   keyword     blue   bold        control / effect — flow markers
+#   contract    red    bold        pre / post / risk — review focus
+#   ref         blue   underlined  clickable @path:line link
+#   comment     grey   italic      skim-past prose
+#   value       (text colour)      "...", #hex, 42, true — self-marked
+#   text        ink
+# The values themselves live in grafli.theme (NOTE_CODE_*), so the snippet
+# follows the active theme along with everything else.
+#
 # Markdown-note styling. Qt's setMarkdown only honours *font* properties
 # (size / weight) from the default stylesheet; text colour comes from the
-# paint-context palette (near-black body, blue links — see _paint_markdown)
+# paint-context palette (body ink, blue links — see _paint_markdown)
 # and code-span backgrounds are applied as char formats (_style_code_spans),
 # because colour / background CSS rules are ignored on a Markdown import.
-NOTE_MD_CODE_BG_COLOR = QColor("#E7E3DA")
 
 
 def _md_stylesheet(base_pt: float) -> str:
@@ -116,18 +104,19 @@ def _md_stylesheet(base_pt: float) -> str:
 
 
 _CODE_BOLD_KINDS = {"kw_struct", "kw_effect", "kw_contract", "ref"}
-_CODE_KIND_COLORS = {
-    "kw_struct": NOTE_CODE_KW_COLOR,
-    "kw_effect": NOTE_CODE_KW_COLOR,
-    "kw_contract": NOTE_CODE_KW_CONTRACT_COLOR,
-    "ref": NOTE_CODE_REF_COLOR,
-    "string": NOTE_CODE_TEXT_COLOR,
-    "hex": NOTE_CODE_TEXT_COLOR,
-    "number": NOTE_CODE_TEXT_COLOR,
-    "bool": NOTE_CODE_TEXT_COLOR,
-    "comment": NOTE_CODE_COMMENT_COLOR,
-    "text": NOTE_CODE_TEXT_COLOR,
-}
+
+
+def _code_kind_color(kind: str) -> QColor:
+    """Colour for a code-note token kind, resolved against the active theme."""
+    if kind in ("kw_struct", "kw_effect"):
+        return theme.NOTE_CODE_KW_COLOR
+    if kind == "kw_contract":
+        return theme.NOTE_CODE_KW_CONTRACT_COLOR
+    if kind == "ref":
+        return theme.NOTE_CODE_REF_COLOR
+    if kind == "comment":
+        return theme.NOTE_CODE_COMMENT_COLOR
+    return theme.NOTE_CODE_TEXT_COLOR
 
 
 def _paint_link_glyph(painter: QPainter, rect: QRectF):
@@ -138,14 +127,14 @@ def _paint_link_glyph(painter: QPainter, rect: QRectF):
 
     # Plate — mirrors BoxLabelItem's background plate.
     plate = QRectF(rect.right() - 17, rect.top() + 2, 14, 11)
-    bg = QColor("#F2F0EB")
+    bg = QColor(theme.SURFACE)
     bg.setAlphaF(0.6)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QBrush(bg))
     painter.drawRoundedRect(plate, 4, 4)
 
     # Chain glyph — same color as label text, full alpha (plate carries contrast).
-    painter.setPen(QPen(QColor("#2F3437"), 1.2))
+    painter.setPen(QPen(QColor(theme.INK), 1.2))
     painter.setBrush(Qt.BrushStyle.NoBrush)
     cx = plate.center().x()
     cy = plate.center().y()
@@ -266,7 +255,7 @@ def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
     plate_pad = head_px * 0.28
     plate = QRectF(-plate_w / 2, top - plate_pad,
                    plate_w, total_h + 2 * plate_pad)
-    bg = QColor("#F2F0EB")
+    bg = QColor(theme.SURFACE)
     bg.setAlphaF(0.85)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(bg)
@@ -274,11 +263,11 @@ def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
     painter.setBrush(Qt.BrushStyle.NoBrush)
 
     painter.setFont(head_font)
-    painter.setPen(QColor("#2F3437"))
+    painter.setPen(QColor(theme.INK))
     painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h), flags, label)
 
     painter.setFont(badge_font)
-    painter.setPen(QColor("#2F3437"))
+    painter.setPen(QColor(theme.INK))
     painter.drawText(
         QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6),
         int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), text)
@@ -410,10 +399,6 @@ class ResizeHandle(QGraphicsRectItem):
     """
 
     _HOVER_GROW = 4
-    _IDLE_FILL = QColor("#FFFFFF")
-    _IDLE_PEN = QColor("#2F5D5C")
-    _HOVER_FILL = QColor("#2F5D5C")
-    _HOVER_PEN = QColor("#FFFFFF")
 
     def __init__(self, handle_id: int, parent: QGraphicsRectItem):
         hs = HANDLE_SIZE
@@ -421,8 +406,7 @@ class ResizeHandle(QGraphicsRectItem):
         self.corner = handle_id
         self._hovered = False
         self._dragging = False
-        self.setPen(QPen(self._IDLE_PEN, 1))
-        self.setBrush(QBrush(self._IDLE_FILL))
+        self.apply_theme()
         self.setCursor(_HANDLE_CURSORS[handle_id])
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
         self.setAcceptHoverEvents(True)
@@ -435,6 +419,15 @@ class ResizeHandle(QGraphicsRectItem):
         self.setZValue(10)
         self.setVisible(False)
 
+    def apply_theme(self):
+        """Re-read the handle's brush/pen from the active theme."""
+        if self._hovered:
+            self.setBrush(QBrush(theme.HANDLE_HOVER_FILL))
+            self.setPen(QPen(theme.HANDLE_HOVER_PEN, 1.5))
+        else:
+            self.setBrush(QBrush(theme.HANDLE_FILL))
+            self.setPen(QPen(theme.HANDLE_PEN, 1))
+
     def _set_hover(self, on: bool):
         if on == self._hovered:
             return
@@ -442,12 +435,7 @@ class ResizeHandle(QGraphicsRectItem):
         hs = HANDLE_SIZE + (self._HOVER_GROW if on else 0)
         self.prepareGeometryChange()
         self.setRect(-hs / 2, -hs / 2, hs, hs)
-        if on:
-            self.setBrush(QBrush(self._HOVER_FILL))
-            self.setPen(QPen(self._HOVER_PEN, 1.5))
-        else:
-            self.setBrush(QBrush(self._IDLE_FILL))
-            self.setPen(QPen(self._IDLE_PEN, 1))
+        self.apply_theme()
 
     def hoverEnterEvent(self, event):
         self._set_hover(True)
@@ -503,11 +491,6 @@ class ResizeForeshadow(QGraphicsItem):
     The real size/font mutation happens on release; this only foreshadows it.
     """
 
-    _OUTLINE = QColor("#2F5D5C")
-    _FILL = QColor("#2F5D5C")
-    _GLYPH_BG = QColor("#2F3437")
-    _GLYPH_FG = QColor("#ECECEC")
-
     def __init__(self):
         super().__init__()
         self._frame = QRectF()
@@ -534,13 +517,13 @@ class ResizeForeshadow(QGraphicsItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         # Content-occupied area (filled, faint).
         if not self._content.isEmpty():
-            fill = QColor(self._FILL)
+            fill = QColor(theme.ACCENT_TEAL)
             fill.setAlphaF(0.18)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(fill))
             painter.drawRect(self._content)
         # Target frame outline (dashed).
-        pen = QPen(self._OUTLINE, 2, Qt.PenStyle.DashLine)
+        pen = QPen(theme.ACCENT_TEAL, 2, Qt.PenStyle.DashLine)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(self._frame)
@@ -552,16 +535,16 @@ class ResizeForeshadow(QGraphicsItem):
         size = 18.0
         r = QRectF(self._frame.left() + 4, self._frame.top() + 4, size, size)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(self._GLYPH_BG))
+        painter.setBrush(QBrush(theme.GLYPH_BADGE_BG))
         painter.drawRoundedRect(r, 4, 4)
         # Simple padlock: shackle arc + body.
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(self._GLYPH_FG, 1.6))
+        painter.setPen(QPen(theme.GLYPH_BADGE_FG, 1.6))
         cx = r.center().x()
         arc = QRectF(cx - 3.5, r.top() + 4, 7, 7)
         painter.drawArc(arc, 0, 180 * 16)
         body = QRectF(cx - 4.5, r.top() + 7.5, 9, 7)
-        painter.setBrush(QBrush(self._GLYPH_FG))
+        painter.setBrush(QBrush(theme.GLYPH_BADGE_FG))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(body, 1.5, 1.5)
 
@@ -582,9 +565,9 @@ class BoxLabelItem(QGraphicsTextItem):
         # nothing, so the contrast plate doesn't linger as an empty strip.
         if not self._box_item.box.label:
             return
-        if _resolve_color(self._box_item.box.color):
+        if theme.resolve_color(self._box_item.box.color):
             bg_rect = self.boundingRect()
-            bg = QColor("#F2F0EB")
+            bg = QColor(theme.SURFACE)
             bg.setAlphaF(0.6)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setPen(Qt.PenStyle.NoPen)
@@ -635,7 +618,7 @@ class BoxItem(QGraphicsRectItem):
 
         self._label = BoxLabelItem(self)
         self._label.setFont(self._box_font())
-        self._label.setDefaultTextColor(QColor("#2F3437"))
+        self._label.setDefaultTextColor(QColor(theme.INK))
         self._label.setPlainText(box.label)
         self._label.setTextWidth(self._label_width_for(box.w))
         self._apply_color()
@@ -649,7 +632,7 @@ class BoxItem(QGraphicsRectItem):
         self._resize_origin = QPointF()
 
     def _apply_color(self):
-        hex_color = _resolve_color(self.box.color)
+        hex_color = theme.resolve_color(self.box.color)
         is_flat = self.box.style == "flat" or self._is_parent
         if hex_color:
             c = QColor(hex_color)
@@ -662,13 +645,13 @@ class BoxItem(QGraphicsRectItem):
         else:
             if is_flat:
                 self.setPen(QPen(Qt.PenStyle.NoPen))
-                fill = QColor(SCENE_BG)
+                fill = QColor(theme.SCENE_BG)
                 fill.setAlphaF(0.7)
                 self.setBrush(QBrush(fill))
             else:
-                self.setPen(QPen(QColor("#2F3437"), BOX_BORDER_WIDTH))
+                self.setPen(QPen(QColor(theme.INK), BOX_BORDER_WIDTH))
                 self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self._label.setDefaultTextColor(QColor("#2F3437"))
+        self._label.setDefaultTextColor(QColor(theme.INK))
 
     def set_color(self, color: str):
         self.box.color = color
@@ -731,7 +714,7 @@ class BoxItem(QGraphicsRectItem):
         ``badge``: a compact overlay in the top-right corner; the label keeps
         its normal layout."""
         w, h = self.box.w, self.box.h
-        color = QColor("#2F3437")
+        color = QColor(theme.INK)
         if self.box.icon_placement == "badge":
             side = self._badge_icon_side()
             # The attachment glyph owns the very corner — step aside for it.
@@ -1286,11 +1269,11 @@ class BoxItem(QGraphicsRectItem):
         if self.isSelected():
             sel_rect = self.rect().adjusted(-4, -4, 4, 4)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            shadow = QColor("#000000")
+            shadow = QColor(theme.SHADOW_COLOR)
             shadow.setAlphaF(0.25)
             painter.setPen(QPen(shadow, 7, Qt.PenStyle.SolidLine))
             painter.drawRoundedRect(sel_rect, radius, radius)
-            sel_color = QColor("#D4BA6A")
+            sel_color = QColor(theme.SELECT_COLOR)
             sel_color.setAlphaF(0.85)
             painter.setPen(QPen(sel_color, 4, Qt.PenStyle.SolidLine))
             painter.drawRoundedRect(sel_rect, radius, radius)
@@ -1302,8 +1285,7 @@ class BoxItem(QGraphicsRectItem):
         every simplified node reads alike."""
         r = self.rect()
         fill = self.brush().color()
-        lum = 0.299 * fill.red() + 0.587 * fill.green() + 0.114 * fill.blue()
-        ink = QColor("#2D2D2D" if lum > 140 else "#F2F0EB")
+        ink = theme.ink_on(fill)
         ink.setAlphaF(0.45)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(ink))
@@ -1333,7 +1315,7 @@ class BoxItem(QGraphicsRectItem):
         front = self.rect()
         base = QColor(self.brush().color())
         if base.alpha() == 0:
-            base = QColor("#C8CCD0")
+            base = QColor(theme.FALLBACK_FILL)
         base.setAlpha(255)
         front_path = QPainterPath()
         front_path.addRect(front)
@@ -1746,8 +1728,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.update()
 
     def _icon_color(self) -> QColor:
-        return (QColor(_resolve_color(self.note.color)) if self.note.color
-                else QColor("#2F3437"))
+        return (QColor(theme.resolve_color(self.note.color)) if self.note.color
+                else QColor(theme.INK))
 
     # Corner-badge icon size on a note (``*badge:name`` placement).
     _BADGE_ICON_SIDE = 18.0
@@ -1844,7 +1826,7 @@ class NoteItem(QGraphicsSimpleTextItem):
                     painter.drawText(QPointF((total_w - tw) / 2, y), ln)
                     y += fm.height()
         if self.isSelected():
-            painter.setPen(QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(QRectF(0, 0, total_w, total_h).adjusted(-3, -3, 3, 3))
 
@@ -1912,9 +1894,9 @@ class NoteItem(QGraphicsSimpleTextItem):
         """Extract badge prefix, body text, and accent color."""
         p = note_prefix(self.note.text)
         if p is None:
-            return "", self.note.text, NOTE_PEN_COLOR
+            return "", self.note.text, theme.NOTE_PEN_COLOR
         badge, body = p
-        accent = NOTE_TASK_COLOR if badge == "T:" else NOTE_QUESTION_COLOR
+        accent = theme.NOTE_TASK_COLOR if badge == "T:" else theme.NOTE_QUESTION_COLOR
         return badge, body, accent
 
     def _parse_discussion(self):
@@ -1950,7 +1932,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             return None
 
         return [
-            (sp, lns, DISCUSSION_COLORS[speakers[sp] % len(DISCUSSION_COLORS)])
+            (sp, lns, theme.DISCUSSION_COLORS[speakers[sp] % len(theme.DISCUSSION_COLORS)])
             for sp, lns in blocks
         ]
 
@@ -2059,7 +2041,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         the document layout, so we set them directly on the char formats
         Qt marked as fixed-pitch during the Markdown import.
         """
-        bg = QBrush(NOTE_MD_CODE_BG_COLOR)
+        bg = QBrush(theme.NOTE_MD_CODE_BG_COLOR)
         cursor = QTextCursor(doc)
         block = doc.begin()
         while block.isValid():
@@ -2347,7 +2329,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         pad = self._PAD
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        bg = QColor("#F2F0EB")
+        bg = QColor(theme.SURFACE)
         bg.setAlphaF(0.85)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(bg))
@@ -2359,7 +2341,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         painter.setBrush(QBrush(QColor(accent)))
         painter.drawRoundedRect(tick, 1.5, 1.5)
 
-        bar = QColor("#9A968D")
+        bar = QColor(theme.BAR_COLOR)
         bar.setAlphaF(0.55)
         painter.setBrush(QBrush(bar))
         line_h, gap = 6.0, 5.0
@@ -2383,7 +2365,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         if self.isSelected():
             r = r.adjusted(4, 4, -4, -4)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        bg = QColor("#F2F0EB" if not self.note.flat else "#E9E5DD")
+        bg = QColor(theme.SURFACE if not self.note.flat
+                    else theme.SURFACE_FLAT)
         clip = QPainterPath()
         clip.addRoundedRect(r, self._BG_RADIUS, self._BG_RADIUS)
         painter.save()
@@ -2408,7 +2391,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         font.setPointSizeF(9.0)
         font.setBold(True)
         painter.setFont(font)
-        painter.setPen(QColor("#5A5A5A"))
+        painter.setPen(QColor(theme.INK_MUTED))
         band = QRectF(r.left() + self._PAD, r.bottom() - self._DISPLAY_FOOTER_H,
                       r.width() - 2 * self._PAD, self._DISPLAY_FOOTER_H)
         painter.drawText(
@@ -2497,7 +2480,7 @@ class NoteItem(QGraphicsSimpleTextItem):
 
         # Light background
         if not self.note.flat:
-            bg = QColor("#F2F0EB")
+            bg = QColor(theme.SURFACE)
             bg.setAlphaF(0.85)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(bg))
@@ -2515,7 +2498,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             bold_font = QFont(font)
             bold_font.setBold(True)
             _draw_text(painter, QPointF(pad + self._BADGE_HPAD, text_y),
-                       prefix, bold_font, QColor("#FFFFFF"))
+                       prefix, bold_font, theme.ink_on(accent))
 
             # Body lines in accent color
             body_x = pad + badge_w + self._BADGE_GAP
@@ -2533,7 +2516,7 @@ class NoteItem(QGraphicsSimpleTextItem):
 
         # Selection indicator + always-visible resize grip
         if self.isSelected():
-            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
+            sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
@@ -2552,7 +2535,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         if not self.note.flat:
-            bg = QColor("#F2F0EB")
+            bg = QColor(theme.SURFACE)
             bg.setAlphaF(0.85)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(bg))
@@ -2564,8 +2547,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         # Markdown notes are a sibling of code notes — a formatted block on
         # the beige plate — so they share the near-black body text, with
         # links picked out in the plain-note blue.
-        ctx.palette.setColor(QPalette.ColorRole.Text, NOTE_CODE_TEXT_COLOR)
-        ctx.palette.setColor(QPalette.ColorRole.Link, NOTE_PEN_COLOR)
+        ctx.palette.setColor(QPalette.ColorRole.Text, theme.NOTE_CODE_TEXT_COLOR)
+        ctx.palette.setColor(QPalette.ColorRole.Link, theme.NOTE_PEN_COLOR)
         doc.documentLayout().draw(painter, ctx)
         painter.restore()
 
@@ -2573,7 +2556,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             _paint_link_glyph(painter, bg_rect)
 
         if self.isSelected():
-            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
+            sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
@@ -2599,7 +2582,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         if not self.note.flat:
-            bg = QColor("#F2F0EB")
+            bg = QColor(theme.SURFACE)
             bg.setAlphaF(0.85)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(bg))
@@ -2620,7 +2603,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             )
 
             _draw_text(painter, QPointF(pad + self._BADGE_HPAD, y + fm.ascent()),
-                       speaker, bold_font, QColor("#FFFFFF"))
+                       speaker, bold_font, theme.ink_on(color))
 
             # Body lines (already wrapped)
             for ln in lines:
@@ -2635,7 +2618,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             _paint_link_glyph(painter, bg_rect)
 
         if self.isSelected():
-            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
+            sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
@@ -2671,9 +2654,9 @@ class NoteItem(QGraphicsSimpleTextItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         if not self.note.flat:
-            bg = QColor(NOTE_CODE_BG_COLOR)
+            bg = QColor(theme.NOTE_CODE_BG_COLOR)
             bg.setAlphaF(0.85)
-            border_color = NOTE_CODE_BORDER_COLOR
+            border_color = theme.NOTE_CODE_BORDER_COLOR
             painter.setPen(QPen(border_color, 1))
             painter.setBrush(QBrush(bg))
             painter.drawRoundedRect(
@@ -2703,7 +2686,7 @@ class NoteItem(QGraphicsSimpleTextItem):
 
         # Indent guides — drawn at each visual line's *original* indent,
         # so a wrapped continuation aligns with its source block.
-        guide_color = QColor(NOTE_CODE_INDENT_GUIDE_COLOR)
+        guide_color = QColor(theme.NOTE_CODE_INDENT_GUIDE_COLOR)
         guide_color.setAlphaF(0.5)
         guide_pen = QPen(guide_color, 1)
         for i, (_, _, indent_cols) in enumerate(visual):
@@ -2742,9 +2725,9 @@ class NoteItem(QGraphicsSimpleTextItem):
                 # On the signature line, everything reads as the title
                 # (plain text colour); refs keep their link tone.
                 if is_sig and kind != "ref":
-                    color = NOTE_CODE_TEXT_COLOR
+                    color = theme.NOTE_CODE_TEXT_COLOR
                 else:
-                    color = _CODE_KIND_COLORS.get(kind, NOTE_CODE_TEXT_COLOR)
+                    color = _code_kind_color(kind)
                 painter.setPen(color)
                 painter.drawText(QPointF(x, y), text)
                 if kind == "ref":
@@ -2761,7 +2744,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             _paint_link_glyph(painter, bg_rect)
 
         if self.isSelected():
-            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
+            sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = bg_rect.adjusted(-3, -3, 3, 3)
@@ -2780,7 +2763,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         band_w = 8
         if total_w < 2 * band_w or total_h < 8:
             return
-        accent = QColor("#2F5D5C")
+        accent = QColor(theme.ACCENT_TEAL)
         # Faint background band
         bg = QColor(accent)
         bg.setAlphaF(0.10)
@@ -2907,7 +2890,7 @@ class ImageItem(QGraphicsPixmapItem):
         pm = QPixmap(path)
         if pm.isNull():
             pm = QPixmap(int(self.image.w), int(self.image.h))
-            pm.fill(QColor("#D5D0C8"))
+            pm.fill(QColor(theme.PLACEHOLDER_FILL))
             self._placeholder = True
         else:
             self._aspect_ratio = pm.width() / max(pm.height(), 1)
@@ -3004,7 +2987,7 @@ class ImageItem(QGraphicsPixmapItem):
         painter.drawPixmap(target, self._full_pixmap, source)
 
         # Subtle border
-        border = QColor("#CDC8BF")
+        border = QColor(theme.CONTENT_BORDER_COLOR)
         painter.setPen(QPen(border, 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(target)
@@ -3013,7 +2996,7 @@ class ImageItem(QGraphicsPixmapItem):
             _paint_link_glyph(painter, target)
 
         if self.isSelected():
-            sel_pen = QPen(QColor("#2F5D5C"), 2, Qt.PenStyle.DashLine)
+            sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = target.adjusted(-3, -3, 3, 3)
@@ -3165,7 +3148,7 @@ class LabelItem(QGraphicsSimpleTextItem):
         pad = self._PAD
         fm, bfm, line_h, total_w, total_h = self._metrics()
         bg_rect = QRectF(0, 0, total_w, total_h).adjusted(-pad, -pad, pad, pad)
-        bg = QColor("#F2F0EB")
+        bg = QColor(theme.SURFACE)
         bg.setAlphaF(0.6)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
@@ -3184,13 +3167,13 @@ class LabelItem(QGraphicsSimpleTextItem):
                 badge_w = bfm.horizontalAdvance(parsed.kind) + self._BADGE_HPAD * 2
                 badge_rect = QRectF(x, y - fm.ascent(), badge_w, line_h)
                 painter.setPen(Qt.PenStyle.NoPen)
-                chip_color = EDGE_KIND_COLORS.get(parsed.kind, QColor("#6A9FB5"))
+                chip_color = edge_kind_color(parsed.kind, QColor(theme.INFO_COLOR))
                 painter.setBrush(QBrush(chip_color))
                 painter.drawRoundedRect(
                     badge_rect, self._BADGE_RADIUS, self._BADGE_RADIUS
                 )
                 painter.setFont(bold)
-                painter.setPen(QColor("#FFFFFF"))
+                painter.setPen(theme.ink_on(chip_color))
                 painter.drawText(QPointF(x + self._BADGE_HPAD, y), parsed.kind)
                 x += badge_w + self._GAP
                 text = parsed.body

@@ -101,6 +101,10 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 - Scratch board — start `grafli` with no file and you land on a persistent
   `~/grafli-scratch.grafli`, autosaved like any other board, so a quick
   sketch is still there next time.
+- Light and dark themes — the same warm paper style in two grounds, switched
+  live with the sun/moon button or
+  <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> and remembered across restarts.
+  `%color` tokens are semantic, so a board reads correctly in either theme.
 - Yank as PNG (<kbd>Y</kbd>), SVG export (<kbd>Ctrl</kbd>+<kbd>E</kbd>).
 
 ## File format
@@ -149,6 +153,7 @@ or spans multiple lines.
 | <kbd>B</kbd> / <kbd>Shift</kbd>+<kbd>B</kbd> | Subgraph focus (cycle direction / toggle depth) |
 | <kbd>,</kbd> / <kbd>Shift</kbd>+<kbd>N</kbd> | Dim arrows / dim notes (focus on the rest) |
 | <kbd>Y</kbd> / <kbd>Ctrl</kbd>+<kbd>E</kbd> | Yank PNG to clipboard / Export SVG |
+| <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Toggle light / dark theme |
 | <kbd>F1</kbd> | In-app cheat sheet and text-annotation reference |
 
 The full set is in the in-app <kbd>F1</kbd> dialog and on the documentation site.

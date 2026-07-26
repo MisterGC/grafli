@@ -18,6 +18,8 @@ from dataclasses import dataclass
 
 from PySide6.QtGui import QColor
 
+from grafli import theme
+
 
 EDGE_KINDS = (
     "call",
@@ -32,18 +34,16 @@ EDGE_KINDS = (
     "note",
 )
 
-EDGE_KIND_COLORS: dict[str, QColor] = {
-    "call": QColor("#2F5D5C"),
-    "data": QColor("#2B6CB0"),
-    "event": QColor("#C05621"),
-    "state": QColor("#805AD5"),
-    "step": QColor("#805AD5"),
-    "verify": QColor("#2F855A"),
-    "owns": QColor("#2C7A7B"),
-    "depends": QColor("#6A9FB5"),
-    "risk": QColor("#C53030"),
-    "note": QColor("#8A8580"),
-}
+def edge_kind_color(kind: str, fallback: QColor | None = None) -> QColor:
+    """Colour for an edge kind under the active theme.
+
+    The hues carry meaning across a theme switch (``risk`` stays red), so the
+    palette re-tunes their lightness rather than remapping them.
+    """
+    color = theme.EDGE_KIND_COLORS.get(kind)
+    if color is not None:
+        return color
+    return fallback if fallback is not None else theme.ARROW_COLOR
 
 _RE_EDGE_LABEL = re.compile(
     r"^(?P<kind>" + "|".join(EDGE_KINDS) + r"):\s*(?P<body>.*)$",

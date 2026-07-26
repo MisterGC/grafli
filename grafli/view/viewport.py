@@ -21,6 +21,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QCursor, QTransform
 from PySide6.QtWidgets import QGraphicsView
+from grafli import theme
 from grafli.lod import CHILD_COLLAPSE_PX
 
 
@@ -78,8 +79,15 @@ class ViewportMixin:
     # zoom-in is a fixed cap (so a few glyphs can't fill the screen).
     MIN_ZOOM_ABS = 0.02
     MAX_ZOOM = 5.0
-    # Muted grey for a LoD aggregate whose members don't share a colour.
-    LOD_NEUTRAL = "#8E9299"
+
+    @property
+    def LOD_NEUTRAL(self) -> str:
+        """Muted grey for a LoD aggregate whose members don't share a colour.
+
+        A property, not a class attribute: the latter would bind at import and
+        keep the theme that happened to be active then.
+        """
+        return theme.LOD_NEUTRAL.name()
 
     def _fit_zoom(self):
         """Scale at which the whole board (plus margin) just fits the viewport,

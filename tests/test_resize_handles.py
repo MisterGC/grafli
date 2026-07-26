@@ -10,6 +10,7 @@ from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QGraphicsItem, QApplication
 
+from grafli import theme
 from grafli.format import parse
 from grafli.items import (
     BoxItem, ImageItem, HANDLE_SIZE,
@@ -161,10 +162,23 @@ def test_handle_hover_grows_and_recolours():
     h = view._box_items["a"]._handles[0]
     idle = h.rect().width()
     assert idle == HANDLE_SIZE
-    assert h.brush().color().name() == "#ffffff"
+    assert h.brush().color() == theme.HANDLE_FILL
     h._set_hover(True)
     assert h.rect().width() > idle               # grows to advertise the grab
-    assert h.brush().color().name() == "#2f5d5c"  # fills with the accent
+    assert h.brush().color() == theme.HANDLE_HOVER_FILL  # fills with the accent
     h._set_hover(False)
     assert h.rect().width() == idle
-    assert h.brush().color().name() == "#ffffff"
+    assert h.brush().color() == theme.HANDLE_FILL
+
+
+def test_handles_follow_a_theme_switch():
+    """A live switch has to reach the handles — they cache brush/pen."""
+    view = _view(_BOX)
+    h = view._box_items["a"]._handles[0]
+    assert h.brush().color() == theme.LIGHT.HANDLE_FILL
+    try:
+        theme.set_theme("dark")
+        view.apply_theme()
+        assert h.brush().color() == theme.DARK.HANDLE_FILL
+    finally:
+        theme.set_theme("light")

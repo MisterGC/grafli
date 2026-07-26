@@ -24,6 +24,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import textli
+
+from grafli import theme
 from grafli.buffers import BufferManager, BufferState, ViewState
 from grafli.constants import Mode
 from grafli.fonts import register_bundled_fonts as _register_bundled_fonts
@@ -31,7 +34,7 @@ from grafli.filewatcher import JsonSafeWatcher, MultiFileWatcher
 from grafli.format import Board, parse, serialize, serialize_to_file
 from grafli.sync import Conflict, atomic_write, merge_boards
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
-from grafli.sidepanel import PanelToggleButton, SidePanel
+from grafli.sidepanel import PanelToggleButton, SidePanel, ThemeToggleButton
 from grafli.view import GrafliView
 
 
@@ -60,6 +63,17 @@ def running_version() -> str:
     return f"{branch}@{sha}{dirty}"
 
 
+def _sync_editor_theme() -> None:
+    """Put textli on the same theme as the board.
+
+    textli owns its own palette and, from 0.6, restyles any open editor in
+    place when the host calls this — so the zen and inline editors match the
+    canvas they were opened from instead of flashing a bright page over a dark
+    board. Its own persistence is standalone-app-only and never overrides us.
+    """
+    textli.set_theme(theme.name())
+
+
 # ── Main window ─────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
@@ -68,13 +82,21 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Grafli")
         self.resize(1200, 800)
 
+        # Restore the theme before any widget is built — every widget reads the
+        # palette as it constructs its stylesheet, so switching afterwards would
+        # need a full restyle pass just to reach the state we already know.
+        theme.set_theme(QSettings("Grafli", "Grafli").value(
+            "theme/name", "light", type=str))
+        _sync_editor_theme()
+
         self._view = GrafliView(self)
         if debug:
             self._view._debug_overlay = True
 
-        # Side panel + toggle button
+        # Side panel + floating toggles
         self._side_panel = SidePanel(self)
         self._panel_toggle = PanelToggleButton(self._view.viewport())
+        self._theme_toggle = ThemeToggleButton(self._view.viewport())
 
         # A splitter lets the user drag the panel/canvas boundary. The panel
         # keeps a content-driven minimum width so nothing clips, and a single
@@ -138,6 +160,7 @@ class MainWindow(QMainWindow):
     def showEvent(self, event):
         super().showEvent(event)
         self._panel_toggle.reposition()
+        self._theme_toggle.reposition()
         self._apply_panel_width()
 
     def _apply_panel_width(self):
@@ -173,6 +196,8 @@ class MainWindow(QMainWindow):
     def _setup_panel(self):
         self._panel_toggle.clicked.connect(self._toggle_panel)
         self._panel_toggle.reposition()
+        self._theme_toggle.clicked.connect(self._toggle_theme)
+        self._theme_toggle.reposition()
         self._side_panel.tool_activated.connect(self._on_tool_activated)
         self._side_panel.update_mode(self._view.mode)
         self._side_panel.update_selection(False)
@@ -180,6 +205,27 @@ class MainWindow(QMainWindow):
             self._side_panel.update_selection
         )
         self._side_panel.attach_view(self._view)
+
+    def _toggle_theme(self):
+        """Flip light <-> dark, remember it, and restyle in place."""
+        name = theme.toggle()
+        QSettings("Grafli", "Grafli").setValue("theme/name", name)
+        self._apply_theme()
+        self.statusBar().showMessage(f"{name.capitalize()} theme", 1500)
+        self._view.setFocus()
+
+    def _apply_theme(self):
+        """Push the active palette through every widget that caches a colour.
+
+        The canvas resolves most colours at paint time, but stylesheets are
+        strings built once, so each panel rebuilds its own.
+        """
+        _sync_editor_theme()
+        self._view.apply_theme()
+        self._side_panel.apply_theme()
+        self._panel_toggle.update()
+        self._theme_toggle.apply_theme()
+        self._restyle_status_bar()
 
     def _toggle_panel(self):
         visible = not self._side_panel.isVisible()
@@ -249,6 +295,7 @@ class MainWindow(QMainWindow):
         self._side_panel.hide()
         self.statusBar().hide()
         self._panel_toggle.hide()
+        self._theme_toggle.hide()
         self._presenting = True
         self.showFullScreen()
         self._view.setFocus()
@@ -265,6 +312,8 @@ class MainWindow(QMainWindow):
         self.statusBar().show()
         self._panel_toggle.show()
         self._panel_toggle.reposition()
+        self._theme_toggle.show()
+        self._theme_toggle.reposition()
         self._view.setFocus()
 
     def _on_playback_ended(self):
@@ -435,6 +484,11 @@ class MainWindow(QMainWindow):
         present.triggered.connect(self._present_current)
         self.addAction(present)
 
+        act_theme = QAction(self)
+        act_theme.setShortcut(QKeySequence("Ctrl+Shift+D"))
+        act_theme.triggered.connect(self._toggle_theme)
+        self.addAction(act_theme)
+
         # Buffer shortcuts
         act_fuzzy_picker = QAction(self)
         act_fuzzy_picker.setShortcut(
@@ -509,27 +563,20 @@ class MainWindow(QMainWindow):
     def _setup_status_bar(self):
         self._status_mode = QLabel("SELECT")
         self._status_breadcrumb = QLabel("")
-        self._status_breadcrumb.setStyleSheet("color: #888888;")
         self._status_zoom = QLabel("100%")
         self._status_pos = QLabel("0, 0")
         self._status_sel = QLabel("")
-
         self._status_focus = QLabel("")
-        self._status_focus.setStyleSheet("color: #6A9FB5; font-weight: bold;")
-
         self._status_lod = QLabel("")
-
         self._status_warn = QLabel("")
-        self._status_warn.setStyleSheet("color: #e04040; font-weight: bold;")
-
         self._status_buf = QLabel("")
-        self._status_buf.setStyleSheet("color: #6A9FB5;")
 
         # Running-code identity (git branch@sha for dev checkouts) — so it's
         # obvious at a glance whether a relaunch picked up new code.
         self._status_version = QLabel(running_version())
-        self._status_version.setStyleSheet("color: #999999;")
         self._status_version.setToolTip("Running grafli build")
+
+        self._restyle_status_bar()
 
         self.statusBar().addPermanentWidget(self._status_version)
         self.statusBar().addWidget(self._status_mode)
@@ -541,6 +588,21 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self._status_lod)
         self.statusBar().addPermanentWidget(self._status_pos)
         self.statusBar().addPermanentWidget(self._status_zoom)
+
+    def _restyle_status_bar(self):
+        """(Re)apply the theme to the status-bar labels.
+
+        The LoD label is styled by the complexity mixin as its state changes,
+        so it is left alone here rather than being reset to a default.
+        """
+        self._status_breadcrumb.setStyleSheet(
+            f"color: {theme.STATUS_DIM.name()};")
+        self._status_focus.setStyleSheet(
+            f"color: {theme.INFO_COLOR.name()}; font-weight: bold;")
+        self._status_warn.setStyleSheet(
+            f"color: {theme.ERROR_BG.name()}; font-weight: bold;")
+        self._status_buf.setStyleSheet(f"color: {theme.INFO_COLOR.name()};")
+        self._status_version.setStyleSheet(f"color: {theme.STATUS_DIM.name()};")
 
     def _update_buf_status(self):
         if self._buffers.count > 1:
@@ -1589,7 +1651,15 @@ def _cmd_render(argv: list[str]) -> int:
              "inside the framed region — needs --bookmark or --step (with "
              "--step: overrides the step's own setting)",
     )
+    parser.add_argument(
+        "--theme", default="light", choices=("light", "dark"),
+        help="Colour theme for the render (default light). Headless output "
+             "does not follow the app's theme setting, so a given file and "
+             "flags always render the same image",
+    )
     args = parser.parse_args(argv)
+
+    theme.set_theme(args.theme)
 
     exclusive = [n for n, v in (("--focus", args.focus),
                                 ("--bookmark", args.bookmark),

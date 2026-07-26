@@ -17,11 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from grafli import theme
 from grafli.constants import (
     FONT_FAMILY,
-    GLYPH_PICKER_BADGE,
-    GLYPH_PICKER_BG,
-    GLYPH_PICKER_HIGHLIGHT,
 )
 
 # ── Categories ──────────────────────────────────────────────────
@@ -179,7 +177,8 @@ class _GlyphCell(QWidget):
         self._char_label = QLabel(char)
         self._char_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._char_label.setFont(QFont(FONT_FAMILY, 22))
-        self._char_label.setStyleSheet("color: #FFFFFF; background: transparent;")
+        self._char_label.setStyleSheet(
+            f"color: {theme.ON_ACCENT.name()}; background: transparent;")
         top_layout.addWidget(self._char_label)
 
         layout.addWidget(top_row, stretch=1)
@@ -190,7 +189,8 @@ class _GlyphCell(QWidget):
         self._name_label = QLabel(short)
         self._name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._name_label.setFont(QFont(FONT_FAMILY, 7))
-        self._name_label.setStyleSheet("color: #888888; background: transparent;")
+        self._name_label.setStyleSheet(
+            f"color: {theme.GLYPH_PICKER_NAME_FG.name()}; background: transparent;")
         layout.addWidget(self._name_label)
 
         self._badge = badge
@@ -201,8 +201,8 @@ class _GlyphCell(QWidget):
         self._update_style()
 
     def _update_style(self) -> None:
-        bg = GLYPH_PICKER_HIGHLIGHT.name() if self._highlighted else "transparent"
-        border = f"1px solid {GLYPH_PICKER_HIGHLIGHT.name()}" if self._highlighted else "1px solid transparent"
+        bg = theme.GLYPH_PICKER_HIGHLIGHT.name() if self._highlighted else "transparent"
+        border = f"1px solid {theme.GLYPH_PICKER_HIGHLIGHT.name()}" if self._highlighted else "1px solid transparent"
         self.setStyleSheet(
             f"_GlyphCell {{ background: {bg}; border: {border}; border-radius: 6px; }}"
         )
@@ -215,7 +215,7 @@ class _GlyphCell(QWidget):
         if self._badge:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setBrush(GLYPH_PICKER_BADGE)
+            painter.setBrush(theme.GLYPH_PICKER_BADGE)
             painter.setPen(Qt.PenStyle.NoPen)
             badge_font = QFont(FONT_FAMILY, 8)
             fm = QFontMetrics(badge_font)
@@ -245,10 +245,11 @@ class GlyphPicker(QWidget):
         self.setMaximumHeight(460)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
-        bg = GLYPH_PICKER_BG
+        bg = theme.GLYPH_PICKER_BG
         self.setStyleSheet(
             f"GlyphPicker {{ background: rgba({bg.red()},{bg.green()},{bg.blue()},{bg.alpha()});"
-            f" border: 1px solid #555; border-radius: 8px; }}"
+            f" border: 1px solid {theme.GLYPH_PICKER_BORDER.name()};"
+            f" border-radius: 8px; }}"
         )
 
         layout = QVBoxLayout(self)
@@ -260,9 +261,11 @@ class GlyphPicker(QWidget):
         self._search.setPlaceholderText("Filter glyphs\u2026")
         self._search.setFont(QFont(FONT_FAMILY, 12))
         self._search.setStyleSheet(
-            "QLineEdit { background: #3A3F42; color: #FFFFFF; border: 1px solid #555;"
+            f"QLineEdit {{ background: {theme.GLYPH_PICKER_FIELD_BG.name()};"
+            f" color: {theme.ON_ACCENT.name()};"
+            f" border: 1px solid {theme.GLYPH_PICKER_BORDER.name()};"
             " border-radius: 4px; padding: 6px 8px; }"
-            "QLineEdit:focus { border-color: #6A9FB5; }"
+            f"QLineEdit:focus {{ border-color: {theme.GLYPH_PICKER_BADGE.name()}; }}"
         )
         self._search.textChanged.connect(self._on_filter)
         layout.addWidget(self._search)
@@ -307,8 +310,10 @@ class GlyphPicker(QWidget):
         self._scroll.setStyleSheet(
             "QScrollArea { background: transparent; border: none; }"
             "QWidget#grid_container { background: transparent; }"
-            "QScrollBar:vertical { background: #2F3437; width: 8px; }"
-            "QScrollBar::handle:vertical { background: #555; border-radius: 4px; }"
+            f"QScrollBar:vertical {{ background: {theme.GLYPH_PICKER_FIELD_BG.name()};"
+            " width: 8px; }"
+            f"QScrollBar::handle:vertical {{ background: {theme.GLYPH_PICKER_BORDER.name()};"
+            " border-radius: 4px; }"
             "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
         )
         layout.addWidget(self._scroll)
@@ -333,9 +338,11 @@ class GlyphPicker(QWidget):
         for btn, cat in zip(self._cat_buttons, self._cat_names):
             active = cat == self._active_category
             btn.setStyleSheet(_PILL_STYLE.format(
-                bg=GLYPH_PICKER_HIGHLIGHT.name() if active else "transparent",
-                fg="#FFFFFF" if active else "#AAAAAA",
-                border=GLYPH_PICKER_HIGHLIGHT.name() if active else "#555",
+                bg=theme.GLYPH_PICKER_HIGHLIGHT.name() if active else "transparent",
+                fg=(theme.ON_ACCENT.name() if active
+                    else theme.GLYPH_PICKER_INACTIVE_FG.name()),
+                border=(theme.GLYPH_PICKER_HIGHLIGHT.name() if active
+                        else theme.GLYPH_PICKER_BORDER.name()),
                 font=FONT_FAMILY,
             ))
 

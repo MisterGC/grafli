@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem,
     QPushButton,
 )
+from grafli import theme
 from grafli.constants import ARROW_LABEL_FONT_SIZES, FONT_FAMILY
 from grafli.format import Arrow
 from grafli.items import BoxItem, ImageItem, LabelItem, NoteItem
@@ -40,7 +41,7 @@ class _InlineEditorItem(QGraphicsTextItem):
     typed stays readable on any node fill or connector line (issue #126)."""
 
     def paint(self, painter, option, widget=None):
-        bg = QColor("#F2F0EB")
+        bg = QColor(theme.SURFACE)
         bg.setAlphaF(0.92)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(bg)
@@ -68,8 +69,9 @@ class _ResourcePicker(QPushButton):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setText("  [m]arkdown    [g]rafli    [f]ile  ")
         self.setStyleSheet(self._STYLE.format(
-            bg="#2A2D2E", fg="#D4D4D4", border="#555",
-            hover="#3A3D3E", font=FONT_FAMILY,
+            bg=theme.TOOLTIP_BG.name(), fg=theme.TOOLTIP_FG.name(),
+            border=theme.HELP_BORDER.name(),
+            hover=theme.TOOLTIP_HOVER.name(), font=FONT_FAMILY,
         ))
 
     def sizeHint(self):
@@ -546,7 +548,7 @@ class ResourcesMixin:
         editor = _InlineEditorItem(text)
         editor.setFont(font)
         editor.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
-        editor.setDefaultTextColor(QColor("#2F3437"))
+        editor.setDefaultTextColor(QColor(theme.INK))
         editor.setTextWidth(rect.width() - 16)
         br = editor.boundingRect()
 
@@ -587,9 +589,10 @@ class ResourcesMixin:
                                  font=font)
         widget.setStyleSheet(
             "QPlainTextEdit {"
-            " background: #FBFAF7; color: #2F3437;"
-            " border: 1px solid #2F5D5C; border-radius: 4px; padding: 4px;"
-            " selection-background-color: #B8D4E8;"
+            f" background: {theme.EDITOR_BG.name()}; color: {theme.INK.name()};"
+            f" border: 1px solid {theme.EDITOR_BORDER.name()};"
+            " border-radius: 4px; padding: 4px;"
+            f" selection-background-color: {theme.EDITOR_SELECTION_BG.name()};"
             "}"
         )
 
@@ -679,7 +682,7 @@ class ResourcesMixin:
         editor = _InlineEditorItem(arrow.label)
         editor.setFont(font)
         editor.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
-        editor.setDefaultTextColor(QColor("#2F3437"))
+        editor.setDefaultTextColor(QColor(theme.INK))
         br = editor.boundingRect()
         editor.setPos(
             mid.x() - br.width() / 2 + arrow.label_dx,

@@ -41,6 +41,10 @@ its version. It is required.
 - `<color>` — built-in tokens: `%base`, `%primary`, `%secondary`,
   `%tertiary`, `%subtle`, `%accent`, `%highlight`, `%muted`, `%soft`,
   `%clay`, `%teal`, `%rose`, `%forest`, `%plum`, or any `#rrggbb` hex value.
+  Tokens are *semantic*: each one resolves to a different value in the light
+  and [dark theme](keybindings.md#light-and-dark), so a board written by
+  someone on light reads correctly on dark. Prefer them over hex, which is
+  kept exactly as written and so only suits one theme.
 - `^anchor` — `topleft`, `top`, `topright`, `left`, `center`, `right`,
   `bottomleft`, `bottom`, `bottomright`. Controls how a box's label is
   placed.

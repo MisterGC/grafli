@@ -133,6 +133,27 @@ section.
 | <kbd>#</kbd> | Toggle grid |
 | <kbd>M</kbd> | Toggle minimap |
 | <kbd>\\</kbd> | Toggle tools panel |
+| <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Toggle light / dark theme — or click the sun/moon button next to the tools button |
+
+### Light and dark
+
+grafli ships two themes: the warm paper light theme and a dark counterpart in
+the same style — same semantic roles, same contrast relationships, just a
+low-key ground. Switch with <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>, or click
+the sun/moon button in the top-left of the canvas (it shows the theme you'd
+switch *to*). The choice applies immediately and is remembered across restarts.
+
+Colour tokens (`%accent`, `%primary`, …) are semantic, so they re-resolve per
+theme and a `.grafli` written by someone on light reads correctly on dark. A
+literal hex (`#C0FFEE`) is always kept exactly as written.
+
+Headless renders don't follow the app's theme, so a given file and flags always
+produce the same image. Pick one explicitly:
+
+```bash
+grafli render board.grafli out.png              # light (default)
+grafli render board.grafli out.png --theme dark
+```
 
 ## Export
 

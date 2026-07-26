@@ -17,10 +17,10 @@ from PySide6.QtWidgets import (
     QGraphicsPolygonItem,
 )
 
+from grafli import theme
 from grafli.constants import (
     BOX_BORDER_WIDTH,
     FONT_FAMILY,
-    HEATMAP_BG,
     HEATMAP_BORDER_DARKEN,
     HEATMAP_COLD_ALPHA,
     HEATMAP_EQUAL_HEAT,
@@ -31,11 +31,8 @@ from grafli.constants import (
     HEATMAP_LEGEND_MARGIN,
     HEATMAP_LEGEND_W,
     HEATMAP_NOTE_OPACITY,
-    HEATMAP_STOPS,
-    HEATMAP_TEXT_COLOR,
     MINIMAP_MARGIN,
     MINIMAP_STATS_FONT_SIZE,
-    SCENE_BG,
     resolve_textsize_px,
 )
 from grafli.items import ArrowLineItem, ClusterHullItem, LabelItem
@@ -76,7 +73,7 @@ class ComplexityMixin:
     def _heat_to_color(heat: float) -> QColor:
         """Interpolate the 5-stop gradient at the given heat value."""
         heat = max(0.0, min(1.0, heat))
-        stops = HEATMAP_STOPS
+        stops = theme.HEATMAP_STOPS
         for i in range(len(stops) - 1):
             t0, c0 = stops[i]
             t1, c1 = stops[i + 1]
@@ -97,7 +94,7 @@ class ComplexityMixin:
 
         # Dark background
         self._saved_bg_brush = QBrush(self._scene.backgroundBrush())
-        self._scene.setBackgroundBrush(QBrush(HEATMAP_BG))
+        self._scene.setBackgroundBrush(QBrush(theme.HEATMAP_BG))
 
         # Save original box state
         saved = []
@@ -119,7 +116,7 @@ class ComplexityMixin:
             item.setBrush(QBrush(fill))
             item.setPen(QPen(c.darker(HEATMAP_BORDER_DARKEN), BOX_BORDER_WIDTH))
 
-            text_color = QColor(HEATMAP_TEXT_COLOR)
+            text_color = QColor(theme.HEATMAP_TEXT_COLOR)
             text_alpha = 0.5 + 0.5 * h
             text_color.setAlphaF(text_alpha)
             item._label.setDefaultTextColor(text_color)
@@ -236,7 +233,7 @@ class ComplexityMixin:
 
         # Gradient bar
         grad = QLinearGradient(bar_x, 0, bar_x + bar_w, 0)
-        for pos, color in HEATMAP_STOPS:
+        for pos, color in theme.HEATMAP_STOPS:
             grad.setColorAt(pos, color)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(grad))
@@ -266,10 +263,11 @@ class ComplexityMixin:
                            or self._lod_simplified or self._lod_hidden_notes)
         if not self._lod_enabled:
             window._status_lod.setText("LoD off")
-            window._status_lod.setStyleSheet("color: #999999;")
+            window._status_lod.setStyleSheet(f"color: {theme.STATUS_DIM.name()};")
         elif aggregating:
             window._status_lod.setText("◧ LoD")
-            window._status_lod.setStyleSheet("color: #C77A52; font-weight: bold;")
+            window._status_lod.setStyleSheet(
+                f"color: {theme.FLOWS_ACCENT.name()}; font-weight: bold;")
         else:
             window._status_lod.setText("")
 
@@ -517,12 +515,11 @@ class ComplexityMixin:
         """Hull colour: the members' shared colour, or a neutral grey when they
         disagree — an honest 'this is a heterogeneous group' instead of picking
         one member's colour and misrepresenting the rest."""
-        from grafli.items import _resolve_color
         hexes = set()
         for m in comp:
             it = self._box_items.get(m)
             if it is not None:
-                hexes.add(_resolve_color(it.box.color))
+                hexes.add(theme.resolve_color(it.box.color))
         hexes.discard(None)
         return hexes.pop() if len(hexes) == 1 else self.LOD_NEUTRAL
 

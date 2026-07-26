@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.8.0] - 2026-07-26
+
+A dark counterpart to the warm paper theme — derived from the light palette's
+measured relationships rather than picked by eye, so a board carries the same
+emphasis whichever ground it sits on — plus a caption fix that keeps a flow
+readable from the back of the room.
+
+### Added
+- **Dark theme.** A counterpart to the warm paper light theme rather than an
+  inversion: the same semantic roles and contrast relationships on a low-key
+  ground (`#1E1C19`), with the light theme's paper colour as its ink. Toggle
+  with the sun/moon button next to the tools button or
+  <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>; the switch applies live and is
+  remembered across restarts. `%color` tokens are semantic and re-resolve per
+  theme, so a board authored on one reads correctly on the other, while a
+  literal `#hex` is kept exactly as written. Each token keeps its *contrast
+  against its own canvas* — `%highlight` stays a quiet tint in both, `%primary`
+  stays the loud one — and anything drawn on a fill takes its ink from that
+  fill, so a chip label can't keep a light ink after the ground moves under it.
+  ([#137](https://github.com/MisterGC/grafli/issues/137))
+- **`grafli render --theme light|dark`.** Headless renders don't follow the
+  app's theme, so a given file and flags always produce the same image.
+  ([#137](https://github.com/MisterGC/grafli/issues/137))
+
+### Changed
+- Colour values moved out of `grafli.constants` into a new `grafli.theme`
+  module that holds both palettes and swaps them at runtime. `constants` keeps
+  the theme-independent vocabulary (token names, sizes, fonts).
+- Requires `textli-editor >= 0.6`, and the board's theme is handed to it: the
+  zen and inline Markdown editors open on the same ground as the canvas and
+  restyle in place when it changes, instead of flashing a bright page over a
+  dark board.
+
+### Fixed
+- Flow captions scale with the stage instead of sitting at a fixed 11pt
+  (floored at 11, capped at 28), so a presented flow stays legible on a large
+  window or an <kbd>F5</kbd> fullscreen projector.
+  ([#134](https://github.com/MisterGC/grafli/issues/134))
+
 ## [0.7.0] - 2026-07-17
 
 Sharper tools for the agent authoring loop: diagnostics that say what is
@@ -857,7 +898,8 @@ First public release of grafli on PyPI.
 - Python 3.12+
 - PySide6 (Qt 6.7+)
 
-[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/MisterGC/grafli/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MisterGC/grafli/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/MisterGC/grafli/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/MisterGC/grafli/compare/v0.4.0...v0.5.0

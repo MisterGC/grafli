@@ -25,12 +25,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from grafli import theme
 from grafli.constants import (
-    BOX_BORDER,
     FONT_FAMILY,
-    SCENE_BG,
-    SIDE_PANEL_BTN_ACTIVE,
-    SIDE_PANEL_SECTION_COLOR,
 )
 from grafli.flows import (bookmark_target_rect, render_bookmark_pixmap,
                           text_slide_note)
@@ -45,9 +42,6 @@ _THUMB_W, _THUMB_H = 960, 540
 # so the whole Flows tab can collapse to a narrow vertical stripe.
 _THUMB_DISPLAY_MIN = 56
 _THUMB_DISPLAY_MAX = 420
-_BORDER = "#D5D0C8"
-_SELECT_BG = SIDE_PANEL_BTN_ACTIVE.name()
-_ACCENT = "#D4804E"
 
 
 class _ClickableFrame(QFrame):
@@ -75,10 +69,10 @@ class _InlineTitle(QLineEdit):
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.setStyleSheet(
-            f"QLineEdit {{ color: {BOX_BORDER.name()}; background: transparent;"
+            f"QLineEdit {{ color: {theme.BOX_BORDER.name()}; background: transparent;"
             f" border: none; padding: 0; }}"
-            f" QLineEdit:focus {{ background: #FFFFFF;"
-            f" border: 1px solid {_BORDER}; border-radius: 3px; }}")
+            f" QLineEdit:focus {{ background: {theme.FIELD_BG.name()};"
+            f" border: 1px solid {theme.CONTENT_BORDER_COLOR.name()}; border-radius: 3px; }}")
         self.setPlaceholderText("Untitled")
         self._initial = text
         self.editingFinished.connect(self._maybe_commit)
@@ -107,10 +101,10 @@ class _InlineDesc(QPlainTextEdit):
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.setPlaceholderText("Add description…")
         self.setStyleSheet(
-            f"QPlainTextEdit {{ color: #4A4A4A; background: transparent;"
+            f"QPlainTextEdit {{ color: {theme.INK_SUBTLE.name()}; background: transparent;"
             f" border: none; }}"
-            f" QPlainTextEdit:focus {{ background: #FFFFFF;"
-            f" border: 1px solid {_BORDER}; border-radius: 3px; }}")
+            f" QPlainTextEdit:focus {{ background: {theme.FIELD_BG.name()};"
+            f" border: 1px solid {theme.CONTENT_BORDER_COLOR.name()}; border-radius: 3px; }}")
         self._initial = text
         self._max_chars = max_chars
         self.textChanged.connect(self._enforce_cap)
@@ -204,7 +198,7 @@ class _ThumbLabel(QLabel):
         """A hairline frame so the slide preview reads as a slide against the
         card's same-coloured paper background (mirrors the PDF slide frame)."""
         p = QPainter(pix)
-        pen = QPen(QColor(_BORDER))
+        pen = QPen(QColor(theme.CONTENT_BORDER_COLOR))
         pen.setWidth(0)   # cosmetic: one device pixel
         p.setPen(pen)
         p.drawRect(pix.rect().adjusted(0, 0, -1, -1))
@@ -224,17 +218,7 @@ class FlowsPanel(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        # Force readable dark text on native controls (the macOS dark palette
-        # otherwise renders combo/line-edit/button text near-white on paper).
-        self.setStyleSheet(
-            f"QLabel {{ color: {BOX_BORDER.name()}; background: transparent; }}"
-            f" QPushButton {{ color: {BOX_BORDER.name()}; background: transparent;"
-            f" border: none; }}"
-            f" QLineEdit {{ color: {BOX_BORDER.name()}; background: #FFFFFF;"
-            f" border: 1px solid {_BORDER}; border-radius: 3px; }}"
-            f" QComboBox {{ color: {BOX_BORDER.name()}; background: #FFFFFF;"
-            f" border: 1px solid {_BORDER}; border-radius: 3px; padding: 1px 4px; }}"
-        )
+        self._apply_base_style()
         self._view = None
         # Selection: None | ("step", flow_id, index) | ("bm", bm_id)
         self._selected = None
@@ -305,6 +289,30 @@ class FlowsPanel(QWidget):
                 w.setParent(None)
                 w.deleteLater()
 
+    def _apply_base_style(self):
+        """Pin control colours to the theme.
+
+        Native controls otherwise follow the OS palette, which will not match
+        whichever grafli theme is active (a macOS dark system palette used to
+        render combo/line-edit text near-white on grafli's paper).
+        """
+        self.setStyleSheet(
+            f"QLabel {{ color: {theme.BOX_BORDER.name()}; background: transparent; }}"
+            f" QPushButton {{ color: {theme.BOX_BORDER.name()}; background: transparent;"
+            f" border: none; }}"
+            f" QLineEdit {{ color: {theme.BOX_BORDER.name()}; background: {theme.FIELD_BG.name()};"
+            f" border: 1px solid {theme.CONTENT_BORDER_COLOR.name()}; border-radius: 3px; }}"
+            f" QComboBox {{ color: {theme.BOX_BORDER.name()}; background: {theme.FIELD_BG.name()};"
+            f" border: 1px solid {theme.CONTENT_BORDER_COLOR.name()};"
+            f" border-radius: 3px; padding: 1px 4px; }}"
+        )
+
+    def apply_theme(self):
+        """Restyle, then rebuild the rows — their styles are set as they build."""
+        self._apply_base_style()
+        self._thumb_cache.clear()
+        self.refresh()
+
     def refresh(self):
         self._clear()
         board = self._board()
@@ -365,10 +373,10 @@ class FlowsPanel(QWidget):
             btn.setSizePolicy(QSizePolicy.Policy.Ignored,
                               QSizePolicy.Policy.Fixed)
         btn.setStyleSheet(
-            f"QPushButton {{ color: {BOX_BORDER.name()}; background: transparent;"
-            f" border: 1px solid {_BORDER}; border-radius: 4px; padding: 5px;"
+            f"QPushButton {{ color: {theme.BOX_BORDER.name()}; background: transparent;"
+            f" border: 1px solid {theme.CONTENT_BORDER_COLOR.name()}; border-radius: 4px; padding: 5px;"
             f" margin: 2px 10px; text-align: center; }}"
-            f" QPushButton:hover {{ background: {_SELECT_BG}; }}")
+            f" QPushButton:hover {{ background: {theme.SIDE_PANEL_BTN_ACTIVE.name()}; }}")
         btn.clicked.connect(on_click)
         return btn
 
@@ -376,7 +384,7 @@ class FlowsPanel(QWidget):
         lbl = QLabel(text)
         lbl.setWordWrap(True)
         lbl.setFont(QFont(FONT_FAMILY, 10))
-        lbl.setStyleSheet("color: #8A8A8A; background: transparent;"
+        lbl.setStyleSheet(f"color: {theme.INK_FAINT.name()}; background: transparent;"
                           " padding: 4px 14px;")
         return lbl
 
@@ -391,13 +399,13 @@ class FlowsPanel(QWidget):
             # Flow headers stand out as a filled band so it's obvious where
             # each flow begins and ends.
             row.setStyleSheet(
-                f"_ClickableFrame {{ background: {_SELECT_BG};"
-                f" border-left: 3px solid {_ACCENT}; }}")
+                f"_ClickableFrame {{ background: {theme.SIDE_PANEL_BTN_ACTIVE.name()};"
+                f" border-left: 3px solid {theme.FLOWS_ACCENT.name()}; }}")
             h.setContentsMargins(8, 7, 8, 7)
             arrow_lbl = QLabel(arrow)
             arrow_lbl.setFont(QFont(FONT_FAMILY, 12, QFont.Weight.Bold))
             arrow_lbl.setStyleSheet(
-                f"color: {BOX_BORDER.name()}; background: transparent;")
+                f"color: {theme.BOX_BORDER.name()}; background: transparent;")
             h.addWidget(arrow_lbl)
             if on_rename is not None:
                 # Click-to-edit title: the line edit consumes the click (so it
@@ -412,11 +420,11 @@ class FlowsPanel(QWidget):
                 lbl = QLabel(title)
                 lbl.setFont(QFont(FONT_FAMILY, 12, QFont.Weight.Bold))
                 lbl.setStyleSheet(
-                    f"color: {BOX_BORDER.name()}; background: transparent;")
+                    f"color: {theme.BOX_BORDER.name()}; background: transparent;")
                 h.addWidget(lbl, stretch=1)
             cnt = QLabel(f"{count}")
             cnt.setFont(QFont(FONT_FAMILY, 10))
-            cnt.setStyleSheet(f"color: {SIDE_PANEL_SECTION_COLOR.name()};"
+            cnt.setStyleSheet(f"color: {theme.SIDE_PANEL_SECTION_COLOR.name()};"
                               f" background: transparent;")
             h.addWidget(cnt)
         else:
@@ -426,7 +434,7 @@ class FlowsPanel(QWidget):
             # ("BOOKMARKS (9)") otherwise sets a ~146px floor for the whole tab.
             lbl.setWordWrap(True)
             lbl.setFont(QFont(FONT_FAMILY, 10, QFont.Weight.Bold))
-            lbl.setStyleSheet(f"color: {SIDE_PANEL_SECTION_COLOR.name()};"
+            lbl.setStyleSheet(f"color: {theme.SIDE_PANEL_SECTION_COLOR.name()};"
                               f" background: transparent;")
             h.addWidget(lbl, stretch=1)
         h.setSpacing(4)
@@ -472,9 +480,10 @@ class FlowsPanel(QWidget):
         card = _ClickableFrame()
         card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         card.clicked.connect(on_select)
-        border = f"2px solid {_ACCENT}" if selected else f"1px solid {_BORDER}"
+        border = (f"2px solid {theme.FLOWS_ACCENT.name()}" if selected
+                  else f"1px solid {theme.CONTENT_BORDER_COLOR.name()}")
         card.setStyleSheet(
-            f"_ClickableFrame {{ background: {SCENE_BG.name()};"
+            f"_ClickableFrame {{ background: {theme.SCENE_BG.name()};"
             f" border: {border}; border-radius: 6px; }}")
         return card
 
@@ -484,7 +493,7 @@ class FlowsPanel(QWidget):
             return _ThumbLabel(pix)
         lbl = QLabel("(no anchor)")
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet("color: #8A8A8A; background: transparent;")
+        lbl.setStyleSheet(f"color: {theme.INK_FAINT.name()}; background: transparent;")
         return lbl
 
     def _title_edit(self, bm) -> _InlineTitle:
@@ -510,7 +519,7 @@ class FlowsPanel(QWidget):
         lbl = QLabel(caption)
         lbl.setWordWrap(True)
         lbl.setFont(QFont(FONT_FAMILY, 9))
-        lbl.setStyleSheet(f"color: {SIDE_PANEL_SECTION_COLOR.name()};"
+        lbl.setStyleSheet(f"color: {theme.SIDE_PANEL_SECTION_COLOR.name()};"
                           f" background: transparent;")
         col.addWidget(lbl)
         col.addWidget(widget)
@@ -557,7 +566,7 @@ class FlowsPanel(QWidget):
         head.setSpacing(6)
         num = QLabel(str(index + 1))
         num.setFont(QFont(FONT_FAMILY, 12, QFont.Weight.Bold))
-        num.setStyleSheet(f"color: {_ACCENT}; background: transparent;")
+        num.setStyleSheet(f"color: {theme.FLOWS_ACCENT.name()}; background: transparent;")
         num.setMinimumWidth(16)   # aligns 1-digit numbers; 2-digit ones widen
         num.setAlignment(Qt.AlignmentFlag.AlignTop)
         head.addWidget(num)
@@ -568,12 +577,12 @@ class FlowsPanel(QWidget):
                 tag.setFont(QFont(FONT_FAMILY, 9))
                 tag.setToolTip(
                     "Text slide — the note renders as clickable text in the PDF")
-                tag.setStyleSheet(f"color: {_ACCENT}; background: transparent;")
+                tag.setStyleSheet(f"color: {theme.FLOWS_ACCENT.name()}; background: transparent;")
                 tag.setAlignment(Qt.AlignmentFlag.AlignTop)
                 head.addWidget(tag)
         else:
             warn = QLabel(f"⚠ {step.ref}")
-            warn.setStyleSheet("color: #C53030; background: transparent;")
+            warn.setStyleSheet(f"color: {theme.NOTE_TASK_COLOR.name()}; background: transparent;")
             head.addWidget(warn, stretch=1)
         col.addLayout(head)
 

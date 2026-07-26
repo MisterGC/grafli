@@ -20,6 +20,7 @@ from PySide6.QtCore import QByteArray, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
+from grafli import theme
 from grafli.constants import NOTE_FONT_FAMILY
 from grafli.format import ICON_ALIASES
 
@@ -160,7 +161,7 @@ def paint_badge(painter: QPainter, name: str, rect: QRectF,
         return
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    plate = QColor("#F7F5F0")
+    plate = QColor(theme.ICON_BADGE_PLATE)
     plate.setAlphaF(0.95)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(plate)

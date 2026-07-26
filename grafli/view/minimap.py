@@ -7,27 +7,13 @@ import re
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 
+from grafli import theme
 from grafli.constants import (
-    BOX_BORDER,
     FONT_FAMILY,
-    MINIMAP_BG,
-    MINIMAP_BORDER_COLOR,
-    MINIMAP_CAMERA_COLOR,
-    MINIMAP_CONNECTOR_COLOR,
-    MINIMAP_GRID_COLOR,
-    MINIMAP_INFO_COLOR,
     MINIMAP_MARGIN,
     MINIMAP_MAX_H,
     MINIMAP_MAX_W,
-    MINIMAP_SELECT_COLOR,
-    MINIMAP_STATS_COLOR,
     MINIMAP_STATS_FONT_SIZE,
-    MINIMAP_TIER_COLORS,
-    NOTE_DISCUSSION_COLOR,
-    NOTE_PEN_COLOR,
-    NOTE_QUESTION_COLOR,
-    NOTE_TASK_COLOR,
-    _resolve_color,
 )
 
 _RE_SPEAKER = re.compile(r"^([A-Z][A-Za-z0-9_-]{0,15}): ", re.MULTILINE)
@@ -173,8 +159,8 @@ class MinimapMixin:
         self._minimap_rect = QRectF(mx, my, mw, mh)
 
         # Draw unified panel background
-        painter.setPen(QPen(MINIMAP_BORDER_COLOR, 1))
-        painter.setBrush(QBrush(MINIMAP_BG))
+        painter.setPen(QPen(theme.MINIMAP_BORDER_COLOR, 1))
+        painter.setBrush(QBrush(theme.MINIMAP_BG))
         painter.drawRoundedRect(panel_rect, 6, 6)
 
         # ── Stats line inside panel header ──
@@ -185,7 +171,7 @@ class MinimapMixin:
         stats_baseline = panel_y + panel_pad + fm.ascent()
 
         painter.setFont(stats_font)
-        painter.setPen(QPen(MINIMAP_STATS_COLOR))
+        painter.setPen(QPen(theme.MINIMAP_STATS_COLOR))
         stats_w = fm.horizontalAdvance(stats_text)
         painter.drawText(QPointF(mx, stats_baseline), stats_text)
 
@@ -194,7 +180,7 @@ class MinimapMixin:
         painter.drawText(QPointF(sep_x, stats_baseline), separator)
 
         label_x = sep_x + sep_w
-        tier_color = MINIMAP_TIER_COLORS[stats["tier"]]
+        tier_color = theme.MINIMAP_TIER_COLORS[stats["tier"]]
         painter.setPen(QPen(tier_color))
         painter.drawText(QPointF(label_x, stats_baseline), label_text)
 
@@ -207,7 +193,7 @@ class MinimapMixin:
         self._minimap_info_rect = info_rect
 
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(MINIMAP_INFO_COLOR))
+        painter.setBrush(QBrush(theme.MINIMAP_INFO_COLOR))
         painter.drawEllipse(info_rect)
 
         info_font = QFont(FONT_FAMILY, 9)
@@ -241,7 +227,7 @@ class MinimapMixin:
             elem_centers[note.id] = (cx, cy)
 
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        connector_color = MINIMAP_CONNECTOR_COLOR
+        connector_color = theme.MINIMAP_CONNECTOR_COLOR
         connector_dim = QColor(connector_color)
         connector_dim.setAlpha(40)
         any_dim = bool(getattr(self, "_search_dimmed_ids", set()))
@@ -268,11 +254,11 @@ class MinimapMixin:
         # render on top instead of being covered by the parent's fill.
         painter.setPen(Qt.PenStyle.NoPen)
         for box in _box_depth_order(self._board.boxes):
-            color_hex = _resolve_color(box.color) if box.color else ""
+            color_hex = theme.resolve_color(box.color) if box.color else ""
             if color_hex:
                 c = QColor(color_hex)
             else:
-                c = QColor(BOX_BORDER)
+                c = QColor(theme.BOX_BORDER)
             if box.id in dimmed_ids:
                 c = QColor(c)
                 c.setAlpha(dim_alpha)
@@ -290,11 +276,11 @@ class MinimapMixin:
         for note in self._board.notes:
             p = _note_prefix(note.text)
             if p is not None:
-                color = NOTE_TASK_COLOR if p[0] == "T:" else NOTE_QUESTION_COLOR
+                color = theme.NOTE_TASK_COLOR if p[0] == "T:" else theme.NOTE_QUESTION_COLOR
             elif len(set(_RE_SPEAKER.findall(note.text))) >= 2:
-                color = NOTE_DISCUSSION_COLOR
+                color = theme.NOTE_DISCUSSION_COLOR
             else:
-                color = NOTE_PEN_COLOR
+                color = theme.NOTE_PEN_COLOR
             if note.id in dimmed_ids:
                 color = QColor(color)
                 color.setAlpha(dim_alpha)
@@ -324,7 +310,7 @@ class MinimapMixin:
             iy = my + (image.y - scene_rect.y()) * sy
             iw = max(image.w * sx, 3)
             ih = max(image.h * sy, 3)
-            marker = QColor(MINIMAP_SELECT_COLOR)
+            marker = QColor(theme.MINIMAP_SELECT_COLOR)
             marker.setAlpha(60)
             painter.setBrush(QBrush(marker))
             painter.drawRect(QRectF(ix, iy, iw, ih))
@@ -345,7 +331,7 @@ class MinimapMixin:
         self._draw_minimap_camera(painter, vp_rect)
 
         # HUD corner brackets framing the radar.
-        frame = QColor(MINIMAP_CAMERA_COLOR)
+        frame = QColor(theme.MINIMAP_CAMERA_COLOR)
         frame.setAlpha(120)
         self._corner_brackets(painter, self._minimap_rect, 9, [(frame, 1.4)])
 
@@ -361,7 +347,7 @@ class MinimapMixin:
         # ── F1 Help hint in bottom-left of panel ──
         hint_font = QFont(FONT_FAMILY, 9)
         painter.setFont(hint_font)
-        painter.setPen(QPen(MINIMAP_STATS_COLOR))
+        painter.setPen(QPen(theme.MINIMAP_STATS_COLOR))
         hint_y = panel_y + panel_h - panel_pad
         painter.drawText(QPointF(mx, hint_y), "F1 Help")
 
@@ -375,7 +361,7 @@ class MinimapMixin:
         hulls = list(getattr(self, "_lod_hulls", {}).values())
         if not tiles and not hulls:
             return
-        pen = QPen(QColor("#C77A52"))
+        pen = QPen(QColor(theme.FLOWS_ACCENT))
         pen.setWidthF(1.2)
         pen.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(pen)
@@ -402,13 +388,13 @@ class MinimapMixin:
         painter.setBrush(Qt.BrushStyle.NoBrush)
 
         # Soft outer halo.
-        halo = QColor(MINIMAP_SELECT_COLOR)
+        halo = QColor(theme.MINIMAP_SELECT_COLOR)
         halo.setAlpha(80)
         painter.setPen(QPen(halo, 2.4))
         painter.drawRoundedRect(rect.adjusted(-3, -3, 3, 3), 3, 3)
 
         # Crisp inner ring — bright so the blip stays legible.
-        ring = QColor(MINIMAP_SELECT_COLOR)
+        ring = QColor(theme.MINIMAP_SELECT_COLOR)
         ring.setAlpha(235)
         painter.setPen(QPen(ring, 1.2))
         painter.drawRoundedRect(rect.adjusted(-1, -1, 1, 1), 2, 2)
@@ -426,7 +412,7 @@ class MinimapMixin:
             painter.drawRect(rect)
             return
 
-        card = QColor("#F4F1EA")
+        card = QColor(theme.SURFACE)
         if dimmed:
             card.setAlpha(50)
         painter.setBrush(QBrush(card))
@@ -453,7 +439,7 @@ class MinimapMixin:
             return
         painter.save()
         painter.setClipRect(r)
-        painter.setPen(QPen(MINIMAP_GRID_COLOR, 1))
+        painter.setPen(QPen(theme.MINIMAP_GRID_COLOR, 1))
         step = 28.0
         x = r.left() + step
         while x < r.right():
@@ -493,7 +479,7 @@ class MinimapMixin:
         """RTS camera box: faint fill, thin outline, glowing corner brackets."""
         if rect.isNull() or rect.width() < 1 or rect.height() < 1:
             return
-        cam = MINIMAP_CAMERA_COLOR
+        cam = theme.MINIMAP_CAMERA_COLOR
         fill = QColor(cam)
         fill.setAlpha(26)
         painter.setPen(Qt.PenStyle.NoPen)

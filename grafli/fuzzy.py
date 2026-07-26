@@ -16,16 +16,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from grafli import theme
 from grafli.constants import (
     FONT_FAMILY,
     _CTRL_MOD,
-    ZEN_DIM_COLOR,
-    ZEN_HINT_COLOR,
-    ZEN_PANEL_BG,
-    ZEN_PANEL_BORDER,
     ZEN_PANEL_WIDTH,
-    ZEN_TEXT_COLOR,
-    ZEN_TITLE_COLOR,
 )
 
 
@@ -63,7 +58,7 @@ class FuzzyOverlay(QWidget):
         self._title = QLabel(title)
         self._title.setFont(QFont(FONT_FAMILY, 13, QFont.Weight.Bold))
         self._title.setStyleSheet(
-            f"color: {ZEN_TITLE_COLOR.name()}; background: transparent;"
+            f"color: {theme.ZEN_TITLE_COLOR.name()}; background: transparent;"
         )
         layout.addWidget(self._title)
 
@@ -72,9 +67,9 @@ class FuzzyOverlay(QWidget):
         self._input.setFont(QFont(FONT_FAMILY, 12))
         self._input.setPlaceholderText("Type to filter\u2026")
         self._input.setStyleSheet(
-            f"QLineEdit {{ background: {ZEN_PANEL_BG.name()};"
-            f" color: {ZEN_TEXT_COLOR.name()};"
-            f" border: 1px solid {ZEN_PANEL_BORDER.name()};"
+            f"QLineEdit {{ background: {theme.ZEN_PANEL_BG.name()};"
+            f" color: {theme.ZEN_TEXT_COLOR.name()};"
+            f" border: 1px solid {theme.ZEN_PANEL_BORDER.name()};"
             f" border-radius: 6px; padding: 8px; }}"
         )
         self._input.textChanged.connect(self._on_filter)
@@ -84,14 +79,15 @@ class FuzzyOverlay(QWidget):
         self._list = QListWidget()
         self._list.setFont(QFont(FONT_FAMILY, 11))
         self._list.setStyleSheet(
-            f"QListWidget {{ background: {ZEN_PANEL_BG.name()};"
-            f" color: {ZEN_TEXT_COLOR.name()};"
-            f" border: 1px solid {ZEN_PANEL_BORDER.name()};"
+            f"QListWidget {{ background: {theme.ZEN_PANEL_BG.name()};"
+            f" color: {theme.ZEN_TEXT_COLOR.name()};"
+            f" border: 1px solid {theme.ZEN_PANEL_BORDER.name()};"
             f" border-radius: 6px; padding: 4px;"
             f" outline: none; }}"
             f" QListWidget::item {{ padding: 4px 8px; border-radius: 4px; }}"
             f" QListWidget::item:selected {{"
-            f" background: #B8D4E8; color: {ZEN_TEXT_COLOR.name()}; }}"
+            f" background: {theme.EDITOR_SELECTION_BG.name()};"
+            f" color: {theme.ZEN_TEXT_COLOR.name()}; }}"
         )
         self._list.itemActivated.connect(self._on_activate)
         layout.addWidget(self._list, stretch=1)
@@ -100,7 +96,7 @@ class FuzzyOverlay(QWidget):
         hint = QLabel("↑↓/Ctrl+jk navigate · Enter select · Esc cancel")
         hint.setFont(QFont(FONT_FAMILY, 10))
         hint.setStyleSheet(
-            f"color: {ZEN_HINT_COLOR.name()}; background: transparent;"
+            f"color: {theme.ZEN_HINT_COLOR.name()}; background: transparent;"
         )
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(hint)
@@ -150,15 +146,15 @@ class FuzzyOverlay(QWidget):
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.fillRect(self.rect(), ZEN_DIM_COLOR)
+        p.fillRect(self.rect(), theme.ZEN_DIM_COLOR)
         layout = self.layout()
         m = layout.contentsMargins()
         panel = self.rect().adjusted(
             m.left() - 16, m.top() - 16, -m.right() + 16, -m.bottom() + 16
         )
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(QPen(ZEN_PANEL_BORDER, 1))
-        p.setBrush(QBrush(ZEN_PANEL_BG))
+        p.setPen(QPen(theme.ZEN_PANEL_BORDER, 1))
+        p.setBrush(QBrush(theme.ZEN_PANEL_BG))
         p.drawRoundedRect(panel, 10, 10)
         p.end()
 

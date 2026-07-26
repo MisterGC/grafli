@@ -23,7 +23,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 
-from grafli.constants import CONTENT_BORDER_COLOR, SCENE_BG
+from grafli import theme
 from grafli.format import DEFAULT_BOOKMARK_PAD, Bookmark, Flow
 
 DEFAULT_DWELL = 4.0   # seconds to rest on a stop during auto-play
@@ -171,7 +171,7 @@ def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
         iw = max_w
         ih = max(1, round(iw / ar))
     img = QImage(iw, ih, QImage.Format.Format_ARGB32_Premultiplied)
-    img.fill(SCENE_BG)
+    img.fill(theme.SCENE_BG)
     p = QPainter(img)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
@@ -240,15 +240,15 @@ def render_thumbnail_art(view, board, flow, w: int, h: int) -> QImage | None:
             ap.setOpacity(op)
             target = QRectF(-tw / 2, -th / 2, tw, th)
             ap.drawPixmap(target, pix, QRectF(pix.rect()))
-            ap.setPen(CONTENT_BORDER_COLOR)
+            ap.setPen(theme.CONTENT_BORDER_COLOR)
             ap.setBrush(Qt.BrushStyle.NoBrush)
             ap.drawRect(target)
             ap.restore()
 
     grad = QLinearGradient(QPointF(0, 0), QPointF(w, 0))
-    near = QColor(SCENE_BG); near.setAlpha(232)
-    mid = QColor(SCENE_BG); mid.setAlpha(140)
-    far = QColor(SCENE_BG); far.setAlpha(0)
+    near = QColor(theme.SCENE_BG); near.setAlpha(232)
+    mid = QColor(theme.SCENE_BG); mid.setAlpha(140)
+    far = QColor(theme.SCENE_BG); far.setAlpha(0)
     grad.setColorAt(0.0, near)
     grad.setColorAt(0.40, mid)
     grad.setColorAt(0.72, far)

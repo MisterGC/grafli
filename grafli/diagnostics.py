@@ -18,8 +18,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
+from grafli import theme
 from grafli.constants import (
-    ARROWHEAD_SIZE, BOX_FONT_SIZES, COLOR_TOKENS, LAYOUT_PADDING,
+    ARROWHEAD_SIZE,
+    BOX_FONT_SIZES,
+    LAYOUT_PADDING,
 )
 from grafli.format import Arrow, Board, Box, Image, Note
 from grafli.iconset import ICON_NAMES, has_icon
@@ -532,13 +535,13 @@ def check_unknown_color(board: Board) -> list[Diagnostic]:
     default fill with no other trace — the miscolor is invisible until you
     look at the render. Surface the typo, and the nearest real token, here."""
     diags: list[Diagnostic] = []
-    valid = list(COLOR_TOKENS.keys())
+    valid = list(theme.COLOR_TOKENS.keys())
 
     def _check(color: str, iid: str) -> None:
         if not color.startswith("%"):
             return  # empty or #hex — nothing to validate
         token = color[1:]
-        if token in COLOR_TOKENS:
+        if token in theme.COLOR_TOKENS:
             return
         suggestion = _COLOR_NAME_HINTS.get(token)
         if suggestion is None:

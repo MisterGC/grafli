@@ -13,17 +13,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from grafli import theme
 from grafli.constants import (
-    BOX_BORDER,
     FONT_FAMILY,
-    SIDE_PANEL_BG,
-    SIDE_PANEL_BORDER,
-    SIDE_PANEL_BTN_ACTIVE,
-    SIDE_PANEL_BTN_HOVER,
-    SIDE_PANEL_SECTION_COLOR,
-    SIDE_PANEL_SHORTCUT_COLOR,
-    SIDE_PANEL_TOGGLE_BG,
-    SIDE_PANEL_TOGGLE_BORDER,
     SIDE_PANEL_TOGGLE_MARGIN,
     SIDE_PANEL_TOGGLE_SIZE,
     SIDE_PANEL_WIDTH,
@@ -52,26 +44,34 @@ class _ToolButton(QWidget):
         layout.setContentsMargins(12, 4, 12, 4)
         layout.setSpacing(8)
 
-        icon_label = QLabel(icon)
-        icon_label.setFont(QFont(FONT_FAMILY, 16))
-        icon_label.setFixedWidth(24)
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_label.setStyleSheet(f"color: {BOX_BORDER.name()}; background: transparent;")
-        icon_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        layout.addWidget(icon_label)
+        self._icon_label = QLabel(icon)
+        self._icon_label.setFont(QFont(FONT_FAMILY, 16))
+        self._icon_label.setFixedWidth(24)
+        self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._icon_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        layout.addWidget(self._icon_label)
 
-        text_label = QLabel(label)
-        text_label.setFont(QFont(FONT_FAMILY, 13))
-        text_label.setStyleSheet(f"color: {BOX_BORDER.name()}; background: transparent;")
-        text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        layout.addWidget(text_label, stretch=1)
+        self._text_label = QLabel(label)
+        self._text_label.setFont(QFont(FONT_FAMILY, 13))
+        self._text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        layout.addWidget(self._text_label, stretch=1)
 
-        hint = QLabel(shortcut)
-        hint.setFont(QFont(FONT_FAMILY, 11))
-        hint.setStyleSheet(f"color: {SIDE_PANEL_SHORTCUT_COLOR.name()}; background: transparent;")
-        hint.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        layout.addWidget(hint)
+        self._hint = QLabel(shortcut)
+        self._hint.setFont(QFont(FONT_FAMILY, 11))
+        self._hint.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        layout.addWidget(self._hint)
+
+        self.apply_theme()
+
+    def apply_theme(self):
+        ink = f"color: {theme.BOX_BORDER.name()}; background: transparent;"
+        self._icon_label.setStyleSheet(ink)
+        self._text_label.setStyleSheet(ink)
+        self._hint.setStyleSheet(
+            f"color: {theme.SIDE_PANEL_SHORTCUT_COLOR.name()};"
+            " background: transparent;")
+        self.update()
 
     @property
     def active(self) -> bool:
@@ -98,7 +98,7 @@ class _ToolButton(QWidget):
         if self._active or self._hovered:
             p = QPainter(self)
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
-            color = SIDE_PANEL_BTN_ACTIVE if self._active else SIDE_PANEL_BTN_HOVER
+            color = theme.SIDE_PANEL_BTN_ACTIVE if self._active else theme.SIDE_PANEL_BTN_HOVER
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QBrush(color))
             p.drawRoundedRect(self.rect().adjusted(4, 0, -4, 0), 4, 4)
@@ -113,12 +113,16 @@ class _SectionHeader(QWidget):
         self.setFixedHeight(28)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 2)
-        label = QLabel(title.upper())
-        label.setFont(QFont(FONT_FAMILY, 10, QFont.Weight.Bold))
-        label.setStyleSheet(
-            f"color: {SIDE_PANEL_SECTION_COLOR.name()}; background: transparent;"
+        self._label = QLabel(title.upper())
+        self._label.setFont(QFont(FONT_FAMILY, 10, QFont.Weight.Bold))
+        layout.addWidget(self._label)
+        self.apply_theme()
+
+    def apply_theme(self):
+        self._label.setStyleSheet(
+            f"color: {theme.SIDE_PANEL_SECTION_COLOR.name()};"
+            " background: transparent;"
         )
-        layout.addWidget(label)
 
 
 # ── Side panel ───────────────────────────────────────────────────
@@ -137,13 +141,9 @@ class SidePanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         # Never steal keyboard focus from the canvas — panel is mouse-only.
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        # Force a light background on the panel and all children, overriding
-        # the system palette (which on macOS dark mode is dark).
-        self.setStyleSheet(
-            f"SidePanel, QScrollArea, QScrollArea > QWidget,"
-            f" QScrollArea > QWidget > QWidget {{"
-            f" background: {SIDE_PANEL_BG.name()}; }}"
-        )
+        # Pin the panel background for the panel and all children, overriding
+        # the system palette (which won't match whichever grafli theme is on).
+        self._apply_panel_bg()
 
         self._buttons: dict[str, _ToolButton] = {}
         self._sections: dict[str, list[QWidget]] = {}
@@ -202,7 +202,8 @@ class SidePanel(QWidget):
     def _build_tabbar(self) -> QWidget:
         bar = QWidget()
         bar.setFixedHeight(34)
-        bar.setStyleSheet(f"background: {SIDE_PANEL_BG.name()};")
+        self._tabbar = bar
+        bar.setStyleSheet(f"background: {theme.SIDE_PANEL_BG.name()};")
         h = QHBoxLayout(bar)
         h.setContentsMargins(8, 4, 8, 0)
         h.setSpacing(4)
@@ -218,6 +219,27 @@ class SidePanel(QWidget):
             self._tab_buttons.append(tab)
         return bar
 
+    def _apply_panel_bg(self):
+        self.setStyleSheet(
+            f"SidePanel, QScrollArea, QScrollArea > QWidget,"
+            f" QScrollArea > QWidget > QWidget {{"
+            f" background: {theme.SIDE_PANEL_BG.name()}; }}"
+        )
+        tabbar = getattr(self, "_tabbar", None)
+        if tabbar is not None:
+            tabbar.setStyleSheet(f"background: {theme.SIDE_PANEL_BG.name()};")
+
+    def apply_theme(self):
+        """Rebuild every stylesheet in the panel against the active theme."""
+        self._apply_panel_bg()
+        for child in self.findChildren(QWidget):
+            restyle = getattr(child, "apply_theme", None)
+            if callable(restyle) and child is not self:
+                restyle()
+        # Tab styling is derived from the selected index, so re-derive it.
+        self.switch_tab(self._stack.currentIndex())
+        self.update()
+
     def attach_view(self, view):
         self._view = view
         self._flows_panel.attach(view)
@@ -229,9 +251,9 @@ class SidePanel(QWidget):
         self.setMinimumWidth(self._FLOWS_MIN if index == 1 else self._TOOLS_MIN)
         for i, tab in enumerate(self._tab_buttons):
             active = i == index
-            color = BOX_BORDER.name() if active else SIDE_PANEL_SECTION_COLOR.name()
+            color = theme.BOX_BORDER.name() if active else theme.SIDE_PANEL_SECTION_COLOR.name()
             weight = "bold" if active else "normal"
-            border = (f"2px solid {BOX_BORDER.name()}" if active
+            border = (f"2px solid {theme.BOX_BORDER.name()}" if active
                       else "2px solid transparent")
             tab.setStyleSheet(
                 f"color: {color}; background: transparent;"
@@ -324,9 +346,9 @@ class SidePanel(QWidget):
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.fillRect(self.rect(), SIDE_PANEL_BG)
+        p.fillRect(self.rect(), theme.SIDE_PANEL_BG)
         # Right border line (panel sits on the left of the canvas)
-        p.setPen(QPen(SIDE_PANEL_BORDER, 1))
+        p.setPen(QPen(theme.SIDE_PANEL_BORDER, 1))
         x = self.width() - 1
         p.drawLine(x, 0, x, self.height())
         p.end()
@@ -368,16 +390,81 @@ class PanelToggleButton(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        bg = QColor(SIDE_PANEL_TOGGLE_BG)
+        bg = QColor(theme.SIDE_PANEL_TOGGLE_BG)
         if self._hovered:
             bg.setAlpha(240)
 
-        p.setPen(QPen(SIDE_PANEL_TOGGLE_BORDER, 1))
+        p.setPen(QPen(theme.SIDE_PANEL_TOGGLE_BORDER, 1))
         p.setBrush(QBrush(bg))
         p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 6, 6)
 
         # Wrench icon (nerd font)
-        p.setPen(QPen(QColor(BOX_BORDER), 1))
+        p.setPen(QPen(QColor(theme.BOX_BORDER), 1))
         p.setFont(QFont(FONT_FAMILY, 13))
         p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "󰒓")
+        p.end()
+
+
+class ThemeToggleButton(QWidget):
+    """Floating sun/moon button that flips between the light and dark themes.
+
+    The glyph shows the theme you'd get by clicking — a moon on the light
+    theme, a sun on the dark one — so the button reads as an action rather
+    than as a status indicator.
+    """
+
+    clicked = Signal()
+
+    _SUN = "\U000f0599"   # nf-md-white_balance_sunny
+    _MOON = "\U000f0594"  # nf-md-weather_night
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setFixedSize(SIDE_PANEL_TOGGLE_SIZE, SIDE_PANEL_TOGGLE_SIZE)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._hovered = False
+        self.apply_theme()
+
+    def apply_theme(self):
+        target = "light" if theme.is_dark() else "dark"
+        self.setToolTip(f"Switch to {target} theme (Ctrl+Shift+D)")
+        self.update()
+
+    def reposition(self):
+        if self.parent():
+            self.move(
+                SIDE_PANEL_TOGGLE_MARGIN * 2 + SIDE_PANEL_TOGGLE_SIZE,
+                SIDE_PANEL_TOGGLE_MARGIN,
+            )
+            self.raise_()
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self.update()
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self.update()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        bg = QColor(theme.SIDE_PANEL_TOGGLE_BG)
+        if self._hovered:
+            bg.setAlpha(240)
+
+        p.setPen(QPen(theme.SIDE_PANEL_TOGGLE_BORDER, 1))
+        p.setBrush(QBrush(bg))
+        p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 6, 6)
+
+        p.setPen(QPen(QColor(theme.BOX_BORDER), 1))
+        p.setFont(QFont(FONT_FAMILY, 13))
+        glyph = self._SUN if theme.is_dark() else self._MOON
+        p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, glyph)
         p.end()

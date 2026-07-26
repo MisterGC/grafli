@@ -22,9 +22,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QVBoxLayout,
 )
+from grafli import theme
 from grafli.constants import (
-    BOX_BORDER,
-    BOX_FILL,
     BOX_FONT_SIZES,
     DEFAULT_BOX_H,
     DEFAULT_BOX_W,
@@ -32,7 +31,6 @@ from grafli.constants import (
     LAYOUT_PADDING,
     MIN_BOX_SIZE,
     Mode,
-    NOTE_PEN_COLOR,
 )
 from grafli.format import Arrow, Box, Note
 from grafli.items import BoxItem, ImageItem, LabelItem, NoteItem
@@ -66,13 +64,13 @@ class StructureMixin:
         w, h = DEFAULT_BOX_W, DEFAULT_BOX_H
         rect = QRectF(0, 0, w, h)
         item = QGraphicsRectItem(rect)
-        pen = QPen(BOX_BORDER, 1, Qt.PenStyle.DashLine)
+        pen = QPen(theme.BOX_BORDER, 1, Qt.PenStyle.DashLine)
         item.setPen(pen)
-        item.setBrush(QBrush(BOX_FILL))
+        item.setBrush(QBrush(theme.BOX_FILL))
         label = QGraphicsSimpleTextItem("A Node", item)
         label_font = QFont(FONT_FAMILY, BOX_FONT_SIZES.get("", 13))
         label.setFont(label_font)
-        label.setBrush(QBrush(BOX_BORDER))
+        label.setBrush(QBrush(theme.BOX_BORDER))
         lr = label.boundingRect()
         label.setPos((w - lr.width()) / 2, (h - lr.height()) / 2)
         item.setOpacity(0.4)
@@ -85,7 +83,7 @@ class StructureMixin:
     def _build_note_preview(self):
         item = QGraphicsSimpleTextItem("Some text ...")
         item.setFont(QFont(FONT_FAMILY, BOX_FONT_SIZES.get("", 13)))
-        item.setBrush(QBrush(NOTE_PEN_COLOR))
+        item.setBrush(QBrush(theme.NOTE_PEN_COLOR))
         item.setOpacity(0.4)
         item.setZValue(1000)
         item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)

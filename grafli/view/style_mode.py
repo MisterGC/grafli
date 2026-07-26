@@ -12,10 +12,10 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
+from grafli import theme
 from grafli.constants import (
     COLOR_PALETTE,
     FONT_FAMILY,
-    _resolve_color,
     resolve_textsize_px,
 )
 from grafli.format import emphasis_from_flags
@@ -102,7 +102,7 @@ class StyleModeMixin:
             return
         # Background rect
         bg = QGraphicsRectItem()
-        bg_color = QColor("#2F3437")
+        bg_color = QColor(theme.OVERLAY_BG)
         bg_color.setAlphaF(0.8)
         bg.setBrush(QBrush(bg_color))
         bg.setPen(QPen(Qt.PenStyle.NoPen))
@@ -114,7 +114,7 @@ class StyleModeMixin:
         badge = QGraphicsTextItem(label_text)
         font = QFont(FONT_FAMILY, 9)
         badge.setFont(font)
-        badge.setDefaultTextColor(QColor("#FFFFFF"))
+        badge.setDefaultTextColor(QColor(theme.OVERLAY_FG))
         badge.setZValue(9999)
         self._scene.addItem(badge)
         self._mode_badge = badge
@@ -311,7 +311,7 @@ class StyleModeMixin:
         painter.save()
         painter.resetTransform()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        bg = QColor("#2F3437")
+        bg = QColor(theme.OVERLAY_BG)
         bg.setAlphaF(0.96)
         painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
         painter.setBrush(QBrush(bg))
@@ -323,9 +323,9 @@ class StyleModeMixin:
             sx = gx0 + (i % cols) * (sw + gap)
             sy = gy0 + (i // cols) * (sw + gap)
             cell = QRectF(sx, sy, sw, sw)
-            hexv = _resolve_color(value)
+            hexv = theme.resolve_color(value)
             painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
-            painter.setBrush(QBrush(QColor(hexv) if hexv else QColor("#E8E4DD")))
+            painter.setBrush(QBrush(QColor(hexv) if hexv else QColor(theme.BOX_FILL)))
             painter.drawRoundedRect(cell, 4, 4)
             if not hexv:
                 # "Default" / auto swatch: a diagonal slash marks "no colour".
@@ -372,7 +372,7 @@ class StyleModeMixin:
         painter.save()
         painter.resetTransform()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        bg = QColor("#2F3437")
+        bg = QColor(theme.OVERLAY_BG)
         bg.setAlphaF(0.96)
         painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
         painter.setBrush(QBrush(bg))
@@ -385,14 +385,14 @@ class StyleModeMixin:
             painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
             if flat:
                 # "None": canvas-coloured swatch with a diagonal slash.
-                painter.setBrush(QBrush(QColor("#E8E4DD")))
+                painter.setBrush(QBrush(QColor(theme.BOX_FILL)))
                 painter.drawRoundedRect(cell, 4, 4)
                 painter.setPen(QPen(QColor(150, 60, 60), 1.5))
                 painter.drawLine(QPointF(cell.left() + 5, cell.bottom() - 5),
                                  QPointF(cell.right() - 5, cell.top() + 5))
             else:
                 # "Plate": the beige note plate.
-                painter.setBrush(QBrush(QColor("#F2F0EB")))
+                painter.setBrush(QBrush(QColor(theme.SURFACE)))
                 painter.drawRoundedRect(cell, 4, 4)
             if i == self._color_picker_index:
                 painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -576,7 +576,7 @@ class StyleModeMixin:
         painter.save()
         painter.resetTransform()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        bg = QColor("#2F3437")
+        bg = QColor(theme.OVERLAY_BG)
         bg.setAlphaF(0.96)
         painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
         painter.setBrush(QBrush(bg))
@@ -832,7 +832,7 @@ class StyleModeMixin:
         painter.resetTransform()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-        bg = QColor("#2F3437")
+        bg = QColor(theme.OVERLAY_BG)
         bg.setAlphaF(0.96)
         painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
         painter.setBrush(QBrush(bg))
@@ -922,7 +922,7 @@ class StyleModeMixin:
             return
         # Background rect
         bg = QGraphicsRectItem()
-        bg_color = QColor("#2F3437")
+        bg_color = QColor(theme.OVERLAY_BG)
         bg_color.setAlphaF(0.8)
         bg.setBrush(QBrush(bg_color))
         bg.setPen(QPen(Qt.PenStyle.NoPen))
@@ -933,7 +933,7 @@ class StyleModeMixin:
         badge = QGraphicsTextItem("STYLE")
         font = QFont(FONT_FAMILY, 9)
         badge.setFont(font)
-        badge.setDefaultTextColor(QColor("#FFFFFF"))
+        badge.setDefaultTextColor(QColor(theme.OVERLAY_FG))
         badge.setZValue(9999)
         self._scene.addItem(badge)
         self._mode_badge = badge
@@ -1160,7 +1160,7 @@ class StyleModeMixin:
         painter.save()
         painter.resetTransform()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        bg = QColor("#2F3437")
+        bg = QColor(theme.OVERLAY_BG)
         bg.setAlphaF(0.96)
         painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
         painter.setBrush(QBrush(bg))
@@ -1205,9 +1205,9 @@ class StyleModeMixin:
         mid_y = cell.center().y()
         x1, x2 = cell.left() + 6, cell.right() - 6
         if kind == "color":
-            hexv = _resolve_color(val)
+            hexv = theme.resolve_color(val)
             painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
-            painter.setBrush(QBrush(QColor(hexv) if hexv else QColor("#E8E4DD")))
+            painter.setBrush(QBrush(QColor(hexv) if hexv else QColor(theme.BOX_FILL)))
             painter.drawRoundedRect(cell, 4, 4)
             if not hexv:   # "Default" swatch: a red slash marks "no override"
                 painter.setPen(QPen(QColor(150, 60, 60), 1.5))

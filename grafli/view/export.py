@@ -12,7 +12,7 @@ from PySide6.QtGui import QBrush, QImage, QPainter
 from PySide6.QtSvg import QSvgGenerator
 from PySide6.QtWidgets import QApplication, QFileDialog, QGraphicsItem
 from contextlib import contextmanager
-from grafli.constants import SCENE_BG
+from grafli import theme
 from grafli.items import (
     BoxItem,
     BoxLabelItem,
@@ -118,7 +118,7 @@ class ExportMixin:
             gen.setViewBox(rect)
             gen.setTitle("Grafli Diagram")
             painter = QPainter(gen)
-            painter.fillRect(rect, QBrush(SCENE_BG))
+            painter.fillRect(rect, QBrush(theme.SCENE_BG))
             self._scene.render(painter, QRectF(), rect)
             painter.end()
             io.close()
@@ -135,7 +135,7 @@ class ExportMixin:
                 size.height() * scale,
                 QImage.Format.Format_ARGB32_Premultiplied,
             )
-            image.fill(SCENE_BG)
+            image.fill(theme.SCENE_BG)
             painter = QPainter(image)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)

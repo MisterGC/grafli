@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Dark theme.** A counterpart to the warm paper light theme rather than an
+  inversion: the same semantic roles and contrast relationships on a low-key
+  ground, with the light theme's paper colour as its ink. Toggle with the
+  sun/moon button next to the tools button or
+  <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>; the switch applies live and is
+  remembered across restarts. `%color` tokens are semantic and re-resolve per
+  theme, so a board authored on one reads correctly on the other, while a
+  literal `#hex` is kept exactly as written.
+  ([#137](https://github.com/MisterGC/grafli/issues/137))
+- **`grafli render --theme light|dark`.** Headless renders don't follow the
+  app's theme, so a given file and flags always produce the same image.
+  ([#137](https://github.com/MisterGC/grafli/issues/137))
+
+### Changed
+- Colour values moved out of `grafli.constants` into a new `grafli.theme`
+  module that holds both palettes and swaps them at runtime. `constants` keeps
+  the theme-independent vocabulary (token names, sizes, fonts).
+
 ## [0.7.0] - 2026-07-17
 
 Sharper tools for the agent authoring loop: diagnostics that say what is

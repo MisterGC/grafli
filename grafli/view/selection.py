@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QGraphicsPolygonItem,
     QGraphicsSimpleTextItem,
 )
+from grafli import theme
 from grafli.arrows import (
     _aligned_edge_points,
     _arrowhead_polygon,
@@ -26,10 +27,8 @@ from grafli.arrows import (
 )
 from grafli.buffers import ViewState
 from grafli.constants import (
-    ANNOTATION_ARROW_COLOR,
     ANNOTATION_ARROW_WIDTH,
     ARROWHEAD_SIZE,
-    ARROW_COLOR,
     ARROW_LABEL_FONT_SIZES,
     ARROW_WIDTH,
     CONNECTOR_REF_SIZE,
@@ -37,9 +36,8 @@ from grafli.constants import (
     CONNECTOR_WIDTH_MIN,
     FONT_FAMILY,
     MIN_BOX_SIZE,
-    _resolve_color,
 )
-from grafli.edge_label import EDGE_KIND_COLORS, parse_edge_label
+from grafli.edge_label import edge_kind_color, parse_edge_label
 from grafli.format import Arrow, Board, Box, Image, Note
 from grafli.items import (
     ArrowLineItem,
@@ -92,7 +90,7 @@ class SelectionMixin:
         """Repaint every selected connector's graphics in the selection blue."""
         self._selected_arrow_items.clear()
         selected = self._selected_arrows
-        sel_color = QColor("#0178D4")
+        sel_color = QColor(theme.SELECT_MARQUEE)
         for gfx in self._arrow_items:
             if any(gfx.data(0) is a for a in selected):
                 self._selected_arrow_items.append(gfx)
@@ -468,7 +466,7 @@ class SelectionMixin:
             both_boxes = isinstance(from_elem, Box) and isinstance(to_elem, Box)
 
             if is_annotation:
-                arrow_color = ANNOTATION_ARROW_COLOR
+                arrow_color = theme.ANNOTATION_ARROW_COLOR
                 arrow_width = ANNOTATION_ARROW_WIDTH
                 draw_head_to = False
                 draw_head_from = False
@@ -476,13 +474,13 @@ class SelectionMixin:
                 edge_kind = parse_edge_label(fwd.label).kind
                 if not edge_kind and rev:
                     edge_kind = parse_edge_label(rev.label).kind
-                arrow_color = EDGE_KIND_COLORS.get(edge_kind, ARROW_COLOR)
+                arrow_color = edge_kind_color(edge_kind, theme.ARROW_COLOR)
                 # Thickness tracks the size of the linked nodes (visual hierarchy).
                 arrow_width = self._connector_width(from_elem, to_elem)
 
             # A per-connector colour overrides the kind-derived default.
             if fwd.color:
-                resolved = _resolve_color(fwd.color)
+                resolved = theme.resolve_color(fwd.color)
                 if resolved:
                     arrow_color = QColor(resolved)
 
@@ -587,7 +585,7 @@ class SelectionMixin:
                 combined = "\n".join(label_texts)
                 label = LabelItem(combined)
                 label.setFont(QFont(FONT_FAMILY, ARROW_LABEL_FONT_SIZES.get(fwd.textsize, 10)))
-                label.setBrush(QBrush(QColor("#2F3437")))
+                label.setBrush(QBrush(QColor(theme.INK)))
                 label.setData(0, fwd)
                 if label_tooltips:
                     label.setToolTip("\n".join(label_tooltips))
@@ -865,7 +863,7 @@ class SelectionMixin:
 
     def _show_grow_preview(self, rect: QRectF):
         if self._grow_preview is None or self._grow_preview.scene() is None:
-            pen = QPen(QColor("#2F5D5C"), 3, Qt.PenStyle.DashLine)
+            pen = QPen(QColor(theme.ACCENT_TEAL), 3, Qt.PenStyle.DashLine)
             self._grow_preview = self._scene.addRect(rect, pen)
             self._grow_preview.setZValue(10000)
         else:

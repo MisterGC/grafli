@@ -1285,9 +1285,7 @@ class BoxItem(QGraphicsRectItem):
         every simplified node reads alike."""
         r = self.rect()
         fill = self.brush().color()
-        lum = 0.299 * fill.red() + 0.587 * fill.green() + 0.114 * fill.blue()
-        ink = QColor(theme.INK_ON_LIGHT_FILL if lum > 140
-                     else theme.INK_ON_DARK_FILL)
+        ink = theme.ink_on(fill)
         ink.setAlphaF(0.45)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(ink))
@@ -2500,7 +2498,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             bold_font = QFont(font)
             bold_font.setBold(True)
             _draw_text(painter, QPointF(pad + self._BADGE_HPAD, text_y),
-                       prefix, bold_font, QColor(theme.ON_ACCENT))
+                       prefix, bold_font, theme.ink_on(accent))
 
             # Body lines in accent color
             body_x = pad + badge_w + self._BADGE_GAP
@@ -2605,7 +2603,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             )
 
             _draw_text(painter, QPointF(pad + self._BADGE_HPAD, y + fm.ascent()),
-                       speaker, bold_font, QColor(theme.ON_ACCENT))
+                       speaker, bold_font, theme.ink_on(color))
 
             # Body lines (already wrapped)
             for ln in lines:
@@ -3175,7 +3173,7 @@ class LabelItem(QGraphicsSimpleTextItem):
                     badge_rect, self._BADGE_RADIUS, self._BADGE_RADIUS
                 )
                 painter.setFont(bold)
-                painter.setPen(QColor(theme.ON_ACCENT))
+                painter.setPen(theme.ink_on(chip_color))
                 painter.drawText(QPointF(x + self._BADGE_HPAD, y), parsed.kind)
                 x += badge_w + self._GAP
                 text = parsed.body

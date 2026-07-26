@@ -604,6 +604,19 @@ def _install(palette: Palette) -> None:
     g["NAME"] = palette.name
 
 
+def ink_on(fill: QColor) -> QColor:
+    """Readable text colour for anything drawn on top of ``fill``.
+
+    Node labels have always picked their ink from the fill they sit on; chips
+    and badges must do the same. Hardcoding a light ink only looks right while
+    the fill happens to be dark — which stops being true the moment the theme
+    inverts the fill (a dark ``verify`` green on paper becomes a light green on
+    a dark ground, and white-on-light-green is both glary and low contrast).
+    """
+    lum = 0.299 * fill.red() + 0.587 * fill.green() + 0.114 * fill.blue()
+    return QColor(INK_ON_LIGHT_FILL if lum > 140 else INK_ON_DARK_FILL)
+
+
 def resolve_color(color: str) -> str:
     """Resolve a ``%token`` to hex against the active theme.
 

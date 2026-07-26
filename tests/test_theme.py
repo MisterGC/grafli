@@ -153,6 +153,41 @@ def test_dark_tokens_stay_as_distinct_as_the_light_ones():
         f"light {light_min:.1f})")
 
 
+def _chips():
+    """Every small coloured chip that carries text on top of itself."""
+    return ([(f"edge:{k}", v) for k, v in theme.EDGE_KIND_COLORS.items()]
+            + [(f"speaker{i}", c)
+               for i, c in enumerate(theme.DISCUSSION_COLORS)]
+            + [("task", theme.NOTE_TASK_COLOR),
+               ("question", theme.NOTE_QUESTION_COLOR),
+               ("bookmark", theme.BOOKMARK_BG),
+               ("error", theme.ERROR_BG)])
+
+
+def test_chip_text_stays_readable_on_every_chip():
+    """Chip ink is derived from the chip, never hardcoded.
+
+    A fixed light ink only looks right while the chip is dark. The dark theme
+    lifts these fills, so a hardcoded white turns into glary, low-contrast text
+    on a light green ``verify`` badge. 3:1 is the bar for bold text this size.
+    """
+    try:
+        for name in ("light", "dark"):
+            theme.set_theme(name)
+            for label, chip in _chips():
+                got = _contrast(theme.ink_on(chip), chip)
+                assert got >= 3.0, (
+                    f"{name} {label}: chip {chip.name()} with "
+                    f"{theme.ink_on(chip).name()} ink is only {got:.2f}:1")
+    finally:
+        theme.set_theme("light")
+
+
+def test_ink_on_flips_with_the_fill():
+    assert theme.ink_on(QColor("#FFFFFF")) == theme.INK_ON_LIGHT_FILL
+    assert theme.ink_on(QColor("#000000")) == theme.INK_ON_DARK_FILL
+
+
 def test_semantic_tokens_reresolve_per_theme():
     """%tokens are semantic, so the same board reads correctly in both themes."""
     try:

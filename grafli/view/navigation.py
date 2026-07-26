@@ -139,9 +139,7 @@ class NavigationMixin:
         else:
             bg_color = QColor(theme.BOOKMARK_BG)
 
-        lum = bg_color.redF() * 0.299 + bg_color.greenF() * 0.587 + bg_color.blueF() * 0.114
-        text_color = (theme.INK_ON_DARK_FILL.name() if lum < 0.5
-                      else theme.INK_ON_LIGHT_FILL.name())
+        text_color = theme.ink_on(bg_color).name()
 
         text_item = QGraphicsSimpleTextItem(label_text)
         text_item.setFont(font)
@@ -900,7 +898,7 @@ class NavigationMixin:
             bg_color = QColor(theme.BOOKMARK_BG)
             text_item = QGraphicsSimpleTextItem(label_key)
             text_item.setFont(font)
-            text_item.setBrush(QBrush(QColor(theme.ON_ACCENT)))
+            text_item.setBrush(QBrush(theme.ink_on(bg_color)))
             tr = text_item.boundingRect()
 
             pad = 3 * scene_size / base_size
@@ -932,7 +930,7 @@ class NavigationMixin:
         br = source_item.sceneBoundingRect()
         text_item = QGraphicsSimpleTextItem("\u26a0 Too many connectors")
         text_item.setFont(font)
-        text_item.setBrush(QBrush(QColor(theme.ON_ACCENT)))
+        text_item.setBrush(QBrush(theme.ink_on(QColor(theme.ERROR_BG))))
         tr = text_item.boundingRect()
 
         pad = 6

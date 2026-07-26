@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import textli
+
 from grafli import theme
 from grafli.buffers import BufferManager, BufferState, ViewState
 from grafli.constants import Mode
@@ -61,6 +63,17 @@ def running_version() -> str:
     return f"{branch}@{sha}{dirty}"
 
 
+def _sync_editor_theme() -> None:
+    """Put textli on the same theme as the board.
+
+    textli owns its own palette and, from 0.6, restyles any open editor in
+    place when the host calls this — so the zen and inline editors match the
+    canvas they were opened from instead of flashing a bright page over a dark
+    board. Its own persistence is standalone-app-only and never overrides us.
+    """
+    textli.set_theme(theme.name())
+
+
 # ── Main window ─────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
@@ -74,6 +87,7 @@ class MainWindow(QMainWindow):
         # need a full restyle pass just to reach the state we already know.
         theme.set_theme(QSettings("Grafli", "Grafli").value(
             "theme/name", "light", type=str))
+        _sync_editor_theme()
 
         self._view = GrafliView(self)
         if debug:
@@ -206,6 +220,7 @@ class MainWindow(QMainWindow):
         The canvas resolves most colours at paint time, but stylesheets are
         strings built once, so each panel rebuilds its own.
         """
+        _sync_editor_theme()
         self._view.apply_theme()
         self._side_panel.apply_theme()
         self._panel_toggle.update()

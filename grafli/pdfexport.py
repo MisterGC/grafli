@@ -748,7 +748,7 @@ def _draw_caption(painter, page: QRectF, text: str, footer: str) -> None:
 
     bg = QColor(theme.OVERLAY_BG)
     bg.setAlphaF(0.94)
-    painter.setPen(QPen(QColor(255, 255, 255, 36), max(1.0, ph * 0.0012)))
+    painter.setPen(QPen(theme.overlay_ink(0.14), max(1.0, ph * 0.0012)))
     painter.setBrush(QBrush(bg))
     radius = ph * 0.014
     painter.drawRoundedRect(card, radius, radius)

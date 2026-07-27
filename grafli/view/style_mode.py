@@ -337,7 +337,7 @@ class StyleModeMixin:
                 painter.setPen(QPen(cyan, 2))
                 painter.drawRoundedRect(cell.adjusted(-2, -2, 2, 2), 5, 5)
 
-        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setPen(QPen(theme.overlay_ink(0.92)))
         painter.setFont(QFont(FONT_FAMILY, 9))
         painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter,
@@ -399,7 +399,7 @@ class StyleModeMixin:
                 painter.setPen(QPen(cyan, 2))
                 painter.drawRoundedRect(cell.adjusted(-2, -2, 2, 2), 5, 5)
 
-        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setPen(QPen(theme.overlay_ink(0.92)))
         painter.setFont(QFont(FONT_FAMILY, 9))
         painter.drawText(QRectF(px, gy0 + sw + 4, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter,
@@ -584,7 +584,7 @@ class StyleModeMixin:
 
         gx0 = px + pad
         cyan = QColor(0, 209, 224)
-        ink = QColor(220, 220, 216)
+        ink = theme.overlay_ink(0.87)
         dpr = self.devicePixelRatioF() or 1.0
         head_font = QFont(FONT_FAMILY, 8)
         head_font.setCapitalization(QFont.Capitalization.AllUppercase)
@@ -593,7 +593,7 @@ class StyleModeMixin:
         sy = py + pad
         for row in rows:
             if row and row[0] in block_starts:
-                painter.setPen(QPen(QColor(150, 150, 146)))
+                painter.setPen(QPen(theme.overlay_ink(0.59)))
                 painter.setFont(head_font)
                 painter.drawText(QRectF(gx0, sy, grid_w, head_h),
                                  Qt.AlignmentFlag.AlignLeft
@@ -618,7 +618,7 @@ class StyleModeMixin:
                     painter.setPen(QPen(cyan, 2))
                     painter.drawRoundedRect(cell.adjusted(-1, -1, 1, 1), 5, 5)
             sy += sw + gap
-        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setPen(QPen(theme.overlay_ink(0.92)))
         painter.setFont(QFont(FONT_FAMILY, 9))
         name = self._icon_picker_name()
         if name:
@@ -840,10 +840,10 @@ class StyleModeMixin:
 
         gx0, gy0 = px + pad, py + pad
         cyan = QColor(0, 209, 224)
-        ink = QColor(225, 225, 221)
+        ink = theme.overlay_ink(0.88)
         for r, size in enumerate(self._TYPE_SIZES):
             cy = gy0 + r * cell_h
-            painter.setPen(QPen(QColor(150, 150, 146)))
+            painter.setPen(QPen(theme.overlay_ink(0.59)))
             painter.setFont(QFont(FONT_FAMILY, 8))
             painter.drawText(QRectF(gx0, cy, rowlab_w - 4, cell_h),
                              Qt.AlignmentFlag.AlignVCenter
@@ -865,7 +865,7 @@ class StyleModeMixin:
                     painter.setPen(QPen(cyan, 2))
                     painter.drawRoundedRect(cell.adjusted(1, 1, -1, -1), 5, 5)
 
-        painter.setPen(QPen(QColor(235, 235, 235)))
+        painter.setPen(QPen(theme.overlay_ink(0.92)))
         painter.setFont(QFont(FONT_FAMILY, 9))
         sl = self._TYPE_SIZE_LABELS[self._TYPE_SIZES[self._type_picker_size_idx]]
         el = self._TYPE_EMPH_LABELS[self._type_picker_emph_idx]
@@ -881,7 +881,7 @@ class StyleModeMixin:
         painter.drawText(QRectF(px, status_y, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter, status)
         if has_note:
-            painter.setPen(QPen(QColor(150, 150, 146)))
+            painter.setPen(QPen(theme.overlay_ink(0.59)))
             painter.setFont(QFont(FONT_FAMILY, 8))
             painter.drawText(QRectF(px, status_y + label_h, panel_w, label_h),
                              Qt.AlignmentFlag.AlignCenter,
@@ -1170,7 +1170,7 @@ class StyleModeMixin:
         dim_ring = QColor(120, 140, 142)
         title = ("Connector text" if self._conn_overlay_kind == "text"
                  else "Connector style")
-        painter.setPen(QPen(QColor(150, 150, 146)))
+        painter.setPen(QPen(theme.overlay_ink(0.59)))
         painter.setFont(QFont(FONT_FAMILY, 8))
         painter.drawText(QRectF(px, py + 4, panel_w, title_h),
                          Qt.AlignmentFlag.AlignHCenter, title)
@@ -1181,8 +1181,7 @@ class StyleModeMixin:
             cw, ch, gap = self._conn_cell_size(axis["kind"])
             cur = self._conn_axis_index(axis)
             painter.setFont(QFont(FONT_FAMILY, 9))
-            painter.setPen(QPen(QColor(210, 210, 206) if active
-                                else QColor(150, 150, 146)))
+            painter.setPen(QPen(theme.overlay_ink(0.82 if active else 0.59)))
             painter.drawText(QRectF(px + pad, ry, label_w - 4, row_h),
                              Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                              axis["label"])

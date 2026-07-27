@@ -221,8 +221,9 @@ class OverlaysMixin:
         painter.setPen(QPen(accent, 1))
         painter.setBrush(QBrush(bg))
         painter.drawRoundedRect(QRectF(rx, ry, rw, rh), 8, 8)
-        # Border carries the status color; text stays near-white for readability.
-        painter.setPen(QPen(QColor(255, 255, 255, 235)))
+        # Border carries the status color; the text is the card's own ink, which
+        # inverts with it — a fixed near-white would vanish on the light card.
+        painter.setPen(QPen(theme.overlay_ink(0.92)))
         painter.drawText(QRectF(rx, ry, rw, rh), Qt.AlignmentFlag.AlignCenter,
                          text)
         painter.restore()

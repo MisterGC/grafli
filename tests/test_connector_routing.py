@@ -81,7 +81,7 @@ def test_connectors_sharing_a_side_are_spread_apart():
         "@ arrow a -> d !ortho\n"
     )
     view = _view(src)
-    anchors = view._routed_anchors([
+    anchors = view._connector_anchors([
         (arw.from_id, arw.to_id, arw.head_to, arw.head_from, arw, None)
         for arw in view.board.arrows])
     starts = [a[0] for a in anchors.values()]
@@ -96,8 +96,8 @@ def test_spreading_is_stable_across_redraws():
     view = _view(src)
     render_list = [(a.from_id, a.to_id, a.head_to, a.head_from, a, None)
                    for a in view.board.arrows]
-    first = view._routed_anchors(render_list)
-    second = view._routed_anchors(render_list)
+    first = view._connector_anchors(render_list)
+    second = view._connector_anchors(render_list)
     assert {k: (v[0].x(), v[0].y()) for k, v in first.items()} == \
            {k: (v[0].x(), v[0].y()) for k, v in second.items()}
 
@@ -155,9 +155,29 @@ def test_routing_survives_a_redraw():
     assert view._arrow_items          # something was actually drawn
 
 
-def test_direct_connectors_are_untouched_by_the_routing_pass():
-    """The no-op guarantee: a board without routing never enters that code."""
+def test_an_uncrowded_direct_connector_keeps_its_natural_anchor():
+    """The no-op guarantee: nothing to separate means nothing is returned."""
     view = _view(_BOARD + "@ arrow a -> b\n")
     render_list = [(a.from_id, a.to_id, a.head_to, a.head_from, a, None)
                    for a in view.board.arrows]
-    assert view._routed_anchors(render_list) == {}
+    assert view._connector_anchors(render_list) == {}
+
+
+def test_a_routed_connector_starts_where_its_target_implies():
+    """The showcase bug: a spline left from the middle of the side regardless.
+
+    Allocating a box side once per *kind* meant a routed connector never saw the
+    direct one already arriving there, and it threw away the one piece of
+    information that would have placed it correctly — where its own centre-ray
+    exits. The spline left from the side midpoint, on the wrong side of an
+    arrowhead it should have cleared, and crossed it.
+    """
+    view = _view(_BOARD + "@ arrow b -> a\n@ arrow a -> c !spline\n")
+    render_list = [(x.from_id, x.to_id, x.head_to, x.head_from, x, None)
+                   for x in view.board.arrows]
+    anchors = view._connector_anchors(render_list)
+    idx = next(i for i, x in enumerate(view.board.arrows) if x.routing)
+    start = anchors[idx][0]
+    # Box a spans y=0..100; c sits below-right, so the exit belongs low on the
+    # east side — not at the midpoint (y=50) the old routed pass would give.
+    assert start.y() > 70.0, "routed connector still leaving from the midpoint"

@@ -46,7 +46,7 @@ def test_routed_connector_leaves_the_side_a_direct_one_would():
     rect = (0.0, 0.0, 200.0, 100.0)
     for target in (QPointF(600, 20), QPointF(-400, 20),
                    QPointF(100, 900), QPointF(100, -900)):
-        side = arrows.anchor_side(rect, target)
+        side = arrows.side_of_point(rect, arrows._rect_edge_point(*rect, target))
         direct = arrows._rect_edge_point(*rect, target)
         if side == "e":
             assert abs(direct.x() - 200) < 0.01
@@ -68,9 +68,9 @@ def test_point_on_side_lands_on_that_side():
 
 # ── Spreading ──────────────────────────────────────────────────────
 
-def test_a_lone_connector_keeps_the_side_midpoint():
+def test_a_lone_connector_keeps_its_natural_position():
     """Spreading must not disturb the common case."""
-    assert arrows.spread_offsets(1) == [0.5]
+    assert arrows.relax_positions([0.83], 0.2) == [0.83]
 
 
 def test_connectors_sharing_a_side_are_spread_apart():

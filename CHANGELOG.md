@@ -23,6 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as the place to catch a connector cutting across the board.
   ([#138](https://github.com/MisterGC/grafli/issues/138))
 
+### Changed
+- **Crowded connectors no longer attach at the same point.** Where several
+  connectors met a box close together — a hub node, a fan-out — they piled into
+  one spot and their arrowheads became a knot. Each connector still attaches
+  where its own centre-to-centre ray leaves the box, and is nudged along that
+  side only when a neighbour comes too close, in the order the targets imply,
+  so they separate without swapping places and crossing. A board with room to
+  breathe is unchanged. Routed connectors take part in the same allocation and
+  are additionally held near the middle of their side: unlike a direct line,
+  which simply continues its ray, a routed one leaves perpendicular and needs
+  room to turn.
+
 ### Fixed
 - **Overlay panels lost their text on the dark theme.** Overlay cards invert
   against the board — a dark card on the light theme, a paper one on the dark

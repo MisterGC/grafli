@@ -141,9 +141,9 @@ def _arrowhead_polygon(tip: QPointF, angle: float,
 # A routed connector leaves each endpoint *perpendicular to a box side*
 # rather than along the centre-to-centre ray a direct connector uses. That
 # swap is what makes right angles and smooth curves possible, and it is also
-# what forces the anchors to be spread (see ``spread_offsets``): every direct
-# connector aims somewhere different and so lands somewhere different, but
-# several routed connectors leaving one side would otherwise stack.
+# what forces the anchors to be spread: every direct connector aims somewhere
+# different and so lands somewhere different, but several routed connectors
+# leaving one side would otherwise stack.
 
 # How far a spline's control point reaches from its endpoint, as a fraction of
 # the endpoint separation — enough to leave the box cleanly, clamped so a long
@@ -158,21 +158,6 @@ ORTHO_RADIUS = 9.0
 _NORMALS = {"n": (0.0, -1.0), "s": (0.0, 1.0), "e": (1.0, 0.0), "w": (-1.0, 0.0)}
 
 
-def anchor_side(rect: tuple, target: QPointF) -> str:
-    """Which side of ``rect`` faces ``target`` — the side a routed connector exits.
-
-    Picks by the dominant axis of the centre-to-target delta, scaled by the
-    rect's own proportions so a wide, short box prefers its long sides rather
-    than being decided by raw pixel distance.
-    """
-    x, y, w, h = rect
-    dx = target.x() - (x + w / 2)
-    dy = target.y() - (y + h / 2)
-    if w > 0 and h > 0 and abs(dx) / w >= abs(dy) / h:
-        return "e" if dx >= 0 else "w"
-    return "s" if dy >= 0 else "n"
-
-
 def point_on_side(rect: tuple, side: str, t: float = 0.5) -> QPointF:
     """The point ``t`` of the way along a rect's side (0..1, 0.5 = midpoint)."""
     x, y, w, h = rect
@@ -183,14 +168,6 @@ def point_on_side(rect: tuple, side: str, t: float = 0.5) -> QPointF:
     if side == "w":
         return QPointF(x, y + h * t)
     return QPointF(x + w, y + h * t)
-
-
-def spread_offsets(count: int) -> list[float]:
-    """Where ``count`` connectors sit along a shared side: evenly, none at 0 or 1.
-
-    One connector keeps the midpoint, so the common case is unchanged.
-    """
-    return [(i + 1) / (count + 1) for i in range(count)]
 
 
 def ortho_points(start: QPointF, start_side: str,
@@ -409,9 +386,6 @@ ANCHOR_MIN_SEP = 26.0
 # target lies right still sits right of one whose target lies left) while
 # holding the anchor in the roomy middle of the side.
 ROUTED_CENTRE_BIAS = 0.34
-# Experiment toggle: "side" groups per box side, "perimeter" walks the box as
-# one loop so anchors straddling a corner still see each other.
-ANCHOR_SPREAD_MODE = "side"
 # Anchors stay off the very corners, which read as ambiguous.
 ANCHOR_MARGIN = 0.06
 
@@ -474,81 +448,3 @@ def relax_positions(desired: list[float], min_sep: float,
         out[i] = vals[slot]
     return out
 
-
-# ── Variant B: spread around the whole perimeter ───────────────────
-#
-# Grouping per side has a blind spot: two connectors straddling a corner sit on
-# different sides and so never compare, even though they visually collide.
-# Walking the box as one continuous loop removes the seam — a corner stops
-# being a special case and becomes just another place along the edge.
-
-def perimeter_length(rect: tuple) -> float:
-    return 2 * (rect[2] + rect[3])
-
-
-def perimeter_pos(rect: tuple, pt: QPointF) -> float:
-    """Distance to ``pt`` clockwise around the rect, starting at its top-left."""
-    x, y, w, h = rect
-    side = side_of_point(rect, pt)
-    if side == "n":
-        return max(0.0, min(w, pt.x() - x))
-    if side == "e":
-        return w + max(0.0, min(h, pt.y() - y))
-    if side == "s":
-        return w + h + max(0.0, min(w, (x + w) - pt.x()))
-    return w + h + w + max(0.0, min(h, (y + h) - pt.y()))
-
-
-def point_at_perimeter(rect: tuple, s: float) -> QPointF:
-    """The point ``s`` clockwise around the rect from its top-left."""
-    x, y, w, h = rect
-    s %= perimeter_length(rect)
-    if s <= w:
-        return QPointF(x + s, y)
-    s -= w
-    if s <= h:
-        return QPointF(x + w, y + s)
-    s -= h
-    if s <= w:
-        return QPointF(x + w - s, y + h)
-    s -= w
-    return QPointF(x, y + h - s)
-
-
-def relax_circular(positions: list[float], total: float,
-                   min_sep: float) -> list[float]:
-    """Separate points on a closed loop, keeping their circular order.
-
-    The loop is cut at the widest existing gap — the one place where opening
-    space costs nothing — and the remainder relaxed as a line. Points that are
-    already far enough apart come back untouched.
-    """
-    n = len(positions)
-    if n < 2:
-        return list(positions)
-    min_sep = min(min_sep, total / n * 0.9)
-
-    order = sorted(range(n), key=lambda i: positions[i])
-    ordered = [positions[i] for i in order]
-
-    gaps = [(ordered[(i + 1) % n] - ordered[i]) % total for i in range(n)]
-    seam = max(range(n), key=lambda i: gaps[i])       # cut after this point
-
-    rotated = [order[(seam + 1 + k) % n] for k in range(n)]
-    start = positions[rotated[0]]
-    unwrapped = [(positions[i] - start) % total for i in rotated]
-
-    span = total - gaps[seam]                          # room we may use
-    for i in range(1, n):                              # push forward
-        unwrapped[i] = max(unwrapped[i], unwrapped[i - 1] + min_sep)
-    overflow = unwrapped[-1] - span
-    if overflow > 0:                                   # ran into the seam
-        shift = min(overflow, gaps[seam] / 2)
-        unwrapped = [v - shift for v in unwrapped]
-        for i in range(n - 2, -1, -1):
-            unwrapped[i] = min(unwrapped[i], unwrapped[i + 1] - min_sep)
-
-    out = [0.0] * n
-    for i, value in zip(rotated, unwrapped):
-        out[i] = (start + value) % total
-    return out

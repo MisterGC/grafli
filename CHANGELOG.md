@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Overlay panels lost their text on the dark theme.** Overlay cards invert
+  against the board — a dark card on the light theme, a paper one on the dark
+  theme — but their text was still the near-white that only ever suited the
+  dark card, so it dropped to ~1.1:1 and vanished. Affected the flow playback
+  caption (title and description), the status toast, the jump prompt, and all
+  four style-mode pickers plus the connector overlay. The tiers now come from
+  `theme.overlay_ink()`, which reads the card's own counterpart ink, so the
+  title > body > hint hierarchy survives the inversion.
+
 ## [0.8.0] - 2026-07-26
 
 A dark counterpart to the warm paper theme — derived from the light palette's

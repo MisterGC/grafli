@@ -298,3 +298,74 @@ def test_arrows_are_rebuilt_on_a_switch():
         theme.set_theme("light")
         view.apply_theme()
     assert arrow_pens() == light_pens
+
+
+# ── Overlay cards ──────────────────────────────────────────────────
+
+def _flatten(ink: QColor, card: QColor) -> QColor:
+    """The ink as it actually lands, composited over the card at its alpha."""
+    a = ink.alphaF()
+    return QColor(round(ink.red() * a + card.red() * (1 - a)),
+                  round(ink.green() * a + card.green() * (1 - a)),
+                  round(ink.blue() * a + card.blue() * (1 - a)))
+
+
+def test_overlay_ink_stays_readable_on_its_card():
+    """Overlay cards invert against the board, so their ink must invert too.
+
+    The tiers are emphasis, not fixed greys: the faintest one (hints) still has
+    to clear 3:1 once composited, and the order title > body > hint has to hold
+    in both palettes rather than only on the card the values were picked for.
+    """
+    tiers = (("title", 1.0), ("body", 0.86), ("hint", 0.59))
+    for name in ("light", "dark"):
+        theme.set_theme(name)
+        card = QColor(theme.OVERLAY_BG)
+        ratios = []
+        for label, strength in tiers:
+            got = _contrast(_flatten(theme.overlay_ink(strength), card), card)
+            assert got >= 3.0, f"{name} overlay {label}: {got:.2f}:1 on the card"
+            ratios.append(got)
+        assert ratios == sorted(ratios, reverse=True), (
+            f"{name}: emphasis order collapsed — {ratios}")
+    theme.set_theme("light")
+
+
+def test_no_overlay_panel_hardcodes_a_light_ink():
+    """The regression that made the flow caption vanish on the dark theme.
+
+    Every one of these panels drew near-white text because ``OVERLAY_BG`` was
+    always a dark card. The dark theme flips that card to paper, so a baked
+    light neutral drops to ~1.1:1 and the text is simply gone. Saturated
+    literals (the cyan selection ring, the red 'no colour' slash) are fine —
+    they read on either ground; it is the *light neutrals* that are the bug.
+    """
+    import ast
+    import pathlib
+
+    offenders = []
+    for path in sorted(pathlib.Path(theme.__file__).parent.rglob("*.py")):
+        tree = ast.parse(path.read_text())
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if not any(isinstance(n, ast.Attribute) and n.attr == "OVERLAY_BG"
+                       for n in ast.walk(fn)):
+                continue
+            for node in ast.walk(fn):
+                if not (isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id == "QColor"
+                        and len(node.args) >= 3
+                        and all(isinstance(a, ast.Constant)
+                                and isinstance(a.value, int)
+                                for a in node.args)):
+                    continue
+                r, g, b = (a.value for a in node.args[:3])
+                near_neutral = max(r, g, b) - min(r, g, b) <= 12
+                if near_neutral and _rel_lum(QColor(r, g, b)) > 0.25:
+                    offenders.append(
+                        f"{path.name}:{node.lineno} QColor({r}, {g}, {b})")
+    assert not offenders, (
+        "light ink baked onto an overlay card — use theme.overlay_ink(): "
+        + ", ".join(offenders))

@@ -24,12 +24,21 @@ from grafli.arrows import (
     _box_edge_point,
     _line_rect_clip,
     _rect_edge_point,
+    ANCHOR_MIN_SEP,
+    ANCHOR_SPREAD_MODE,
     anchor_side,
+    perimeter_length,
+    perimeter_pos,
+    point_at_perimeter,
+    relax_circular,
     path_end_angle,
     point_on_side,
+    relax_positions,
     routed_path,
+    side_of_point,
     split_path_at_rect,
     spread_offsets,
+    t_of_point,
 )
 from grafli.buffers import ViewState
 from grafli.constants import (
@@ -462,6 +471,96 @@ class SelectionMixin:
             )
         return anchors
 
+    def _spread_direct_anchors(self, render_list) -> dict:
+        """Nudge crowded attachment points apart on *unrouted* connectors.
+
+        A direct connector attaches where the centre-to-centre ray leaves the
+        box, which is the right place until several connectors head in the same
+        general direction — then a hub node grows a knot of arrowheads in one
+        corner. Each anchor keeps its natural position and is only pushed along
+        its side when a neighbour is too close, in the order they naturally sit,
+        so they separate without swapping and crossing.
+
+        Only connectors that actually moved are returned: a board with room to
+        breathe takes the untouched code path and renders exactly as before.
+        """
+        natural: dict[int, tuple] = {}
+        groups: dict[tuple[str, str], list] = {}
+
+        for idx, (from_id, to_id, _ht, _hf, fwd, _rev) in enumerate(render_list):
+            if fwd.routing:
+                continue                     # routed connectors spread already
+            f_id = self._lod_reroute(from_id)
+            t_id = self._lod_reroute(to_id)
+            if f_id == t_id:
+                continue
+            if (self._lod_hull_member.get(f_id) is not None
+                    or self._lod_hull_member.get(t_id) is not None):
+                continue                     # hull boundary, not a box side
+            f_elem = self._board.box_by_id(f_id) or self._board.note_by_id(f_id)
+            t_elem = self._board.box_by_id(t_id) or self._board.note_by_id(t_id)
+            if not f_elem or not t_elem:
+                continue
+            f_rect = self._elem_rect(f_elem)
+            t_rect = self._elem_rect(t_elem)
+
+            aligned = (_aligned_edge_points(f_elem, t_elem)
+                       if isinstance(f_elem, Box) and isinstance(t_elem, Box)
+                       else None)
+            if aligned:
+                s_pt, e_pt = aligned
+            else:
+                f_mid = QPointF(f_rect[0] + f_rect[2] / 2,
+                                f_rect[1] + f_rect[3] / 2)
+                t_mid = QPointF(t_rect[0] + t_rect[2] / 2,
+                                t_rect[1] + t_rect[3] / 2)
+                s_pt = _rect_edge_point(*f_rect, t_mid)
+                e_pt = _rect_edge_point(*t_rect, f_mid)
+
+            if ANCHOR_SPREAD_MODE == "perimeter":
+                natural[idx] = (f_rect, "", perimeter_pos(f_rect, s_pt),
+                                t_rect, "", perimeter_pos(t_rect, e_pt))
+                groups.setdefault((f_id, ""), []).append((idx, 0))
+                groups.setdefault((t_id, ""), []).append((idx, 1))
+            else:
+                s_side = side_of_point(f_rect, s_pt)
+                e_side = side_of_point(t_rect, e_pt)
+                natural[idx] = (f_rect, s_side, t_of_point(f_rect, s_side, s_pt),
+                                t_rect, e_side, t_of_point(t_rect, e_side, e_pt))
+                groups.setdefault((f_id, s_side), []).append((idx, 0))
+                groups.setdefault((t_id, e_side), []).append((idx, 1))
+
+        slots: dict[tuple[int, int], float] = {}
+        for (_elem_id, side), members in groups.items():
+            if len(members) < 2:
+                continue
+            idx0, which0 = members[0]
+            rect = natural[idx0][0] if which0 == 0 else natural[idx0][3]
+            values = [natural[i][2 if w == 0 else 5] for i, w in members]
+            if ANCHOR_SPREAD_MODE == "perimeter":
+                relaxed = relax_circular(values, perimeter_length(rect),
+                                         ANCHOR_MIN_SEP)
+            else:
+                span = rect[2] if side in ("n", "s") else rect[3]
+                min_sep = ANCHOR_MIN_SEP / span if span > 0 else 0.2
+                relaxed = relax_positions(values, min_sep)
+            for member, value in zip(members, relaxed):
+                slots[member] = value
+
+        moved = {}
+        for idx, (f_rect, s_side, s_t, t_rect, e_side, e_t) in natural.items():
+            new_s = slots.get((idx, 0), s_t)
+            new_e = slots.get((idx, 1), e_t)
+            if abs(new_s - s_t) < 1e-6 and abs(new_e - e_t) < 1e-6:
+                continue
+            if ANCHOR_SPREAD_MODE == "perimeter":
+                moved[idx] = (point_at_perimeter(f_rect, new_s),
+                              point_at_perimeter(t_rect, new_e))
+            else:
+                moved[idx] = (point_on_side(f_rect, s_side, new_s),
+                              point_on_side(t_rect, e_side, new_e))
+        return moved
+
     def _redraw_arrows(self):
         for item in self._arrow_items:
             self._scene.removeItem(item)
@@ -508,6 +607,7 @@ class SelectionMixin:
                 ))
 
         routed_anchors = self._routed_anchors(render_list)
+        direct_anchors = self._spread_direct_anchors(render_list)
 
         for idx, (from_id, to_id, draw_head_to, draw_head_from, fwd, rev) in enumerate(
                 render_list):
@@ -607,6 +707,9 @@ class SelectionMixin:
                     start, start_side, end, end_side = anchors
                     conn_path = routed_path(
                         fwd.routing, start, start_side, end, end_side)
+            elif idx in direct_anchors:
+                # Crowded on a shared side — nudged apart, still a straight run.
+                start, end = direct_anchors[idx]
 
             dx = end.x() - start.x()
             dy = end.y() - start.y()

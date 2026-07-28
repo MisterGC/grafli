@@ -388,3 +388,150 @@ def split_path_at_rect(path: QPainterPath, rect: QRectF) -> list[QPainterPath]:
             sub.lineTo(pt)
         out.append(sub)
     return out
+
+
+# ── Anchor spreading for unrouted connectors (experiment) ──────────
+#
+# A direct connector attaches where the centre-to-centre ray leaves the box.
+# That is the right *natural* position, but several connectors to targets in
+# the same general direction all land within a few pixels of each other, so a
+# hub node ends up with a knot of arrowheads at one corner. These helpers keep
+# the natural position and only push neighbours apart when they crowd — a
+# board with room to breathe is left exactly as it was.
+
+# Minimum gap between two connectors on the same box side, in scene units.
+ANCHOR_MIN_SEP = 26.0
+# Experiment toggle: "side" groups per box side, "perimeter" walks the box as
+# one loop so anchors straddling a corner still see each other.
+ANCHOR_SPREAD_MODE = "side"
+# Anchors stay off the very corners, which read as ambiguous.
+ANCHOR_MARGIN = 0.06
+
+
+def side_of_point(rect: tuple, pt: QPointF) -> str:
+    """Which side of ``rect`` a point sits on (nearest edge)."""
+    x, y, w, h = rect
+    dists = {
+        "w": abs(pt.x() - x), "e": abs(pt.x() - (x + w)),
+        "n": abs(pt.y() - y), "s": abs(pt.y() - (y + h)),
+    }
+    return min(dists, key=dists.get)
+
+
+def t_of_point(rect: tuple, side: str, pt: QPointF) -> float:
+    """Where along a side a point sits, as 0..1."""
+    x, y, w, h = rect
+    if side in ("n", "s"):
+        return 0.0 if w <= 0 else max(0.0, min(1.0, (pt.x() - x) / w))
+    return 0.0 if h <= 0 else max(0.0, min(1.0, (pt.y() - y) / h))
+
+
+def relax_positions(natural: list[float], min_sep: float) -> list[float]:
+    """Push crowded anchors apart along a side, preserving their order.
+
+    Order is what keeps connectors from swapping places and crossing each
+    other; separation is what stops them stacking. A set that is already
+    comfortably spread comes back untouched, so this only changes the boards
+    that actually had a knot.
+    """
+    n = len(natural)
+    if n < 2:
+        return list(natural)
+    lo, hi = ANCHOR_MARGIN, 1.0 - ANCHOR_MARGIN
+    min_sep = min(min_sep, (hi - lo) / (n - 1))
+
+    order = sorted(range(n), key=lambda i: natural[i])
+    vals = [max(lo, min(hi, natural[i])) for i in order]
+    for i in range(1, n):                       # push right
+        vals[i] = max(vals[i], vals[i - 1] + min_sep)
+    if vals[-1] > hi:                           # ran off the end — push back
+        vals[-1] = hi
+        for i in range(n - 2, -1, -1):
+            vals[i] = min(vals[i], vals[i + 1] - min_sep)
+    if vals[0] < lo:                            # no room either way — share it
+        step = (hi - lo) / (n - 1)
+        vals = [lo + step * i for i in range(n)]
+
+    out = [0.0] * n
+    for slot, i in enumerate(order):
+        out[i] = vals[slot]
+    return out
+
+
+# ── Variant B: spread around the whole perimeter ───────────────────
+#
+# Grouping per side has a blind spot: two connectors straddling a corner sit on
+# different sides and so never compare, even though they visually collide.
+# Walking the box as one continuous loop removes the seam — a corner stops
+# being a special case and becomes just another place along the edge.
+
+def perimeter_length(rect: tuple) -> float:
+    return 2 * (rect[2] + rect[3])
+
+
+def perimeter_pos(rect: tuple, pt: QPointF) -> float:
+    """Distance to ``pt`` clockwise around the rect, starting at its top-left."""
+    x, y, w, h = rect
+    side = side_of_point(rect, pt)
+    if side == "n":
+        return max(0.0, min(w, pt.x() - x))
+    if side == "e":
+        return w + max(0.0, min(h, pt.y() - y))
+    if side == "s":
+        return w + h + max(0.0, min(w, (x + w) - pt.x()))
+    return w + h + w + max(0.0, min(h, (y + h) - pt.y()))
+
+
+def point_at_perimeter(rect: tuple, s: float) -> QPointF:
+    """The point ``s`` clockwise around the rect from its top-left."""
+    x, y, w, h = rect
+    s %= perimeter_length(rect)
+    if s <= w:
+        return QPointF(x + s, y)
+    s -= w
+    if s <= h:
+        return QPointF(x + w, y + s)
+    s -= h
+    if s <= w:
+        return QPointF(x + w - s, y + h)
+    s -= w
+    return QPointF(x, y + h - s)
+
+
+def relax_circular(positions: list[float], total: float,
+                   min_sep: float) -> list[float]:
+    """Separate points on a closed loop, keeping their circular order.
+
+    The loop is cut at the widest existing gap — the one place where opening
+    space costs nothing — and the remainder relaxed as a line. Points that are
+    already far enough apart come back untouched.
+    """
+    n = len(positions)
+    if n < 2:
+        return list(positions)
+    min_sep = min(min_sep, total / n * 0.9)
+
+    order = sorted(range(n), key=lambda i: positions[i])
+    ordered = [positions[i] for i in order]
+
+    gaps = [(ordered[(i + 1) % n] - ordered[i]) % total for i in range(n)]
+    seam = max(range(n), key=lambda i: gaps[i])       # cut after this point
+
+    rotated = [order[(seam + 1 + k) % n] for k in range(n)]
+    start = positions[rotated[0]]
+    unwrapped = [(positions[i] - start) % total for i in rotated]
+
+    span = total - gaps[seam]                          # room we may use
+    for i in range(1, n):                              # push forward
+        unwrapped[i] = max(unwrapped[i], unwrapped[i - 1] + min_sep)
+    overflow = unwrapped[-1] - span
+    if overflow > 0:                                   # ran into the seam
+        shift = min(overflow, gaps[seam] / 2)
+        unwrapped = [v - shift for v in unwrapped]
+        for i in range(n - 2, -1, -1):
+            unwrapped[i] = min(unwrapped[i], unwrapped[i + 1] - min_sep)
+
+    out = [0.0] * n
+    for i, value in zip(rotated, unwrapped):
+        out[i] = (start + value) % total
+    return out

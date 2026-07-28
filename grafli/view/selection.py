@@ -24,6 +24,12 @@ from grafli.arrows import (
     _box_edge_point,
     _line_rect_clip,
     _rect_edge_point,
+    anchor_side,
+    path_end_angle,
+    point_on_side,
+    routed_path,
+    split_path_at_rect,
+    spread_offsets,
 )
 from grafli.buffers import ViewState
 from grafli.constants import (
@@ -398,6 +404,64 @@ class SelectionMixin:
         self._update_scene_rect()
         self._invalidate_graph_stats()
 
+    def _routed_anchors(self, render_list) -> dict:
+        """Side anchors for every routed connector, spread along shared sides.
+
+        Direct connectors each aim somewhere different and so land somewhere
+        different; routed ones all want their side's midpoint, so they have to
+        be spread. A side's occupancy is only knowable by looking at every
+        connector at once — hence one pass per redraw rather than a lookup per
+        connector, which is what keeps dragging a node linear in edge count.
+        """
+        groups: dict[tuple[str, str], list] = {}
+        pending: dict[int, tuple] = {}
+
+        for idx, (from_id, to_id, _ht, _hf, fwd, _rev) in enumerate(render_list):
+            if not fwd.routing:
+                continue
+            f_id = self._lod_reroute(from_id)
+            t_id = self._lod_reroute(to_id)
+            if f_id == t_id:
+                continue
+            f_elem = self._board.box_by_id(f_id) or self._board.note_by_id(f_id)
+            t_elem = self._board.box_by_id(t_id) or self._board.note_by_id(t_id)
+            if not f_elem or not t_elem:
+                continue
+            f_rect = self._elem_rect(f_elem)
+            t_rect = self._elem_rect(t_elem)
+            f_mid = QPointF(f_rect[0] + f_rect[2] / 2, f_rect[1] + f_rect[3] / 2)
+            t_mid = QPointF(t_rect[0] + t_rect[2] / 2, t_rect[1] + t_rect[3] / 2)
+            f_side = anchor_side(f_rect, t_mid)
+            t_side = anchor_side(t_rect, f_mid)
+            pending[idx] = (f_rect, f_side, t_rect, t_side, f_mid, t_mid, f_id, t_id)
+            groups.setdefault((f_id, f_side), []).append((idx, "from"))
+            groups.setdefault((t_id, t_side), []).append((idx, "to"))
+
+        # Order along the side by where each peer sits, so the connectors don't
+        # cross each other on the way out; peer id breaks ties so the result is
+        # identical in the app and in a headless render.
+        slots: dict[tuple[int, str], float] = {}
+        for (_elem_id, side), members in groups.items():
+            def along(member, _side=side):
+                i, which = member
+                _fr, _fs, _tr, _ts, f_mid, t_mid, f_id, t_id = pending[i]
+                peer, peer_id = ((t_mid, t_id) if which == "from"
+                                 else (f_mid, f_id))
+                return (peer.x() if _side in ("n", "s") else peer.y(), peer_id)
+            members.sort(key=along)
+            for offset, member in zip(spread_offsets(len(members)), members):
+                slots[member] = offset
+
+        anchors = {}
+        for idx, (f_rect, f_side, t_rect, t_side, *_rest) in pending.items():
+            anchors[idx] = (
+                point_on_side(f_rect, f_side, slots.get((idx, "from"), 0.5)),
+                f_side,
+                point_on_side(t_rect, t_side, slots.get((idx, "to"), 0.5)),
+                t_side,
+            )
+        return anchors
+
     def _redraw_arrows(self):
         for item in self._arrow_items:
             self._scene.removeItem(item)
@@ -443,7 +507,10 @@ class SelectionMixin:
                     arrow, None,
                 ))
 
-        for from_id, to_id, draw_head_to, draw_head_from, fwd, rev in render_list:
+        routed_anchors = self._routed_anchors(render_list)
+
+        for idx, (from_id, to_id, draw_head_to, draw_head_from, fwd, rev) in enumerate(
+                render_list):
             # Level-of-Detail: an endpoint inside a collapsed container re-routes
             # to that container's tile; an edge that becomes internal to a single
             # tile (both ends resolve to it) is dropped.
@@ -529,12 +596,25 @@ class SelectionMixin:
                 if to_hull is not None:
                     end = to_hull.boundary_point(ref_start)
 
+            # A routed connector swaps the centre-ray anchors for side anchors
+            # and draws a path between them. Skipped when an endpoint has been
+            # re-attached to a cluster hull: that boundary point isn't a box
+            # side, so there is no side to leave perpendicular to.
+            conn_path = None
+            if fwd.routing and from_hull is None and to_hull is None:
+                anchors = routed_anchors.get(idx)
+                if anchors:
+                    start, start_side, end, end_side = anchors
+                    conn_path = routed_path(
+                        fwd.routing, start, start_side, end, end_side)
+
             dx = end.x() - start.x()
             dy = end.y() - start.y()
 
             # Forward arrowhead (at to_id end)
             if draw_head_to:
-                angle = math.atan2(dy, dx)
+                angle = (path_end_angle(conn_path, True) if conn_path is not None
+                         else math.atan2(dy, dx))
                 head = QGraphicsPolygonItem(_arrowhead_polygon(end, angle, head_size))
                 head.setPen(QPen(arrow_color, 1))
                 head.setBrush(QBrush(arrow_color))
@@ -544,7 +624,8 @@ class SelectionMixin:
 
             # Backward arrowhead (at from_id end)
             if draw_head_from:
-                back_angle = math.atan2(-dy, -dx)
+                back_angle = (path_end_angle(conn_path, False)
+                              if conn_path is not None else math.atan2(-dy, -dx))
                 back_head = QGraphicsPolygonItem(
                     _arrowhead_polygon(start, back_angle, head_size)
                 )
@@ -579,8 +660,15 @@ class SelectionMixin:
             label_too_small = (fwd.from_id, fwd.to_id) in self._lod_arrow_labels_hidden
             has_label = False
             if label_texts and total_len > 0 and not endpoint_collapsed:
-                mid_x = (start.x() + end.x()) / 2
-                mid_y = (start.y() + end.y()) / 2
+                # The label rides the connector, so on a routed one it follows
+                # the path's midpoint — the chord midpoint of an L-bend sits off
+                # in empty space, nowhere near the line it is labelling.
+                if conn_path is not None:
+                    mid = conn_path.pointAtPercent(0.5)
+                    mid_x, mid_y = mid.x(), mid.y()
+                else:
+                    mid_x = (start.x() + end.x()) / 2
+                    mid_y = (start.y() + end.y()) / 2
 
                 combined = "\n".join(label_texts)
                 label = LabelItem(combined)
@@ -606,7 +694,23 @@ class SelectionMixin:
                 has_label = not label_too_small
 
             # Draw line (split around label gap if needed)
-            if has_label:
+            if conn_path is not None:
+                # A path has no single parametric line to clip, so the label
+                # gap is walked out of it instead — one piece when the label
+                # misses the connector, two when it interrupts it.
+                pieces = (split_path_at_rect(conn_path, gap) if has_label
+                          else [conn_path])
+                tooltip_parts = [a.annotation for a in (fwd, rev)
+                                 if a is not None and a.annotation]
+                for piece in pieces:
+                    line = ArrowLineItem(piece)
+                    line.setPen(pen)
+                    line.setData(0, fwd)
+                    if tooltip_parts and not has_label:
+                        line.setToolTip("\n".join(tooltip_parts))
+                    self._scene.addItem(line)
+                    self._arrow_items.append(line)
+            elif has_label:
                 seg1_end, seg2_start = _line_rect_clip(start, end, gap)
                 # If gap doesn't intersect the line, draw one unbroken line
                 if ((seg1_end - start).manhattanLength() < 1

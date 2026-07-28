@@ -218,7 +218,17 @@ in `references/genres.md` instead.)
    `references/design.md`.
 6. **Arrows last.** Every arrow gets a label unless its meaning is
    obvious from context. Use semantic edge prefixes (`call:`, `data:`,
-   `event:`, etc.) where they fit.
+   `event:`, etc.) where they fit. Pick a **routing** to match the
+   board: leave it **direct** (the default) for conceptual maps and
+   sketches, where a straight line reads as "these relate"; use
+   `!ortho` on structural boards — architecture, deployment, wiring,
+   anything on a grid — where right angles read as real connections
+   and parallel runs look deliberate; use `!spline` for soft or
+   secondary relationships, and for the one connector that has to
+   cross the board without pretending to be part of the grid. Keep one
+   routing per board unless a connector is deliberately a different
+   *kind* of relationship — mixed routings with no meaning behind them
+   just look untidy.
 7. **Notes for the human.** Add `T:` tasks and `Q:` questions as
    short headlines next to the relevant node. For pseudocode,
    assertion lists, behavioral specs, sequence sketches, or any
@@ -288,7 +298,7 @@ in `references/genres.md` instead.)
 ```
 # Comments and titles
 @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat !bold !italic] [*icon] [&attach] [>parent] [# annotation]
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [~size] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [~size] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [# annotation]

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Connector routing.** Connectors are no longer always a straight line:
+  `!spline` curves out of each endpoint along its side normal, and `!ortho`
+  draws a right-angle stair with eased corners. `direct` stays the default, so
+  every existing board renders unchanged. Routing is its own attribute rather
+  than a line pattern, so `!dashed !ortho` is a dashed stair. Pick it from the
+  connector overlay (<kbd>s</kbd> then <kbd>c</kbd>) or cycle it with
+  <kbd>s</kbd> then <kbd>r</kbd>.
+  Anchors are derived, never authored — a routed connector leaves the same box
+  side a direct one would, and several connectors sharing a side are spread
+  along it automatically, so nothing about the layout is stored in the file and
+  a headless render matches the app exactly. Routed connectors bend but do not
+  steer around other boxes; that stays a layout decision, with `grafli diagnose`
+  as the place to catch a connector cutting across the board.
+  ([#138](https://github.com/MisterGC/grafli/issues/138))
+
 ### Fixed
 - **Overlay panels lost their text on the dark theme.** Overlay cards invert
   against the board — a dark card on the light theme, a paper one on the dark

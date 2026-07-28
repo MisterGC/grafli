@@ -18,7 +18,7 @@ its version. It is required.
 ```text
 @ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]
 @ note [<id>] <x>,<y> "<text>" [color] [~size] [~width=N] [!style] [>parent]
-@ arrow <from> <op> <to> ["label"] [color] [!pattern] [!thickness] [~size]
+@ arrow <from> <op> <to> ["label"] [color] [!pattern] [!thickness] [!routing] [~size]
 ```
 
 | Element | Purpose |
@@ -59,6 +59,16 @@ its version. It is required.
   a handwritten face by default**; `!mono` (and `code:` notes) switch to the
   monospace face — handwriting for prose, monospace for code. (Style mode →
   `t` opens the text grid; `Tab` there toggles a note's font.)
+- `!routing` *(arrows)* — how the connector travels between its ends:
+  omitted for a **direct** line (the default), `!spline` for a curve, `!ortho`
+  for a right-angle stair. Independent of `!pattern` and `!thickness`, so
+  `!dashed !ortho` is a dashed stair. A routed connector leaves each box
+  perpendicular to the side that faces the other end, and several connectors
+  sharing a side are spread along it automatically — anchors are always
+  derived from the board, never written into the file, so a board renders the
+  same in the app and in `grafli render`. Routed connectors bend but do not
+  steer around other boxes; `grafli diagnose` is the place to catch a
+  connector that cuts across your layout.
 - *(arrows)* a bare `%color` / `#hex` overrides the connector colour;
   `!dashed` / `!dotted` set the line pattern and `!thin` / `!thick` set the
   thickness (default width tracks the linked nodes). Select a connector (or

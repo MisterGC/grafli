@@ -433,6 +433,7 @@ class OverlaysMixin:
                 ("h / l", "Toggle arrowheads"),
                 ("j / k", "Arrow label size"),
                 ("\u21e7J / \u21e7K", "Cycle arrow style"),
+                ("s then r", "Cycle routing: direct / spline / stair"),
                 ("s then a", "Toggle connector kind: graph edge \u21c4 annotation"),
             ]),
             ("Buffers", [

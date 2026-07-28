@@ -1149,6 +1149,23 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     self._record_shortcut("connector style → text")
                     event.accept()
                     return
+                # r — cycle routing (direct → spline → stair) without opening
+                # the overlay; the primary drives the value for the selection.
+                if no_mod_a and key == Qt.Key.Key_R:
+                    self._push_undo()
+                    order = ("", "spline", "ortho")
+                    cur = self._selected_arrow.routing
+                    idx = order.index(cur) if cur in order else 0
+                    nxt = order[(idx + 1) % len(order)]
+                    for a in self._selected_arrows:
+                        a.routing = nxt
+                    self._redraw_arrows()
+                    self._select_arrow(self._selected_arrow, keep_mode=True)
+                    self._update_arrow_mode_badge_pos()
+                    self.mark_dirty()
+                    self._record_shortcut(f"connector routing → {nxt or 'direct'}")
+                    event.accept()
+                    return
                 # a — toggle connector kind (graph edge ⇄ annotation); the
                 # primary drives the new value, which unifies the whole selection
                 if no_mod_a and key == Qt.Key.Key_A:

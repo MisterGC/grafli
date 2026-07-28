@@ -10,7 +10,9 @@ selection, scene, and undo machinery.
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen, QPolygonF
+from PySide6.QtGui import (
+    QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF,
+)
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
 from grafli import theme
 from grafli.constants import (
@@ -973,13 +975,15 @@ class StyleModeMixin:
     )
     _CONN_LINE_OPTIONS = (("Solid", ""), ("Dashed", "dashed"), ("Dotted", "dotted"))
     _CONN_THICK_OPTIONS = (("Thin", "thin"), ("Normal", ""), ("Thick", "thick"))
+    _CONN_ROUTING_OPTIONS = (("Direct", ""), ("Spline", "spline"),
+                             ("Stair", "ortho"))
     _CONN_SIZE_OPTIONS = (
         ("S", "small"), ("M", ""), ("L", "large"), ("XL", "xlarge"),
         ("2XL", "xxlarge"), ("3XL", "xxxlarge"), ("4XL", "4xl"),
     )
     # Fields snapshotted for undo/restore across the overlay's lifetime.
     _CONN_OVERLAY_FIELDS = ("head_from", "head_to", "style", "thickness",
-                            "color", "textsize")
+                            "routing", "color", "textsize")
 
     def _set_all_arrows(self, field: str, value):
         for a in self._selected_arrows:
@@ -1010,6 +1014,9 @@ class StyleModeMixin:
             {"label": "Thickness", "kind": "thickness", "options": list(self._CONN_THICK_OPTIONS),
              "get": lambda: primary.thickness,
              "set": lambda v: self._set_all_arrows("thickness", v)},
+            {"label": "Routing", "kind": "routing", "options": list(self._CONN_ROUTING_OPTIONS),
+             "get": lambda: primary.routing,
+             "set": lambda v: self._set_all_arrows("routing", v)},
             {"label": "Colour", "kind": "color", "options": list(COLOR_PALETTE),
              "get": lambda: primary.color,
              "set": lambda v: self._set_all_arrows("color", v)},
@@ -1200,7 +1207,7 @@ class StyleModeMixin:
     def _draw_conn_cell(self, painter: QPainter, kind: str, idx: int,
                         disp: str, val, cell: QRectF):
         """Render one option as a small preview inside ``cell``."""
-        ink = QColor(214, 214, 210)
+        ink = theme.overlay_ink(0.84)
         mid_y = cell.center().y()
         x1, x2 = cell.left() + 6, cell.right() - 6
         if kind == "color":
@@ -1250,5 +1257,28 @@ class StyleModeMixin:
                 painter.drawPolygon(QPolygonF([
                     QPointF(x1, mid_y), QPointF(x1 + 1.7 * s, mid_y - s),
                     QPointF(x1 + 1.7 * s, mid_y + s)]))
+            return
+        if kind == "routing":
+            # Each cell draws the shape it picks — a routing is easier to
+            # recognise than to name.
+            pen = QPen(ink, 1.8)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            top, bot = cell.top() + 5, cell.bottom() - 5
+            preview = QPainterPath(QPointF(x1, bot))
+            if val == "ortho":
+                mx = (x1 + x2) / 2
+                preview.lineTo(QPointF(mx, bot))
+                preview.lineTo(QPointF(mx, top))
+                preview.lineTo(QPointF(x2, top))
+            elif val == "spline":
+                preview.cubicTo(QPointF((x1 + x2) / 2, bot),
+                                QPointF((x1 + x2) / 2, top),
+                                QPointF(x2, top))
+            else:
+                preview.lineTo(QPointF(x2, top))
+            painter.drawPath(preview)
             return
 

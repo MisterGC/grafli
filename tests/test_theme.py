@@ -343,14 +343,35 @@ def test_no_overlay_panel_hardcodes_a_light_ink():
     import ast
     import pathlib
 
+    def _overlay_painters(tree) -> set:
+        """Functions that paint on an overlay card — directly or one call away.
+
+        `_draw_conn_cell` renders the option previews *inside* the connector
+        overlay's card but never names ``OVERLAY_BG`` itself, so a check that
+        only looked for that constant missed a hardcoded light ink there. Any
+        helper an overlay painter hands the painter to is on the card too.
+        """
+        direct = {fn.name for fn in ast.walk(tree)
+                  if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                  and any(isinstance(n, ast.Attribute) and n.attr == "OVERLAY_BG"
+                          for n in ast.walk(fn))}
+        called = set()
+        for fn in ast.walk(tree):
+            if (isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and fn.name in direct):
+                for node in ast.walk(fn):
+                    if (isinstance(node, ast.Call)
+                            and isinstance(node.func, ast.Attribute)):
+                        called.add(node.func.attr)
+        return direct | called
+
     offenders = []
     for path in sorted(pathlib.Path(theme.__file__).parent.rglob("*.py")):
         tree = ast.parse(path.read_text())
         for fn in ast.walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            if not any(isinstance(n, ast.Attribute) and n.attr == "OVERLAY_BG"
-                       for n in ast.walk(fn)):
+            if fn.name not in _overlay_painters(tree):
                 continue
             for node in ast.walk(fn):
                 if not (isinstance(node, ast.Call)

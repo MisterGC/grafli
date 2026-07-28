@@ -46,7 +46,7 @@ def test_routed_connector_leaves_the_side_a_direct_one_would():
     rect = (0.0, 0.0, 200.0, 100.0)
     for target in (QPointF(600, 20), QPointF(-400, 20),
                    QPointF(100, 900), QPointF(100, -900)):
-        side = arrows.anchor_side(rect, target)
+        side = arrows.side_of_point(rect, arrows._rect_edge_point(*rect, target))
         direct = arrows._rect_edge_point(*rect, target)
         if side == "e":
             assert abs(direct.x() - 200) < 0.01
@@ -68,9 +68,9 @@ def test_point_on_side_lands_on_that_side():
 
 # ── Spreading ──────────────────────────────────────────────────────
 
-def test_a_lone_connector_keeps_the_side_midpoint():
+def test_a_lone_connector_keeps_its_natural_position():
     """Spreading must not disturb the common case."""
-    assert arrows.spread_offsets(1) == [0.5]
+    assert arrows.relax_positions([0.83], 0.2) == [0.83]
 
 
 def test_connectors_sharing_a_side_are_spread_apart():
@@ -81,7 +81,7 @@ def test_connectors_sharing_a_side_are_spread_apart():
         "@ arrow a -> d !ortho\n"
     )
     view = _view(src)
-    anchors = view._routed_anchors([
+    anchors = view._connector_anchors([
         (arw.from_id, arw.to_id, arw.head_to, arw.head_from, arw, None)
         for arw in view.board.arrows])
     starts = [a[0] for a in anchors.values()]
@@ -96,8 +96,8 @@ def test_spreading_is_stable_across_redraws():
     view = _view(src)
     render_list = [(a.from_id, a.to_id, a.head_to, a.head_from, a, None)
                    for a in view.board.arrows]
-    first = view._routed_anchors(render_list)
-    second = view._routed_anchors(render_list)
+    first = view._connector_anchors(render_list)
+    second = view._connector_anchors(render_list)
     assert {k: (v[0].x(), v[0].y()) for k, v in first.items()} == \
            {k: (v[0].x(), v[0].y()) for k, v in second.items()}
 
@@ -155,9 +155,125 @@ def test_routing_survives_a_redraw():
     assert view._arrow_items          # something was actually drawn
 
 
-def test_direct_connectors_are_untouched_by_the_routing_pass():
-    """The no-op guarantee: a board without routing never enters that code."""
+def test_an_uncrowded_direct_connector_keeps_its_natural_anchor():
+    """The no-op guarantee: nothing to separate means nothing is returned."""
     view = _view(_BOARD + "@ arrow a -> b\n")
     render_list = [(a.from_id, a.to_id, a.head_to, a.head_from, a, None)
                    for a in view.board.arrows]
-    assert view._routed_anchors(render_list) == {}
+    assert view._connector_anchors(render_list) == {}
+
+
+def test_a_routed_connector_starts_where_its_target_implies():
+    """The showcase bug: a spline left from the middle of the side regardless.
+
+    Allocating a box side once per *kind* meant a routed connector never saw the
+    direct one already arriving there, and it threw away the one piece of
+    information that would have placed it correctly — where its own centre-ray
+    exits. The spline left from the side midpoint, on the wrong side of an
+    arrowhead it should have cleared, and crossed it.
+    """
+    view = _view(_BOARD + "@ arrow b -> a\n@ arrow a -> c !spline\n")
+    render_list = [(x.from_id, x.to_id, x.head_to, x.head_from, x, None)
+                   for x in view.board.arrows]
+    anchors = view._connector_anchors(render_list)
+    idx = next(i for i, x in enumerate(view.board.arrows) if x.routing)
+    start = anchors[idx][0]
+    # Box a spans y=0..100; c sits below-right, so the exit belongs low on the
+    # east side — not at the midpoint (y=50) the old routed pass would give.
+    assert start.y() > 70.0, "routed connector still leaving from the midpoint"
+
+
+def test_a_routed_anchor_is_held_near_the_middle_of_its_side():
+    """Routed connectors need room to turn, so they don't hug corners.
+
+    A direct connector's anchor *is* its ray, so a near-corner exit reads fine —
+    the line just continues. A routed one leaves perpendicular and then turns,
+    so the same anchor has it curving out of a cramped corner. It keeps enough
+    of the offset to stay on the correct side of centre, and no more.
+    """
+    src = _BOARD + "@ arrow a -> c !spline\n"      # c is far below-right of a
+    view = _view(src)
+    render_list = [(x.from_id, x.to_id, x.head_to, x.head_from, x, None)
+                   for x in view.board.arrows]
+    start = view._connector_anchors(render_list)[0][0]
+    # a spans y=0..100 on its east side; the raw ray exits at the corner.
+    assert start.y() > 50.0, "lost the ordering information from the target"
+    assert start.y() < 80.0, "still hugging the corner"
+
+
+def test_centre_bias_keeps_routed_and_direct_in_natural_order():
+    """Holding routed anchors near centre must not reverse them past a neighbour."""
+    src = _BOARD + "@ arrow b -> a\n@ arrow a -> c !spline\n"
+    view = _view(src)
+    render_list = [(x.from_id, x.to_id, x.head_to, x.head_from, x, None)
+                   for x in view.board.arrows]
+    anchors = view._connector_anchors(render_list)
+    spline_idx = next(i for i, x in enumerate(view.board.arrows) if x.routing)
+    spline_y = anchors[spline_idx][0].y()
+    # b sits level with a, so its connector arrives mid-side; c is below, so the
+    # spline must still leave below it.
+    assert spline_y > 50.0
+
+
+# ── Regression guard across the real boards ────────────────────────
+
+def _same_node_crossings(view) -> int:
+    """Crossings between connectors that share an endpoint.
+
+    Exactly the class of crossing anchor allocation is responsible for: two
+    connectors leaving one box in the wrong order have to cross, and no amount
+    of routing can undo it. Crossings between unrelated connectors are the
+    layout's business, not ours, so they are not counted here.
+    """
+    from grafli.items import ArrowLineItem
+
+    def ccw(a, b, c):
+        return (c[1] - a[1]) * (b[0] - a[0]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    def crosses(p1, p2, p3, p4):
+        if any(abs(x[0] - y[0]) < 0.5 and abs(x[1] - y[1]) < 0.5
+               for x in (p1, p2) for y in (p3, p4)):
+            return False           # meeting at a shared anchor isn't a crossing
+        d1, d2 = ccw(p3, p4, p1), ccw(p3, p4, p2)
+        d3, d4 = ccw(p1, p2, p3), ccw(p1, p2, p4)
+        return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
+
+    segs = []
+    for gfx in view._arrow_items:
+        if isinstance(gfx, ArrowLineItem):
+            for poly in gfx.path().toSubpathPolygons():
+                pts = list(poly)
+                for a, b in zip(pts, pts[1:]):
+                    segs.append((gfx.data(0), (a.x(), a.y()), (b.x(), b.y())))
+
+    found = 0
+    for i in range(len(segs)):
+        for j in range(i + 1, len(segs)):
+            ai, aj = segs[i][0], segs[j][0]
+            if ai is aj or ai is None or aj is None:
+                continue
+            if not ({ai.from_id, ai.to_id} & {aj.from_id, aj.to_id}):
+                continue
+            if crosses(segs[i][1], segs[i][2], segs[j][1], segs[j][2]):
+                found += 1
+    return found
+
+
+def test_no_sibling_connectors_cross_on_any_example_board():
+    """The guard against fixing one board and quietly breaking another.
+
+    Anchor placement has been adjusted several times — spread crowded anchors,
+    share one allocation between routed and direct, hold routed anchors off the
+    corners — and each change risked reintroducing a crossing somewhere else.
+    This pins the property across every board shipped with grafli, so the next
+    adjustment has to keep all of them right, not just the one being looked at.
+    """
+    import pathlib
+
+    offenders = {}
+    for path in sorted(pathlib.Path("examples").glob("*.grafli")):
+        view = _view(path.read_text(encoding="utf-8"))
+        found = _same_node_crossings(view)
+        if found:
+            offenders[path.name] = found
+    assert not offenders, f"connectors sharing a node now cross: {offenders}"

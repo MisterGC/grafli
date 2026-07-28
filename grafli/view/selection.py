@@ -24,12 +24,15 @@ from grafli.arrows import (
     _box_edge_point,
     _line_rect_clip,
     _rect_edge_point,
-    anchor_side,
+    ANCHOR_MIN_SEP,
+    ROUTED_CENTRE_BIAS,
     path_end_angle,
     point_on_side,
+    relax_positions,
     routed_path,
+    side_of_point,
     split_path_at_rect,
-    spread_offsets,
+    t_of_point,
 )
 from grafli.buffers import ViewState
 from grafli.constants import (
@@ -404,62 +407,100 @@ class SelectionMixin:
         self._update_scene_rect()
         self._invalidate_graph_stats()
 
-    def _routed_anchors(self, render_list) -> dict:
-        """Side anchors for every routed connector, spread along shared sides.
+    def _connector_anchors(self, render_list) -> dict:
+        """Where every connector attaches — routed and direct in one pass.
 
-        Direct connectors each aim somewhere different and so land somewhere
-        different; routed ones all want their side's midpoint, so they have to
-        be spread. A side's occupancy is only knowable by looking at every
-        connector at once — hence one pass per redraw rather than a lookup per
-        connector, which is what keeps dragging a node linear in edge count.
+        A box side is shared, so allocating it twice cannot work: a routed
+        connector choosing the side midpoint on its own lands on top of a direct
+        connector already arriving there, and neither knows to order itself
+        against the other (#138 follow-up).
+
+        Every endpoint therefore starts from the same natural position — where
+        the centre-to-centre ray crosses the edge, which is what a direct
+        connector has always used — and is nudged along its side only when a
+        neighbour comes too close, keeping natural order. Natural order is what
+        makes a connector heading right sit to the right of one arriving from
+        above-left, instead of crossing it.
+
+        Returns ``idx -> (start, start_side, end, end_side, moved)``, where
+        ``moved`` is False for a direct connector that kept its natural
+        position — the caller leaves those on the untouched code path.
         """
+        natural: dict[int, list] = {}
         groups: dict[tuple[str, str], list] = {}
-        pending: dict[int, tuple] = {}
 
         for idx, (from_id, to_id, _ht, _hf, fwd, _rev) in enumerate(render_list):
-            if not fwd.routing:
-                continue
             f_id = self._lod_reroute(from_id)
             t_id = self._lod_reroute(to_id)
             if f_id == t_id:
                 continue
+            if (self._lod_hull_member.get(f_id) is not None
+                    or self._lod_hull_member.get(t_id) is not None):
+                continue                     # hull boundary, not a box side
             f_elem = self._board.box_by_id(f_id) or self._board.note_by_id(f_id)
             t_elem = self._board.box_by_id(t_id) or self._board.note_by_id(t_id)
             if not f_elem or not t_elem:
                 continue
             f_rect = self._elem_rect(f_elem)
             t_rect = self._elem_rect(t_elem)
-            f_mid = QPointF(f_rect[0] + f_rect[2] / 2, f_rect[1] + f_rect[3] / 2)
-            t_mid = QPointF(t_rect[0] + t_rect[2] / 2, t_rect[1] + t_rect[3] / 2)
-            f_side = anchor_side(f_rect, t_mid)
-            t_side = anchor_side(t_rect, f_mid)
-            pending[idx] = (f_rect, f_side, t_rect, t_side, f_mid, t_mid, f_id, t_id)
-            groups.setdefault((f_id, f_side), []).append((idx, "from"))
-            groups.setdefault((t_id, t_side), []).append((idx, "to"))
 
-        # Order along the side by where each peer sits, so the connectors don't
-        # cross each other on the way out; peer id breaks ties so the result is
-        # identical in the app and in a headless render.
-        slots: dict[tuple[int, str], float] = {}
+            aligned = (_aligned_edge_points(f_elem, t_elem)
+                       if isinstance(f_elem, Box) and isinstance(t_elem, Box)
+                       else None)
+            if aligned:
+                s_pt, e_pt = aligned
+            else:
+                f_mid = QPointF(f_rect[0] + f_rect[2] / 2,
+                                f_rect[1] + f_rect[3] / 2)
+                t_mid = QPointF(t_rect[0] + t_rect[2] / 2,
+                                t_rect[1] + t_rect[3] / 2)
+                s_pt = _rect_edge_point(*f_rect, t_mid)
+                e_pt = _rect_edge_point(*t_rect, f_mid)
+
+            s_side = side_of_point(f_rect, s_pt)
+            e_side = side_of_point(t_rect, e_pt)
+            s_t = t_of_point(f_rect, s_side, s_pt)
+            e_t = t_of_point(t_rect, e_side, e_pt)
+            # Rank by where the target puts the anchor, place by where it
+            # wants to sit. A routed anchor is held near the middle of its side
+            # — it leaves perpendicular and needs room to turn — but ranking by
+            # that pulled value could drop it below a neighbour and invert the
+            # pair into a crossing.
+            s_want, e_want = s_t, e_t
+            if fwd.routing:
+                s_want = 0.5 + (s_t - 0.5) * ROUTED_CENTRE_BIAS
+                e_want = 0.5 + (e_t - 0.5) * ROUTED_CENTRE_BIAS
+            natural[idx] = [f_rect, s_side, s_want,
+                            t_rect, e_side, e_want,
+                            bool(fwd.routing), s_t, e_t]
+            groups.setdefault((f_id, s_side), []).append((idx, 0))
+            groups.setdefault((t_id, e_side), []).append((idx, 1))
+
+        slots: dict[tuple[int, int], float] = {}
         for (_elem_id, side), members in groups.items():
-            def along(member, _side=side):
-                i, which = member
-                _fr, _fs, _tr, _ts, f_mid, t_mid, f_id, t_id = pending[i]
-                peer, peer_id = ((t_mid, t_id) if which == "from"
-                                 else (f_mid, f_id))
-                return (peer.x() if _side in ("n", "s") else peer.y(), peer_id)
-            members.sort(key=along)
-            for offset, member in zip(spread_offsets(len(members)), members):
-                slots[member] = offset
+            if len(members) < 2:
+                continue
+            idx0, which0 = members[0]
+            rect = natural[idx0][0] if which0 == 0 else natural[idx0][3]
+            span = rect[2] if side in ("n", "s") else rect[3]
+            min_sep = ANCHOR_MIN_SEP / span if span > 0 else 0.2
+            values = [natural[i][2 if w == 0 else 5] for i, w in members]
+            ranks = [natural[i][7 if w == 0 else 8] for i, w in members]
+            for member, value in zip(
+                    members, relax_positions(values, min_sep, ranks)):
+                slots[member] = value
 
         anchors = {}
-        for idx, (f_rect, f_side, t_rect, t_side, *_rest) in pending.items():
-            anchors[idx] = (
-                point_on_side(f_rect, f_side, slots.get((idx, "from"), 0.5)),
-                f_side,
-                point_on_side(t_rect, t_side, slots.get((idx, "to"), 0.5)),
-                t_side,
-            )
+        for idx, (f_rect, s_side, s_t, t_rect, e_side, e_t, routed,
+                  _rs, _re) in natural.items():
+            new_s = slots.get((idx, 0), s_t)
+            new_e = slots.get((idx, 1), e_t)
+            moved = abs(new_s - s_t) > 1e-6 or abs(new_e - e_t) > 1e-6
+            if not routed and not moved:
+                continue                     # untouched: keep the old path
+            anchors[idx] = (point_on_side(f_rect, s_side, new_s), s_side,
+                            point_on_side(t_rect, e_side, new_e), e_side,
+                            moved)
         return anchors
 
     def _redraw_arrows(self):
@@ -507,7 +548,7 @@ class SelectionMixin:
                     arrow, None,
                 ))
 
-        routed_anchors = self._routed_anchors(render_list)
+        conn_anchors = self._connector_anchors(render_list)
 
         for idx, (from_id, to_id, draw_head_to, draw_head_from, fwd, rev) in enumerate(
                 render_list):
@@ -601,12 +642,13 @@ class SelectionMixin:
             # re-attached to a cluster hull: that boundary point isn't a box
             # side, so there is no side to leave perpendicular to.
             conn_path = None
-            if fwd.routing and from_hull is None and to_hull is None:
-                anchors = routed_anchors.get(idx)
-                if anchors:
-                    start, start_side, end, end_side = anchors
+            anchors = conn_anchors.get(idx)
+            if anchors and from_hull is None and to_hull is None:
+                a_start, a_start_side, a_end, a_end_side, _moved = anchors
+                start, end = a_start, a_end
+                if fwd.routing:
                     conn_path = routed_path(
-                        fwd.routing, start, start_side, end, end_side)
+                        fwd.routing, start, a_start_side, end, a_end_side)
 
             dx = end.x() - start.x()
             dy = end.y() - start.y()

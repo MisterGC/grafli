@@ -141,9 +141,9 @@ def _arrowhead_polygon(tip: QPointF, angle: float,
 # A routed connector leaves each endpoint *perpendicular to a box side*
 # rather than along the centre-to-centre ray a direct connector uses. That
 # swap is what makes right angles and smooth curves possible, and it is also
-# what forces the anchors to be spread (see ``spread_offsets``): every direct
-# connector aims somewhere different and so lands somewhere different, but
-# several routed connectors leaving one side would otherwise stack.
+# what forces the anchors to be spread: every direct connector aims somewhere
+# different and so lands somewhere different, but several routed connectors
+# leaving one side would otherwise stack.
 
 # How far a spline's control point reaches from its endpoint, as a fraction of
 # the endpoint separation — enough to leave the box cleanly, clamped so a long
@@ -158,21 +158,6 @@ ORTHO_RADIUS = 9.0
 _NORMALS = {"n": (0.0, -1.0), "s": (0.0, 1.0), "e": (1.0, 0.0), "w": (-1.0, 0.0)}
 
 
-def anchor_side(rect: tuple, target: QPointF) -> str:
-    """Which side of ``rect`` faces ``target`` — the side a routed connector exits.
-
-    Picks by the dominant axis of the centre-to-target delta, scaled by the
-    rect's own proportions so a wide, short box prefers its long sides rather
-    than being decided by raw pixel distance.
-    """
-    x, y, w, h = rect
-    dx = target.x() - (x + w / 2)
-    dy = target.y() - (y + h / 2)
-    if w > 0 and h > 0 and abs(dx) / w >= abs(dy) / h:
-        return "e" if dx >= 0 else "w"
-    return "s" if dy >= 0 else "n"
-
-
 def point_on_side(rect: tuple, side: str, t: float = 0.5) -> QPointF:
     """The point ``t`` of the way along a rect's side (0..1, 0.5 = midpoint)."""
     x, y, w, h = rect
@@ -183,14 +168,6 @@ def point_on_side(rect: tuple, side: str, t: float = 0.5) -> QPointF:
     if side == "w":
         return QPointF(x, y + h * t)
     return QPointF(x + w, y + h * t)
-
-
-def spread_offsets(count: int) -> list[float]:
-    """Where ``count`` connectors sit along a shared side: evenly, none at 0 or 1.
-
-    One connector keeps the midpoint, so the common case is unchanged.
-    """
-    return [(i + 1) / (count + 1) for i in range(count)]
 
 
 def ortho_points(start: QPointF, start_side: str,
@@ -388,3 +365,86 @@ def split_path_at_rect(path: QPainterPath, rect: QRectF) -> list[QPainterPath]:
             sub.lineTo(pt)
         out.append(sub)
     return out
+
+
+# ── Anchor spreading for unrouted connectors (experiment) ──────────
+#
+# A direct connector attaches where the centre-to-centre ray leaves the box.
+# That is the right *natural* position, but several connectors to targets in
+# the same general direction all land within a few pixels of each other, so a
+# hub node ends up with a knot of arrowheads at one corner. These helpers keep
+# the natural position and only push neighbours apart when they crowd — a
+# board with room to breathe is left exactly as it was.
+
+# Minimum gap between two connectors on the same box side, in scene units.
+ANCHOR_MIN_SEP = 26.0
+# How much of a routed connector's natural offset from the side centre it keeps.
+# A direct connector's anchor *is* its ray, so a near-corner exit reads fine —
+# the line simply continues. A routed one leaves perpendicular and then turns,
+# so the same anchor leaves it curving out of a cramped corner. Keeping a
+# fraction of the offset preserves the ordering information (a connector whose
+# target lies right still sits right of one whose target lies left) while
+# holding the anchor in the roomy middle of the side.
+ROUTED_CENTRE_BIAS = 0.34
+# Anchors stay off the very corners, which read as ambiguous.
+ANCHOR_MARGIN = 0.06
+
+
+def side_of_point(rect: tuple, pt: QPointF) -> str:
+    """Which side of ``rect`` a point sits on (nearest edge)."""
+    x, y, w, h = rect
+    dists = {
+        "w": abs(pt.x() - x), "e": abs(pt.x() - (x + w)),
+        "n": abs(pt.y() - y), "s": abs(pt.y() - (y + h)),
+    }
+    return min(dists, key=dists.get)
+
+
+def t_of_point(rect: tuple, side: str, pt: QPointF) -> float:
+    """Where along a side a point sits, as 0..1."""
+    x, y, w, h = rect
+    if side in ("n", "s"):
+        return 0.0 if w <= 0 else max(0.0, min(1.0, (pt.x() - x) / w))
+    return 0.0 if h <= 0 else max(0.0, min(1.0, (pt.y() - y) / h))
+
+
+def relax_positions(desired: list[float], min_sep: float,
+                    order_key: list[float] | None = None) -> list[float]:
+    """Push crowded anchors apart along a side, preserving their order.
+
+    Order is what keeps connectors from swapping places and crossing each
+    other; separation is what stops them stacking. A set that is already
+    comfortably spread comes back untouched, so this only changes the boards
+    that actually had a knot.
+
+    ``order_key`` ranks the anchors when that differs from where they want to
+    sit — a routed anchor is pulled toward the middle of its side, so ranking by
+    the pulled value could drop it below a neighbour it should stay clear of and
+    invert the pair into a crossing. Rank by where the connector's own target
+    puts it; place by where it wants to be.
+    """
+    n = len(desired)
+    if n < 2:
+        return list(desired)
+    if order_key is None:
+        order_key = desired
+    lo, hi = ANCHOR_MARGIN, 1.0 - ANCHOR_MARGIN
+    min_sep = min(min_sep, (hi - lo) / (n - 1))
+
+    order = sorted(range(n), key=lambda i: order_key[i])
+    vals = [max(lo, min(hi, desired[i])) for i in order]
+    for i in range(1, n):                       # push right
+        vals[i] = max(vals[i], vals[i - 1] + min_sep)
+    if vals[-1] > hi:                           # ran off the end — push back
+        vals[-1] = hi
+        for i in range(n - 2, -1, -1):
+            vals[i] = min(vals[i], vals[i + 1] - min_sep)
+    if vals[0] < lo:                            # no room either way — share it
+        step = (hi - lo) / (n - 1)
+        vals = [lo + step * i for i in range(n)]
+
+    out = [0.0] * n
+    for slot, i in enumerate(order):
+        out[i] = vals[slot]
+    return out
+

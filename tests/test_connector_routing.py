@@ -181,3 +181,35 @@ def test_a_routed_connector_starts_where_its_target_implies():
     # Box a spans y=0..100; c sits below-right, so the exit belongs low on the
     # east side — not at the midpoint (y=50) the old routed pass would give.
     assert start.y() > 70.0, "routed connector still leaving from the midpoint"
+
+
+def test_a_routed_anchor_is_held_near_the_middle_of_its_side():
+    """Routed connectors need room to turn, so they don't hug corners.
+
+    A direct connector's anchor *is* its ray, so a near-corner exit reads fine —
+    the line just continues. A routed one leaves perpendicular and then turns,
+    so the same anchor has it curving out of a cramped corner. It keeps enough
+    of the offset to stay on the correct side of centre, and no more.
+    """
+    src = _BOARD + "@ arrow a -> c !spline\n"      # c is far below-right of a
+    view = _view(src)
+    render_list = [(x.from_id, x.to_id, x.head_to, x.head_from, x, None)
+                   for x in view.board.arrows]
+    start = view._connector_anchors(render_list)[0][0]
+    # a spans y=0..100 on its east side; the raw ray exits at the corner.
+    assert start.y() > 50.0, "lost the ordering information from the target"
+    assert start.y() < 80.0, "still hugging the corner"
+
+
+def test_centre_bias_keeps_routed_and_direct_in_natural_order():
+    """Holding routed anchors near centre must not reverse them past a neighbour."""
+    src = _BOARD + "@ arrow b -> a\n@ arrow a -> c !spline\n"
+    view = _view(src)
+    render_list = [(x.from_id, x.to_id, x.head_to, x.head_from, x, None)
+                   for x in view.board.arrows]
+    anchors = view._connector_anchors(render_list)
+    spline_idx = next(i for i, x in enumerate(view.board.arrows) if x.routing)
+    spline_y = anchors[spline_idx][0].y()
+    # b sits level with a, so its connector arrives mid-side; c is below, so the
+    # spline must still leave below it.
+    assert spline_y > 50.0

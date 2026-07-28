@@ -26,6 +26,7 @@ from grafli.arrows import (
     _rect_edge_point,
     ANCHOR_MIN_SEP,
     ANCHOR_SPREAD_MODE,
+    ROUTED_CENTRE_BIAS,
     anchor_side,
     perimeter_length,
     perimeter_pos,
@@ -465,8 +466,16 @@ class SelectionMixin:
 
             s_side = side_of_point(f_rect, s_pt)
             e_side = side_of_point(t_rect, e_pt)
-            natural[idx] = [f_rect, s_side, t_of_point(f_rect, s_side, s_pt),
-                            t_rect, e_side, t_of_point(t_rect, e_side, e_pt),
+            s_t = t_of_point(f_rect, s_side, s_pt)
+            e_t = t_of_point(t_rect, e_side, e_pt)
+            if fwd.routing:
+                # Hold a routed anchor near the middle of its side: it leaves
+                # perpendicular, so it needs room to turn, and a ray that
+                # exits by a corner would have it curving out of the corner.
+                s_t = 0.5 + (s_t - 0.5) * ROUTED_CENTRE_BIAS
+                e_t = 0.5 + (e_t - 0.5) * ROUTED_CENTRE_BIAS
+            natural[idx] = [f_rect, s_side, s_t,
+                            t_rect, e_side, e_t,
                             bool(fwd.routing)]
             groups.setdefault((f_id, s_side), []).append((idx, 0))
             groups.setdefault((t_id, e_side), []).append((idx, 1))

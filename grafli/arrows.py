@@ -401,6 +401,14 @@ def split_path_at_rect(path: QPainterPath, rect: QRectF) -> list[QPainterPath]:
 
 # Minimum gap between two connectors on the same box side, in scene units.
 ANCHOR_MIN_SEP = 26.0
+# How much of a routed connector's natural offset from the side centre it keeps.
+# A direct connector's anchor *is* its ray, so a near-corner exit reads fine —
+# the line simply continues. A routed one leaves perpendicular and then turns,
+# so the same anchor leaves it curving out of a cramped corner. Keeping a
+# fraction of the offset preserves the ordering information (a connector whose
+# target lies right still sits right of one whose target lies left) while
+# holding the anchor in the roomy middle of the side.
+ROUTED_CENTRE_BIAS = 0.34
 # Experiment toggle: "side" groups per box side, "perimeter" walks the box as
 # one loop so anchors straddling a corner still see each other.
 ANCHOR_SPREAD_MODE = "side"

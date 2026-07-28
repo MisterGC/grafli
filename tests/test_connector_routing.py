@@ -213,3 +213,67 @@ def test_centre_bias_keeps_routed_and_direct_in_natural_order():
     # b sits level with a, so its connector arrives mid-side; c is below, so the
     # spline must still leave below it.
     assert spline_y > 50.0
+
+
+# ── Regression guard across the real boards ────────────────────────
+
+def _same_node_crossings(view) -> int:
+    """Crossings between connectors that share an endpoint.
+
+    Exactly the class of crossing anchor allocation is responsible for: two
+    connectors leaving one box in the wrong order have to cross, and no amount
+    of routing can undo it. Crossings between unrelated connectors are the
+    layout's business, not ours, so they are not counted here.
+    """
+    from grafli.items import ArrowLineItem
+
+    def ccw(a, b, c):
+        return (c[1] - a[1]) * (b[0] - a[0]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    def crosses(p1, p2, p3, p4):
+        if any(abs(x[0] - y[0]) < 0.5 and abs(x[1] - y[1]) < 0.5
+               for x in (p1, p2) for y in (p3, p4)):
+            return False           # meeting at a shared anchor isn't a crossing
+        d1, d2 = ccw(p3, p4, p1), ccw(p3, p4, p2)
+        d3, d4 = ccw(p1, p2, p3), ccw(p1, p2, p4)
+        return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
+
+    segs = []
+    for gfx in view._arrow_items:
+        if isinstance(gfx, ArrowLineItem):
+            for poly in gfx.path().toSubpathPolygons():
+                pts = list(poly)
+                for a, b in zip(pts, pts[1:]):
+                    segs.append((gfx.data(0), (a.x(), a.y()), (b.x(), b.y())))
+
+    found = 0
+    for i in range(len(segs)):
+        for j in range(i + 1, len(segs)):
+            ai, aj = segs[i][0], segs[j][0]
+            if ai is aj or ai is None or aj is None:
+                continue
+            if not ({ai.from_id, ai.to_id} & {aj.from_id, aj.to_id}):
+                continue
+            if crosses(segs[i][1], segs[i][2], segs[j][1], segs[j][2]):
+                found += 1
+    return found
+
+
+def test_no_sibling_connectors_cross_on_any_example_board():
+    """The guard against fixing one board and quietly breaking another.
+
+    Anchor placement has been adjusted several times — spread crowded anchors,
+    share one allocation between routed and direct, hold routed anchors off the
+    corners — and each change risked reintroducing a crossing somewhere else.
+    This pins the property across every board shipped with grafli, so the next
+    adjustment has to keep all of them right, not just the one being looked at.
+    """
+    import pathlib
+
+    offenders = {}
+    for path in sorted(pathlib.Path("examples").glob("*.grafli")):
+        view = _view(path.read_text(encoding="utf-8"))
+        found = _same_node_crossings(view)
+        if found:
+            offenders[path.name] = found
+    assert not offenders, f"connectors sharing a node now cross: {offenders}"

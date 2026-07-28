@@ -434,22 +434,31 @@ def t_of_point(rect: tuple, side: str, pt: QPointF) -> float:
     return 0.0 if h <= 0 else max(0.0, min(1.0, (pt.y() - y) / h))
 
 
-def relax_positions(natural: list[float], min_sep: float) -> list[float]:
+def relax_positions(desired: list[float], min_sep: float,
+                    order_key: list[float] | None = None) -> list[float]:
     """Push crowded anchors apart along a side, preserving their order.
 
     Order is what keeps connectors from swapping places and crossing each
     other; separation is what stops them stacking. A set that is already
     comfortably spread comes back untouched, so this only changes the boards
     that actually had a knot.
+
+    ``order_key`` ranks the anchors when that differs from where they want to
+    sit — a routed anchor is pulled toward the middle of its side, so ranking by
+    the pulled value could drop it below a neighbour it should stay clear of and
+    invert the pair into a crossing. Rank by where the connector's own target
+    puts it; place by where it wants to be.
     """
-    n = len(natural)
+    n = len(desired)
     if n < 2:
-        return list(natural)
+        return list(desired)
+    if order_key is None:
+        order_key = desired
     lo, hi = ANCHOR_MARGIN, 1.0 - ANCHOR_MARGIN
     min_sep = min(min_sep, (hi - lo) / (n - 1))
 
-    order = sorted(range(n), key=lambda i: natural[i])
-    vals = [max(lo, min(hi, natural[i])) for i in order]
+    order = sorted(range(n), key=lambda i: order_key[i])
+    vals = [max(lo, min(hi, desired[i])) for i in order]
     for i in range(1, n):                       # push right
         vals[i] = max(vals[i], vals[i - 1] + min_sep)
     if vals[-1] > hi:                           # ran off the end — push back

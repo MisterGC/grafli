@@ -468,15 +468,18 @@ class SelectionMixin:
             e_side = side_of_point(t_rect, e_pt)
             s_t = t_of_point(f_rect, s_side, s_pt)
             e_t = t_of_point(t_rect, e_side, e_pt)
+            # Rank by where the target puts the anchor, place by where it
+            # wants to sit. A routed anchor is held near the middle of its side
+            # — it leaves perpendicular and needs room to turn — but ranking by
+            # that pulled value could drop it below a neighbour and invert the
+            # pair into a crossing.
+            s_want, e_want = s_t, e_t
             if fwd.routing:
-                # Hold a routed anchor near the middle of its side: it leaves
-                # perpendicular, so it needs room to turn, and a ray that
-                # exits by a corner would have it curving out of the corner.
-                s_t = 0.5 + (s_t - 0.5) * ROUTED_CENTRE_BIAS
-                e_t = 0.5 + (e_t - 0.5) * ROUTED_CENTRE_BIAS
-            natural[idx] = [f_rect, s_side, s_t,
-                            t_rect, e_side, e_t,
-                            bool(fwd.routing)]
+                s_want = 0.5 + (s_t - 0.5) * ROUTED_CENTRE_BIAS
+                e_want = 0.5 + (e_t - 0.5) * ROUTED_CENTRE_BIAS
+            natural[idx] = [f_rect, s_side, s_want,
+                            t_rect, e_side, e_want,
+                            bool(fwd.routing), s_t, e_t]
             groups.setdefault((f_id, s_side), []).append((idx, 0))
             groups.setdefault((t_id, e_side), []).append((idx, 1))
 
@@ -489,11 +492,14 @@ class SelectionMixin:
             span = rect[2] if side in ("n", "s") else rect[3]
             min_sep = ANCHOR_MIN_SEP / span if span > 0 else 0.2
             values = [natural[i][2 if w == 0 else 5] for i, w in members]
-            for member, value in zip(members, relax_positions(values, min_sep)):
+            ranks = [natural[i][7 if w == 0 else 8] for i, w in members]
+            for member, value in zip(
+                    members, relax_positions(values, min_sep, ranks)):
                 slots[member] = value
 
         anchors = {}
-        for idx, (f_rect, s_side, s_t, t_rect, e_side, e_t, routed) in natural.items():
+        for idx, (f_rect, s_side, s_t, t_rect, e_side, e_t, routed,
+                  _rs, _re) in natural.items():
             new_s = slots.get((idx, 0), s_t)
             new_e = slots.get((idx, 1), e_t)
             moved = abs(new_s - s_t) > 1e-6 or abs(new_e - e_t) > 1e-6

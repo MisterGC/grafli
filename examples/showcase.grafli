@@ -63,25 +63,25 @@ A: the `code:` note bails — `if: flour < 1` raises OutOfFlour and ends the rou
 
 @ note caption2 -43,782 "Behavior under review. `T:` tasks, `Q:` questions, threaded discussions, and `code:` notes live next to the boxes they describe." ~small
 
-@ box sense "Sense threat" -16,1007 220x90 %subtle
-@ box assess "Assess danger" 340,1000 240x90 %accent &graph:assess
-@ box flee "Flee" 878,1001 180x90 %muted
-@ box fight "Fight" 894,1205 180x90 %accent
-@ box guards "Call guards" 425,1213 200x90 %tertiary
+@ box sense "Sense threat" -64,993 220x90 %subtle
+@ box assess "Assess danger" 340,1001 240x90 %accent &graph:assess
+@ box flee "Flee" 874,1028 180x90 %muted
+@ box fight "Fight" 670,1249 180x90 %accent
+@ box guards "Call guards" 347,1375 200x90 %tertiary
 @ box hide "Hide" 874,819 180x90 %muted &doc:hide
 
 @ arrow sense -> assess "call: classify"
 @ arrow assess -> flee "event: weak"
-@ arrow assess -> fight "event: strong"
+@ arrow assess -> fight "event: strong" !ortho
 @ arrow assess -> guards "event: many"
 @ arrow flee -> hide "step: refuge"
-@ arrow guards -> fight "verify: backup" !dashed
-@ arrow fight -> flee "risk: outnumbered" !dashed
-@ arrow hide -> assess "verify: clear" !dashed
+@ arrow guards -> fight "verify: backup" !dashed !spline
+@ arrow fight -> flee "risk: outnumbered" !dashed !spline
+@ arrow hide -> assess "verify: clear" %primary !dashed !spline
 
 @ note todo -6,1341 "T: add audible cue when sense triggers"
-@ note q1 340,1340 "Q: should fear scale with NPC level?"
-@ note disc 684,1345 """
+@ note q1 351,1491 "Q: should fear scale with NPC level?"
+@ note disc 769,1384 """
 Designer: Should child NPCs ever pick fight?
 Reviewer: No — clamp to flee/hide when AgeTag is child.
 Designer: Will add the tag check inside assess.
@@ -91,7 +91,7 @@ Q: should Hide auto-recover after a timer?
 A: no — only on `verify: clear` from assess. 
 A timer risks re-engaging an active threat.
 """ ~width=47
-@ note assess_code 20,1140 """
+@ note assess_code -2,1131 """
 code:
 assessDanger(npc, threat) -> Action
 ratio = threat.power / npc.power

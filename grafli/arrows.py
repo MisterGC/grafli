@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 import math
 
 from PySide6.QtCore import QPointF, QRectF
@@ -155,6 +156,24 @@ SPLINE_REACH_MAX = 220.0
 # Corner rounding on an orthogonal bend — matches the rounded-box aesthetic.
 ORTHO_RADIUS = 9.0
 
+# Where a Z-bend's mid-line may sit, as fractions of the gap, ordered by
+# distance from the middle. A tie goes to the route we would have drawn anyway,
+# so obstacle awareness never moves a connector that was already clear.
+ORTHO_MID_FRACTIONS = (0.5, 0.42, 0.58, 0.34, 0.66,
+                       0.26, 0.74, 0.18, 0.82, 0.1, 0.9)
+
+# How far clear of a box a mid-line derived from that box's edge sits.
+ORTHO_MID_CLEARANCE = 10.0
+
+# Work bounds for the mid-line search. Each obstacle contributes two candidates,
+# so without these the cost of one connector grows with the square of how many
+# boxes it spans — a whole-board connector on a large board then dominates the
+# redraw. Both caps keep what is nearest the default mid-line, which is also
+# what matters most: we want the smallest deviation that clears the route, so a
+# far-off candidate is worthless even when it happens to be free.
+ORTHO_MAX_CANDIDATES = 16
+ORTHO_MAX_OBSTACLES = 24
+
 _NORMALS = {"n": (0.0, -1.0), "s": (0.0, 1.0), "e": (1.0, 0.0), "w": (-1.0, 0.0)}
 
 
@@ -170,22 +189,147 @@ def point_on_side(rect: tuple, side: str, t: float = 0.5) -> QPointF:
     return QPointF(x + w, y + h * t)
 
 
+def _segment_hits_rect(a: QPointF, b: QPointF, rect: QRectF) -> bool:
+    """Whether segment ``a``→``b`` touches ``rect`` at all (Liang-Barsky)."""
+    dx, dy = b.x() - a.x(), b.y() - a.y()
+    t0, t1 = 0.0, 1.0
+    for num, den in ((a.x() - rect.left(), -dx), (rect.right() - a.x(), dx),
+                     (a.y() - rect.top(), -dy), (rect.bottom() - a.y(), dy)):
+        if den == 0:
+            if num < 0:
+                return False              # parallel to this edge and outside it
+            continue
+        t = num / den
+        if den < 0:
+            t0 = max(t0, t)
+        else:
+            t1 = min(t1, t)
+    return t0 < t1
+
+
+def _relevant(start: QPointF, end: QPointF,
+              obstacles: list[QRectF] | None) -> list[QRectF]:
+    """Obstacles inside the anchors' bounding box — the only ones reachable.
+
+    Every candidate route stays within that box, so anything outside it can be
+    rejected before the candidate loop. This is what keeps the search cheap on a
+    large board: the cost tracks local crowding, not the box count.
+    """
+    if not obstacles:
+        return []
+    span = QRectF(QPointF(min(start.x(), end.x()), min(start.y(), end.y())),
+                  QPointF(max(start.x(), end.x()), max(start.y(), end.y())))
+    return [r for r in obstacles if r.intersects(span)]
+
+
+def _z_points(start: QPointF, end: QPointF,
+              mid: float, horizontal: bool) -> list[QPointF]:
+    """The four corners of a Z-bend whose mid-line sits at ``mid``."""
+    if horizontal:
+        return [start, QPointF(mid, start.y()), QPointF(mid, end.y()), end]
+    return [start, QPointF(start.x(), mid), QPointF(end.x(), mid), end]
+
+
+def _crossed(points: list[QPointF], obstacles: list[QRectF],
+             limit: int | None = None) -> int:
+    """How many obstacles the polyline touches.
+
+    Stops once ``limit`` is reached — a candidate already worse than the best
+    one so far needs no exact score, only the news that it lost.
+    """
+    hits = 0
+    for rect in obstacles:
+        if any(_segment_hits_rect(points[i], points[i + 1], rect)
+               for i in range(len(points) - 1)):
+            hits += 1
+            if limit is not None and hits >= limit:
+                break
+    return hits
+
+
+def _best_mid(start: QPointF, end: QPointF,
+              horizontal: bool, obstacles: list[QRectF]) -> float:
+    """Where to put a Z-bend's mid-line so it crosses as few boxes as possible.
+
+    Every candidate lies between the two anchors, so the route can slide but
+    never detour outside their bounding box — that confinement is what keeps
+    this from becoming a router (see #142). When nothing is clear the middle of
+    the gap wins, so a hard case stays predictable rather than contorted.
+    """
+    lo = start.x() if horizontal else start.y()
+    hi = end.x() if horizontal else end.y()
+    default = (lo + hi) / 2
+    if not obstacles:
+        return default
+
+    # The overwhelmingly common case is a route that was already clear, so score
+    # the default first and leave. Everything below only runs for a connector
+    # that actually has a problem to solve.
+    plain = _z_points(start, end, default, horizontal)
+    blockers = [r for r in obstacles
+                if any(_segment_hits_rect(plain[i], plain[i + 1], r)
+                       for i in range(len(plain) - 1))]
+    if not blockers:
+        return default
+
+    # Judge against the obstacles nearest the mid-line we would otherwise draw;
+    # those are the ones sliding it can actually dodge.
+    def axis_gap(rect: QRectF) -> float:
+        near, far = ((rect.left(), rect.right()) if horizontal
+                     else (rect.top(), rect.bottom()))
+        return max(near - default, default - far, 0.0)
+
+    if len(obstacles) > ORTHO_MAX_OBSTACLES:
+        obstacles = heapq.nsmallest(ORTHO_MAX_OBSTACLES, obstacles, key=axis_gap)
+
+    span = hi - lo
+    candidates = [default] + [lo + span * f for f in ORTHO_MID_FRACTIONS]
+    # A fixed ladder can step straight over a narrow gap between two boxes, so
+    # also try the positions just clear of the edges of what is actually in the
+    # way — a corridor, where one exists, is bounded by exactly those edges.
+    for rect in blockers:
+        near, far = ((rect.left(), rect.right()) if horizontal
+                     else (rect.top(), rect.bottom()))
+        candidates.append(near - ORTHO_MID_CLEARANCE)
+        candidates.append(far + ORTHO_MID_CLEARANCE)
+
+    inner_lo, inner_hi = (lo, hi) if lo <= hi else (hi, lo)
+    candidates = [c for c in candidates if inner_lo <= c <= inner_hi]
+    candidates.sort(key=lambda c: (abs(c - default), c))
+
+    best, best_score = default, None
+    for mid in candidates[:ORTHO_MAX_CANDIDATES]:
+        score = _crossed(_z_points(start, end, mid, horizontal),
+                         obstacles, best_score)
+        if best_score is None or score < best_score:
+            best, best_score = mid, score
+            if score == 0:
+                break
+    return best
+
+
 def ortho_points(start: QPointF, start_side: str,
-                 end: QPointF, end_side: str) -> list[QPointF]:
+                 end: QPointF, end_side: str,
+                 obstacles: list[QRectF] | None = None) -> list[QPointF]:
     """Corner points of a right-angle route between two side anchors.
 
-    Two parallel exits give a Z (three segments, turning at the midpoint of the
-    gap); perpendicular exits give an L. Both are a pure function of the two
-    anchors, so the route never depends on anything but the boards's geometry.
+    Two parallel exits give a Z (three segments, turning at a mid-line in the
+    gap); perpendicular exits give an L. The route is a pure function of the two
+    anchors and ``obstacles`` — never of a previous route — so the same board
+    always draws the same picture in the app and in a headless render.
+
+    ``obstacles`` are rects the mid-line should avoid; the caller excludes the
+    connector's own endpoints. Only the Z case has a free parameter to spend, so
+    an L is unaffected.
     """
     horiz_start = start_side in ("e", "w")
     horiz_end = end_side in ("e", "w")
 
     if horiz_start and horiz_end:
-        mid = (start.x() + end.x()) / 2
+        mid = _best_mid(start, end, True, _relevant(start, end, obstacles))
         pts = [start, QPointF(mid, start.y()), QPointF(mid, end.y()), end]
     elif not horiz_start and not horiz_end:
-        mid = (start.y() + end.y()) / 2
+        mid = _best_mid(start, end, False, _relevant(start, end, obstacles))
         pts = [start, QPointF(start.x(), mid), QPointF(end.x(), mid), end]
     elif horiz_start:
         pts = [start, QPointF(end.x(), start.y()), end]
@@ -255,13 +399,19 @@ def spline_path(start: QPointF, start_side: str,
 
 
 def routed_path(routing: str, start: QPointF, start_side: str,
-                end: QPointF, end_side: str) -> QPainterPath:
-    """The connector body for a routing, as a path."""
+                end: QPointF, end_side: str,
+                obstacles: list[QRectF] | None = None) -> QPainterPath:
+    """The connector body for a routing, as a path.
+
+    ``obstacles`` lets a stair slide its mid-line clear of intervening boxes;
+    the other routings have no free parameter to spend and ignore it.
+    """
     if routing == "spline":
         return spline_path(start, start_side, end, end_side)
     if routing == "ortho":
         return _rounded_polyline(
-            ortho_points(start, start_side, end, end_side), ORTHO_RADIUS)
+            ortho_points(start, start_side, end, end_side, obstacles),
+            ORTHO_RADIUS)
     path = QPainterPath(start)
     path.lineTo(end)
     return path

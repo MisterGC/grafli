@@ -18,10 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Anchors are derived, never authored — a routed connector leaves the same box
   side a direct one would, and several connectors sharing a side are spread
   along it automatically, so nothing about the layout is stored in the file and
-  a headless render matches the app exactly. Routed connectors bend but do not
-  steer around other boxes; that stays a layout decision, with `grafli diagnose`
-  as the place to catch a connector cutting across the board.
-  ([#138](https://github.com/MisterGC/grafli/issues/138))
+  a headless render matches the app exactly. A stair also slides its turn clear
+  of boxes standing in the gap, but never detours around them — the route stays
+  inside the span between its two ends, so moving a box shifts a stair
+  predictably instead of rerouting it. A connector that still cuts across the
+  board stays a layout decision, with `grafli diagnose` as the place to catch
+  it.
+  ([#138](https://github.com/MisterGC/grafli/issues/138),
+  [#142](https://github.com/MisterGC/grafli/issues/142))
 
 ### Changed
 - **Crowded connectors no longer attach at the same point.** Where several

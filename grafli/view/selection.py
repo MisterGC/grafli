@@ -407,6 +407,29 @@ class SelectionMixin:
         self._update_scene_rect()
         self._invalidate_graph_stats()
 
+    def _routing_obstacles(self) -> dict[str, QRectF]:
+        """Box rects a stair slides clear of, keyed by box id.
+
+        Boxes only, deliberately: a note has no authored height — it comes from
+        laying out its text — so routing around notes would make the picture
+        depend on font metrics and break the parity between the app and a
+        headless render. Boxes swallowed by a collapsed cluster are left out;
+        they aren't on screen to be crossed.
+        """
+        if not self._board:
+            return {}
+        return {b.id: QRectF(b.x, b.y, b.w, b.h) for b in self._board.boxes
+                if self._lod_hull_member.get(b.id) is None}
+
+    def _box_ancestors(self, box_id: str) -> set[str]:
+        """Every container enclosing ``box_id``, walking up the parent chain."""
+        out: set[str] = set()
+        cur = self._board.box_by_id(box_id) if self._board else None
+        while cur is not None and cur.parent and cur.parent not in out:
+            out.add(cur.parent)
+            cur = self._board.box_by_id(cur.parent)
+        return out
+
     def _connector_anchors(self, render_list) -> dict:
         """Where every connector attaches — routed and direct in one pass.
 
@@ -549,6 +572,7 @@ class SelectionMixin:
                 ))
 
         conn_anchors = self._connector_anchors(render_list)
+        obstacle_rects = self._routing_obstacles()
 
         for idx, (from_id, to_id, draw_head_to, draw_head_from, fwd, rev) in enumerate(
                 render_list):
@@ -647,8 +671,15 @@ class SelectionMixin:
                 a_start, a_start_side, a_end, a_end_side, _moved = anchors
                 start, end = a_start, a_end
                 if fwd.routing:
+                    # A connector may pass over its own endpoints and over any
+                    # container holding them — it starts on their edges, so
+                    # counting those as obstacles would block every candidate.
+                    skip = ({from_id, to_id} | self._box_ancestors(from_id)
+                            | self._box_ancestors(to_id))
                     conn_path = routed_path(
-                        fwd.routing, start, a_start_side, end, a_end_side)
+                        fwd.routing, start, a_start_side, end, a_end_side,
+                        [r for bid, r in obstacle_rects.items()
+                         if bid not in skip])
 
             dx = end.x() - start.x()
             dy = end.y() - start.y()

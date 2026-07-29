@@ -66,9 +66,12 @@ its version. It is required.
   perpendicular to the side that faces the other end, and several connectors
   sharing a side are spread along it automatically — anchors are always
   derived from the board, never written into the file, so a board renders the
-  same in the app and in `grafli render`. Routed connectors bend but do not
-  steer around other boxes; `grafli diagnose` is the place to catch a
-  connector that cuts across your layout.
+  same in the app and in `grafli render`. A stair also slides its turn clear of
+  boxes standing in the gap, but it never detours around them: the whole route
+  stays inside the span between its two ends, so moving a box shifts a stair
+  predictably instead of sending it off on a new path. A connector that still
+  cuts across your layout is a layout decision, and `grafli diagnose` is the
+  place to catch it.
 - *(arrows)* a bare `%color` / `#hex` overrides the connector colour;
   `!dashed` / `!dotted` set the line pattern and `!thin` / `!thick` set the
   thickness (default width tracks the linked nodes). Select a connector (or

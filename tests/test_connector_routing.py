@@ -277,3 +277,125 @@ def test_no_sibling_connectors_cross_on_any_example_board():
         if found:
             offenders[path.name] = found
     assert not offenders, f"connectors sharing a node now cross: {offenders}"
+
+
+# ── Obstacle-aware mid-line (#142) ─────────────────────────────────
+
+# The reported case: Assess sits left, Fight sits low-right, and Flee sits in
+# the gap between them, so a stair turning at the middle runs straight through
+# it. Coordinates are the showcase board's, scaled to nothing — the geometry is
+# what matters.
+_ASSESS = QRectF(340, 1001, 240, 90)
+_FLEE = QRectF(874, 1028, 180, 90)
+_FIGHT = QRectF(1252, 1234, 180, 90)
+
+
+def _stair(start: QPointF, end: QPointF, obstacles):
+    return arrows.ortho_points(start, "e", end, "w", obstacles)
+
+
+def test_stair_mid_line_dodges_a_box_sitting_in_the_gap():
+    """The #142 case: a stair must not turn inside an intervening box."""
+    start = QPointF(_ASSESS.right(), _ASSESS.center().y())
+    end = QPointF(_FIGHT.left(), _FIGHT.center().y())
+
+    assert arrows._crossed(_stair(start, end, None), [_FLEE]) == 1
+    assert arrows._crossed(_stair(start, end, [_FLEE]), [_FLEE]) == 0
+
+
+def test_a_clear_stair_does_not_move():
+    """Obstacle awareness must not disturb a route that was already fine.
+
+    This is the property that makes the feature safe to turn on for everyone:
+    boards with room to spare render exactly as they did before.
+    """
+    start, end = QPointF(0, 0), QPointF(600, 300)
+    far_away = [QRectF(5000, 5000, 100, 100)]
+    assert _stair(start, end, far_away) == _stair(start, end, None)
+
+
+def test_a_stair_slides_but_never_detours():
+    """The line that separates this from a router.
+
+    Every corner stays inside the bounding box of the two anchors, so a route
+    can shift within the gap but can never wander off around an obstacle. If
+    this ever fails, the change has grown into the thing D4 ruled out.
+    """
+    start, end = QPointF(0, 0), QPointF(600, 300)
+    # A wall of boxes filling most of the gap — maximum pressure to escape.
+    walls = [QRectF(x, -400, 40, 900) for x in range(60, 560, 60)]
+    pts = _stair(start, end, walls)
+    for p in pts:
+        assert -0.01 <= p.x() <= 600.01
+        assert -0.01 <= p.y() <= 300.01
+
+
+def test_a_hopeless_stair_keeps_the_plain_route():
+    """When nothing is clear, stay predictable rather than contort.
+
+    A fully blocked gap has no good answer, and an arbitrary-looking bend would
+    read as a bug. Falling back to the middle means the author sees the same
+    picture they would have seen before, which the #141 lint can then flag.
+    """
+    start, end = QPointF(0, 0), QPointF(600, 300)
+    solid = [QRectF(-1000, -1000, 4000, 4000)]
+    assert _stair(start, end, solid) == _stair(start, end, None)
+
+
+def test_the_mid_line_choice_ignores_obstacle_order():
+    """Determinism: the same board must not depend on iteration order.
+
+    The app and a headless render walk the board the same way today, but a
+    route that depended on list order would be a trap for any future change to
+    how boxes are collected.
+    """
+    start, end = QPointF(0, 0), QPointF(600, 300)
+    obstacles = [QRectF(200, -50, 80, 400), QRectF(380, -50, 80, 400),
+                 QRectF(120, 100, 60, 300)]
+    first = _stair(start, end, obstacles)
+    assert _stair(start, end, list(reversed(obstacles))) == first
+
+
+def test_notes_are_not_obstacles():
+    """A note's height comes from its text, so routing around one would make
+    the picture depend on font metrics — the app and a headless render could
+    then disagree. Only boxes are collected as obstacles."""
+    view = _view("#!grafli v1\n"
+                 "@ box a \"A\" 0,0 200x100\n"
+                 "@ box b \"B\" 900,0 200x100\n"
+                 "@ note n 450,20 \"in the way\"\n"
+                 "@ arrow a -> b !ortho\n")
+    assert set(view._routing_obstacles()) == {"a", "b"}
+
+
+def test_no_ortho_connector_crosses_a_box_on_any_example_board():
+    """The counterpart to the sibling-crossing guard, for obstacles.
+
+    Same reasoning: the mid-line heuristic has knobs (candidate ladder, work
+    caps), and tuning one board must not quietly push a connector through a box
+    on another.
+    """
+    import pathlib
+
+    from grafli.items import ArrowLineItem
+
+    offenders = {}
+    for path in sorted(pathlib.Path("examples").glob("*.grafli")):
+        view = _view(path.read_text(encoding="utf-8"))
+        rects = view._routing_obstacles()
+        crossed = 0
+        # Measured on the drawn paths rather than on a reconstruction, so the
+        # guard covers the anchor pass and the label split too.
+        for gfx in view._arrow_items:
+            arrow = gfx.data(0) if isinstance(gfx, ArrowLineItem) else None
+            if arrow is None or arrow.routing != "ortho":
+                continue
+            skip = ({arrow.from_id, arrow.to_id}
+                    | view._box_ancestors(arrow.from_id)
+                    | view._box_ancestors(arrow.to_id))
+            obstacles = [r for bid, r in rects.items() if bid not in skip]
+            for poly in gfx.path().toSubpathPolygons():
+                crossed += arrows._crossed(list(poly), obstacles)
+        if crossed:
+            offenders[path.name] = crossed
+    assert not offenders, f"stairs now cut through boxes: {offenders}"

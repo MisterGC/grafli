@@ -90,6 +90,7 @@ Notes aren't just sticky labels. Grafli recognizes lightweight conventions and r
 - **Code-mode notes** (lines starting with `code:`) render minimal pseudocode: a bold function signature on the first line, blue **flow** keywords (`if`, `for`, `call`, `emit`, …), red **contract** keywords (`pre`, `post`, `verify`, `risk`, …), and clickable `@file:line` refs that open in your editor.
 - **Markdown-mode notes** (lines starting with `md:` / `markdown:`) render a small subset of GitHub-flavoured Markdown — headings, lists, click-to-toggle task checkboxes, blockquotes, inline emphasis, and clickable links.
 - **Semantic edge labels** — prefixes like `call:`, `data:`, `event:`, `verify:`, `risk:` render as colored chips on the arrow itself.
+- **Connector routing** — leave a connector straight, or give it `!spline` for a curve and `!ortho` for a right-angle stair that slides clear of boxes in its way. Anchors are worked out from the layout, never written into the file, so the same board renders the same in the app and on the command line.
 - **Markdown resources** — attach a markdown note to any element and edit it in [textli](https://mistergc.github.io/textli/), grafli's full-window Markdown editor (its own project, bundled as a dependency).
 - **Scratch board** — start `grafli` with no file and you land on a persistent `~/grafli-scratch.grafli`, autosaved like any other board.
 

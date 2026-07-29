@@ -64,6 +64,10 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
   connected neighbor box or note).
 - Semantic edge labels — prefixes such as `call:`, `data:`, `event:`,
   `verify:`, `risk:` render as colored chips and tint their arrow.
+- Connector routing — straight by default, `!spline` for a curve, `!ortho`
+  for a right-angle stair that slides clear of boxes in its way. Anchors
+  are derived from the layout rather than stored, so a board renders the
+  same in the app and in `grafli render`.
 - Code-mode notes — minimal pseudocode for review-oriented diagrams: a
   bold function signature on the first line, control/effect keywords
   (`if`, `for`, `call`, `emit`, …) in blue, contract keywords (`pre`,
@@ -131,7 +135,7 @@ return ok  @api/handler.py:42
 | Element | Syntax |
 |---------|--------|
 | Box   | `@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]` |
-| Arrow | `@ arrow <from> <op> <to> ["label"] [!style] [~size]` |
+| Arrow | `@ arrow <from> <op> <to> ["label"] [!style] [!routing] [~size]` |
 | Note  | `@ note [<id>] <x>,<y> "<text>" [color] [~size] [!style] [>parent]` |
 
 Arrow operators: `->` right, `<-` left, `<->` both, `--` none.

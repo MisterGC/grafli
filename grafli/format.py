@@ -106,6 +106,10 @@ class Arrow:
     label_dy: float = 0.0
     style: str = ""       # line pattern: "dashed", "dotted", or "" (solid)
     thickness: str = ""   # "thin", "thick", or "" (= normal, tracks node size)
+    # How the connector gets from end to end: "" (direct), "spline" (curve),
+    # "ortho" (right-angle stair). Separate from `style` on purpose — routing
+    # and line pattern are independent, so a dashed ortho connector is sayable.
+    routing: str = ""
     color: str = ""       # "%token" / "#hex" override, or "" (= kind-derived)
     textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
     head_from: bool = False  # arrowhead at from_id end
@@ -508,7 +512,7 @@ _RE_ARROW = re.compile(
     r'(?:\s+"' + _QT + r'")?'
     r'(?:\s+@(-?[\d.]+),(-?[\d.]+))?'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'          # color override
-    r'((?:\s+!(?:dashed|dotted|thin|thick))*)'    # line pattern + thickness flags
+    r'((?:\s+!(?:dashed|dotted|thin|thick|spline|ortho))*)'  # pattern, thickness, routing
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+~kind=(graph|annotation))?'
@@ -739,11 +743,13 @@ def parse(text: str) -> Board:
             op = m.group(2)
             kind, url = split_attach(m.group(10) or "") if m.group(10) else ("", "")
             flags = m.group(8).split() if m.group(8) else []
-            # A run of "!dashed"/"!dotted"/"!thin"/"!thick" flags in any order.
-            # "thick"/"thin" set thickness; the rest set the line pattern.
+            # A run of "!dashed"/"!dotted"/"!thin"/"!thick"/"!spline"/"!ortho"
+            # flags in any order, one per axis: thickness, line pattern, and
+            # routing are independent, so "!dashed !ortho" is a dashed stair.
             # Legacy files carrying a bare "!thick" migrate to thickness here.
             style = next((f[1:] for f in flags if f in ("!dashed", "!dotted")), "")
             thickness = next((f[1:] for f in flags if f in ("!thin", "!thick")), "")
+            routing = next((f[1:] for f in flags if f in ("!spline", "!ortho")), "")
             arrow = Arrow(
                 from_id=m.group(1),
                 to_id=m.group(3),
@@ -753,6 +759,7 @@ def parse(text: str) -> Board:
                 color=m.group(7) or "",
                 style=style,
                 thickness=thickness,
+                routing=routing,
                 textsize=m.group(9) or "",
                 head_from=op in ("<->", "<-"),
                 head_to=op in ("<->", "->"),
@@ -1032,6 +1039,8 @@ def _serialize_arrow(arrow: Arrow) -> str:
         base += f" !{arrow.style}"
     if arrow.thickness:
         base += f" !{arrow.thickness}"
+    if arrow.routing:
+        base += f" !{arrow.routing}"
     if arrow.textsize:
         base += f" ~{arrow.textsize}"
     base += _attach_token(arrow)

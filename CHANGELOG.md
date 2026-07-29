@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-29
+
+### Added
+- **Connector routing.** Connectors are no longer always a straight line:
+  `!spline` curves out of each endpoint along its side normal, and `!ortho`
+  draws a right-angle stair with eased corners. `direct` stays the default, so
+  every existing board renders unchanged. Routing is its own attribute rather
+  than a line pattern, so `!dashed !ortho` is a dashed stair. Pick it from the
+  connector overlay (<kbd>s</kbd> then <kbd>c</kbd>) or cycle it with
+  <kbd>s</kbd> then <kbd>r</kbd>.
+  Anchors are derived, never authored — a routed connector leaves the same box
+  side a direct one would, and several connectors sharing a side are spread
+  along it automatically, so nothing about the layout is stored in the file and
+  a headless render matches the app exactly. A stair also slides its turn clear
+  of boxes standing in the gap, but never detours around them — the route stays
+  inside the span between its two ends, so moving a box shifts a stair
+  predictably instead of rerouting it. A connector that still cuts across the
+  board stays a layout decision, with `grafli diagnose` as the place to catch
+  it.
+  ([#138](https://github.com/MisterGC/grafli/issues/138),
+  [#142](https://github.com/MisterGC/grafli/issues/142))
+
+### Changed
+- **Crowded connectors no longer attach at the same point.** Where several
+  connectors met a box close together — a hub node, a fan-out — they piled into
+  one spot and their arrowheads became a knot. Each connector still attaches
+  where its own centre-to-centre ray leaves the box, and is nudged along that
+  side only when a neighbour comes too close, in the order the targets imply,
+  so they separate without swapping places and crossing. A board with room to
+  breathe is unchanged. Routed connectors take part in the same allocation and
+  are additionally held near the middle of their side: unlike a direct line,
+  which simply continues its ray, a routed one leaves perpendicular and needs
+  room to turn.
+
+### Fixed
+- **Overlay panels lost their text on the dark theme.** Overlay cards invert
+  against the board — a dark card on the light theme, a paper one on the dark
+  theme — but their text was still the near-white that only ever suited the
+  dark card, so it dropped to ~1.1:1 and vanished. Affected the flow playback
+  caption (title and description), the status toast, the jump prompt, and all
+  four style-mode pickers plus the connector overlay. The tiers now come from
+  `theme.overlay_ink()`, which reads the card's own counterpart ink, so the
+  title > body > hint hierarchy survives the inversion.
+- **A markdown note opened after a theme switch kept the old theme's paper.**
+  Switching grafli from dark to light and then opening an attached note gave
+  the editor light ink on dark-theme paper. The cause was in textli, whose
+  grain tiles were cached without regard to the page colour; `textli-editor`
+  is now floored at 0.7.1, which carries the fix
+  ([textli#49](https://github.com/MisterGC/textli/issues/49)).
+
 ## [0.8.0] - 2026-07-26
 
 A dark counterpart to the warm paper theme — derived from the light palette's
@@ -898,7 +948,8 @@ First public release of grafli on PyPI.
 - Python 3.12+
 - PySide6 (Qt 6.7+)
 
-[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/MisterGC/grafli/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/MisterGC/grafli/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/MisterGC/grafli/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/MisterGC/grafli/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/MisterGC/grafli/compare/v0.5.0...v0.6.0

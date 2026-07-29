@@ -1872,3 +1872,70 @@ def test_unescaped_quotes_still_roundtrip_plain_text():
 
     text = '@ box a "No quotes here" 0,0 200x100\n'
     assert 'No quotes here' in serialize(parse(text))
+
+
+# ── Connector routing (#138) ───────────────────────────────────────
+
+def test_arrow_ortho_roundtrip():
+    text = '@ arrow a -> b !ortho\n'
+    board = parse(text)
+    assert board.arrows[0].routing == "ortho"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_arrow_spline_roundtrip():
+    text = '@ arrow a -> b !spline\n'
+    board = parse(text)
+    assert board.arrows[0].routing == "spline"
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_routing_is_independent_of_pattern_and_thickness():
+    """The reason routing is its own field: all three combine on one connector."""
+    text = '@ arrow a -> b "x" !dashed !thick !ortho\n'
+    board = parse(text)
+    arrow = board.arrows[0]
+    assert (arrow.style, arrow.thickness, arrow.routing) == (
+        "dashed", "thick", "ortho")
+    assert serialize(board) == HEADER + "\n" + text
+
+
+def test_routing_flags_parse_in_any_order():
+    """Flags are a set, not a sequence — authors write them however they think."""
+    for text in ('@ arrow a -> b !ortho !dashed\n',
+                 '@ arrow a -> b !dashed !ortho\n'):
+        arrow = parse(text).arrows[0]
+        assert (arrow.style, arrow.routing) == ("dashed", "ortho")
+
+
+def test_arrow_without_routing_stays_byte_stable():
+    """Every board authored before routing existed must survive untouched."""
+    src = (
+        '#!grafli v1\n'
+        '@ box a "A" 0,0 100x50\n'
+        '@ box b "B" 300,0 100x50\n'
+        '@ arrow a -> b "x" !dashed\n'
+    )
+    board = parse(src)
+    assert board.arrows[0].routing == ""
+    assert serialize(board) == src
+
+
+def test_unknown_routing_flag_is_kept_verbatim():
+    """Forward compatibility: a routing this build doesn't know must not be lost.
+
+    An older grafli reading a newer board hits exactly this path — the arrow
+    line fails the regex, so it is preserved as a comment and flagged, rather
+    than silently dropped. The file survives the round trip either way.
+    """
+    src = (
+        '#!grafli v1\n'
+        '@ box a "A" 0,0 100x50\n'
+        '@ box b "B" 300,0 100x50\n'
+        '@ arrow a -> b !zigzag\n'
+    )
+    board = parse(src)
+    assert not board.arrows                       # not understood
+    assert '@ arrow a -> b !zigzag' in board.comments   # but not lost
+    assert board.parse_warnings                   # and the author is told
+    assert serialize(board) == src                # byte-stable round trip

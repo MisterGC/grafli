@@ -3187,15 +3187,33 @@ class LabelItem(QGraphicsSimpleTextItem):
             y += line_h + self._LINE_GAP
 
 
-class ArrowLineItem(QGraphicsLineItem):
-    """Line item with a wider hit area for easier click-to-select."""
+class ArrowLineItem(QGraphicsPathItem):
+    """The drawn body of a connector, with a wider hit area for click-select.
+
+    A path rather than a line: a connector's geometry stops being straight as
+    soon as it can be routed (#138). The name stays — to every caller this is
+    still the connector's line — and the four-coordinate constructor keeps the
+    straight case reading exactly as it did, so a routed connector is the only
+    thing that has to know it is building a path.
+    """
 
     _HIT_WIDTH = 12
 
+    def __init__(self, *args):
+        if len(args) == 4:
+            x1, y1, x2, y2 = args
+            path = QPainterPath(QPointF(x1, y1))
+            path.lineTo(x2, y2)
+        elif len(args) == 1 and isinstance(args[0], QPainterPath):
+            path = args[0]
+        else:
+            path = QPainterPath()
+        super().__init__(path)
+        # A connector is a stroke, never a fill — an ortho path doubling back
+        # would otherwise shade the area it encloses.
+        self.setBrush(Qt.BrushStyle.NoBrush)
+
     def shape(self) -> QPainterPath:
-        path = QPainterPath()
-        path.moveTo(self.line().p1())
-        path.lineTo(self.line().p2())
         stroker = QPainterPathStroker()
         stroker.setWidth(self._HIT_WIDTH)
-        return stroker.createStroke(path)
+        return stroker.createStroke(self.path())

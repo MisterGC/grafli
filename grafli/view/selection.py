@@ -24,6 +24,15 @@ from grafli.arrows import (
     _box_edge_point,
     _line_rect_clip,
     _rect_edge_point,
+    ANCHOR_MIN_SEP,
+    ROUTED_CENTRE_BIAS,
+    path_end_angle,
+    point_on_side,
+    relax_positions,
+    routed_path,
+    side_of_point,
+    split_path_at_rect,
+    t_of_point,
 )
 from grafli.buffers import ViewState
 from grafli.constants import (
@@ -398,6 +407,125 @@ class SelectionMixin:
         self._update_scene_rect()
         self._invalidate_graph_stats()
 
+    def _routing_obstacles(self) -> dict[str, QRectF]:
+        """Box rects a stair slides clear of, keyed by box id.
+
+        Boxes only, deliberately: a note has no authored height — it comes from
+        laying out its text — so routing around notes would make the picture
+        depend on font metrics and break the parity between the app and a
+        headless render. Boxes swallowed by a collapsed cluster are left out;
+        they aren't on screen to be crossed.
+        """
+        if not self._board:
+            return {}
+        return {b.id: QRectF(b.x, b.y, b.w, b.h) for b in self._board.boxes
+                if self._lod_hull_member.get(b.id) is None}
+
+    def _box_ancestors(self, box_id: str) -> set[str]:
+        """Every container enclosing ``box_id``, walking up the parent chain."""
+        out: set[str] = set()
+        cur = self._board.box_by_id(box_id) if self._board else None
+        while cur is not None and cur.parent and cur.parent not in out:
+            out.add(cur.parent)
+            cur = self._board.box_by_id(cur.parent)
+        return out
+
+    def _connector_anchors(self, render_list) -> dict:
+        """Where every connector attaches — routed and direct in one pass.
+
+        A box side is shared, so allocating it twice cannot work: a routed
+        connector choosing the side midpoint on its own lands on top of a direct
+        connector already arriving there, and neither knows to order itself
+        against the other (#138 follow-up).
+
+        Every endpoint therefore starts from the same natural position — where
+        the centre-to-centre ray crosses the edge, which is what a direct
+        connector has always used — and is nudged along its side only when a
+        neighbour comes too close, keeping natural order. Natural order is what
+        makes a connector heading right sit to the right of one arriving from
+        above-left, instead of crossing it.
+
+        Returns ``idx -> (start, start_side, end, end_side, moved)``, where
+        ``moved`` is False for a direct connector that kept its natural
+        position — the caller leaves those on the untouched code path.
+        """
+        natural: dict[int, list] = {}
+        groups: dict[tuple[str, str], list] = {}
+
+        for idx, (from_id, to_id, _ht, _hf, fwd, _rev) in enumerate(render_list):
+            f_id = self._lod_reroute(from_id)
+            t_id = self._lod_reroute(to_id)
+            if f_id == t_id:
+                continue
+            if (self._lod_hull_member.get(f_id) is not None
+                    or self._lod_hull_member.get(t_id) is not None):
+                continue                     # hull boundary, not a box side
+            f_elem = self._board.box_by_id(f_id) or self._board.note_by_id(f_id)
+            t_elem = self._board.box_by_id(t_id) or self._board.note_by_id(t_id)
+            if not f_elem or not t_elem:
+                continue
+            f_rect = self._elem_rect(f_elem)
+            t_rect = self._elem_rect(t_elem)
+
+            aligned = (_aligned_edge_points(f_elem, t_elem)
+                       if isinstance(f_elem, Box) and isinstance(t_elem, Box)
+                       else None)
+            if aligned:
+                s_pt, e_pt = aligned
+            else:
+                f_mid = QPointF(f_rect[0] + f_rect[2] / 2,
+                                f_rect[1] + f_rect[3] / 2)
+                t_mid = QPointF(t_rect[0] + t_rect[2] / 2,
+                                t_rect[1] + t_rect[3] / 2)
+                s_pt = _rect_edge_point(*f_rect, t_mid)
+                e_pt = _rect_edge_point(*t_rect, f_mid)
+
+            s_side = side_of_point(f_rect, s_pt)
+            e_side = side_of_point(t_rect, e_pt)
+            s_t = t_of_point(f_rect, s_side, s_pt)
+            e_t = t_of_point(t_rect, e_side, e_pt)
+            # Rank by where the target puts the anchor, place by where it
+            # wants to sit. A routed anchor is held near the middle of its side
+            # — it leaves perpendicular and needs room to turn — but ranking by
+            # that pulled value could drop it below a neighbour and invert the
+            # pair into a crossing.
+            s_want, e_want = s_t, e_t
+            if fwd.routing:
+                s_want = 0.5 + (s_t - 0.5) * ROUTED_CENTRE_BIAS
+                e_want = 0.5 + (e_t - 0.5) * ROUTED_CENTRE_BIAS
+            natural[idx] = [f_rect, s_side, s_want,
+                            t_rect, e_side, e_want,
+                            bool(fwd.routing), s_t, e_t]
+            groups.setdefault((f_id, s_side), []).append((idx, 0))
+            groups.setdefault((t_id, e_side), []).append((idx, 1))
+
+        slots: dict[tuple[int, int], float] = {}
+        for (_elem_id, side), members in groups.items():
+            if len(members) < 2:
+                continue
+            idx0, which0 = members[0]
+            rect = natural[idx0][0] if which0 == 0 else natural[idx0][3]
+            span = rect[2] if side in ("n", "s") else rect[3]
+            min_sep = ANCHOR_MIN_SEP / span if span > 0 else 0.2
+            values = [natural[i][2 if w == 0 else 5] for i, w in members]
+            ranks = [natural[i][7 if w == 0 else 8] for i, w in members]
+            for member, value in zip(
+                    members, relax_positions(values, min_sep, ranks)):
+                slots[member] = value
+
+        anchors = {}
+        for idx, (f_rect, s_side, s_t, t_rect, e_side, e_t, routed,
+                  _rs, _re) in natural.items():
+            new_s = slots.get((idx, 0), s_t)
+            new_e = slots.get((idx, 1), e_t)
+            moved = abs(new_s - s_t) > 1e-6 or abs(new_e - e_t) > 1e-6
+            if not routed and not moved:
+                continue                     # untouched: keep the old path
+            anchors[idx] = (point_on_side(f_rect, s_side, new_s), s_side,
+                            point_on_side(t_rect, e_side, new_e), e_side,
+                            moved)
+        return anchors
+
     def _redraw_arrows(self):
         for item in self._arrow_items:
             self._scene.removeItem(item)
@@ -443,7 +571,11 @@ class SelectionMixin:
                     arrow, None,
                 ))
 
-        for from_id, to_id, draw_head_to, draw_head_from, fwd, rev in render_list:
+        conn_anchors = self._connector_anchors(render_list)
+        obstacle_rects = self._routing_obstacles()
+
+        for idx, (from_id, to_id, draw_head_to, draw_head_from, fwd, rev) in enumerate(
+                render_list):
             # Level-of-Detail: an endpoint inside a collapsed container re-routes
             # to that container's tile; an edge that becomes internal to a single
             # tile (both ends resolve to it) is dropped.
@@ -529,12 +661,33 @@ class SelectionMixin:
                 if to_hull is not None:
                     end = to_hull.boundary_point(ref_start)
 
+            # A routed connector swaps the centre-ray anchors for side anchors
+            # and draws a path between them. Skipped when an endpoint has been
+            # re-attached to a cluster hull: that boundary point isn't a box
+            # side, so there is no side to leave perpendicular to.
+            conn_path = None
+            anchors = conn_anchors.get(idx)
+            if anchors and from_hull is None and to_hull is None:
+                a_start, a_start_side, a_end, a_end_side, _moved = anchors
+                start, end = a_start, a_end
+                if fwd.routing:
+                    # A connector may pass over its own endpoints and over any
+                    # container holding them — it starts on their edges, so
+                    # counting those as obstacles would block every candidate.
+                    skip = ({from_id, to_id} | self._box_ancestors(from_id)
+                            | self._box_ancestors(to_id))
+                    conn_path = routed_path(
+                        fwd.routing, start, a_start_side, end, a_end_side,
+                        [r for bid, r in obstacle_rects.items()
+                         if bid not in skip])
+
             dx = end.x() - start.x()
             dy = end.y() - start.y()
 
             # Forward arrowhead (at to_id end)
             if draw_head_to:
-                angle = math.atan2(dy, dx)
+                angle = (path_end_angle(conn_path, True) if conn_path is not None
+                         else math.atan2(dy, dx))
                 head = QGraphicsPolygonItem(_arrowhead_polygon(end, angle, head_size))
                 head.setPen(QPen(arrow_color, 1))
                 head.setBrush(QBrush(arrow_color))
@@ -544,7 +697,8 @@ class SelectionMixin:
 
             # Backward arrowhead (at from_id end)
             if draw_head_from:
-                back_angle = math.atan2(-dy, -dx)
+                back_angle = (path_end_angle(conn_path, False)
+                              if conn_path is not None else math.atan2(-dy, -dx))
                 back_head = QGraphicsPolygonItem(
                     _arrowhead_polygon(start, back_angle, head_size)
                 )
@@ -579,8 +733,15 @@ class SelectionMixin:
             label_too_small = (fwd.from_id, fwd.to_id) in self._lod_arrow_labels_hidden
             has_label = False
             if label_texts and total_len > 0 and not endpoint_collapsed:
-                mid_x = (start.x() + end.x()) / 2
-                mid_y = (start.y() + end.y()) / 2
+                # The label rides the connector, so on a routed one it follows
+                # the path's midpoint — the chord midpoint of an L-bend sits off
+                # in empty space, nowhere near the line it is labelling.
+                if conn_path is not None:
+                    mid = conn_path.pointAtPercent(0.5)
+                    mid_x, mid_y = mid.x(), mid.y()
+                else:
+                    mid_x = (start.x() + end.x()) / 2
+                    mid_y = (start.y() + end.y()) / 2
 
                 combined = "\n".join(label_texts)
                 label = LabelItem(combined)
@@ -606,7 +767,23 @@ class SelectionMixin:
                 has_label = not label_too_small
 
             # Draw line (split around label gap if needed)
-            if has_label:
+            if conn_path is not None:
+                # A path has no single parametric line to clip, so the label
+                # gap is walked out of it instead — one piece when the label
+                # misses the connector, two when it interrupts it.
+                pieces = (split_path_at_rect(conn_path, gap) if has_label
+                          else [conn_path])
+                tooltip_parts = [a.annotation for a in (fwd, rev)
+                                 if a is not None and a.annotation]
+                for piece in pieces:
+                    line = ArrowLineItem(piece)
+                    line.setPen(pen)
+                    line.setData(0, fwd)
+                    if tooltip_parts and not has_label:
+                        line.setToolTip("\n".join(tooltip_parts))
+                    self._scene.addItem(line)
+                    self._arrow_items.append(line)
+            elif has_label:
                 seg1_end, seg2_start = _line_rect_clip(start, end, gap)
                 # If gap doesn't intersect the line, draw one unbroken line
                 if ((seg1_end - start).manhattanLength() < 1

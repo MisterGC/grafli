@@ -617,6 +617,21 @@ def ink_on(fill: QColor) -> QColor:
     return QColor(INK_ON_LIGHT_FILL if lum > 140 else INK_ON_DARK_FILL)
 
 
+def overlay_ink(strength: float = 1.0) -> QColor:
+    """Ink for text drawn on an ``OVERLAY_BG`` card, at a tier of emphasis.
+
+    Overlay cards invert *against* the board — a dark card on the light theme,
+    a light one on the dark theme — so their ink cannot be the near-white these
+    panels used to hardcode. ``OVERLAY_FG`` is already the counterpart of the
+    card in each palette; the tiers that used to be separate greys (a full-white
+    title over a 220 description over a 150 hint) become alpha over that ink, so
+    the hierarchy survives the inversion instead of collapsing into the card.
+    """
+    ink = QColor(OVERLAY_FG)
+    ink.setAlpha(max(0, min(255, round(255 * strength))))
+    return ink
+
+
 def resolve_color(color: str) -> str:
     """Resolve a ``%token`` to hex against the active theme.
 

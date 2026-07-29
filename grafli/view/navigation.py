@@ -629,14 +629,14 @@ class NavigationMixin:
         painter.drawRoundedRect(QRectF(panel_x, panel_y, panel_w, panel_h), 6, 6)
 
         painter.setFont(font)
-        painter.setPen(QPen(QColor(255, 255, 255, int(255 * o))))
+        painter.setPen(QPen(theme.overlay_ink(o)))
         painter.drawText(
             QPointF(panel_x + (panel_w - text_w) / 2,
                     panel_y + pad + fm.ascent()),
             display,
         )
         painter.setFont(hint_font)
-        painter.setPen(QPen(QColor(200, 200, 200, int(180 * o))))
+        painter.setPen(QPen(theme.overlay_ink(0.71 * o)))
         painter.drawText(
             QPointF(panel_x + (panel_w - hint_w) / 2,
                     panel_y + pad + text_h + gap + hfm.ascent()),

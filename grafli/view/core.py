@@ -1149,6 +1149,23 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     self._record_shortcut("connector style → text")
                     event.accept()
                     return
+                # r — cycle routing (direct → spline → stair) without opening
+                # the overlay; the primary drives the value for the selection.
+                if no_mod_a and key == Qt.Key.Key_R:
+                    self._push_undo()
+                    order = ("", "spline", "ortho")
+                    cur = self._selected_arrow.routing
+                    idx = order.index(cur) if cur in order else 0
+                    nxt = order[(idx + 1) % len(order)]
+                    for a in self._selected_arrows:
+                        a.routing = nxt
+                    self._redraw_arrows()
+                    self._select_arrow(self._selected_arrow, keep_mode=True)
+                    self._update_arrow_mode_badge_pos()
+                    self.mark_dirty()
+                    self._record_shortcut(f"connector routing → {nxt or 'direct'}")
+                    event.accept()
+                    return
                 # a — toggle connector kind (graph edge ⇄ annotation); the
                 # primary drives the new value, which unifies the whole selection
                 if no_mod_a and key == Qt.Key.Key_A:
@@ -2250,10 +2267,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             y = 12
             bg = QColor(theme.CONFLICT_BG)
             bg.setAlphaF(0.92)
-            painter.setPen(QPen(QColor(255, 255, 255, 50), 1))
+            # The badge keeps its own saturated ground in both palettes, so its
+            # ink comes from the fill it sits on rather than from the card roles
+            # the caption below uses.
+            hair = QColor(theme.ON_ACCENT)
+            hair.setAlpha(50)
+            painter.setPen(QPen(hair, 1))
             painter.setBrush(QBrush(bg))
             painter.drawRoundedRect(QRectF(x, y, w, h), 6, 6)
-            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.setPen(QPen(QColor(theme.ON_ACCENT)))
             painter.drawText(QPointF(x + pad, y + pad / 2 + fm.ascent()), text)
 
         ov = self._flow_overlay
@@ -2313,13 +2335,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
 
             bg = QColor(theme.OVERLAY_BG)
             bg.setAlphaF(0.94)
-            painter.setPen(QPen(QColor(255, 255, 255, 40), 1))
+            painter.setPen(QPen(theme.overlay_ink(0.16), 1))
             painter.setBrush(QBrush(bg))
             painter.drawRoundedRect(QRectF(panel_x, panel_y, panel_w, panel_h), 8, 8)
 
             cy = panel_y + pad
             painter.setFont(title_font)
-            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.setPen(QPen(theme.overlay_ink()))
             painter.drawText(
                 QRectF(panel_x + pad, cy, content_w, title_rect.height()),
                 flags, title)
@@ -2327,14 +2349,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             if desc:
                 cy += gap
                 painter.setFont(desc_font)
-                painter.setPen(QPen(QColor(220, 220, 220)))
+                painter.setPen(QPen(theme.overlay_ink(0.86)))
                 painter.drawText(
                     QRectF(panel_x + pad, cy, content_w, desc_rect.height()),
                     flags, desc)
                 cy += desc_rect.height()
             cy += gap
             painter.setFont(hint_font)
-            painter.setPen(QPen(QColor(150, 150, 150)))
+            painter.setPen(QPen(theme.overlay_ink(0.59)))
             painter.drawText(
                 QRectF(panel_x + pad, cy, content_w, hint_rect.height()),
                 flags, hint)

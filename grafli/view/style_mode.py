@@ -295,17 +295,8 @@ class StyleModeMixin:
         if not targets:
             return None
         if mode == "arrow":
-            rect = None
-            for gfx in self._arrow_items:
-                arrow = gfx.data(0)
-                if arrow in targets:
-                    r = gfx.sceneBoundingRect()
-                    rect = r if rect is None else rect.united(r)
-            return rect
-        rect = targets[0].sceneBoundingRect()
-        for it in targets[1:]:
-            rect = rect.united(it.sceneBoundingRect())
-        return rect
+            return self._union_scene_rect(list(self._selected_arrow_items))
+        return self._union_scene_rect(targets)
 
     def _draw_color_picker(self, painter: QPainter):
         """A small palette grid anchored beside the selection, with the live
@@ -1206,6 +1197,31 @@ class StyleModeMixin:
         self._elem_overlay_target = ""
         self.viewport().update()
 
+    @staticmethod
+    def _union_scene_rect(items: list):
+        if not items:
+            return None
+        rect = items[0].sceneBoundingRect()
+        for it in items[1:]:
+            rect = rect.united(it.sceneBoundingRect())
+        return rect
+
+    def _elem_overlay_anchor_rect(self):
+        """Scene rect the panel sits beside — the elements it is editing.
+
+        This has to follow the target: anchoring on the connector items alone
+        left a box selection with an empty list, and the whole-viewport
+        fallback parked the panel against the left edge of the window instead
+        of beside the box.
+        """
+        if self._elem_overlay_target == "arrow":
+            return self._union_scene_rect(list(self._selected_arrow_items))
+        if self._elem_overlay_target == "box":
+            return self._union_scene_rect(self._color_picker_boxes())
+        if self._elem_overlay_target == "note":
+            return self._union_scene_rect(self._color_picker_notes())
+        return None
+
     def _elem_overlay_title(self) -> str:
         if self._elem_overlay_kind == "text":
             return "Connector text"
@@ -1230,14 +1246,10 @@ class StyleModeMixin:
         the others sit muted so it reads as a grid of choices."""
         if not self._elem_overlay_active or not self._elem_overlay_axes:
             return
-        items = list(self._selected_arrow_items)
-        if items:
-            scene_rect = items[0].sceneBoundingRect()
-            for it in items[1:]:
-                scene_rect = scene_rect.united(it.sceneBoundingRect())
-            anchor = self.mapFromScene(scene_rect).boundingRect()
-        else:
-            anchor = self.viewport().rect()
+        scene_rect = self._elem_overlay_anchor_rect()
+        if scene_rect is None:
+            return
+        anchor = self.mapFromScene(scene_rect).boundingRect()
 
         axes = self._elem_overlay_axes
         pad, title_h, row_h = 10, 18, 30

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from grafli.format import parse, serialize
@@ -124,6 +125,40 @@ def test_box_overlay_applies_to_the_whole_selection():
     assert view.board.box_by_id("b").style == "flat"
 
 
+# ── Where the panel sits ───────────────────────────────────────────
+
+def test_the_panel_anchors_on_what_it_edits():
+    """The panel anchored on the connector items alone, so a box selection hit
+    an empty list and fell through to a whole-viewport fallback — which parked
+    it against the left edge of the window instead of beside the box. Every
+    behavioural test still passed, because nothing about the values was wrong.
+    """
+    view = _view('@ box a "A" 300,200 160x60\n')
+    view._box_items["a"].setSelected(True)
+    view._open_element_overlay()
+    assert view._elem_overlay_anchor_rect() == \
+        view._box_items["a"].sceneBoundingRect()
+
+
+def test_the_panel_anchors_on_a_note_too():
+    view = _view('@ note n 300,200 "aside"\n')
+    view._note_items["n"].setSelected(True)
+    view._open_element_overlay()
+    assert view._elem_overlay_anchor_rect() == \
+        view._note_items["n"].sceneBoundingRect()
+
+
+def test_the_panel_anchors_on_a_connector():
+    view = _view('@ box a "A" 0,0 160x60\n@ box b "B" 400,0 160x60\n'
+                 '@ arrow a -> b "x"\n')
+    view._select_arrow(view.board.arrows[0])
+    view._open_element_overlay("appearance")
+    rect = view._elem_overlay_anchor_rect()
+    assert rect is not None
+    # Between the two boxes, not the viewport — the connector's own run.
+    assert 100 < rect.center().x() < 460
+
+
 # ── The icon conflict ──────────────────────────────────────────────
 
 def test_label_axis_is_dead_when_an_icon_owns_the_caption():
@@ -170,6 +205,50 @@ def test_connector_colour_key_now_opens_the_palette():
     view._select_arrow(view.board.arrows[0])
     view._open_color_picker()
     assert view._color_picker_mode == "arrow"
+
+
+def _press(view, key: str):
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+    view.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress,
+                                 getattr(Qt.Key, f"Key_{key.upper()}"),
+                                 Qt.KeyboardModifier.NoModifier, key))
+
+
+def _arrow_view():
+    view = _view('@ box a "A" 0,0 160x60\n@ box b "B" 400,0 160x60\n'
+                 '@ arrow a -> b "x"\n')
+    view._select_arrow(view.board.arrows[0])
+    return view
+
+
+def test_e_on_a_connector_edits_the_label():
+    """Bare `e` keeps its old job — the overlay only claims it inside `s`."""
+    view = _arrow_view()
+    _press(view, "e")
+    assert not view._elem_overlay_active
+    assert view._editor is not None          # label editor opened
+
+
+def test_s_then_e_on_a_connector_opens_the_overlay():
+    """The label editor is handled before the style branch in the arrow path,
+    so without an explicit stand-down it swallowed `s` `e` entirely."""
+    view = _arrow_view()
+    _press(view, "s")
+    assert view._arrow_mode == "style"
+    _press(view, "e")
+    assert view._elem_overlay_active
+    assert view._elem_overlay_target == "arrow"
+    assert view._editor is None              # label editor stayed shut
+
+
+def test_s_then_e_on_a_box_opens_the_overlay():
+    view = _view('@ box a "A" 0,0 160x60\n')
+    view._box_items["a"].setSelected(True)
+    _press(view, "s")
+    _press(view, "e")
+    assert view._elem_overlay_active
+    assert view._elem_overlay_target == "box"
 
 
 def test_overlay_without_a_selection_says_so():

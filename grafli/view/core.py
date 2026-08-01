@@ -1111,8 +1111,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             no_mod_a = not (mods_a & _SIGNIFICANT_MODS)
             key = event.key()
 
-            # e — edit arrow label
-            if no_mod_a and key == Qt.Key.Key_E:
+            # e — edit arrow label. Style mode spends `e` on the appearance
+            # overlay instead, the way it does for a box, so the label editor
+            # has to stand down while that mode is active.
+            if no_mod_a and key == Qt.Key.Key_E and self._arrow_mode != "style":
                 self._start_editing_arrow(self._selected_arrow)
                 event.accept()
                 return

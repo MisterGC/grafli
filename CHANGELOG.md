@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **One appearance overlay for every element — <kbd>s</kbd> then <kbd>e</kbd>.**
+  A box's background (plate or flat) and label position (center, top-left,
+  top-center) had no keys at all: `!flat` and `^anchor` have always parsed and
+  serialized, but the only way to set them was editing the file. They are now a
+  two-row overlay, the same panel connectors already use. A **flat** box with a
+  **top-left** label is the look a container gets for free, which is how you
+  draw a layer band that has no children in it.
+  ([#144](https://github.com/MisterGC/grafli/issues/144))
+
+### Changed
+- **The style keys mean the same thing for every element type.**
+  <kbd>s</kbd> <kbd>e</kbd> is appearance, <kbd>s</kbd> <kbd>c</kbd> is colour,
+  <kbd>s</kbd> <kbd>t</kbd> is text, <kbd>s</kbd> <kbd>i</kbd> is symbols —
+  whatever is selected. Two consequences worth knowing:
+  **<kbd>s</kbd> <kbd>c</kbd> on a connector** used to open the whole
+  appearance panel and now opens the colour grid; that panel moved to
+  <kbd>s</kbd> <kbd>e</kbd>. **<kbd>s</kbd> <kbd>c</kbd> on a note** used to
+  offer the plate toggle and now opens the colour grid too — so a note's colour
+  is reachable for the first time, and its plate toggle moved to
+  <kbd>s</kbd> <kbd>e</kbd>. Nothing became unreachable, and no file changed
+  meaning. ([#144](https://github.com/MisterGC/grafli/issues/144))
+
 ## [0.9.0] - 2026-07-29
 
 ### Added

@@ -299,11 +299,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         # Connector option overlay (arrow style mode -> c / t): a multi-row
         # picker over a connector's axes (heads, line, thickness, colour) or its
         # label text, with live preview. Generalises the colour grid to N axes.
-        self._conn_overlay_active: bool = False
-        self._conn_overlay_axes: list = []
-        self._conn_overlay_row: int = 0
-        self._conn_overlay_kind: str = "appearance"   # "appearance" | "text"
-        self._conn_overlay_original: dict = {}
+        self._elem_overlay_active: bool = False
+        self._elem_overlay_axes: list = []
+        self._elem_overlay_row: int = 0
+        self._elem_overlay_kind: str = "appearance"   # "appearance" | "text"
+        self._elem_overlay_original: dict = {}
+        self._elem_overlay_target: str = ""   # "arrow" | "box" | "note"
         # Type grid (style mode -> s): size rows x emphasis columns, live.
         self._type_picker_active: bool = False
         self._type_picker_size_idx: int = 1   # "" (medium)
@@ -489,7 +490,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         self._draw_color_picker(painter)
         self._draw_icon_picker(painter)
         self._draw_type_picker(painter)
-        self._draw_connector_overlay(painter)
+        self._draw_element_overlay(painter)
         self._draw_toast(painter)
 
     # Grid mode cycle order for the # key / "grid" action.
@@ -1051,8 +1052,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             return
 
         # Connector option overlay owns all input while open
-        if self._conn_overlay_active:
-            self._handle_connector_overlay_key(event)
+        if self._elem_overlay_active:
+            self._handle_element_overlay_key(event)
             event.accept()
             return
 
@@ -1137,15 +1138,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             # Style mode keys
             if self._arrow_mode == "style":
                 shift_only = (mods_a & _SIGNIFICANT_MODS) == Qt.KeyboardModifier.ShiftModifier
-                # c — open the appearance overlay (heads / line / thickness / colour)
-                if no_mod_a and key == Qt.Key.Key_C:
-                    self._open_connector_overlay("appearance")
+                # e — open the appearance overlay (heads / line / thickness /
+                # routing / colour). Same key for every element type (#144).
+                if no_mod_a and key == Qt.Key.Key_E:
+                    self._open_element_overlay("appearance")
                     self._record_shortcut("connector style → appearance")
+                    event.accept()
+                    return
+                # c — colour grid, the same picker boxes and notes get
+                if no_mod_a and key == Qt.Key.Key_C:
+                    self._open_color_picker()
+                    self._record_shortcut("connector style → colour")
                     event.accept()
                     return
                 # t — open the label-text overlay (size)
                 if no_mod_a and key == Qt.Key.Key_T:
-                    self._open_connector_overlay("text")
+                    self._open_element_overlay("text")
                     self._record_shortcut("connector style → text")
                     event.accept()
                     return
@@ -1467,6 +1475,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             elif self._box_mode == "style":
                 if event.key() == Qt.Key.Key_C and no_mod:
                     self._open_color_picker()
+                    event.accept()
+                    return
+                # e — appearance overlay. Shadows the non-modal `e` (edit
+                # label) only inside style mode, the way `t` already does.
+                if event.key() == Qt.Key.Key_E and no_mod:
+                    self._open_element_overlay()
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_I and no_mod:

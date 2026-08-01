@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import (
-    QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF,
+    QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen,
+    QPolygonF,
 )
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
 from grafli import theme
@@ -21,7 +22,7 @@ from grafli.constants import (
     resolve_textsize_px,
 )
 from grafli.format import emphasis_from_flags
-from grafli.iconset import EMPHASIS_NAMES, ICON_NAMES, icon_pixmap
+from grafli.iconset import EMPHASIS_NAMES, ICON_NAMES, has_icon, icon_pixmap
 from grafli.items import BoxItem, NoteItem
 
 
@@ -152,9 +153,6 @@ class StyleModeMixin:
     # ── Colour-grid picker (style mode -> c) ──
 
     _COLOR_GRID_COLS = 5
-    # Note background plate options shown when the colour picker targets a
-    # note: a beige plate (default) or none (text on the canvas).
-    _NOTE_BG_OPTIONS = (("Plate", False), ("None", True))
 
     def _color_picker_boxes(self):
         return [it for it in self._scene.selectedItems()
@@ -164,49 +162,65 @@ class StyleModeMixin:
         return [it for it in self._scene.selectedItems()
                 if isinstance(it, NoteItem)]
 
-    def _open_color_picker(self):
+    def _color_picker_targets(self) -> tuple:
+        """``(mode, targets)`` — what the colour grid paints.
+
+        Boxes, notes and connectors all have a ``color``, so they all get the
+        same 5x3 grid; only the setter differs. Notes reach it for the first
+        time here — ``Note.color`` has always serialized, but ``s`` ``c`` used
+        to open the plate toggle instead, which now lives in ``s`` ``e`` (#144).
+        """
         boxes = self._color_picker_boxes()
         if boxes:
-            self._color_picker_mode = "box"
-            self._color_picker_original = {it.box.id: it.box.color
-                                           for it in boxes}
-            values = [v for _, v in COLOR_PALETTE]
-            cur = boxes[0].box.color
-            self._color_picker_index = values.index(cur) if cur in values else 0
-            self._color_picker_active = True
-            self.viewport().update()
-            return
+            return "box", boxes
         notes = self._color_picker_notes()
         if notes:
-            self._color_picker_mode = "note-bg"
-            self._color_picker_original = {it.note.id: it.note.flat
-                                           for it in notes}
-            self._color_picker_index = 1 if notes[0].note.flat else 0
-            self._color_picker_active = True
-            self.viewport().update()
+            return "note", notes
+        if self._selected_arrows:
+            return "arrow", list(self._selected_arrows)
+        return "", []
+
+    @staticmethod
+    def _target_color(mode: str, target) -> str:
+        if mode == "box":
+            return target.box.color
+        if mode == "note":
+            return target.note.color
+        return target.color
+
+    @staticmethod
+    def _set_target_color(mode: str, target, value: str):
+        if mode == "arrow":
+            target.color = value
+        else:
+            target.set_color(value)
+
+    def _open_color_picker(self):
+        mode, targets = self._color_picker_targets()
+        if not targets:
+            self.toast("Select a box, note, or connector", kind="warn")
             return
-        self.toast("Select a box or note", kind="warn")
+        self._color_picker_mode = mode
+        self._color_picker_original = {id(t): self._target_color(mode, t)
+                                       for t in targets}
+        values = [v for _, v in COLOR_PALETTE]
+        cur = self._target_color(mode, targets[0])
+        self._color_picker_index = values.index(cur) if cur in values else 0
+        self._color_picker_active = True
+        self.viewport().update()
 
     def _apply_color_picker_live(self):
         """Preview the highlighted choice on the selection (no undo/dirty)."""
-        if self._color_picker_mode == "note-bg":
-            flat = self._NOTE_BG_OPTIONS[self._color_picker_index][1]
-            for it in self._color_picker_notes():
-                it.set_flat(flat)
-            return
+        mode, targets = self._color_picker_targets()
         value = COLOR_PALETTE[self._color_picker_index][1]
-        for it in self._color_picker_boxes():
-            it.set_color(value)
+        for t in targets:
+            self._set_target_color(mode, t, value)
+        if mode == "arrow":
+            self._redraw_arrows()
+            if self._selected_arrow:
+                self._select_arrow(self._selected_arrow, keep_mode=True)
 
     def _color_picker_move(self, dcol: int, drow: int):
-        if self._color_picker_mode == "note-bg":
-            n = len(self._NOTE_BG_OPTIONS)
-            idx = max(0, min(n - 1, self._color_picker_index + dcol))
-            if idx != self._color_picker_index:
-                self._color_picker_index = idx
-                self._apply_color_picker_live()
-            self.viewport().update()
-            return
         cols = self._COLOR_GRID_COLS
         n = len(COLOR_PALETTE)
         rows = (n + cols - 1) // cols
@@ -236,41 +250,34 @@ class StyleModeMixin:
             self._color_picker_move(0, 1)
 
     def _commit_color_picker(self):
-        if self._color_picker_mode == "note-bg":
-            notes = self._color_picker_notes()
-            flat = self._NOTE_BG_OPTIONS[self._color_picker_index][1]
-            for it in notes:
-                it.set_flat(self._color_picker_original.get(it.note.id,
-                                                            it.note.flat))
-            self._push_undo()
-            for it in notes:
-                it.set_flat(flat)
-            self.mark_dirty()
-            self._close_color_picker()
-            return
-        boxes = self._color_picker_boxes()
+        mode, targets = self._color_picker_targets()
         value = COLOR_PALETTE[self._color_picker_index][1]
         # Restore the pre-picker colours so the undo snapshot captures the
         # original state, then apply the chosen colour as one undoable step.
-        for it in boxes:
-            it.set_color(self._color_picker_original.get(it.box.id, it.box.color))
+        for t in targets:
+            self._set_target_color(
+                mode, t, self._color_picker_original.get(
+                    id(t), self._target_color(mode, t)))
         self._push_undo()
-        for it in boxes:
-            it.set_color(value)
-        self._last_box_color = value
+        for t in targets:
+            self._set_target_color(mode, t, value)
+        if mode == "box":
+            self._last_box_color = value
+        if mode == "arrow":
+            self._redraw_arrows()
+            self._select_arrow(self._selected_arrow, keep_mode=True)
         self.mark_dirty()
         self._close_color_picker()
 
     def _cancel_color_picker(self):
-        if self._color_picker_mode == "note-bg":
-            for it in self._color_picker_notes():
-                if it.note.id in self._color_picker_original:
-                    it.set_flat(self._color_picker_original[it.note.id])
-            self._close_color_picker()
-            return
-        for it in self._color_picker_boxes():
-            if it.box.id in self._color_picker_original:
-                it.set_color(self._color_picker_original[it.box.id])
+        mode, targets = self._color_picker_targets()
+        for t in targets:
+            if id(t) in self._color_picker_original:
+                self._set_target_color(mode, t,
+                                       self._color_picker_original[id(t)])
+        if mode == "arrow":
+            self._redraw_arrows()
+            self._select_arrow(self._selected_arrow, keep_mode=True)
         self._close_color_picker()
 
     def _close_color_picker(self):
@@ -278,20 +285,36 @@ class StyleModeMixin:
         self._color_picker_original = {}
         self.viewport().update()
 
+    def _color_picker_anchor_rect(self):
+        """Scene rect the palette panel sits beside, or None with no selection.
+
+        A connector has no graphics item of its own to measure, so it borrows
+        the bounding box of the arrow pieces already on the scene.
+        """
+        mode, targets = self._color_picker_targets()
+        if not targets:
+            return None
+        if mode == "arrow":
+            rect = None
+            for gfx in self._arrow_items:
+                arrow = gfx.data(0)
+                if arrow in targets:
+                    r = gfx.sceneBoundingRect()
+                    rect = r if rect is None else rect.united(r)
+            return rect
+        rect = targets[0].sceneBoundingRect()
+        for it in targets[1:]:
+            rect = rect.united(it.sceneBoundingRect())
+        return rect
+
     def _draw_color_picker(self, painter: QPainter):
         """A small palette grid anchored beside the selection, with the live
         choice ringed in cyan. Static (no animation), viewport coords."""
         if not self._color_picker_active:
             return
-        if self._color_picker_mode == "note-bg":
-            self._draw_note_bg_picker(painter)
+        scene_rect = self._color_picker_anchor_rect()
+        if scene_rect is None:
             return
-        boxes = self._color_picker_boxes()
-        if not boxes:
-            return
-        scene_rect = boxes[0].sceneBoundingRect()
-        for it in boxes[1:]:
-            scene_rect = scene_rect.united(it.sceneBoundingRect())
         anchor = self.mapFromScene(scene_rect).boundingRect()
 
         cols = self._COLOR_GRID_COLS
@@ -344,68 +367,6 @@ class StyleModeMixin:
         painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter,
                          COLOR_PALETTE[self._color_picker_index][0])
-        painter.restore()
-
-    def _draw_note_bg_picker(self, painter: QPainter):
-        """Two-option background chooser for a note selection — beige plate or
-        none (text on the canvas), the live choice ringed in cyan."""
-        notes = self._color_picker_notes()
-        if not notes:
-            return
-        scene_rect = notes[0].sceneBoundingRect()
-        for it in notes[1:]:
-            scene_rect = scene_rect.united(it.sceneBoundingRect())
-        anchor = self.mapFromScene(scene_rect).boundingRect()
-
-        opts = self._NOTE_BG_OPTIONS
-        sw, gap, pad, label_h = 30, 8, 10, 18
-        grid_w = len(opts) * sw + (len(opts) - 1) * gap
-        panel_w = grid_w + pad * 2
-        panel_h = sw + pad * 2 + label_h
-        margin = 14
-        vw, vh = self.viewport().width(), self.viewport().height()
-        px = anchor.right() + margin
-        if px + panel_w > vw - 4:
-            px = anchor.left() - margin - panel_w
-        px = max(4, min(px, vw - panel_w - 4))
-        py = anchor.center().y() - panel_h / 2
-        py = max(4, min(py, vh - panel_h - 4))
-
-        painter.save()
-        painter.resetTransform()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        bg = QColor(theme.OVERLAY_BG)
-        bg.setAlphaF(0.96)
-        painter.setPen(QPen(QColor(0, 0, 0, 70), 1))
-        painter.setBrush(QBrush(bg))
-        painter.drawRoundedRect(QRectF(px, py, panel_w, panel_h), 8, 8)
-
-        gx0, gy0 = px + pad, py + pad
-        cyan = QColor(0, 209, 224)
-        for i, (_name, flat) in enumerate(opts):
-            cell = QRectF(gx0 + i * (sw + gap), gy0, sw, sw)
-            painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
-            if flat:
-                # "None": canvas-coloured swatch with a diagonal slash.
-                painter.setBrush(QBrush(QColor(theme.BOX_FILL)))
-                painter.drawRoundedRect(cell, 4, 4)
-                painter.setPen(QPen(QColor(150, 60, 60), 1.5))
-                painter.drawLine(QPointF(cell.left() + 5, cell.bottom() - 5),
-                                 QPointF(cell.right() - 5, cell.top() + 5))
-            else:
-                # "Plate": the beige note plate.
-                painter.setBrush(QBrush(QColor(theme.SURFACE)))
-                painter.drawRoundedRect(cell, 4, 4)
-            if i == self._color_picker_index:
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.setPen(QPen(cyan, 2))
-                painter.drawRoundedRect(cell.adjusted(-2, -2, 2, 2), 5, 5)
-
-        painter.setPen(QPen(theme.overlay_ink(0.92)))
-        painter.setFont(QFont(FONT_FAMILY, 9))
-        painter.drawText(QRectF(px, gy0 + sw + 4, panel_w, label_h),
-                         Qt.AlignmentFlag.AlignCenter,
-                         opts[self._color_picker_index][0])
         painter.restore()
 
     # ── Icon-grid picker (style mode -> i), boxes and notes ──
@@ -961,8 +922,8 @@ class StyleModeMixin:
             )
 
     def _clear_arrow_mode(self):
-        if self._conn_overlay_active:
-            self._close_connector_overlay()
+        if self._elem_overlay_active:
+            self._close_element_overlay()
         self._set_arrow_mode("")
 
     # ── Connector option overlay (style mode -> c / t) ──
@@ -994,7 +955,7 @@ class StyleModeMixin:
         connector (what the matrix highlights); ``set`` unifies every selected
         connector to the pick."""
         primary = self._selected_arrow
-        if self._conn_overlay_kind == "text":
+        if self._elem_overlay_kind == "text":
             return [{
                 "label": "Text size", "kind": "size",
                 "options": list(self._CONN_SIZE_OPTIONS),
@@ -1022,120 +983,252 @@ class StyleModeMixin:
              "set": lambda v: self._set_all_arrows("color", v)},
         ]
 
-    def _open_connector_overlay(self, kind: str):
-        if not self._selected_arrows:
+    # ── Box / note appearance axes (style mode -> e) ──
+
+    # "Plate" is the ordinary node: a border, a solid fill, rounded corners.
+    # "Flat" is what `!flat` has always meant — no border, translucent fill,
+    # sharp corners — which is also the look a container gets for free. Pairing
+    # it with a top-left label is how a layer band is drawn (#144).
+    _BOX_BG_OPTIONS = (("Plate", ""), ("Flat", "flat"))
+    _BOX_LABEL_OPTIONS = (("Center", ""), ("Top left", "topleft"),
+                          ("Top center", "topcenter"))
+    _NOTE_BG_AXIS_OPTIONS = (("Plate", False), ("None", True))
+
+    # Fields snapshotted per target so commit/cancel are exact.
+    _BOX_OVERLAY_FIELDS = ("style", "anchor")
+    _NOTE_OVERLAY_FIELDS = ("flat",)
+
+    def _set_all_boxes(self, field: str, value):
+        for it in self._color_picker_boxes():
+            setattr(it.box, field, value)
+
+    def _label_axis_enabled(self) -> bool:
+        """False when an icon owns the label's position.
+
+        ``_position_label`` returns early for ``fill`` and ``lead`` placements —
+        the caption rides under the icon or beside it — so ``^anchor`` is dead
+        for those boxes and the row must say so rather than silently do nothing.
+        """
+        return not any(
+            it.box.icon and has_icon(it.box.icon)
+            and it.box.icon_placement in ("", "lead")
+            for it in self._color_picker_boxes())
+
+    def _box_axes(self) -> list:
+        primary = self._color_picker_boxes()[0].box
+        return [
+            {"label": "Background", "kind": "boxbg",
+             "options": list(self._BOX_BG_OPTIONS),
+             "get": lambda: primary.style,
+             "set": lambda v: self._set_all_boxes("style", v)},
+            {"label": "Label", "kind": "boxlabel",
+             "options": list(self._BOX_LABEL_OPTIONS),
+             "enabled": self._label_axis_enabled(),
+             "get": lambda: primary.anchor,
+             "set": lambda v: self._set_all_boxes("anchor", v)},
+        ]
+
+    def _note_axes(self) -> list:
+        primary = self._color_picker_notes()[0].note
+
+        def set_flat(v):
+            for it in self._color_picker_notes():
+                it.note.flat = v
+
+        return [
+            {"label": "Background", "kind": "notebg",
+             "options": list(self._NOTE_BG_AXIS_OPTIONS),
+             "get": lambda: primary.flat,
+             "set": set_flat},
+        ]
+
+    def _elem_overlay_objects(self) -> list:
+        """The data objects the overlay is editing — never the graphics items.
+
+        Commit and cancel work by restoring fields on these, so they have to be
+        the things the board actually serializes.
+        """
+        if self._elem_overlay_target == "arrow":
+            return list(self._selected_arrows)
+        if self._elem_overlay_target == "box":
+            return [it.box for it in self._color_picker_boxes()]
+        if self._elem_overlay_target == "note":
+            return [it.note for it in self._color_picker_notes()]
+        return []
+
+    def _elem_overlay_fields(self) -> tuple:
+        if self._elem_overlay_target == "arrow":
+            return self._CONN_OVERLAY_FIELDS
+        if self._elem_overlay_target == "box":
+            return self._BOX_OVERLAY_FIELDS
+        return self._NOTE_OVERLAY_FIELDS
+
+    def _open_element_overlay(self, kind: str = "appearance"):
+        """Open the appearance overlay for whatever is selected.
+
+        One panel, one key (``s`` then ``e``) — the axes differ by element type
+        but the interaction does not, which is the whole point of #144.
+        """
+        if self._selected_arrows:
+            self._elem_overlay_target = "arrow"
+            axes = self._connector_axes()
+        elif self._color_picker_boxes():
+            self._elem_overlay_target = "box"
+            axes = self._box_axes()
+        elif self._color_picker_notes():
+            self._elem_overlay_target = "note"
+            axes = self._note_axes()
+        else:
+            self.toast("Select a box, note, or connector", kind="warn")
             return
-        self._conn_overlay_kind = kind
-        self._conn_overlay_axes = self._connector_axes()
-        self._conn_overlay_row = 0
-        # Snapshot every selected connector so commit/cancel are exact.
-        self._conn_overlay_original = {
-            id(a): {f: getattr(a, f) for f in self._CONN_OVERLAY_FIELDS}
-            for a in self._selected_arrows}
-        self._conn_overlay_active = True
+        self._elem_overlay_kind = kind
+        self._elem_overlay_axes = axes
+        self._elem_overlay_row = 0
+        fields = self._elem_overlay_fields()
+        self._elem_overlay_original = {
+            id(o): {f: getattr(o, f) for f in fields}
+            for o in self._elem_overlay_objects()}
+        self._elem_overlay_active = True
         self.viewport().update()
 
     @staticmethod
-    def _conn_axis_index(axis) -> int:
+    def _elem_axis_index(axis) -> int:
         cur = axis["get"]()
         for i, (_disp, value) in enumerate(axis["options"]):
             if value == cur:
                 return i
         return 0
 
-    def _apply_connector_overlay_live(self):
-        """Preview the current choice on the connector (no undo/dirty)."""
-        self._redraw_arrows()
-        if self._selected_arrow:
-            self._select_arrow(self._selected_arrow, keep_mode=True)
-        self._update_arrow_mode_badge_pos()
+    def _resync_elem_items(self):
+        """Push the data objects' current values back onto their graphics items.
+
+        Boxes and notes render from item state, so restoring a field on the
+        dataclass isn't visible until the item is told — which is what makes
+        cancel actually revert rather than only look reverted.
+        """
+        if self._elem_overlay_target == "box":
+            for it in self._color_picker_boxes():
+                it._apply_color()          # border and fill follow !flat
+                it.refresh_auto_layout()   # label position follows ^anchor
+                it.update()
+        elif self._elem_overlay_target == "note":
+            for it in self._color_picker_notes():
+                it.set_flat(it.note.flat)
+
+    def _apply_element_overlay_live(self):
+        """Preview the current choice on the selection (no undo/dirty)."""
+        if self._elem_overlay_target == "arrow":
+            self._redraw_arrows()
+            if self._selected_arrow:
+                self._select_arrow(self._selected_arrow, keep_mode=True)
+            self._update_arrow_mode_badge_pos()
+        else:
+            self._resync_elem_items()
+            self.arrow_update_needed.emit()   # anchors follow a moved label
         self.viewport().update()
 
-    def _conn_overlay_move_row(self, delta: int):
-        n = len(self._conn_overlay_axes)
-        self._conn_overlay_row = max(0, min(n - 1, self._conn_overlay_row + delta))
+    def _elem_overlay_move_row(self, delta: int):
+        n = len(self._elem_overlay_axes)
+        self._elem_overlay_row = max(0, min(n - 1, self._elem_overlay_row + delta))
         self.viewport().update()
 
-    def _conn_overlay_cycle(self, delta: int):
-        axis = self._conn_overlay_axes[self._conn_overlay_row]
+    def _elem_overlay_cycle(self, delta: int):
+        axis = self._elem_overlay_axes[self._elem_overlay_row]
+        if not axis.get("enabled", True):
+            return                      # a row something else already owns
         opts = axis["options"]
-        idx = max(0, min(len(opts) - 1, self._conn_axis_index(axis) + delta))
+        idx = max(0, min(len(opts) - 1, self._elem_axis_index(axis) + delta))
         axis["set"](opts[idx][1])
-        self._apply_connector_overlay_live()
+        self._apply_element_overlay_live()
 
-    def _handle_connector_overlay_key(self, event):
+    def _handle_element_overlay_key(self, event):
         key = event.key()
         if key == Qt.Key.Key_Escape:
-            self._cancel_connector_overlay()
+            self._cancel_element_overlay()
         elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self._commit_connector_overlay()
+            self._commit_element_overlay()
         elif key == Qt.Key.Key_K:
-            self._conn_overlay_move_row(-1)
+            self._elem_overlay_move_row(-1)
         elif key == Qt.Key.Key_J:
-            self._conn_overlay_move_row(1)
+            self._elem_overlay_move_row(1)
         elif key == Qt.Key.Key_H:
-            self._conn_overlay_cycle(-1)
+            self._elem_overlay_cycle(-1)
         elif key == Qt.Key.Key_L:
-            self._conn_overlay_cycle(1)
+            self._elem_overlay_cycle(1)
 
-    def _commit_connector_overlay(self):
-        arrows = list(self._selected_arrows)
-        if not arrows:
-            self._close_connector_overlay()
-            return
-        # Capture each connector's chosen (live-previewed) values, restore the
-        # pre-overlay state so the undo snapshot is the original, then re-apply
-        # every connector's choice as one undoable step.
-        chosen = {id(a): {f: getattr(a, f) for f in self._CONN_OVERLAY_FIELDS}
-                  for a in arrows}
-        changed = any(chosen[id(a)] != self._conn_overlay_original.get(id(a))
-                      for a in arrows)
-        for a in arrows:
-            for f, v in self._conn_overlay_original.get(id(a), {}).items():
-                setattr(a, f, v)
-        if changed:
-            self._push_undo()
-            for a in arrows:
-                for f, v in chosen[id(a)].items():
-                    setattr(a, f, v)
-            self.mark_dirty()
-        self._redraw_arrows()
-        self._select_arrow(self._selected_arrow, keep_mode=True)
-        self._update_arrow_mode_badge_pos()
-        self._close_connector_overlay()
+    def _restore_elem_overlay_original(self, objs: list):
+        for o in objs:
+            for f, v in self._elem_overlay_original.get(id(o), {}).items():
+                setattr(o, f, v)
 
-    def _cancel_connector_overlay(self):
-        arrows = list(self._selected_arrows)
-        if arrows:
-            for a in arrows:
-                for f, v in self._conn_overlay_original.get(id(a), {}).items():
-                    setattr(a, f, v)
+    def _refresh_after_elem_overlay(self):
+        if self._elem_overlay_target == "arrow":
             self._redraw_arrows()
             self._select_arrow(self._selected_arrow, keep_mode=True)
             self._update_arrow_mode_badge_pos()
-        self._close_connector_overlay()
+        else:
+            self._resync_elem_items()
+            self.arrow_update_needed.emit()
 
-    def _close_connector_overlay(self):
-        self._conn_overlay_active = False
-        self._conn_overlay_axes = []
-        self._conn_overlay_original = {}
+    def _commit_element_overlay(self):
+        objs = self._elem_overlay_objects()
+        if not objs:
+            self._close_element_overlay()
+            return
+        # Capture the chosen (live-previewed) values, restore the pre-overlay
+        # state so the undo snapshot is the original, then re-apply every
+        # element's choice as one undoable step.
+        fields = self._elem_overlay_fields()
+        chosen = {id(o): {f: getattr(o, f) for f in fields} for o in objs}
+        changed = any(chosen[id(o)] != self._elem_overlay_original.get(id(o))
+                      for o in objs)
+        self._restore_elem_overlay_original(objs)
+        if changed:
+            self._push_undo()
+            for o in objs:
+                for f, v in chosen[id(o)].items():
+                    setattr(o, f, v)
+            self.mark_dirty()
+        self._refresh_after_elem_overlay()
+        self._close_element_overlay()
+
+    def _cancel_element_overlay(self):
+        objs = self._elem_overlay_objects()
+        if objs:
+            self._restore_elem_overlay_original(objs)
+            self._refresh_after_elem_overlay()
+        self._close_element_overlay()
+
+    def _close_element_overlay(self):
+        self._elem_overlay_active = False
+        self._elem_overlay_axes = []
+        self._elem_overlay_original = {}
+        self._elem_overlay_target = ""
         self.viewport().update()
 
+    def _elem_overlay_title(self) -> str:
+        if self._elem_overlay_kind == "text":
+            return "Connector text"
+        return {"arrow": "Connector style", "box": "Box style",
+                "note": "Note style"}.get(self._elem_overlay_target, "Style")
+
     @staticmethod
-    def _conn_cell_size(kind: str) -> tuple:
+    def _axis_cell_size(kind: str) -> tuple:
         """(width, height, gap) for one option cell of the given axis kind."""
         if kind == "color":
             return 18.0, 18.0, 4.0
         if kind == "size":
             return 26.0, 22.0, 4.0
+        if kind in ("boxbg", "boxlabel", "notebg"):
+            return 30.0, 22.0, 6.0   # miniature box previews
         return 44.0, 22.0, 6.0   # heads / line / thickness sample strips
 
-    def _draw_connector_overlay(self, painter: QPainter):
-        """A picker matrix anchored beside the selected connector: one row per
-        axis, each option a preview cell (line sample, colour swatch, arrowhead
-        icon). The selected cell is ringed; the active row glows cyan, the
-        others sit muted so it reads as a grid of choices."""
-        if not self._conn_overlay_active or not self._conn_overlay_axes:
+    def _draw_element_overlay(self, painter: QPainter):
+        """A picker matrix anchored beside the selection: one row per axis,
+        each option a preview cell (line sample, colour swatch, arrowhead icon,
+        miniature box). The selected cell is ringed; the active row glows cyan,
+        the others sit muted so it reads as a grid of choices."""
+        if not self._elem_overlay_active or not self._elem_overlay_axes:
             return
         items = list(self._selected_arrow_items)
         if items:
@@ -1146,11 +1239,16 @@ class StyleModeMixin:
         else:
             anchor = self.viewport().rect()
 
-        axes = self._conn_overlay_axes
-        pad, title_h, row_h, label_w = 10, 18, 30, 66
+        axes = self._elem_overlay_axes
+        pad, title_h, row_h = 10, 18, 30
+        # Measure the gutter rather than fixing it: "Background" and "Thickness"
+        # are far wider than "Line", and a fixed column clipped them into the
+        # first preview cell.
+        metrics = QFontMetricsF(QFont(FONT_FAMILY, 9))
+        label_w = max(metrics.horizontalAdvance(a["label"]) for a in axes) + 12
         content_w = 0.0
         for axis in axes:
-            cw, _ch, gap = self._conn_cell_size(axis["kind"])
+            cw, _ch, gap = self._axis_cell_size(axis["kind"])
             n = len(axis["options"])
             content_w = max(content_w, n * cw + (n - 1) * gap)
         panel_w = pad * 2 + label_w + content_w
@@ -1175,8 +1273,7 @@ class StyleModeMixin:
 
         cyan = QColor(0, 209, 224)
         dim_ring = QColor(120, 140, 142)
-        title = ("Connector text" if self._conn_overlay_kind == "text"
-                 else "Connector style")
+        title = self._elem_overlay_title()
         painter.setPen(QPen(theme.overlay_ink(0.59)))
         painter.setFont(QFont(FONT_FAMILY, 8))
         painter.drawText(QRectF(px, py + 4, panel_w, title_h),
@@ -1184,27 +1281,34 @@ class StyleModeMixin:
 
         for r, axis in enumerate(axes):
             ry = py + pad + title_h + r * row_h
-            active = r == self._conn_overlay_row
-            cw, ch, gap = self._conn_cell_size(axis["kind"])
-            cur = self._conn_axis_index(axis)
+            active = r == self._elem_overlay_row
+            enabled = axis.get("enabled", True)
+            cw, ch, gap = self._axis_cell_size(axis["kind"])
+            cur = self._elem_axis_index(axis)
             painter.setFont(QFont(FONT_FAMILY, 9))
-            painter.setPen(QPen(theme.overlay_ink(0.82 if active else 0.59)))
+            # A disabled row stays visible but reads as unavailable — something
+            # else owns the property, and a hidden row would just look missing.
+            strength = 0.28 if not enabled else (0.82 if active else 0.59)
+            painter.setPen(QPen(theme.overlay_ink(strength)))
             painter.drawText(QRectF(px + pad, ry, label_w - 4, row_h),
                              Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                              axis["label"])
+            if not enabled:
+                painter.setOpacity(0.35)
             cx0 = px + pad + label_w
             cy = ry + (row_h - ch) / 2
             for i, (disp, val) in enumerate(axis["options"]):
                 cell = QRectF(cx0 + i * (cw + gap), cy, cw, ch)
-                self._draw_conn_cell(painter, axis["kind"], i, disp, val, cell)
+                self._draw_axis_cell(painter, axis["kind"], i, disp, val, cell)
                 if i == cur:
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.setPen(QPen(cyan if active else dim_ring,
                                         2 if active else 1.3))
                     painter.drawRoundedRect(cell.adjusted(-2, -2, 2, 2), 4, 4)
+            painter.setOpacity(1.0)
         painter.restore()
 
-    def _draw_conn_cell(self, painter: QPainter, kind: str, idx: int,
+    def _draw_axis_cell(self, painter: QPainter, kind: str, idx: int,
                         disp: str, val, cell: QRectF):
         """Render one option as a small preview inside ``cell``."""
         ink = theme.overlay_ink(0.84)
@@ -1225,6 +1329,36 @@ class StyleModeMixin:
             painter.setPen(QPen(ink))
             painter.setFont(QFont(FONT_FAMILY, ramp[min(idx, len(ramp) - 1)]))
             painter.drawText(cell, Qt.AlignmentFlag.AlignCenter, "A")
+            return
+        if kind in ("boxbg", "notebg"):
+            # A miniature of the thing itself: plate keeps its border and
+            # rounded corners, flat drops both and washes the fill out.
+            body = cell.adjusted(3, 3, -3, -3)
+            flat = bool(val) if kind == "notebg" else val == "flat"
+            fill = QColor(theme.BOX_FILL)
+            if flat:
+                fill.setAlphaF(0.45)
+                painter.setPen(Qt.PenStyle.NoPen)
+            else:
+                painter.setPen(QPen(ink, 1.4))
+            painter.setBrush(QBrush(fill))
+            painter.drawRoundedRect(body, 0 if flat else 4, 0 if flat else 4)
+            return
+        if kind == "boxlabel":
+            # Where the caption sits, as a short rule inside an empty frame.
+            body = cell.adjusted(3, 3, -3, -3)
+            painter.setPen(QPen(ink, 1.0))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(body, 3, 3)
+            bar_w = body.width() * 0.55
+            if val == "topleft":
+                bx, by = body.left() + 2.5, body.top() + 4
+            elif val == "topcenter":
+                bx, by = body.center().x() - bar_w / 2, body.top() + 4
+            else:
+                bx, by = body.center().x() - bar_w / 2, body.center().y() - 1
+            painter.setPen(QPen(ink, 2.2))
+            painter.drawLine(QPointF(bx, by), QPointF(bx + bar_w, by))
             return
         if kind == "line":
             pen = QPen(ink, 2)

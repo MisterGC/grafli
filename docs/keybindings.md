@@ -101,10 +101,15 @@ press <kbd>F1</kbd> inside the editor. See
 
 ## Style
 
-With a selection, press <kbd>s</kbd> to enter style mode, then:
+With a selection, press <kbd>s</kbd> to enter style mode, then any of the keys
+below. Each one means the same thing whatever is selected — <kbd>e</kbd> is
+appearance, <kbd>c</kbd> is colour, <kbd>t</kbd> is text, <kbd>i</kbd> is
+symbols — so the map doesn't change under you when you switch from a box to a
+connector.
 
 | Key | Action |
 |-----|--------|
+| <kbd>e</kbd> | Element appearance overlay — box: background (plate / flat) and label position (center / top-left / top-center); note: background. `j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels. A **flat** box with a **top-left** label is the container look, which is how you draw a layer band that has no children |
 | <kbd>c</kbd> | Open the color grid — <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> to pick (live preview), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
 | <kbd>i</kbd> | Open the symbol grid (sketchnote vocabulary, semantic + emphasis blocks) — same keys; <kbd>Tab</kbd> cycles placement (fill → lead → badge); <kbd>1</kbd>–<kbd>9</kbd> types a number badge (a second press appends: 1,2 → 12). Fill: big symbol + caption. Lead: small symbol beside the label. Badge: compact top-right corner overlay |
 | <kbd>t</kbd> | Open the text grid — rows = sizes, columns = Regular / Bold / Italic / Bold+Italic; <kbd>hjkl</kbd> to move (live preview), <kbd>Tab</kbd> toggles a note's font (handwritten ↔ monospace), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
@@ -169,7 +174,8 @@ grafli render board.grafli out.png --theme dark
 | <kbd>Shift</kbd>+click | Add / remove a connector from the selection (format many at once) |
 | <kbd>e</kbd> | Edit arrow label |
 | <kbd>s</kbd> | Arrow style mode |
-| <kbd>s</kbd> then <kbd>c</kbd> | Connector appearance overlay — heads, line pattern, thickness, routing, colour (`j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels) |
+| <kbd>s</kbd> then <kbd>e</kbd> | Connector appearance overlay — heads, line pattern, thickness, routing, colour (`j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels) |
+| <kbd>s</kbd> then <kbd>c</kbd> | Open the color grid — the same picker boxes and notes get |
 | <kbd>s</kbd> then <kbd>t</kbd> | Connector label-text overlay (size) |
 | <kbd>h</kbd> / <kbd>l</kbd> | Toggle arrowheads (in style mode) |
 | <kbd>j</kbd> / <kbd>k</kbd> | Arrow label size (in style mode) |

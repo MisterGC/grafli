@@ -213,6 +213,12 @@ in `references/genres.md` instead.)
    under Layout strategy in `references/design.md` for which fits what).
 4. **Containers.** Group related items into `!flat` containers
    (services, layers, bounded contexts) before placing children.
+   A container with children gets the flat body, sharp corners and
+   small top-left caption automatically. An **empty** layer band — a
+   tier you want to show but have nothing to put in yet — has to ask
+   for that look: `!flat ^topleft ~small`. Without it an empty band
+   renders as a big rounded leaf node, which reads as a component
+   rather than a layer.
 5. **Place children inside containers**, sized and aligned to the
    grid (multiples of 50). Use the container margin model in
    `references/design.md`.

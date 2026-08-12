@@ -11,6 +11,7 @@ saving of doc-bodied note texts, and migrations from older layouts.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -36,6 +37,58 @@ def ensure_res_dir(grafli_path: Path) -> Path:
     d = res_dir(grafli_path)
     d.mkdir(exist_ok=True)
     return d
+
+
+def resolve_image_path(base_dir: str, image_path: str) -> str:
+    """Absolute, normalized filesystem path of an image reference.
+
+    A relative reference resolves against ``base_dir`` (the .grafli file's
+    directory); an absolute one passes through. Without a base directory the
+    reference is only normalized — there is nothing to resolve it against.
+    """
+    if not base_dir or os.path.isabs(image_path):
+        return os.path.normpath(image_path)
+    return os.path.normpath(os.path.join(base_dir, image_path))
+
+
+def image_ref(grafli_path: Path, source: Path) -> str:
+    """The reference an ``@ image`` line stores for a dropped image file.
+
+    A file that already lives inside the board's directory tree is referenced
+    in place: the user keeps their SVGs where they edit them, and an external
+    edit shows up in the board. A file from outside is copied into the vault
+    instead, so the board plus its vault stays the complete, copyable unit.
+    """
+    src = Path(source).resolve()
+    root = grafli_path.parent.resolve()
+    try:
+        return src.relative_to(root).as_posix()
+    except ValueError:
+        pass
+    dest_dir = ensure_res_dir(grafli_path)
+    return f"{dest_dir.name}/{_copy_into_vault(dest_dir, src).name}"
+
+
+def _copy_into_vault(dest_dir: Path, src: Path) -> Path:
+    """Copy *src* into *dest_dir*, resolving name collisions.
+
+    An existing file with identical bytes is the same picture, so it is
+    reused rather than duplicated; a different one gets ``-1``, ``-2``, ...
+    appended to the stem.
+    """
+    data = src.read_bytes()
+    dest = dest_dir / src.name
+    n = 0
+    while dest.exists():
+        try:
+            if dest.read_bytes() == data:
+                return dest
+        except OSError:
+            pass
+        n += 1
+        dest = dest_dir / f"{src.stem}-{n}{src.suffix}"
+    dest.write_bytes(data)
+    return dest
 
 
 def doc_path(grafli_path: Path, name: str) -> Path:

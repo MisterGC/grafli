@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **SVG images, dropped in and live.** Images used to be raster-only and could
+  only arrive by clipboard paste. Any image file — `.svg` or raster — can now
+  be dragged onto the canvas, and an SVG renders from its file at paint time,
+  so it stays sharp at every zoom and in exports. A dropped file that already
+  lives under the board's directory tree is referenced in place by its
+  relative path; a file from outside is copied into the `<stem>-res/` vault,
+  as pasted images always were. Referenced image files are watched: edit the
+  SVG in your editor, save, and the element refreshes on the board — the
+  selection and the rest of the scene are untouched. A newly placed image is
+  fitted into 320×240, with vectors normalized up or down and rasters only
+  ever scaled down. ([#146](https://github.com/MisterGC/grafli/issues/146))
 - **One appearance overlay for every element — <kbd>s</kbd> then <kbd>e</kbd>.**
   A box's background (plate or flat) and label position (center, top-left,
   top-center) had no keys at all: `!flat` and `^anchor` have always parsed and

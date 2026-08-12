@@ -335,6 +335,20 @@ class ResourcesMixin:
         elif kind == "file":
             self._set_url()
 
+    def reload_images(self, changed_paths: list[str]):
+        """Re-read the image files listed in *changed_paths* into their items.
+
+        Called by the window's image watcher when a referenced file changed on
+        disk. Only the affected items are touched — no scene rebuild, so the
+        selection and every other item survive an external edit.
+        """
+        import os
+        wanted = {os.path.normcase(os.path.normpath(p)) for p in changed_paths}
+        for item in self._image_items.values():
+            resolved = os.path.normcase(os.path.normpath(item.resolved_path))
+            if resolved in wanted:
+                item.reload_from_disk()
+
     def _element_label(self, item) -> str:
         """Extract a label string from a graphics item."""
         if isinstance(item, BoxItem):

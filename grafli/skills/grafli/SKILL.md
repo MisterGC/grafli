@@ -313,6 +313,11 @@ in `references/genres.md` instead.)
 @ footer "<markdown>"                             # board-global slide-export branding line
 ```
 
+`@ image` takes a raster file or an `.svg`, path relative to the `.grafli`
+file. A referenced file is watched while the board is open, so an external
+edit refreshes the element in place — you can write an SVG into
+`<stem>-res/`, reference it once, and keep revising the SVG afterwards.
+
 `&attach` is a typed attachment: `&link:<url>` (the only kind that may
 point outside the board), `&doc:<name>` (a markdown document at
 `<stem>-res/<name>.md`), or `&graph:<name>` (a sub-board at

@@ -381,7 +381,7 @@ class SelectionMixin:
             self._scene.addItem(item)
             self._note_items[note.id] = item
 
-        base_dir = ""
+        base_dir = self.base_dir
         window = self.window()
         if hasattr(window, '_file_path') and window._file_path:
             base_dir = str(window._file_path.parent)

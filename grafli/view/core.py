@@ -9,6 +9,8 @@ sibling mixin modules this class composes.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import (
     QEvent,
     QPointF,
@@ -142,6 +144,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # No context menu — the right button is used for panning.
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        # Image files can be dropped onto the canvas. The viewport is where
+        # the drag events actually land and it was created before this call,
+        # so it needs the flag set explicitly as well.
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
 
         # Grid mode: "off" (no dots, free move), "visual" (dots, free move),
         # "snap" (dots + snapping). Remembered across restarts via QSettings.
@@ -150,6 +157,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         self.GRID_SPACING = 20
 
         self._board: Board | None = None
+        # Resource root for relative image paths when the view has no
+        # MainWindow above it (headless render/export) — a windowed view
+        # derives it from the window's file path instead.
+        self.base_dir: str = ""
         self._box_items: dict[str, BoxItem] = {}
         self._arrow_items: list[QGraphicsLineItem | QGraphicsPolygonItem | QGraphicsSimpleTextItem] = []
         self._note_items: dict[str, NoteItem] = {}
@@ -702,6 +713,44 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         if len(text) > 60:
             text = "... " + text[-(60 - 4):]
         window._status_breadcrumb.setText(text)
+
+    # Image files accepted by drag & drop onto the canvas.
+    _IMAGE_DROP_SUFFIXES = (".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+                            ".bmp")
+
+    def _dropped_image_paths(self, mime) -> list[Path]:
+        """The local image files carried by a drag, in drop order."""
+        if mime is None or not mime.hasUrls():
+            return []
+        paths: list[Path] = []
+        for url in mime.urls():
+            if not url.isLocalFile():
+                continue
+            p = Path(url.toLocalFile())
+            if p.suffix.lower() in self._IMAGE_DROP_SUFFIXES:
+                paths.append(p)
+        return paths
+
+    def dragEnterEvent(self, event):
+        if self._dropped_image_paths(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if self._dropped_image_paths(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        paths = self._dropped_image_paths(event.mimeData())
+        if not paths:
+            super().dropEvent(event)
+            return
+        scene_pos = self.mapToScene(event.position().toPoint())
+        event.acceptProposedAction()
+        self._add_image_files(paths, scene_pos)
 
     def wheelEvent(self, event: QWheelEvent):
         if self._bounce_active:

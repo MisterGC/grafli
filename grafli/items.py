@@ -2846,8 +2846,53 @@ class NoteItem(QGraphicsSimpleTextItem):
         return super().itemChange(change, value)
 
 
+# The box a newly placed image is fitted into: twice the default box, and
+# as wide as the 320px a pasted clipboard image has always used.
+IMAGE_FIT_W = 320.0
+IMAGE_FIT_H = 240.0
+
+
+def default_image_size(natural_w: float, natural_h: float,
+                       vector: bool) -> tuple[float, float]:
+    """Placement size of a newly added image, fitted into 320x240.
+
+    Vector art has no pixel size worth honouring, so an SVG is scaled to the
+    fit box in either direction. A raster image is only ever scaled down —
+    blowing it up past its pixels buys nothing. A file whose intrinsic size
+    is unusable lands at the full fit box.
+    """
+    if natural_w <= 0 or natural_h <= 0:
+        return (IMAGE_FIT_W, IMAGE_FIT_H)
+    scale = min(IMAGE_FIT_W / natural_w, IMAGE_FIT_H / natural_h)
+    if not vector:
+        scale = min(scale, 1.0)
+    return (natural_w * scale, natural_h * scale)
+
+
+def svg_natural_size(renderer) -> tuple[float, float]:
+    """Intrinsic size of a loaded SVG: ``defaultSize``, its viewBox, else 4:3.
+
+    An SVG with only a viewBox (no width/height attributes) reports a null
+    default size, and one with neither has no size at all — both still have
+    to render into *some* aspect ratio.
+    """
+    size = renderer.defaultSize()
+    w, h = float(size.width()), float(size.height())
+    if w <= 0 or h <= 0:
+        box = renderer.viewBoxF()
+        w, h = float(box.width()), float(box.height())
+    if w <= 0 or h <= 0:
+        w, h = 4.0, 3.0
+    return (w, h)
+
+
 class ImageItem(QGraphicsPixmapItem):
-    """A draggable image annotation with aspect-ratio-locked resize."""
+    """A draggable image annotation with aspect-ratio-locked resize.
+
+    Raster files are drawn from a pixmap; SVGs are rendered from a
+    ``QSvgRenderer`` at paint time, which keeps them crisp at any zoom and in
+    every export (exports go through this same ``paint``).
+    """
 
     _BORDER_PAD = 2
     _HANDLE_PAD = 4
@@ -2858,11 +2903,14 @@ class ImageItem(QGraphicsPixmapItem):
         self.image = image
         self._base_dir = base_dir
         self._aspect_ratio: float = 1.0
+        self._renderer = None            # QSvgRenderer for .svg sources
+        self._full_pixmap = QPixmap()
+        self._placeholder = False
         self._resizing = False
         self._resize_corner = -1
         self._resize_origin = QPointF()
 
-        self._load_pixmap()
+        self._load_media()
         self.setPos(image.x, image.y)
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -2882,20 +2930,73 @@ class ImageItem(QGraphicsPixmapItem):
         """Refresh tooltip based on the attachment."""
         self.setToolTip(_attach_tooltip(self.image))
 
-    def _load_pixmap(self):
-        import os
-        path = self.image.image_path
-        if self._base_dir and not os.path.isabs(path):
-            path = os.path.join(self._base_dir, path)
+    @property
+    def resolved_path(self) -> str:
+        """Absolute path of the file this image element points at."""
+        from grafli.resources import resolve_image_path
+        return resolve_image_path(self._base_dir, self.image.image_path)
+
+    def _load_media(self, keep_on_failure: bool = False):
+        """(Re)read the source file into a renderer or a pixmap.
+
+        With ``keep_on_failure`` an unreadable file leaves the current
+        rendering alone: a reload can catch an atomic write half-way through,
+        and the previous picture beats a placeholder flash.
+        """
+        path = self.resolved_path
+        loaded = (self._load_svg(path) if path.lower().endswith(".svg")
+                  else self._load_raster(path))
+        if loaded or (keep_on_failure and not self._placeholder):
+            return
+        self._renderer = None
+        pm = QPixmap(max(int(self.image.w), 1), max(int(self.image.h), 1))
+        pm.fill(QColor(theme.PLACEHOLDER_FILL))
+        self._full_pixmap = pm
+        self._placeholder = True
+
+    def _load_svg(self, path: str) -> bool:
+        """Load an SVG renderer from *path*. False if the file is unusable."""
+        from PySide6.QtCore import QByteArray
+        from PySide6.QtSvg import QSvgRenderer
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            return False
+        if not data:
+            return False
+        # From bytes rather than the file name: a half-written or broken file
+        # then fails isValid() instead of leaving a renderer in limbo.
+        renderer = QSvgRenderer(QByteArray(data))
+        if not renderer.isValid():
+            return False
+        w, h = svg_natural_size(renderer)
+        self._renderer = renderer
+        self._full_pixmap = QPixmap()
+        self._aspect_ratio = w / h
+        self._placeholder = False
+        return True
+
+    def _load_raster(self, path: str) -> bool:
+        """Load a pixmap from *path*. False if the file is unusable."""
         pm = QPixmap(path)
         if pm.isNull():
-            pm = QPixmap(int(self.image.w), int(self.image.h))
-            pm.fill(QColor(theme.PLACEHOLDER_FILL))
-            self._placeholder = True
-        else:
-            self._aspect_ratio = pm.width() / max(pm.height(), 1)
-            self._placeholder = False
+            return False
+        self._renderer = None
         self._full_pixmap = pm
+        self._aspect_ratio = pm.width() / max(pm.height(), 1)
+        self._placeholder = False
+        return True
+
+    def reload_from_disk(self):
+        """Re-read the source file after an external edit.
+
+        The element's placed width/height (the user's layout) stay as they
+        are; only the artwork and its aspect ratio come from the file. A file
+        that appeared since the last load replaces the placeholder.
+        """
+        self._load_media(keep_on_failure=True)
+        self.update()
 
     def _update_handles(self):
         r = QRectF(0, 0, self.image.w, self.image.h)
@@ -2983,8 +3084,11 @@ class ImageItem(QGraphicsPixmapItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         target = QRectF(0, 0, self.image.w, self.image.h)
-        source = QRectF(self._full_pixmap.rect())
-        painter.drawPixmap(target, self._full_pixmap, source)
+        if self._renderer is not None:
+            self._renderer.render(painter, target)
+        else:
+            source = QRectF(self._full_pixmap.rect())
+            painter.drawPixmap(target, self._full_pixmap, source)
 
         # Subtle border
         border = QColor(theme.CONTENT_BORDER_COLOR)

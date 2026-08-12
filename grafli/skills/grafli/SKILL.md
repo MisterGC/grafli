@@ -307,7 +307,7 @@ in `references/genres.md` instead.)
 @ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [~size] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md
-@ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [# annotation]
+@ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [# annotation]
 @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] [~iso] ["<description>"]
 @ flow <id> "<label>" <ref>[:<dwell>][:detail=<v>][:focus=<v>] ... [~detail=<v>] [~focus=<v>] ["<description>"]
 @ footer "<markdown>"                             # board-global slide-export branding line
@@ -317,6 +317,9 @@ in `references/genres.md` instead.)
 file. A referenced file is watched while the board is open, so an external
 edit refreshes the element in place — you can write an SVG into
 `<stem>-res/`, reference it once, and keep revising the SVG afterwards.
+By default a raster image gets a subtle border and an `.svg` renders bare
+(transparent vector art sits directly on the canvas); `!frame` / `!noframe`
+override that per image.
 
 `&attach` is a typed attachment: `&link:<url>` (the only kind that may
 point outside the board), `&doc:<name>` (a markdown document at

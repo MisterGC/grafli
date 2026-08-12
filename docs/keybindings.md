@@ -58,6 +58,7 @@ lands on the placeholder ready to type-replace.
 | <kbd>E</kbd> | Open [textli](https://mistergc.github.io/textli/) (the full-window Markdown editor) — edits a **note's own text**; for a box/image, opens (or creates) its attached markdown file |
 | <kbd>W</kbd> | Set URL on selected item |
 | <kbd>Return</kbd> | Open URL in browser |
+| <kbd>Shift</kbd>+<kbd>Return</kbd> | Open the selected image's file in its system app (e.g. Inkscape for `.svg`) — also reachable as `[o]pen` in the image's resource picker |
 | <kbd>Enter</kbd> | Accept edit |
 | <kbd>y</kbd> / <kbd>p</kbd> | Yank / paste |
 | <kbd>u</kbd> / <kbd>⌘</kbd>+<kbd>Z</kbd> | Undo |
@@ -109,7 +110,7 @@ connector.
 
 | Key | Action |
 |-----|--------|
-| <kbd>e</kbd> | Element appearance overlay — box: background (plate / flat) and label position (center / top-left / top-center); note: background. `j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels. A **flat** box with a **top-left** label is the container look, which is how you draw a layer band that has no children |
+| <kbd>e</kbd> | Element appearance overlay — box: background (plate / flat) and label position (center / top-left / top-center); note: background; image: frame (auto / frame / none). `j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels. A **flat** box with a **top-left** label is the container look, which is how you draw a layer band that has no children |
 | <kbd>c</kbd> | Open the color grid — <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> to pick (live preview), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
 | <kbd>i</kbd> | Open the symbol grid (sketchnote vocabulary, semantic + emphasis blocks) — same keys; <kbd>Tab</kbd> cycles placement (fill → lead → badge); <kbd>1</kbd>–<kbd>9</kbd> types a number badge (a second press appends: 1,2 → 12). Fill: big symbol + caption. Lead: small symbol beside the label. Badge: compact top-right corner overlay |
 | <kbd>t</kbd> | Open the text grid — rows = sizes, columns = Regular / Bold / Italic / Bold+Italic; <kbd>hjkl</kbd> to move (live preview), <kbd>Tab</kbd> toggles a note's font (handwritten ↔ monospace), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |

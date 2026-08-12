@@ -3090,11 +3090,14 @@ class ImageItem(QGraphicsPixmapItem):
             source = QRectF(self._full_pixmap.rect())
             painter.drawPixmap(target, self._full_pixmap, source)
 
-        # Subtle border
-        border = QColor(theme.CONTENT_BORDER_COLOR)
-        painter.setPen(QPen(border, 1))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(target)
+        # Subtle border — on by default for raster (a paper-white screenshot
+        # would bleed into the canvas), off for vector art (see #147).
+        from grafli.format import image_frame_enabled
+        if image_frame_enabled(self.image) or self._placeholder:
+            border = QColor(theme.CONTENT_BORDER_COLOR)
+            painter.setPen(QPen(border, 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(target)
 
         if self.image.url:
             _paint_link_glyph(painter, target)

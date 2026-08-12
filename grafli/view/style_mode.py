@@ -23,7 +23,7 @@ from grafli.constants import (
 )
 from grafli.format import emphasis_from_flags
 from grafli.iconset import EMPHASIS_NAMES, ICON_NAMES, has_icon, icon_pixmap
-from grafli.items import BoxItem, NoteItem
+from grafli.items import BoxItem, ImageItem, NoteItem
 
 
 class StyleModeMixin:
@@ -161,6 +161,10 @@ class StyleModeMixin:
     def _color_picker_notes(self):
         return [it for it in self._scene.selectedItems()
                 if isinstance(it, NoteItem)]
+
+    def _selected_image_items(self):
+        return [it for it in self._scene.selectedItems()
+                if isinstance(it, ImageItem)]
 
     def _color_picker_targets(self) -> tuple:
         """``(mode, targets)`` — what the colour grid paints.
@@ -984,10 +988,13 @@ class StyleModeMixin:
     _BOX_LABEL_OPTIONS = (("Center", ""), ("Top left", "topleft"),
                           ("Top center", "topcenter"))
     _NOTE_BG_AXIS_OPTIONS = (("Plate", False), ("None", True))
+    # "Auto" follows the file type — raster framed, .svg frameless (#147).
+    _IMAGE_FRAME_OPTIONS = (("Auto", ""), ("Frame", "on"), ("None", "off"))
 
     # Fields snapshotted per target so commit/cancel are exact.
     _BOX_OVERLAY_FIELDS = ("style", "anchor")
     _NOTE_OVERLAY_FIELDS = ("flat",)
+    _IMAGE_OVERLAY_FIELDS = ("frame",)
 
     def _set_all_boxes(self, field: str, value):
         for it in self._color_picker_boxes():
@@ -1033,6 +1040,20 @@ class StyleModeMixin:
              "set": set_flat},
         ]
 
+    def _image_axes(self) -> list:
+        primary = self._selected_image_items()[0].image
+
+        def set_frame(v):
+            for it in self._selected_image_items():
+                it.image.frame = v
+
+        return [
+            {"label": "Frame", "kind": "imgframe",
+             "options": list(self._IMAGE_FRAME_OPTIONS),
+             "get": lambda: primary.frame,
+             "set": set_frame},
+        ]
+
     def _elem_overlay_objects(self) -> list:
         """The data objects the overlay is editing — never the graphics items.
 
@@ -1045,6 +1066,8 @@ class StyleModeMixin:
             return [it.box for it in self._color_picker_boxes()]
         if self._elem_overlay_target == "note":
             return [it.note for it in self._color_picker_notes()]
+        if self._elem_overlay_target == "image":
+            return [it.image for it in self._selected_image_items()]
         return []
 
     def _elem_overlay_fields(self) -> tuple:
@@ -1052,6 +1075,8 @@ class StyleModeMixin:
             return self._CONN_OVERLAY_FIELDS
         if self._elem_overlay_target == "box":
             return self._BOX_OVERLAY_FIELDS
+        if self._elem_overlay_target == "image":
+            return self._IMAGE_OVERLAY_FIELDS
         return self._NOTE_OVERLAY_FIELDS
 
     def _open_element_overlay(self, kind: str = "appearance"):
@@ -1069,8 +1094,11 @@ class StyleModeMixin:
         elif self._color_picker_notes():
             self._elem_overlay_target = "note"
             axes = self._note_axes()
+        elif self._selected_image_items():
+            self._elem_overlay_target = "image"
+            axes = self._image_axes()
         else:
-            self.toast("Select a box, note, or connector", kind="warn")
+            self.toast("Select a box, note, image, or connector", kind="warn")
             return
         self._elem_overlay_kind = kind
         self._elem_overlay_axes = axes
@@ -1105,6 +1133,9 @@ class StyleModeMixin:
         elif self._elem_overlay_target == "note":
             for it in self._color_picker_notes():
                 it.set_flat(it.note.flat)
+        elif self._elem_overlay_target == "image":
+            for it in self._selected_image_items():
+                it.update()
 
     def _apply_element_overlay_live(self):
         """Preview the current choice on the selection (no undo/dirty)."""
@@ -1220,13 +1251,16 @@ class StyleModeMixin:
             return self._union_scene_rect(self._color_picker_boxes())
         if self._elem_overlay_target == "note":
             return self._union_scene_rect(self._color_picker_notes())
+        if self._elem_overlay_target == "image":
+            return self._union_scene_rect(self._selected_image_items())
         return None
 
     def _elem_overlay_title(self) -> str:
         if self._elem_overlay_kind == "text":
             return "Connector text"
         return {"arrow": "Connector style", "box": "Box style",
-                "note": "Note style"}.get(self._elem_overlay_target, "Style")
+                "note": "Note style",
+                "image": "Image style"}.get(self._elem_overlay_target, "Style")
 
     @staticmethod
     def _axis_cell_size(kind: str) -> tuple:
@@ -1235,7 +1269,7 @@ class StyleModeMixin:
             return 18.0, 18.0, 4.0
         if kind == "size":
             return 26.0, 22.0, 4.0
-        if kind in ("boxbg", "boxlabel", "notebg"):
+        if kind in ("boxbg", "boxlabel", "notebg", "imgframe"):
             return 30.0, 22.0, 6.0   # miniature box previews
         return 44.0, 22.0, 6.0   # heads / line / thickness sample strips
 
@@ -1355,6 +1389,25 @@ class StyleModeMixin:
                 painter.setPen(QPen(ink, 1.4))
             painter.setBrush(QBrush(fill))
             painter.drawRoundedRect(body, 0 if flat else 4, 0 if flat else 4)
+            return
+        if kind == "imgframe":
+            # A tiny picture (circle sun + mountain line); the frame variant
+            # rings it solid, "Auto" dashed (the type decides), "None" bare.
+            body = cell.adjusted(3, 3, -3, -3)
+            painter.setPen(QPen(ink, 1.3))
+            painter.setBrush(QBrush(ink))
+            painter.drawEllipse(QPointF(body.left() + 7, body.top() + 6), 2.2, 2.2)
+            path = QPainterPath(QPointF(body.left() + 3, body.bottom() - 2))
+            path.lineTo(QPointF(body.center().x(), body.top() + 8))
+            path.lineTo(QPointF(body.right() - 3, body.bottom() - 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(path)
+            if val != "off":
+                pen = QPen(ink, 1.2)
+                if val == "":
+                    pen.setStyle(Qt.PenStyle.DashLine)
+                painter.setPen(pen)
+                painter.drawRect(body)
             return
         if kind == "boxlabel":
             # Where the caption sits, as a short rule inside an empty frame.

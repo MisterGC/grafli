@@ -42,6 +42,12 @@ reference: edit one in your editor, save, and the element updates on the
 board within a second — no re-import, no reopening the board. Nothing else
 moves, and your selection is kept.
 
+To jump into that editor from the board, press
+<kbd>Shift</kbd>+<kbd>Return</kbd> on a selected image (or pick `[o]pen`
+from its <kbd>Enter</kbd> resource picker): the file opens in whatever your
+system associates with it — set Inkscape as the default for `.svg` and that
+is what you get.
+
 That makes the useful loop:
 
 1. Drop (or write) an SVG into the board's `<stem>-res/` directory.
@@ -68,6 +74,19 @@ Select an image and drag its handles to resize:
 
 The side opposite the handle you drag stays put. The size is stored on the
 `@ image` line, so it survives an external edit of the image file.
+
+## The frame
+
+A raster image is painted with a subtle border by default — a paper-white
+screenshot would otherwise bleed into the canvas. An `.svg` renders bare:
+transparent vector art is meant to sit directly on the board (or inside a
+colored parent box) without a stray rectangle around it.
+
+To override the default, select the image and press <kbd>s</kbd> then
+<kbd>e</kbd> — the same appearance overlay boxes, notes and connectors use —
+and cycle the **Frame** row: *Auto* (the file type decides), *Frame*, or
+*None*. The choice is stored on the `@ image` line as `!frame` / `!noframe`,
+only when it deviates from the default.
 
 ## What an image can do
 

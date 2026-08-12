@@ -255,3 +255,34 @@ def test_overlay_without_a_selection_says_so():
     view = _view('@ box a "A" 0,0 160x60\n')
     view._open_element_overlay()
     assert not view._elem_overlay_active
+
+
+# ── Images: the frame toggle (#147) ────────────────────────────────
+
+def test_image_overlay_offers_the_frame_axis():
+    view = _view('@ image i1 "x.png" 0,0 320x240\n')
+    view._image_items["i1"].setSelected(True)
+    view._open_element_overlay()
+    assert view._elem_overlay_target == "image"
+    assert [a["label"] for a in view._elem_overlay_axes] == ["Frame"]
+
+
+def test_image_frame_reaches_noframe():
+    view = _view('@ image i1 "x.png" 0,0 320x240\n')
+    view._image_items["i1"].setSelected(True)
+    view._open_element_overlay()
+    view._elem_overlay_cycle(1)                 # Auto -> Frame
+    view._elem_overlay_cycle(1)                 # Frame -> None
+    view._commit_element_overlay()
+    assert view.board.image_by_id("i1").frame == "off"
+    assert "!noframe" in serialize(view.board)
+    assert parse(serialize(view.board)).image_by_id("i1").frame == "off"
+
+
+def test_image_overlay_cancel_reverts_the_preview():
+    view = _view('@ image i1 "x.png" 0,0 320x240 !frame\n')
+    view._image_items["i1"].setSelected(True)
+    view._open_element_overlay()
+    view._elem_overlay_cycle(1)                 # Frame -> None
+    view._cancel_element_overlay()
+    assert view.board.image_by_id("i1").frame == "on"

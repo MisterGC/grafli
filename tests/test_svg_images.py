@@ -356,3 +356,78 @@ def test_windowless_view_resolves_relative_paths_via_base_dir(tmp_path: Path):
     item = view._image_items["i1"]
     assert not item._placeholder
     assert item._renderer is not None
+
+
+# ── the frame flag and its type defaults (#147) ───────────────────────────
+
+def test_frame_flag_round_trips():
+    from grafli.format import parse, serialize
+    src = ('#!grafli v1\n'
+           '@ image a "a.svg" 0,0 100x100 !frame\n'
+           '@ image b "b.png" 0,0 100x100 !noframe\n'
+           '@ image c "c.png" 0,0 100x100\n')
+    board = parse(src)
+    assert board.image_by_id("a").frame == "on"
+    assert board.image_by_id("b").frame == "off"
+    assert board.image_by_id("c").frame == ""
+    out = serialize(board)
+    assert '@ image a "a.svg" 0,0 100x100 !frame' in out
+    assert '@ image b "b.png" 0,0 100x100 !noframe' in out
+    assert '@ image c "c.png" 0,0 100x100' in out
+    assert '!frame' not in out.splitlines()[-1]   # default stays unserialized
+
+
+def test_frame_default_follows_the_file_type():
+    from grafli.format import image_frame_enabled
+    assert image_frame_enabled(Image(id="i", image_path="shot.png",
+                                     x=0, y=0, w=10, h=10))
+    assert not image_frame_enabled(Image(id="i", image_path="art.SVG",
+                                         x=0, y=0, w=10, h=10))
+    assert image_frame_enabled(Image(id="i", image_path="art.svg",
+                                     x=0, y=0, w=10, h=10, frame="on"))
+    assert not image_frame_enabled(Image(id="i", image_path="shot.png",
+                                         x=0, y=0, w=10, h=10, frame="off"))
+
+
+def test_frame_flag_survives_with_parent_and_attach():
+    from grafli.format import parse, serialize
+    src = ('#!grafli v1\n'
+           '@ box p "P" 0,0 400x300\n'
+           '@ image i "r.svg" 10,10 100x100 !noframe >p &link:https://x.y\n')
+    board = parse(src)
+    img = board.image_by_id("i")
+    assert (img.frame, img.parent, img.attach_kind) == ("off", "p", "link")
+    assert parse(serialize(board)).image_by_id("i").frame == "off"
+
+
+# ── opening the source file in the system app (#147) ──────────────────────
+
+def test_open_image_source_desktop_opens_the_file(tmp_path: Path, monkeypatch):
+    w = _window(tmp_path)
+    (tmp_path / "logo.svg").write_bytes(SVG_2_1)
+    w._view._add_image_files([tmp_path / "logo.svg"], QPointF(0, 0))
+    item = next(iter(w._view._image_items.values()))
+
+    opened = []
+    from PySide6.QtGui import QDesktopServices
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        staticmethod(lambda url: opened.append(url) or True))
+    w._view._open_image_source(item)
+    assert len(opened) == 1
+    assert opened[0].toLocalFile() == str(tmp_path / "logo.svg")
+
+
+def test_open_image_source_missing_file_toasts(tmp_path: Path, monkeypatch):
+    w = _window(tmp_path)
+    (tmp_path / "logo.svg").write_bytes(SVG_2_1)
+    w._view._add_image_files([tmp_path / "logo.svg"], QPointF(0, 0))
+    item = next(iter(w._view._image_items.values()))
+    (tmp_path / "logo.svg").unlink()
+
+    opened = []
+    from PySide6.QtGui import QDesktopServices
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        staticmethod(lambda url: opened.append(url) or True))
+    w._view._open_image_source(item)
+    assert opened == []
+    assert "not found" in w._view._toast_text

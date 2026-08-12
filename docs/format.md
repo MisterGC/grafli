@@ -19,7 +19,7 @@ its version. It is required.
 @ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]
 @ note [<id>] <x>,<y> "<text>" [color] [~size] [~width=N] [!style] [>parent]
 @ arrow <from> <op> <to> ["label"] [color] [!pattern] [!thickness] [!routing] [~size]
-@ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [&attach]
+@ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [&attach]
 ```
 
 | Element | Purpose |
@@ -33,7 +33,9 @@ The image path is resolved relative to the directory of the `.grafli` file,
 so a board and its `<stem>-res/` directory move together. Raster formats
 (PNG, JPEG, …) and `.svg` both work; an SVG is rendered from the file at
 paint time, so it stays sharp at any zoom and an external edit of the file
-shows up on the board.
+shows up on the board. By default a raster image is painted with a subtle
+border and an `.svg` without one; `!frame` / `!noframe` override that per
+image and are serialized only when they deviate from the default.
 
 ### Arrow operators
 

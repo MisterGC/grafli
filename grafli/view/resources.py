@@ -60,14 +60,18 @@ class _ResourcePicker(QPushButton):
         "QPushButton:hover {{ background: {hover}; }}"
     )
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, show_open: bool = False):
         super().__init__(parent)
         self.setWindowFlags(
             Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setText("  [m]arkdown    [g]rafli    [f]ile  ")
+        self._show_open = show_open
+        text = "  [m]arkdown    [g]rafli    [f]ile  "
+        if show_open:
+            text += "  [o]pen  "
+        self.setText(text)
         self.setStyleSheet(self._STYLE.format(
             bg=theme.TOOLTIP_BG.name(), fg=theme.TOOLTIP_FG.name(),
             border=theme.HELP_BORDER.name(),
@@ -87,6 +91,9 @@ class _ResourcePicker(QPushButton):
             self.close()
         elif key == "f":
             self.resource_selected.emit("file")
+            self.close()
+        elif key == "o" and self._show_open:
+            self.resource_selected.emit("open")
             self.close()
         elif event.key() == Qt.Key.Key_Escape:
             self.close()
@@ -219,7 +226,8 @@ class ResourcesMixin:
         window = self.window()
         if not hasattr(window, '_file_path') or not window._file_path:
             return
-        picker = _ResourcePicker(self.viewport())
+        picker = _ResourcePicker(self.viewport(),
+                                 show_open=isinstance(item, ImageItem))
         item_rect = self.mapFromScene(item.sceneBoundingRect()).boundingRect()
         pw = picker.sizeHint().width()
         ph = picker.sizeHint().height()
@@ -265,6 +273,9 @@ class ResourcesMixin:
         """Create a vault attachment for a node and set its typed reference."""
         from grafli.md_note import is_md_note, md_body
         from grafli.resources import ensure_res_dir
+        if kind == "open":
+            self._open_image_source(item)
+            return
         window = self.window()
         grafli_path = window._file_path
         rd = ensure_res_dir(grafli_path)
@@ -334,6 +345,21 @@ class ResourcesMixin:
             window._open_file(sub_path)
         elif kind == "file":
             self._set_url()
+
+    def _open_image_source(self, item):
+        """Open an image's source file in whatever the OS has for it.
+
+        Deliberately just a desktop-open: the system's app association (e.g.
+        Inkscape for ``.svg``) decides, and the live reload brings any edit
+        straight back onto the board (#147).
+        """
+        if not isinstance(item, ImageItem):
+            return
+        path = Path(item.resolved_path)
+        if not path.exists():
+            self.toast(f"File not found: {item.image.image_path}", kind="warn")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def reload_images(self, changed_paths: list[str]):
         """Re-read the image files listed in *changed_paths* into their items.

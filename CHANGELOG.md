@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selection and the rest of the scene are untouched. A newly placed image is
   fitted into 320×240, with vectors normalized up or down and rasters only
   ever scaled down. ([#146](https://github.com/MisterGC/grafli/issues/146))
+- **Image frames follow the file type, and an image opens in its system app.**
+  The subtle border every image used to get stays the default for raster
+  (a paper-white screenshot needs the delineation) but is gone for `.svg` —
+  transparent vector art sits directly on the canvas, no stray rectangle
+  inside a colored parent box. `!frame` / `!noframe` on the `@ image` line
+  override it, and <kbd>s</kbd> <kbd>e</kbd> on an image now opens the
+  appearance overlay with that toggle — closing the one gap #144 left.
+  <kbd>Shift</kbd>+<kbd>Return</kbd> (or `[o]pen` in the image's resource
+  picker) opens the file in whatever the OS associates with it, e.g.
+  Inkscape for `.svg` — paired with the live reload, that is the edit loop.
+  ([#147](https://github.com/MisterGC/grafli/issues/147))
 - **One appearance overlay for every element — <kbd>s</kbd> then <kbd>e</kbd>.**
   A box's background (plate or flat) and label position (center, top-left,
   top-center) had no keys at all: `!flat` and `^anchor` have always parsed and

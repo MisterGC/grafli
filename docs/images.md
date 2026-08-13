@@ -15,6 +15,15 @@ board.
 * **Drag a file in** — drop an image file onto the canvas and it becomes an
   `@ image` element at the drop point. Raster formats (PNG, JPEG, …) and
   `.svg` both work.
+* **Create an SVG in place** — press <kbd>i</kbd> and click where the mockup
+  should sit. grafli writes a starter `.svg` into the vault, adds the
+  element, and opens the file in your system app right away, so "this UI
+  needs a mockup" is one keystroke from drawing. The starter shows a
+  recognizable **SVG · TODO** placeholder (one group — delete it in a single
+  click and draw); <kbd>Shift</kbd>+click stays in the mode, so you can
+  place several mockups first and draw them one by one, each still clearly
+  marked as not-yet-done on the board. An existing file is never
+  overwritten — a fresh name is picked instead.
 
 ## Where the file lives
 

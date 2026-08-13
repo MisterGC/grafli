@@ -571,9 +571,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
             self._set_items_movable(False)
+        elif mode == Mode.IMAGE:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setCursor(Qt.CursorShape.CrossCursor)
+            self._set_items_movable(False)
 
         # Manage create-mode ghost preview
-        if mode in (Mode.RECT, Mode.TEXT):
+        if mode in (Mode.RECT, Mode.TEXT, Mode.IMAGE):
             self._refresh_create_preview()
         else:
             self._clear_create_preview()
@@ -831,6 +835,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             self._press_text(event)
         elif self._mode == Mode.CONNECT:
             self._press_connect(event)
+        elif self._mode == Mode.IMAGE:
+            self._press_image(event)
 
     def mouseMoveEvent(self, event):
         # Update status bar position
@@ -902,6 +908,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             self._update_create_preview_pos(scene_pos)
             self._move_rect(event)
         elif self._mode == Mode.TEXT:
+            self._update_create_preview_pos(scene_pos)
+            super().mouseMoveEvent(event)
+        elif self._mode == Mode.IMAGE:
             self._update_create_preview_pos(scene_pos)
             super().mouseMoveEvent(event)
         elif self._mode == Mode.CONNECT:
@@ -1842,6 +1851,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                 Qt.Key.Key_N: Mode.RECT,
                 Qt.Key.Key_T: Mode.TEXT,
                 Qt.Key.Key_C: Mode.CONNECT,
+                Qt.Key.Key_I: Mode.IMAGE,
             }
             if event.key() in mode_keys:
                 self.set_mode(mode_keys[event.key()])
@@ -2031,6 +2041,50 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             self.set_mode(Mode.SELECT)
             item.setSelected(True)
             self._start_editing(item)
+        event.accept()
+
+    # ── IMAGE mode ──
+
+    def _press_image(self, event):
+        """Place a new in-place SVG mockup at the click (#149).
+
+        Writes the starter file into the vault, adds the element, and — unless
+        Shift keeps the mode for placing several mockups first — opens the file
+        in the system app so drawing starts immediately. The live reload
+        brings every save back onto the board.
+        """
+        if not self._board:
+            return
+        window = self.window()
+        file_path = getattr(window, "_file_path", None)
+        if not file_path:
+            self.toast("Save the board first to add images")
+            self.set_mode(Mode.SELECT)
+            return
+        from grafli.resources import new_svg_resource
+        scene_pos = self.mapToScene(event.position().toPoint())
+        self._push_undo()
+        image_id = self._board.next_image_id()
+        ref = new_svg_resource(Path(file_path), image_id)
+        w, h = 320.0, 240.0   # the 4:3 fit box; the starter canvas is 400x300
+        image = Image(id=image_id, image_path=ref,
+                      x=scene_pos.x() - w / 2, y=scene_pos.y() - h / 2,
+                      w=w, h=h)
+        self._board.add_image(image)
+
+        item = ImageItem(image, base_dir=str(Path(file_path).parent))
+        self._scene.addItem(item)
+        self._image_items[image.id] = item
+        self.mark_dirty()
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Shift held — stay in IMAGE mode: place all mockups first,
+            # draw them one by one later.
+            item.setSelected(True)
+            self._refresh_create_preview()
+        else:
+            self.set_mode(Mode.SELECT)
+            item.setSelected(True)
+            self._open_image_source(item)
         event.accept()
 
     # ── CONNECT mode ──

@@ -244,6 +244,7 @@ class MainWindow(QMainWindow):
             "mode_rect":    lambda: self._view.set_mode(Mode.RECT),
             "mode_text":    lambda: self._view.set_mode(Mode.TEXT),
             "mode_connect": lambda: self._view.set_mode(Mode.CONNECT),
+            "mode_image":   lambda: self._view.set_mode(Mode.IMAGE),
             "edit_label":   self._view._edit_selected,
             "delete":       self._view._delete_selected,
             "style":        lambda: self._view._set_box_mode("style"),

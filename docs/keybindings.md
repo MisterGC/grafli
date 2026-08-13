@@ -11,6 +11,7 @@ with live filtering.
 | <kbd>v</kbd> | Select |
 | <kbd>n</kbd> | Create node — <kbd>Shift</kbd>+click stays in mode |
 | <kbd>t</kbd> | Create note — <kbd>Shift</kbd>+click stays in mode |
+| <kbd>i</kbd> | Create SVG mockup in place — click writes a starter `.svg` into the vault and opens it in its system app; <kbd>Shift</kbd>+click stays in mode (place several, draw later) |
 | <kbd>c</kbd> | Connect arrow (one-shot) |
 | <kbd>s</kbd> | Style sub-mode (colors, sizes) |
 | <kbd>d</kbd> | Dimension sub-mode (resize) |

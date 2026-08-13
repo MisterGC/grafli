@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   override it, and <kbd>s</kbd> <kbd>e</kbd> on an image now opens the
   appearance overlay with that toggle — closing the one gap #144 left.
   ([#147](https://github.com/MisterGC/grafli/issues/147))
+- **Create an SVG mockup in place — <kbd>i</kbd>, click, draw.**
+  "This UI needs a mockup, very doable with SVG" no longer starts in
+  another app: <kbd>i</kbd> completes the n / t / i creation family, and a
+  click writes a starter `.svg` into the vault, adds the element, and opens
+  it in the system app (Inkscape, say) — every save flows back onto the
+  board via the live reload. The starter is a recognizable **SVG · TODO**
+  placeholder in one deletable group, so <kbd>Shift</kbd>+click can place a
+  whole screen's worth of mockups to draw one by one without the board
+  filling with anonymous empty boxes.
+  ([#149](https://github.com/MisterGC/grafli/issues/149))
 - **Editing an image means editing its file, and attachment badges show
   their kind.** <kbd>e</kbd> (or double-click) on an image opens its file in
   whatever the OS associates with it — Inkscape for `.svg`, say — the same

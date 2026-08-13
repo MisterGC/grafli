@@ -286,6 +286,7 @@ class SidePanel(QWidget):
             ("mode_rect",    "󰹟", "Node",    "n"),
             ("mode_text",    "󰊄", "Text",    "t"),
             ("mode_connect", "󱃗", "Connect", "c"),
+            ("mode_image",   "󰋩", "Image",   "i"),
         ])
 
     def _build_edit_section(self):
@@ -336,6 +337,7 @@ class SidePanel(QWidget):
             Mode.RECT: "mode_rect",
             Mode.TEXT: "mode_text",
             Mode.CONNECT: "mode_connect",
+            Mode.IMAGE: "mode_image",
         }
         for action_id, btn in self._buttons.items():
             if action_id.startswith("mode_"):

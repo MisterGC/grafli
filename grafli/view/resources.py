@@ -13,6 +13,7 @@ import re as _re
 import shlex
 import shutil
 import subprocess
+import sys
 from PySide6.QtCore import QPoint, QSettings, QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import (
     QColor,
@@ -352,9 +353,20 @@ class ResourcesMixin:
             # The app may take a moment or open behind this window — say the
             # gesture landed so it never reads as "nothing happened".
             self.toast(f"Opening {path.name}…")
-        else:
-            self.toast(f"The system could not open {path.name} — "
-                       "no app registered for this file type?", kind="warn")
+            return
+        # Qt can hold a stale LaunchServices view (e.g. the default app was
+        # registered while grafli was running) — the platform opener sees
+        # the current state, so try it before giving up.
+        opener = {"darwin": "open", "linux": "xdg-open"}.get(sys.platform)
+        if opener and shutil.which(opener):
+            try:
+                subprocess.Popen([opener, str(path)], start_new_session=True)
+                self.toast(f"Opening {path.name}…")
+                return
+            except OSError:
+                pass
+        self.toast(f"The system could not open {path.name} — "
+                   "is an app registered for this file type?", kind="warn")
 
     def reload_images(self, changed_paths: list[str]):
         """Re-read the image files listed in *changed_paths* into their items.

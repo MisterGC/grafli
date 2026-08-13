@@ -450,7 +450,13 @@ def test_edit_selected_opens_the_image_file(tmp_path: Path, monkeypatch):
 
 def test_open_image_source_gives_feedback(tmp_path: Path, monkeypatch):
     # Success shows "Opening ..." (the app may launch behind the window);
-    # an openUrl failure — no registered app — warns instead of going silent.
+    # when openUrl AND the platform-opener fallback fail, it warns instead
+    # of going silent.
+    import subprocess
+
+    def _fail_popen(cmd, **kw):
+        raise OSError("no opener")
+
     w = _window(tmp_path)
     (tmp_path / "logo.svg").write_bytes(SVG_2_1)
     w._view._add_image_files([tmp_path / "logo.svg"], QPointF(0, 0))
@@ -464,5 +470,27 @@ def test_open_image_source_gives_feedback(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(QDesktopServices, "openUrl",
                         staticmethod(lambda url: False))
+    monkeypatch.setattr(subprocess, "Popen", _fail_popen)
     w._view._open_image_source(item)
     assert "could not open logo.svg" in w._view._toast_text
+
+
+def test_open_image_source_falls_back_to_the_platform_opener(
+        tmp_path: Path, monkeypatch):
+    # Qt can hold a stale LaunchServices view (app registered while grafli
+    # runs); the `open`/`xdg-open` fallback sees the current state.
+    import subprocess
+    w = _window(tmp_path)
+    (tmp_path / "logo.svg").write_bytes(SVG_2_1)
+    w._view._add_image_files([tmp_path / "logo.svg"], QPointF(0, 0))
+    item = next(iter(w._view._image_items.values()))
+
+    from PySide6.QtGui import QDesktopServices
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        staticmethod(lambda url: False))
+    launched = []
+    monkeypatch.setattr(subprocess, "Popen",
+                        lambda cmd, **kw: launched.append(cmd))
+    w._view._open_image_source(item)
+    assert launched and launched[0][-1] == str(tmp_path / "logo.svg")
+    assert "Opening logo.svg" in w._view._toast_text

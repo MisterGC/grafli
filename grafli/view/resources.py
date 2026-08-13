@@ -348,7 +348,13 @@ class ResourcesMixin:
         if not path.exists():
             self.toast(f"File not found: {item.image.image_path}", kind="warn")
             return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            # The app may take a moment or open behind this window — say the
+            # gesture landed so it never reads as "nothing happened".
+            self.toast(f"Opening {path.name}…")
+        else:
+            self.toast(f"The system could not open {path.name} — "
+                       "no app registered for this file type?", kind="warn")
 
     def reload_images(self, changed_paths: list[str]):
         """Re-read the image files listed in *changed_paths* into their items.

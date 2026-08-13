@@ -446,3 +446,23 @@ def test_edit_selected_opens_the_image_file(tmp_path: Path, monkeypatch):
                         staticmethod(lambda url: opened.append(url) or True))
     w._view._edit_selected()
     assert [u.toLocalFile() for u in opened] == [str(tmp_path / "logo.svg")]
+
+
+def test_open_image_source_gives_feedback(tmp_path: Path, monkeypatch):
+    # Success shows "Opening ..." (the app may launch behind the window);
+    # an openUrl failure — no registered app — warns instead of going silent.
+    w = _window(tmp_path)
+    (tmp_path / "logo.svg").write_bytes(SVG_2_1)
+    w._view._add_image_files([tmp_path / "logo.svg"], QPointF(0, 0))
+    item = next(iter(w._view._image_items.values()))
+
+    from PySide6.QtGui import QDesktopServices
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        staticmethod(lambda url: True))
+    w._view._open_image_source(item)
+    assert "Opening logo.svg" in w._view._toast_text
+
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        staticmethod(lambda url: False))
+    w._view._open_image_source(item)
+    assert "could not open logo.svg" in w._view._toast_text

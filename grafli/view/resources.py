@@ -60,18 +60,14 @@ class _ResourcePicker(QPushButton):
         "QPushButton:hover {{ background: {hover}; }}"
     )
 
-    def __init__(self, parent=None, show_open: bool = False):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(
             Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._show_open = show_open
-        text = "  [m]arkdown    [g]rafli    [f]ile  "
-        if show_open:
-            text += "  [o]pen  "
-        self.setText(text)
+        self.setText("  [m]arkdown    [g]rafli    [f]ile  ")
         self.setStyleSheet(self._STYLE.format(
             bg=theme.TOOLTIP_BG.name(), fg=theme.TOOLTIP_FG.name(),
             border=theme.HELP_BORDER.name(),
@@ -91,9 +87,6 @@ class _ResourcePicker(QPushButton):
             self.close()
         elif key == "f":
             self.resource_selected.emit("file")
-            self.close()
-        elif key == "o" and self._show_open:
-            self.resource_selected.emit("open")
             self.close()
         elif event.key() == Qt.Key.Key_Escape:
             self.close()
@@ -226,8 +219,7 @@ class ResourcesMixin:
         window = self.window()
         if not hasattr(window, '_file_path') or not window._file_path:
             return
-        picker = _ResourcePicker(self.viewport(),
-                                 show_open=isinstance(item, ImageItem))
+        picker = _ResourcePicker(self.viewport())
         item_rect = self.mapFromScene(item.sceneBoundingRect()).boundingRect()
         pw = picker.sizeHint().width()
         ph = picker.sizeHint().height()
@@ -273,9 +265,6 @@ class ResourcesMixin:
         """Create a vault attachment for a node and set its typed reference."""
         from grafli.md_note import is_md_note, md_body
         from grafli.resources import ensure_res_dir
-        if kind == "open":
-            self._open_image_source(item)
-            return
         window = self.window()
         grafli_path = window._file_path
         rd = ensure_res_dir(grafli_path)
@@ -543,9 +532,14 @@ class ResourcesMixin:
             self.mark_dirty()
 
     def _edit_selected(self):
+        """Edit what the selected element *is*: a box's label and a note's
+        text inline, an image's file in the system app (#148)."""
         for item in self._scene.selectedItems():
             if isinstance(item, (BoxItem, NoteItem)):
                 self._start_editing(item)
+                return
+            if isinstance(item, ImageItem):
+                self._open_image_source(item)
                 return
 
     def _toggle_minimap(self):

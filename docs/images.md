@@ -42,11 +42,13 @@ reference: edit one in your editor, save, and the element updates on the
 board within a second — no re-import, no reopening the board. Nothing else
 moves, and your selection is kept.
 
-To jump into that editor from the board, press
-<kbd>Shift</kbd>+<kbd>Return</kbd> on a selected image (or pick `[o]pen`
-from its <kbd>Enter</kbd> resource picker): the file opens in whatever your
-system associates with it — set Inkscape as the default for `.svg` and that
-is what you get.
+To jump into that editor from the board, press <kbd>e</kbd> (or
+double-click) on a selected image — the same gesture that edits a box's
+label or a note's text, because an image's own content *is* its file. It
+opens in whatever your system associates with it: set Inkscape as the
+default for `.svg` and that is what you get. <kbd>Enter</kbd> is unrelated
+to this — it opens the element's *attachment* (a markdown doc, a sub-board,
+or a link), for images exactly as for boxes and notes.
 
 That makes the useful loop:
 

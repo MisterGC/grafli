@@ -26,10 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inside a colored parent box. `!frame` / `!noframe` on the `@ image` line
   override it, and <kbd>s</kbd> <kbd>e</kbd> on an image now opens the
   appearance overlay with that toggle — closing the one gap #144 left.
-  <kbd>Shift</kbd>+<kbd>Return</kbd> (or `[o]pen` in the image's resource
-  picker) opens the file in whatever the OS associates with it, e.g.
-  Inkscape for `.svg` — paired with the live reload, that is the edit loop.
   ([#147](https://github.com/MisterGC/grafli/issues/147))
+- **Editing an image means editing its file, and attachment badges show
+  their kind.** <kbd>e</kbd> (or double-click) on an image opens its file in
+  whatever the OS associates with it — Inkscape for `.svg`, say — the same
+  gesture that edits a box's label or a note's text, and paired with the
+  live reload that is the edit loop. <kbd>Enter</kbd> stays attachments
+  only, identical for box, note and image. The top-right indicator now
+  tells the kinds apart: a chain for an external link, a page for a
+  markdown doc, a node pair for a sub-board — and a bare `&doc`, which
+  used to show nothing, gets its badge too.
+  ([#148](https://github.com/MisterGC/grafli/issues/148))
 - **One appearance overlay for every element — <kbd>s</kbd> then <kbd>e</kbd>.**
   A box's background (plate or flat) and label position (center, top-left,
   top-center) had no keys at all: `!flat` and `^anchor` have always parsed and

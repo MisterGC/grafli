@@ -431,3 +431,18 @@ def test_open_image_source_missing_file_toasts(tmp_path: Path, monkeypatch):
     w._view._open_image_source(item)
     assert opened == []
     assert "not found" in w._view._toast_text
+
+
+def test_edit_selected_opens_the_image_file(tmp_path: Path, monkeypatch):
+    # `e` means "edit what the element is" — for an image that is its file,
+    # opened in the system app (#148).
+    w = _window(tmp_path)
+    (tmp_path / "logo.svg").write_bytes(SVG_2_1)
+    w._view._add_image_files([tmp_path / "logo.svg"], QPointF(0, 0))
+
+    opened = []
+    from PySide6.QtGui import QDesktopServices
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        staticmethod(lambda url: opened.append(url) or True))
+    w._view._edit_selected()
+    assert [u.toLocalFile() for u in opened] == [str(tmp_path / "logo.svg")]

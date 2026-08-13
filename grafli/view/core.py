@@ -1020,6 +1020,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             self._start_editing(item)
             event.accept()
             return
+        if isinstance(item, ImageItem):
+            # Editing an image means editing its file — same gesture, the
+            # system's associated app instead of an inline editor (#148).
+            self._open_image_source(item)
+            event.accept()
+            return
 
         super().mouseDoubleClickEvent(event)
 
@@ -1622,18 +1628,6 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     event.accept()
                     return
 
-            # Shift+Enter — open the selected image's source file in the
-            # system app; its own key so it stays reachable when the image
-            # already carries an attachment (#147).
-            if (event.key() == Qt.Key.Key_Return
-                    and event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
-                for item in self._scene.selectedItems():
-                    if isinstance(item, ImageItem):
-                        self._clear_box_mode()
-                        self._open_image_source(item)
-                        event.accept()
-                        return
-
             # Non-modal keys that work regardless of box mode
             if no_mod:
                 if event.key() == Qt.Key.Key_T:
@@ -1643,10 +1637,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     return
                 if event.key() == Qt.Key.Key_E:
                     self._clear_box_mode()
-                    for item in self._scene.selectedItems():
-                        if isinstance(item, (BoxItem, NoteItem)):
-                            self._start_editing(item)
-                            break
+                    self._edit_selected()
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_W:

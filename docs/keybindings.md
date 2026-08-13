@@ -54,11 +54,10 @@ lands on the placeholder ready to type-replace.
 
 | Key | Action |
 |-----|--------|
-| <kbd>e</kbd> / Double-click | Edit selected element (inline) |
+| <kbd>e</kbd> / Double-click | Edit what the element **is** — box label / note text inline; an image's file opens in its system app (e.g. Inkscape for `.svg`) |
 | <kbd>E</kbd> | Open [textli](https://mistergc.github.io/textli/) (the full-window Markdown editor) — edits a **note's own text**; for a box/image, opens (or creates) its attached markdown file |
 | <kbd>W</kbd> | Set URL on selected item |
 | <kbd>Return</kbd> | Open URL in browser |
-| <kbd>Shift</kbd>+<kbd>Return</kbd> | Open the selected image's file in its system app (e.g. Inkscape for `.svg`) — also reachable as `[o]pen` in the image's resource picker |
 | <kbd>Enter</kbd> | Accept edit |
 | <kbd>y</kbd> / <kbd>p</kbd> | Yank / paste |
 | <kbd>u</kbd> / <kbd>⌘</kbd>+<kbd>Z</kbd> | Undo |

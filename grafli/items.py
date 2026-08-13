@@ -119,10 +119,26 @@ def _code_kind_color(kind: str) -> QColor:
     return theme.NOTE_CODE_TEXT_COLOR
 
 
-def _paint_link_glyph(painter: QPainter, rect: QRectF):
-    """Paint a link icon at the top-right of *rect*, on a small label-style
-    plate so it stays legible regardless of box fill color.
+def _attach_glyph_kind(el) -> str:
+    """Which indicator an element's attachment gets: doc, graph, or link.
+
+    Legacy untyped urls read as links — that is what following them does.
+    Empty when there is nothing to indicate.
     """
+    if el.attach_kind in ("doc", "graph"):
+        return el.attach_kind
+    return "link" if el.url else ""
+
+
+def _paint_attach_glyph(painter: QPainter, rect: QRectF, el):
+    """Paint the attachment indicator at the top-right of *rect*, on a small
+    label-style plate so it stays legible regardless of box fill color. The
+    glyph shows the attachment's kind: a chain for an external link, a page
+    for a markdown doc, a node pair for a sub-board (#148).
+    """
+    kind = _attach_glyph_kind(el)
+    if not kind:
+        return
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
     # Plate — mirrors BoxLabelItem's background plate.
@@ -133,15 +149,31 @@ def _paint_link_glyph(painter: QPainter, rect: QRectF):
     painter.setBrush(QBrush(bg))
     painter.drawRoundedRect(plate, 4, 4)
 
-    # Chain glyph — same color as label text, full alpha (plate carries contrast).
-    painter.setPen(QPen(QColor(theme.INK), 1.2))
+    # Glyph — same color as label text, full alpha (plate carries contrast).
+    ink = QColor(theme.INK)
+    painter.setPen(QPen(ink, 1.2))
     painter.setBrush(Qt.BrushStyle.NoBrush)
     cx = plate.center().x()
     cy = plate.center().y()
-    r1 = QRectF(cx - 4, cy - 3, 6, 4)
-    r2 = QRectF(cx - 2, cy - 1, 6, 4)
-    painter.drawRoundedRect(r1, 1.5, 1.5)
-    painter.drawRoundedRect(r2, 1.5, 1.5)
+    if kind == "doc":
+        # A page with two text lines.
+        page = QRectF(cx - 3, cy - 4, 6, 8)
+        painter.drawRoundedRect(page, 1, 1)
+        painter.setPen(QPen(ink, 1.0))
+        painter.drawLine(QPointF(cx - 1.5, cy - 1.5), QPointF(cx + 1.5, cy - 1.5))
+        painter.drawLine(QPointF(cx - 1.5, cy + 0.5), QPointF(cx + 1.5, cy + 0.5))
+    elif kind == "graph":
+        # Two nodes and their connector — a board in miniature.
+        painter.drawLine(QPointF(cx - 2.5, cy + 2), QPointF(cx + 2.5, cy - 2))
+        painter.setBrush(QBrush(ink))
+        painter.drawEllipse(QPointF(cx - 3.5, cy + 2.5), 1.6, 1.6)
+        painter.drawEllipse(QPointF(cx + 3.5, cy - 2.5), 1.6, 1.6)
+    else:
+        # Chain — an external link.
+        r1 = QRectF(cx - 4, cy - 3, 6, 4)
+        r2 = QRectF(cx - 2, cy - 1, 6, 4)
+        painter.drawRoundedRect(r1, 1.5, 1.5)
+        painter.drawRoundedRect(r2, 1.5, 1.5)
 
 # ── Handle IDs ───────────────────────────────────────────────────
 
@@ -1263,8 +1295,8 @@ class BoxItem(QGraphicsRectItem):
         elif self.box.icon and iconset.has_icon(self.box.icon):
             self._paint_icon(painter)
 
-        if self.box.url:
-            _paint_link_glyph(painter, self.rect())
+        if self.box.url or self.box.attach_kind == "doc":
+            _paint_attach_glyph(painter, self.rect(), self.box)
 
         if self.isSelected():
             sel_rect = self.rect().adjusted(-4, -4, 4, 4)
@@ -2512,7 +2544,7 @@ class NoteItem(QGraphicsSimpleTextItem):
                            ln, body_font, accent, self.note.emphasis)
 
         if self.note.url:
-            _paint_link_glyph(painter, bg_rect)
+            _paint_attach_glyph(painter, bg_rect, self.note)
 
         # Selection indicator + always-visible resize grip
         if self.isSelected():
@@ -2553,7 +2585,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         painter.restore()
 
         if self.note.url:
-            _paint_link_glyph(painter, bg_rect)
+            _paint_attach_glyph(painter, bg_rect, self.note)
 
         if self.isSelected():
             sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
@@ -2615,7 +2647,7 @@ class NoteItem(QGraphicsSimpleTextItem):
                 y += self._BLOCK_GAP
 
         if self.note.url:
-            _paint_link_glyph(painter, bg_rect)
+            _paint_attach_glyph(painter, bg_rect, self.note)
 
         if self.isSelected():
             sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
@@ -2741,7 +2773,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         self._code_ref_rects = ref_rects
 
         if self.note.url:
-            _paint_link_glyph(painter, bg_rect)
+            _paint_attach_glyph(painter, bg_rect, self.note)
 
         if self.isSelected():
             sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
@@ -3099,8 +3131,8 @@ class ImageItem(QGraphicsPixmapItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(target)
 
-        if self.image.url:
-            _paint_link_glyph(painter, target)
+        if self.image.url or self.image.attach_kind == "doc":
+            _paint_attach_glyph(painter, target, self.image)
 
         if self.isSelected():
             sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)

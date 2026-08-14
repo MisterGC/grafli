@@ -19,8 +19,11 @@ board.
   should sit. grafli writes a starter `.svg` into the vault, adds the
   element, and opens the file in your system app right away, so "this UI
   needs a mockup" is one keystroke from drawing. The starter shows a
-  recognizable **SVG · TODO** placeholder (one group — delete it in a single
-  click and draw); <kbd>Shift</kbd>+click stays in the mode, so you can
+  recognizable **SVG · TODO** placeholder carrying the board theme's colour
+  palette as swatches — eyedrop them while drawing and the mockup fits the
+  board it lands on (hovering a swatch names its `%token`). It is one group:
+  delete it in a single click when the mockup is done.
+  <kbd>Shift</kbd>+click stays in the mode, so you can
   place several mockups first and draw them one by one, each still clearly
   marked as not-yet-done on the board. An existing file is never
   overwritten — a fresh name is picked instead.

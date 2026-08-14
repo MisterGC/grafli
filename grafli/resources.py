@@ -91,17 +91,39 @@ def _copy_into_vault(dest_dir: Path, src: Path) -> Path:
     return dest
 
 
-# Starter content for an SVG created in place (#149). Recognizably a
-# placeholder — a picture glyph and "SVG · TODO" — so a board full of
-# not-yet-drawn mockups stays readable. Everything sits in one group the
-# user deletes with a single click before drawing.
-SVG_STARTER = """\
+def svg_starter() -> str:
+    """Starter content for an SVG created in place (#149).
+
+    Recognizably a placeholder — "SVG · TODO" on a soft card — so a board
+    full of not-yet-drawn mockups stays readable. Instead of decoration it
+    carries the active theme's colour palette as swatches: eyedrop them in
+    the drawing app and the mockup fits the board it lands on. Everything
+    sits in one group the user deletes when the mockup is done.
+    """
+    from grafli import theme
+    swatch, gap, cols = 40, 8, 7
+    tokens = list(theme.color_tokens().items())
+    rows = [tokens[i:i + cols] for i in range(0, len(tokens), cols)]
+    grid_w = cols * swatch + (cols - 1) * gap
+    x0 = (400 - grid_w) / 2
+    y0 = 74
+    cells = []
+    for r, row in enumerate(rows):
+        for c, (name, hexv) in enumerate(row):
+            cells.append(
+                f'    <rect x="{x0 + c * (swatch + gap):g}" '
+                f'y="{y0 + r * (swatch + gap):g}" '
+                f'width="{swatch}" height="{swatch}" rx="8" fill="{hexv}">'
+                f'<title>%{name}</title></rect>'
+            )
+    swatches = "\n".join(cells)
+    return f"""\
 <svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
-  <!-- Placeholder: select the group below, delete it, draw your mockup. -->
+  <!-- Placeholder with the board's colour palette: eyedrop the swatches
+       while drawing, delete this group when the mockup is done. -->
   <g id="placeholder">
     <rect x="6" y="6" width="388" height="288" rx="14" fill="#f6f2e9" stroke="#c8bfae" stroke-width="2"/>
-    <circle cx="130" cy="110" r="24" fill="#eec46a"/>
-    <path d="M 70 190 L 150 120 L 205 170 L 255 130 L 330 190" fill="none" stroke="#93a0b4" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+{swatches}
     <text x="200" y="248" font-family="sans-serif" font-size="30" font-weight="bold" text-anchor="middle" fill="#7a7264">SVG · TODO</text>
   </g>
 </svg>
@@ -122,7 +144,7 @@ def new_svg_resource(grafli_path: Path, image_id: str) -> str:
     while (rd / name).exists():
         n += 1
         name = f"{image_id}-{n}.svg"
-    (rd / name).write_text(SVG_STARTER, encoding="utf-8")
+    (rd / name).write_text(svg_starter(), encoding="utf-8")
     return f"{rd.name}/{name}"
 
 

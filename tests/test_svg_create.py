@@ -107,3 +107,14 @@ def test_unsaved_board_toasts_and_leaves_mode(tmp_path, monkeypatch):
     assert "Save the board first" in w._view._toast_text
     assert w._view._mode == Mode.SELECT
     assert opened == []
+
+
+def test_starter_carries_the_theme_palette(tmp_path, monkeypatch):
+    from grafli import theme
+    from grafli.resources import svg_starter
+    theme.set_theme("light")
+    content = svg_starter()
+    assert "SVG · TODO" in content
+    for name, hexv in theme.color_tokens().items():
+        assert hexv in content
+        assert f"%{name}" in content     # eyedrop hint via <title>

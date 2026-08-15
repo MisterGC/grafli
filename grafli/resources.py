@@ -11,6 +11,7 @@ saving of doc-bodied note texts, and migrations from older layouts.
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -36,6 +37,115 @@ def ensure_res_dir(grafli_path: Path) -> Path:
     d = res_dir(grafli_path)
     d.mkdir(exist_ok=True)
     return d
+
+
+def resolve_image_path(base_dir: str, image_path: str) -> str:
+    """Absolute, normalized filesystem path of an image reference.
+
+    A relative reference resolves against ``base_dir`` (the .grafli file's
+    directory); an absolute one passes through. Without a base directory the
+    reference is only normalized — there is nothing to resolve it against.
+    """
+    if not base_dir or os.path.isabs(image_path):
+        return os.path.normpath(image_path)
+    return os.path.normpath(os.path.join(base_dir, image_path))
+
+
+def image_ref(grafli_path: Path, source: Path) -> str:
+    """The reference an ``@ image`` line stores for a dropped image file.
+
+    A file that already lives inside the board's directory tree is referenced
+    in place: the user keeps their SVGs where they edit them, and an external
+    edit shows up in the board. A file from outside is copied into the vault
+    instead, so the board plus its vault stays the complete, copyable unit.
+    """
+    src = Path(source).resolve()
+    root = grafli_path.parent.resolve()
+    try:
+        return src.relative_to(root).as_posix()
+    except ValueError:
+        pass
+    dest_dir = ensure_res_dir(grafli_path)
+    return f"{dest_dir.name}/{_copy_into_vault(dest_dir, src).name}"
+
+
+def _copy_into_vault(dest_dir: Path, src: Path) -> Path:
+    """Copy *src* into *dest_dir*, resolving name collisions.
+
+    An existing file with identical bytes is the same picture, so it is
+    reused rather than duplicated; a different one gets ``-1``, ``-2``, ...
+    appended to the stem.
+    """
+    data = src.read_bytes()
+    dest = dest_dir / src.name
+    n = 0
+    while dest.exists():
+        try:
+            if dest.read_bytes() == data:
+                return dest
+        except OSError:
+            pass
+        n += 1
+        dest = dest_dir / f"{src.stem}-{n}{src.suffix}"
+    dest.write_bytes(data)
+    return dest
+
+
+def svg_starter() -> str:
+    """Starter content for an SVG created in place (#149).
+
+    Recognizably a placeholder — "SVG · TODO" on a soft card — so a board
+    full of not-yet-drawn mockups stays readable. Instead of decoration it
+    carries the active theme's colour palette as swatches: eyedrop them in
+    the drawing app and the mockup fits the board it lands on. Everything
+    sits in one group the user deletes when the mockup is done.
+    """
+    from grafli import theme
+    swatch, gap, cols = 40, 8, 7
+    tokens = list(theme.color_tokens().items())
+    rows = [tokens[i:i + cols] for i in range(0, len(tokens), cols)]
+    grid_w = cols * swatch + (cols - 1) * gap
+    x0 = (400 - grid_w) / 2
+    y0 = 74
+    cells = []
+    for r, row in enumerate(rows):
+        for c, (name, hexv) in enumerate(row):
+            cells.append(
+                f'    <rect x="{x0 + c * (swatch + gap):g}" '
+                f'y="{y0 + r * (swatch + gap):g}" '
+                f'width="{swatch}" height="{swatch}" rx="8" fill="{hexv}">'
+                f'<title>%{name}</title></rect>'
+            )
+    swatches = "\n".join(cells)
+    return f"""\
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <!-- Placeholder with the board's colour palette: eyedrop the swatches
+       while drawing, delete this group when the mockup is done. -->
+  <g id="placeholder">
+    <rect x="6" y="6" width="388" height="288" rx="14" fill="#f6f2e9" stroke="#c8bfae" stroke-width="2"/>
+{swatches}
+    <text x="200" y="248" font-family="sans-serif" font-size="30" font-weight="bold" text-anchor="middle" fill="#7a7264">SVG · TODO</text>
+  </g>
+</svg>
+"""
+
+
+def new_svg_resource(grafli_path: Path, image_id: str) -> str:
+    """Write the starter SVG for a new in-place image into the vault.
+
+    Named after the element like doc attachments (``<id>.svg``); an existing
+    file is never overwritten — the name gets ``-1``, ``-2``, … instead, so a
+    leftover from a deleted element can't be clobbered. Returns the reference
+    the ``@ image`` line stores.
+    """
+    rd = ensure_res_dir(grafli_path)
+    name = f"{image_id}.svg"
+    n = 0
+    while (rd / name).exists():
+        n += 1
+        name = f"{image_id}-{n}.svg"
+    (rd / name).write_text(svg_starter(), encoding="utf-8")
+    return f"{rd.name}/{name}"
 
 
 def doc_path(grafli_path: Path, name: str) -> Path:

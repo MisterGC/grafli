@@ -5,7 +5,89 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.0] - 2026-08-15
+
+### Added
+- **SVG images, dropped in and live.** Images used to be raster-only and could
+  only arrive by clipboard paste. Any image file — `.svg` or raster — can now
+  be dragged onto the canvas, and an SVG renders from its file at paint time,
+  so it stays sharp at every zoom and in exports. A dropped file that already
+  lives under the board's directory tree is referenced in place by its
+  relative path; a file from outside is copied into the `<stem>-res/` vault,
+  as pasted images always were. Referenced image files are watched: edit the
+  SVG in your editor, save, and the element refreshes on the board — the
+  selection and the rest of the scene are untouched. An edit that changes
+  the file's aspect ratio refits the element to the new proportions inside
+  its previous footprint, so the art never renders distorted. A newly placed image is
+  fitted into 320×240, with vectors normalized up or down and rasters only
+  ever scaled down. ([#146](https://github.com/MisterGC/grafli/issues/146))
+- **Image frames follow the file type, and an image opens in its system app.**
+  The subtle border every image used to get stays the default for raster
+  (a paper-white screenshot needs the delineation) but is gone for `.svg` —
+  transparent vector art sits directly on the canvas, no stray rectangle
+  inside a colored parent box. `!frame` / `!noframe` on the `@ image` line
+  override it, and <kbd>s</kbd> <kbd>e</kbd> on an image now opens the
+  appearance overlay with that toggle — closing the one gap #144 left.
+  ([#147](https://github.com/MisterGC/grafli/issues/147))
+- **Create an SVG mockup in place — <kbd>i</kbd>, click, draw.**
+  "This UI needs a mockup, very doable with SVG" no longer starts in
+  another app: <kbd>i</kbd> completes the n / t / i creation family, and a
+  click writes a starter `.svg` into the vault, adds the element, and opens
+  it in the system app (Inkscape, say) — every save flows back onto the
+  board via the live reload. The starter is a recognizable **SVG · TODO**
+  placeholder in one deletable group that carries the active theme's colour
+  palette as eyedrop-ready swatches, so a mockup fits the board it lands
+  on — and <kbd>Shift</kbd>+click can place a whole screen's worth of
+  mockups to draw one by one without the board filling with anonymous
+  empty boxes.
+  ([#149](https://github.com/MisterGC/grafli/issues/149))
+- **Images simplify at low zoom.** Below ~32 on-screen pixels an image
+  paints a generic indicator — muted plate, picture glyph, an *SVG* tag for
+  vector sources — instead of shrunken artwork, so a zoomed-out board reads
+  as structure rather than noise (and complex SVGs stop re-rendering at
+  thumbnail size while you pan). Purely a function of the zoom: geometry,
+  connectors, and exports are untouched.
+  ([#150](https://github.com/MisterGC/grafli/issues/150))
+- **Editing an image means editing its file, and attachment badges show
+  their kind.** <kbd>e</kbd> (or double-click) on an image opens its file in
+  whatever the OS associates with it — Inkscape for `.svg`, say — the same
+  gesture that edits a box's label or a note's text, and paired with the
+  live reload that is the edit loop. <kbd>Enter</kbd> stays attachments
+  only, identical for box, note and image. The top-right indicator now
+  tells the kinds apart: a chain for an external link, a page for a
+  markdown doc, a node pair for a sub-board — and a bare `&doc`, which
+  used to show nothing, gets its badge too.
+  ([#148](https://github.com/MisterGC/grafli/issues/148))
+- **One appearance overlay for every element — <kbd>s</kbd> then <kbd>e</kbd>.**
+  A box's background (plate or flat) and label position (center, top-left,
+  top-center) had no keys at all: `!flat` and `^anchor` have always parsed and
+  serialized, but the only way to set them was editing the file. They are now a
+  two-row overlay, the same panel connectors already use. A **flat** box with a
+  **top-left** label is the look a container gets for free, which is how you
+  draw a layer band that has no children in it.
+  ([#144](https://github.com/MisterGC/grafli/issues/144))
+
+### Changed
+- Requires `textli-editor >= 0.8.0`.
+- **The style keys mean the same thing for every element type.**
+  <kbd>s</kbd> <kbd>e</kbd> is appearance, <kbd>s</kbd> <kbd>c</kbd> is colour,
+  <kbd>s</kbd> <kbd>t</kbd> is text, <kbd>s</kbd> <kbd>i</kbd> is symbols —
+  whatever is selected. Two consequences worth knowing:
+  **<kbd>s</kbd> <kbd>c</kbd> on a connector** used to open the whole
+  appearance panel and now opens the colour grid; that panel moved to
+  <kbd>s</kbd> <kbd>e</kbd>. **<kbd>s</kbd> <kbd>c</kbd> on a note** used to
+  offer the plate toggle and now opens the colour grid too — so a note's colour
+  is reachable for the first time, and its plate toggle moved to
+  <kbd>s</kbd> <kbd>e</kbd>. Nothing became unreachable, and no file changed
+  meaning. ([#144](https://github.com/MisterGC/grafli/issues/144))
+
+### Fixed
+- **Connectors with an image endpoint actually render.** Alt-drag and
+  connect mode have always accepted images and wrote the `@ arrow` line to
+  the file — but the renderer silently dropped any connector touching an
+  image, so nothing appeared on the canvas. They now draw exactly as
+  documented: annotation-thin by default, promotable to a graph edge via
+  the connector kind. ([#150](https://github.com/MisterGC/grafli/issues/150))
 
 ## [0.9.0] - 2026-07-29
 

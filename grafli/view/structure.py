@@ -47,6 +47,8 @@ class StructureMixin:
             self._build_box_preview()
         elif self._mode == Mode.TEXT:
             self._build_note_preview()
+        elif self._mode == Mode.IMAGE:
+            self._build_image_preview()
         if self._create_preview is not None:
             pos = self._create_preview_pos
             if pos is None:
@@ -91,6 +93,23 @@ class StructureMixin:
         self._scene.addItem(item)
         self._create_preview = item
 
+    def _build_image_preview(self):
+        w, h = 320.0, 240.0   # matches _press_image's placement size
+        item = QGraphicsRectItem(QRectF(0, 0, w, h))
+        item.setPen(QPen(theme.BOX_BORDER, 1, Qt.PenStyle.DashLine))
+        item.setBrush(Qt.BrushStyle.NoBrush)
+        label = QGraphicsSimpleTextItem("SVG · TODO", item)
+        label.setFont(QFont(FONT_FAMILY, BOX_FONT_SIZES.get("", 13)))
+        label.setBrush(QBrush(theme.BOX_BORDER))
+        lr = label.boundingRect()
+        label.setPos((w - lr.width()) / 2, (h - lr.height()) / 2)
+        item.setOpacity(0.4)
+        item.setZValue(1000)
+        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self._scene.addItem(item)
+        self._create_preview = item
+
     def _update_create_preview_pos(self, scene_pos: QPointF):
         self._create_preview_pos = scene_pos
         if self._create_preview is None:
@@ -102,6 +121,10 @@ class StructureMixin:
             )
         elif self._mode == Mode.TEXT:
             self._create_preview.setPos(scene_pos)
+        elif self._mode == Mode.IMAGE:
+            self._create_preview.setPos(
+                scene_pos.x() - 160.0, scene_pos.y() - 120.0,
+            )
 
     def _update_note_selection_highlight(self):
         """Dim unrelated items when a single connected annotation is selected.

@@ -9,6 +9,8 @@ sibling mixin modules this class composes.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import (
     QEvent,
     QPointF,
@@ -142,6 +144,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # No context menu — the right button is used for panning.
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        # Image files can be dropped onto the canvas. The viewport is where
+        # the drag events actually land and it was created before this call,
+        # so it needs the flag set explicitly as well.
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
 
         # Grid mode: "off" (no dots, free move), "visual" (dots, free move),
         # "snap" (dots + snapping). Remembered across restarts via QSettings.
@@ -150,6 +157,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         self.GRID_SPACING = 20
 
         self._board: Board | None = None
+        # Resource root for relative image paths when the view has no
+        # MainWindow above it (headless render/export) — a windowed view
+        # derives it from the window's file path instead.
+        self.base_dir: str = ""
         self._box_items: dict[str, BoxItem] = {}
         self._arrow_items: list[QGraphicsLineItem | QGraphicsPolygonItem | QGraphicsSimpleTextItem] = []
         self._note_items: dict[str, NoteItem] = {}
@@ -299,11 +310,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         # Connector option overlay (arrow style mode -> c / t): a multi-row
         # picker over a connector's axes (heads, line, thickness, colour) or its
         # label text, with live preview. Generalises the colour grid to N axes.
-        self._conn_overlay_active: bool = False
-        self._conn_overlay_axes: list = []
-        self._conn_overlay_row: int = 0
-        self._conn_overlay_kind: str = "appearance"   # "appearance" | "text"
-        self._conn_overlay_original: dict = {}
+        self._elem_overlay_active: bool = False
+        self._elem_overlay_axes: list = []
+        self._elem_overlay_row: int = 0
+        self._elem_overlay_kind: str = "appearance"   # "appearance" | "text"
+        self._elem_overlay_original: dict = {}
+        self._elem_overlay_target: str = ""   # "arrow" | "box" | "note"
         # Type grid (style mode -> s): size rows x emphasis columns, live.
         self._type_picker_active: bool = False
         self._type_picker_size_idx: int = 1   # "" (medium)
@@ -489,7 +501,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         self._draw_color_picker(painter)
         self._draw_icon_picker(painter)
         self._draw_type_picker(painter)
-        self._draw_connector_overlay(painter)
+        self._draw_element_overlay(painter)
         self._draw_toast(painter)
 
     # Grid mode cycle order for the # key / "grid" action.
@@ -559,9 +571,13 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
             self._set_items_movable(False)
+        elif mode == Mode.IMAGE:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setCursor(Qt.CursorShape.CrossCursor)
+            self._set_items_movable(False)
 
         # Manage create-mode ghost preview
-        if mode in (Mode.RECT, Mode.TEXT):
+        if mode in (Mode.RECT, Mode.TEXT, Mode.IMAGE):
             self._refresh_create_preview()
         else:
             self._clear_create_preview()
@@ -702,6 +718,44 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             text = "... " + text[-(60 - 4):]
         window._status_breadcrumb.setText(text)
 
+    # Image files accepted by drag & drop onto the canvas.
+    _IMAGE_DROP_SUFFIXES = (".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp",
+                            ".bmp")
+
+    def _dropped_image_paths(self, mime) -> list[Path]:
+        """The local image files carried by a drag, in drop order."""
+        if mime is None or not mime.hasUrls():
+            return []
+        paths: list[Path] = []
+        for url in mime.urls():
+            if not url.isLocalFile():
+                continue
+            p = Path(url.toLocalFile())
+            if p.suffix.lower() in self._IMAGE_DROP_SUFFIXES:
+                paths.append(p)
+        return paths
+
+    def dragEnterEvent(self, event):
+        if self._dropped_image_paths(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if self._dropped_image_paths(event.mimeData()):
+            event.acceptProposedAction()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        paths = self._dropped_image_paths(event.mimeData())
+        if not paths:
+            super().dropEvent(event)
+            return
+        scene_pos = self.mapToScene(event.position().toPoint())
+        event.acceptProposedAction()
+        self._add_image_files(paths, scene_pos)
+
     def wheelEvent(self, event: QWheelEvent):
         if self._bounce_active:
             event.accept()
@@ -781,6 +835,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             self._press_text(event)
         elif self._mode == Mode.CONNECT:
             self._press_connect(event)
+        elif self._mode == Mode.IMAGE:
+            self._press_image(event)
 
     def mouseMoveEvent(self, event):
         # Update status bar position
@@ -852,6 +908,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             self._update_create_preview_pos(scene_pos)
             self._move_rect(event)
         elif self._mode == Mode.TEXT:
+            self._update_create_preview_pos(scene_pos)
+            super().mouseMoveEvent(event)
+        elif self._mode == Mode.IMAGE:
             self._update_create_preview_pos(scene_pos)
             super().mouseMoveEvent(event)
         elif self._mode == Mode.CONNECT:
@@ -970,6 +1029,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             self._start_editing(item)
             event.accept()
             return
+        if isinstance(item, ImageItem):
+            # Editing an image means editing its file — same gesture, the
+            # system's associated app instead of an inline editor (#148).
+            self._open_image_source(item)
+            event.accept()
+            return
 
         super().mouseDoubleClickEvent(event)
 
@@ -1051,8 +1116,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             return
 
         # Connector option overlay owns all input while open
-        if self._conn_overlay_active:
-            self._handle_connector_overlay_key(event)
+        if self._elem_overlay_active:
+            self._handle_element_overlay_key(event)
             event.accept()
             return
 
@@ -1110,8 +1175,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             no_mod_a = not (mods_a & _SIGNIFICANT_MODS)
             key = event.key()
 
-            # e — edit arrow label
-            if no_mod_a and key == Qt.Key.Key_E:
+            # e — edit arrow label. Style mode spends `e` on the appearance
+            # overlay instead, the way it does for a box, so the label editor
+            # has to stand down while that mode is active.
+            if no_mod_a and key == Qt.Key.Key_E and self._arrow_mode != "style":
                 self._start_editing_arrow(self._selected_arrow)
                 event.accept()
                 return
@@ -1137,15 +1204,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             # Style mode keys
             if self._arrow_mode == "style":
                 shift_only = (mods_a & _SIGNIFICANT_MODS) == Qt.KeyboardModifier.ShiftModifier
-                # c — open the appearance overlay (heads / line / thickness / colour)
-                if no_mod_a and key == Qt.Key.Key_C:
-                    self._open_connector_overlay("appearance")
+                # e — open the appearance overlay (heads / line / thickness /
+                # routing / colour). Same key for every element type (#144).
+                if no_mod_a and key == Qt.Key.Key_E:
+                    self._open_element_overlay("appearance")
                     self._record_shortcut("connector style → appearance")
+                    event.accept()
+                    return
+                # c — colour grid, the same picker boxes and notes get
+                if no_mod_a and key == Qt.Key.Key_C:
+                    self._open_color_picker()
+                    self._record_shortcut("connector style → colour")
                     event.accept()
                     return
                 # t — open the label-text overlay (size)
                 if no_mod_a and key == Qt.Key.Key_T:
-                    self._open_connector_overlay("text")
+                    self._open_element_overlay("text")
                     self._record_shortcut("connector style → text")
                     event.accept()
                     return
@@ -1469,6 +1543,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     self._open_color_picker()
                     event.accept()
                     return
+                # e — appearance overlay. Shadows the non-modal `e` (edit
+                # label) only inside style mode, the way `t` already does.
+                if event.key() == Qt.Key.Key_E and no_mod:
+                    self._open_element_overlay()
+                    event.accept()
+                    return
                 if event.key() == Qt.Key.Key_I and no_mod:
                     self._open_icon_picker()
                     event.accept()
@@ -1566,10 +1646,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     return
                 if event.key() == Qt.Key.Key_E:
                     self._clear_box_mode()
-                    for item in self._scene.selectedItems():
-                        if isinstance(item, (BoxItem, NoteItem)):
-                            self._start_editing(item)
-                            break
+                    self._edit_selected()
                     event.accept()
                     return
                 if event.key() == Qt.Key.Key_W:
@@ -1774,6 +1851,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                 Qt.Key.Key_N: Mode.RECT,
                 Qt.Key.Key_T: Mode.TEXT,
                 Qt.Key.Key_C: Mode.CONNECT,
+                Qt.Key.Key_I: Mode.IMAGE,
             }
             if event.key() in mode_keys:
                 self.set_mode(mode_keys[event.key()])
@@ -1963,6 +2041,50 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             self.set_mode(Mode.SELECT)
             item.setSelected(True)
             self._start_editing(item)
+        event.accept()
+
+    # ── IMAGE mode ──
+
+    def _press_image(self, event):
+        """Place a new in-place SVG mockup at the click (#149).
+
+        Writes the starter file into the vault, adds the element, and — unless
+        Shift keeps the mode for placing several mockups first — opens the file
+        in the system app so drawing starts immediately. The live reload
+        brings every save back onto the board.
+        """
+        if not self._board:
+            return
+        window = self.window()
+        file_path = getattr(window, "_file_path", None)
+        if not file_path:
+            self.toast("Save the board first to add images")
+            self.set_mode(Mode.SELECT)
+            return
+        from grafli.resources import new_svg_resource
+        scene_pos = self.mapToScene(event.position().toPoint())
+        self._push_undo()
+        image_id = self._board.next_image_id()
+        ref = new_svg_resource(Path(file_path), image_id)
+        w, h = 320.0, 240.0   # the 4:3 fit box; the starter canvas is 400x300
+        image = Image(id=image_id, image_path=ref,
+                      x=scene_pos.x() - w / 2, y=scene_pos.y() - h / 2,
+                      w=w, h=h)
+        self._board.add_image(image)
+
+        item = ImageItem(image, base_dir=str(Path(file_path).parent))
+        self._scene.addItem(item)
+        self._image_items[image.id] = item
+        self.mark_dirty()
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            # Shift held — stay in IMAGE mode: place all mockups first,
+            # draw them one by one later.
+            item.setSelected(True)
+            self._refresh_create_preview()
+        else:
+            self.set_mode(Mode.SELECT)
+            item.setSelected(True)
+            self._open_image_source(item)
         event.accept()
 
     # ── CONNECT mode ──

@@ -122,6 +122,7 @@ class MainWindow(QMainWindow):
         self._file_path: Path | None = None
         self._watcher: JsonSafeWatcher | None = None
         self._docs_watcher: MultiFileWatcher | None = None
+        self._images_watcher: MultiFileWatcher | None = None
         self._buffers = BufferManager()
 
         self._autosave_timer = QTimer(self)
@@ -243,6 +244,7 @@ class MainWindow(QMainWindow):
             "mode_rect":    lambda: self._view.set_mode(Mode.RECT),
             "mode_text":    lambda: self._view.set_mode(Mode.TEXT),
             "mode_connect": lambda: self._view.set_mode(Mode.CONNECT),
+            "mode_image":   lambda: self._view.set_mode(Mode.IMAGE),
             "edit_label":   self._view._edit_selected,
             "delete":       self._view._delete_selected,
             "style":        lambda: self._view._set_box_mode("style"),
@@ -1006,6 +1008,7 @@ class MainWindow(QMainWindow):
         # watcher (and pick up newly externalized docs) so the write doesn't
         # echo back as an external change.
         self._watch_docs()
+        self._watch_images()
         self._last_written = text
         self._view._dirty = False
         # Update mtime in active buffer
@@ -1044,6 +1047,7 @@ class MainWindow(QMainWindow):
         self._watcher.file_changed.connect(self._on_file_changed)
         self._watcher.start()
         self._watch_docs()
+        self._watch_images()
 
     def _watch_docs(self):
         """(Re)start the consolidated poller over the board's vault docs, so
@@ -1071,6 +1075,30 @@ class MainWindow(QMainWindow):
         load_docs(self._file_path, self.board)
         self._view.load_board(self.board)
 
+    def _watch_images(self):
+        """(Re)start the poller over the files the board's images reference, so
+        editing one externally — re-exporting a PNG, hand-editing an SVG —
+        refreshes the element in place. One timer for all images."""
+        if self._images_watcher:
+            self._images_watcher.stop()
+            self._images_watcher = None
+        if not self._file_path or not self.board:
+            return
+        from grafli.resources import resolve_image_path
+        base_dir = str(self._file_path.parent)
+        paths = [resolve_image_path(base_dir, img.image_path)
+                 for img in self.board.images if img.image_path]
+        if not paths:
+            return
+        self._images_watcher = MultiFileWatcher(paths)
+        self._images_watcher.files_changed.connect(self._on_images_changed)
+        self._images_watcher.start()
+
+    def _on_images_changed(self, changed: list):
+        # An image file changing is not a board change: no reload, no dirty
+        # flag — just re-read the affected items' pixels.
+        self._view.reload_images(changed)
+
     def _stop_watching(self):
         if self._watcher:
             self._watcher.stop()
@@ -1078,6 +1106,9 @@ class MainWindow(QMainWindow):
         if self._docs_watcher:
             self._docs_watcher.stop()
             self._docs_watcher = None
+        if self._images_watcher:
+            self._images_watcher.stop()
+            self._images_watcher = None
 
     def _reconcile_external(self, disk_text: str) -> tuple[Board, list[Conflict]]:
         """3-way merge an external on-disk edit into the in-memory board.
@@ -1111,6 +1142,7 @@ class MainWindow(QMainWindow):
         _load_vault(self._file_path, merged)
         self._view.load_board(merged)
         self._watch_docs()
+        self._watch_images()
         self._last_written = text
         # If the merge folded in local edits not yet on disk, the board is
         # dirty and the next autosave converges the file to the merged
@@ -1690,6 +1722,7 @@ def _cmd_render(argv: list[str]) -> int:
     text = args.input.resolve().read_text(encoding="utf-8")
     board = parse(text)
     view = GrafliView()
+    view.base_dir = str(args.input.resolve().parent)
     view.load_board(board)
 
     region = None
@@ -1916,6 +1949,7 @@ def _cmd_export(argv: list[str]) -> int:
     _register_bundled_fonts()
     from grafli.view import GrafliView
     view = GrafliView()
+    view.base_dir = str(args.input.resolve().parent)
     view.load_board(board)
 
     if args.check:

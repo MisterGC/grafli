@@ -100,6 +100,11 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 - Markdown resources — attach a markdown note to any element and edit it in
   [textli](https://github.com/MisterGC/textli), grafli's full-window Markdown
   editor (its own project, bundled as a dependency).
+- Images as first-class nodes — paste or drag in raster and `.svg` files
+  (in-tree files are referenced in place, external ones copied into the
+  board's vault), press <kbd>i</kbd> to place an SVG mockup that opens in
+  your drawing app, and let the file watcher refresh every external edit
+  live on the board. SVGs render vector-crisp at any zoom and in exports.
 - Auto-save and external file watching — open a `.grafli` next to your
   editor; changes flow both ways.
 - Scratch board — start `grafli` with no file and you land on a persistent

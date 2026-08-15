@@ -17,7 +17,7 @@ Format spec:
   @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&attach] [>parent]
   @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono] [&attach] [>parent]
   @ note <id> <x>,<y> [...] &doc [>parent]         (doc-bodied: body = <stem>-res/<id>.md)
-  @ image <id> "<relative_path>" <x>,<y> <w>x<h> [>parent] [&attach]
+  @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [&attach]
 
 Attachments (&) carry an explicit kind: ``&link:<url>`` opens externally and
 is the only kind that may point outside the board; ``&doc:<name>`` is a
@@ -172,6 +172,21 @@ class Image:
     url: str = ""
     attach_kind: str = ""    # see Box.attach_kind
     annotation: str = ""     # deprecated — kept for migration parsing
+    # "" = type default (raster framed, .svg frameless), "on" = !frame,
+    # "off" = !noframe. Serialized only when overriding the default.
+    frame: str = ""
+
+
+def image_frame_enabled(image: Image) -> bool:
+    """Whether the subtle border is painted around *image*.
+
+    A pasted screenshot is usually paper-white and needs the delineation;
+    transparent vector art is meant to sit directly on the canvas — so the
+    default follows the file type, and ``!frame`` / ``!noframe`` override it.
+    """
+    if image.frame:
+        return image.frame == "on"
+    return not image.image_path.lower().endswith(".svg")
 
 
 @dataclass
@@ -555,6 +570,7 @@ _RE_NOTE_BLOCK_SUFFIX = re.compile(
 _RE_IMAGE = re.compile(
     r'^@\s+image\s+(\S+)\s+"([^"]*)"\s+'
     r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
+    r'(?:\s+!(frame|noframe))?'
     r'(?:\s+>(\S+))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+#\s*(.+?))?'
@@ -919,7 +935,7 @@ def parse(text: str) -> Board:
 
         m = _RE_IMAGE.match(stripped)
         if m:
-            kind, url = split_attach(m.group(8) or "") if m.group(8) else ("", "")
+            kind, url = split_attach(m.group(9) or "") if m.group(9) else ("", "")
             image = Image(
                 id=m.group(1),
                 image_path=m.group(2),
@@ -927,10 +943,11 @@ def parse(text: str) -> Board:
                 y=float(m.group(4)),
                 w=float(m.group(5)),
                 h=float(m.group(6)),
-                parent=m.group(7) or "",
+                frame={"frame": "on", "noframe": "off"}.get(m.group(7) or "", ""),
+                parent=m.group(8) or "",
                 url=url,
                 attach_kind=kind,
-                annotation=(m.group(9) or "").replace("\\n", "\n"),
+                annotation=(m.group(10) or "").replace("\\n", "\n"),
             )
             board.images.append(image)
             board._lines.append(("image", image))
@@ -1100,6 +1117,8 @@ def _serialize_image(image: Image) -> str:
     w = _q(image.w)
     h = _q(image.h)
     s = f'@ image {image.id} "{image.image_path}" {x},{y} {w}x{h}'
+    if image.frame:
+        s += " !frame" if image.frame == "on" else " !noframe"
     if image.parent:
         s += f" >{image.parent}"
     s += _attach_token(image)

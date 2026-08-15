@@ -166,3 +166,4 @@ class Mode(enum.Enum):
     RECT = "rect"
     TEXT = "text"
     CONNECT = "connect"
+    IMAGE = "image"

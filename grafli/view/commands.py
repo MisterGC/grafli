@@ -15,7 +15,13 @@ from grafli.constants import (
     _UNDO_LIMIT,
 )
 from grafli.format import Arrow, Box, Image, Note, parse, serialize
-from grafli.items import BoxItem, ImageItem, NoteItem
+from grafli.items import (
+    BoxItem,
+    ImageItem,
+    NoteItem,
+    default_image_size,
+    svg_natural_size,
+)
 from grafli.layout import compute_layout
 
 
@@ -39,6 +45,28 @@ def _paste_dbg(msg: str) -> None:
             os.fsync(f.fileno())
     except Exception:
         pass
+
+
+def _natural_size(path) -> tuple[float, float] | None:
+    """Intrinsic size of an image file, or None when it can't be read."""
+    from PySide6.QtGui import QImage
+    if path.suffix.lower() == ".svg":
+        from PySide6.QtCore import QByteArray
+        from PySide6.QtSvg import QSvgRenderer
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return None
+        if not data:
+            return None
+        renderer = QSvgRenderer(QByteArray(data))
+        if not renderer.isValid():
+            return None
+        return svg_natural_size(renderer)
+    img = QImage(str(path))
+    if img.isNull():
+        return None
+    return (float(img.width()), float(img.height()))
 
 
 def _img_props(im, tag: str) -> None:
@@ -278,10 +306,9 @@ class CommandsMixin:
         if not ok:
             return
 
-        # Compute display size: 320px wide, aspect ratio preserved
-        default_w = 320.0
-        aspect = qimage.width() / max(qimage.height(), 1)
-        default_h = default_w / aspect
+        # Same placement rule as a dropped file: fitted into the 320x240 box.
+        default_w, default_h = default_image_size(
+            float(qimage.width()), float(qimage.height()), vector=False)
 
         rel_path = f"{images_dir.name}/{img_name}"
         self._push_undo()
@@ -300,6 +327,57 @@ class CommandsMixin:
             self._image_items[image.id].setSelected(True)
         self.mark_dirty()
         _paste_dbg("_paste_clipboard_image: complete")
+
+    def _add_image_files(self, paths: list, scene_pos: QPointF) -> None:
+        """Add dropped image files as image elements around the drop point.
+
+        A file already inside the board's directory is referenced where it
+        lies; one from outside is copied into the vault (see
+        ``grafli.resources.image_ref``). Several files at once cascade so a
+        multi-file drop doesn't pile up on one spot.
+        """
+        from pathlib import Path
+        from grafli.resources import image_ref
+
+        if not self._board:
+            return
+        window = self.window()
+        file_path = getattr(window, "_file_path", None)
+        if not file_path:
+            self.toast("Save the board first to add images")
+            return
+
+        pending: list[Image] = []
+        offset = 0.0
+        for src in paths:
+            src = Path(src)
+            natural = _natural_size(src)
+            if natural is None:
+                self.toast(f"Cannot read {src.name}", "warn")
+                continue
+            w, h = default_image_size(natural[0], natural[1],
+                                      vector=src.suffix.lower() == ".svg")
+            ref = image_ref(Path(file_path), src)
+            pending.append(Image(
+                id="", image_path=ref,
+                x=scene_pos.x() + offset - w / 2,
+                y=scene_pos.y() + offset - h / 2,
+                w=w, h=h,
+            ))
+            offset += 24.0
+        if not pending:
+            return
+
+        self._push_undo()
+        for image in pending:
+            self._board.add_image(image)
+        self._rebuild_scene()
+        self._scene.clearSelection()
+        for image in pending:
+            item = self._image_items.get(image.id)
+            if item:
+                item.setSelected(True)
+        self.mark_dirty()
 
     def _paste_at(self, center: QPointF):
         if not (self._clipboard_boxes or self._clipboard_notes or self._clipboard_images) or not self._board:

@@ -346,7 +346,7 @@ def test_no_overlay_panel_hardcodes_a_light_ink():
     def _overlay_painters(tree) -> set:
         """Functions that paint on an overlay card — directly or one call away.
 
-        `_draw_conn_cell` renders the option previews *inside* the connector
+        `_draw_axis_cell` renders the option previews *inside* the connector
         overlay's card but never names ``OVERLAY_BG`` itself, so a check that
         only looked for that constant missed a hardcoded light ink there. Any
         helper an overlay painter hands the painter to is on the card too.

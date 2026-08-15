@@ -174,3 +174,5 @@ Five edges, the brightest hotspot in the heatmap.
 """ ~width=106
 @ arrow disc -> fight
 @ note n1 1400,300 "This is some interesting text which is quite long but I want to have it wrapping among multiple lines, does this work?" ~width=61
+@ image img1 "showcase-res/img1.svg" 866,1256 50x85
+@ image img2 "showcase-res/img2.svg" 364,1315 67x49

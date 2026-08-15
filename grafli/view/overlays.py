@@ -375,7 +375,8 @@ class OverlaysMixin:
                 ("Default wrap", "80 chars — set ~width=N for per-note override"),
             ]),
             ("Style", [
-                ("s", "Style mode — then:"),
+                ("s", "Style mode — same keys for box / note / connector:"),
+                ("  e", "Appearance: box background + label spot, note plate"),
                 ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
                 ("  i", "Symbol grid (⇥ fill/lead/badge, 1-9 number)"),
                 ("  t", "Text grid: size × bold/italic (⇥ font, o outline, s shadow)"),
@@ -430,6 +431,9 @@ class OverlaysMixin:
             ("Arrow", [
                 ("e", "Edit arrow label"),
                 ("s", "Enter arrow style mode"),
+                ("s then e", "Appearance: heads, line, thickness, routing, colour"),
+                ("s then c", "Color grid"),
+                ("s then t", "Label text size"),
                 ("h / l", "Toggle arrowheads"),
                 ("j / k", "Arrow label size"),
                 ("\u21e7J / \u21e7K", "Cycle arrow style"),

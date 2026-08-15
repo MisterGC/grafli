@@ -147,9 +147,9 @@ class SelectionMixin:
             )
         return item.sceneBoundingRect().center()
 
-    def _elem_rect(self, elem: Box | Note) -> tuple[float, float, float, float]:
-        """Return (x, y, w, h) for a Box or Note."""
-        if isinstance(elem, Box):
+    def _elem_rect(self, elem: Box | Note | Image) -> tuple[float, float, float, float]:
+        """Return (x, y, w, h) for a Box, Note, or Image."""
+        if isinstance(elem, (Box, Image)):
             return (elem.x, elem.y, elem.w, elem.h)
         note_item = self._note_items.get(elem.id)
         if note_item:
@@ -381,7 +381,7 @@ class SelectionMixin:
             self._scene.addItem(item)
             self._note_items[note.id] = item
 
-        base_dir = ""
+        base_dir = self.base_dir
         window = self.window()
         if hasattr(window, '_file_path') and window._file_path:
             base_dir = str(window._file_path.parent)
@@ -460,8 +460,12 @@ class SelectionMixin:
             if (self._lod_hull_member.get(f_id) is not None
                     or self._lod_hull_member.get(t_id) is not None):
                 continue                     # hull boundary, not a box side
-            f_elem = self._board.box_by_id(f_id) or self._board.note_by_id(f_id)
-            t_elem = self._board.box_by_id(t_id) or self._board.note_by_id(t_id)
+            f_elem = (self._board.box_by_id(f_id)
+                      or self._board.note_by_id(f_id)
+                      or self._board.image_by_id(f_id))
+            t_elem = (self._board.box_by_id(t_id)
+                      or self._board.note_by_id(t_id)
+                      or self._board.image_by_id(t_id))
             if not f_elem or not t_elem:
                 continue
             f_rect = self._elem_rect(f_elem)
@@ -587,8 +591,12 @@ class SelectionMixin:
             to_hull = self._lod_hull_member.get(to_id)
             if from_hull is not None and from_hull is to_hull:
                 continue  # internal to one cluster — drop it
-            from_elem = self._board.box_by_id(from_id) or self._board.note_by_id(from_id)
-            to_elem = self._board.box_by_id(to_id) or self._board.note_by_id(to_id)
+            from_elem = (self._board.box_by_id(from_id)
+                         or self._board.note_by_id(from_id)
+                         or self._board.image_by_id(from_id))
+            to_elem = (self._board.box_by_id(to_id)
+                       or self._board.note_by_id(to_id)
+                       or self._board.image_by_id(to_id))
             if not from_elem or not to_elem:
                 continue
 

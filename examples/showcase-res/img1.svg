@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="150.10249"
+   height="253.30997"
+   viewBox="0 0 150.10249 253.30997"
+   version="1.1"
+   id="svg15"
+   sodipodi:docname="img1.svg"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs15" />
+  <sodipodi:namedview
+     id="namedview15"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="0.9805214"
+     inkscape:cx="300.86034"
+     inkscape:cy="-48.443614"
+     inkscape:window-width="1920"
+     inkscape:window-height="1022"
+     inkscape:window-x="1512"
+     inkscape:window-y="30"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg15" />
+  <!-- Placeholder with the board's colour palette: eyedrop the swatches
+       while drawing, delete this group when the mockup is done. -->
+  <path
+     style="fill:#a6a6a6;fill-opacity:1;stroke:#2c2924;stroke-width:6.38362;stroke-linecap:square;stroke-opacity:1;paint-order:stroke markers fill"
+     d="M 47.929207,154.17208 92.803287,33.827943 143.79657,5.2717079 l 3.0596,50.9932771 -67.311133,109.635545 23.456913,5.60926 5.09933,23.96685 -17.847653,-9.17879 -17.84765,-7.64899 -31.1059,47.93368 8.15893,4.07946 -7.13906,17.84765 -35.1853596,-22.94698 5.6092596,-12.23839 13.25825,4.07947 20.39731,-45.38402 -17.84764,-5.60926 -21.4171896,-4.07946 17.3377196,-14.78806 z"
+     id="path15"
+     sodipodi:nodetypes="cccccccccccccccccccc" />
+  <path
+     style="fill:none;fill-opacity:1;stroke:#2c2924;stroke-width:3.984;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+     d="M 142.9623,7.4714089 69.346387,150.60255 l -20.87101,1.31858"
+     id="path16"
+     sodipodi:nodetypes="ccc" />
+  <path
+     style="fill:none;fill-opacity:1;stroke:#2c2924;stroke-width:3.984;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+     d="m 68.326517,150.60255 12.89767,12.66083"
+     id="path17"
+     sodipodi:nodetypes="cc" />
+  <path
+     style="fill:#923e0d;fill-opacity:1;stroke:#2c2924;stroke-width:3.984;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+     d="m 27.276927,215.61898 15.04302,8.92383 28.55624,-44.10919 -24.22181,-6.37416 z"
+     id="path18"
+     sodipodi:nodetypes="ccccc" />
+  <path
+     style="fill:#923e0d;fill-opacity:1;stroke:#2c2924;stroke-width:3.984;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+     d="m 41.810017,180.68859 22.94697,9.94369"
+     id="path19" />
+  <path
+     style="fill:#923e0d;fill-opacity:1;stroke:#2c2924;stroke-width:3.984;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+     d="m 35.180887,190.88724 22.43704,11.21852"
+     id="path20" />
+  <path
+     style="fill:#923e0d;fill-opacity:1;stroke:#2c2924;stroke-width:3.984;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+     d="m 31.356397,200.83093 20.65227,11.47349"
+     id="path21" />
+  <path
+     style="fill:#923e0d;fill-opacity:1;stroke:#2c2924;stroke-width:3.984;stroke-linecap:square;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke markers fill"
+     d="m 27.531897,208.98986 19.12248,11.47348"
+     id="path22" />
+</svg>

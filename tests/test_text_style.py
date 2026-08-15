@@ -9,7 +9,7 @@ import os
 
 from PySide6.QtWidgets import QApplication
 
-from grafli.constants import FONT_FAMILY, NOTE_FONT_FAMILY
+from grafli.constants import COLOR_PALETTE, FONT_FAMILY, NOTE_FONT_FAMILY
 from grafli.format import parse, serialize
 from grafli.view import GrafliView, Mode
 
@@ -315,30 +315,42 @@ def test_flat_note_drops_background_plate():
     assert _nonwhite(flat) * 3 < _nonwhite(plated)
 
 
-def test_color_picker_sets_note_background():
-    # Style mode -> c on a note opens the two-option background chooser
-    # (Plate / None); picking None sets !flat.
+def test_element_overlay_sets_note_background():
+    # The Plate / None chooser moved from `s c` to `s e` (#144), so the colour
+    # key means colour for every element type.
     view = _view('@ note n 0,0 "Title"\n')
     assert view.board.notes[0].flat is False
     view._note_items["n"].setSelected(True)
-    view._open_color_picker()
-    assert view._color_picker_mode == "note-bg"
-    view._color_picker_move(1, 0)       # Plate -> None
-    view._commit_color_picker()
+    view._open_element_overlay()
+    assert view._elem_overlay_target == "note"
+    view._elem_overlay_cycle(1)         # Plate -> None
+    view._commit_element_overlay()
     assert view.board.notes[0].flat is True
-    # Re-opening starts on the persisted option (None).
+
+
+def test_element_overlay_cancel_reverts_note_background():
+    view = _view('@ note n 0,0 "Title"\n')
     view._note_items["n"].setSelected(True)
-    view._open_color_picker()
-    assert view._color_picker_index == 1
+    view._open_element_overlay()
+    view._elem_overlay_cycle(1)         # preview None
+    view._cancel_element_overlay()
+    assert view.board.notes[0].flat is False
 
 
-def test_color_picker_cancel_reverts_note_background():
+def test_color_picker_reaches_a_note():
+    """`s c` on a note now opens the palette it never had.
+
+    ``Note.color`` has always parsed and serialized, but the key was spent on
+    the background toggle, so a note's colour could only be set by editing the
+    file.
+    """
     view = _view('@ note n 0,0 "Title"\n')
     view._note_items["n"].setSelected(True)
     view._open_color_picker()
-    view._color_picker_move(1, 0)       # preview None
-    view._cancel_color_picker()
-    assert view.board.notes[0].flat is False
+    assert view._color_picker_mode == "note"
+    view._color_picker_move(1, 0)
+    view._commit_color_picker()
+    assert view.board.notes[0].color == COLOR_PALETTE[1][1]
 
 
 def test_color_picker_box_uses_palette_mode():

@@ -13,6 +13,7 @@ import re as _re
 import shlex
 import shutil
 import subprocess
+import sys
 from PySide6.QtCore import QPoint, QSettings, QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import (
     QColor,
@@ -335,6 +336,60 @@ class ResourcesMixin:
         elif kind == "file":
             self._set_url()
 
+    def _open_image_source(self, item):
+        """Open an image's source file in whatever the OS has for it.
+
+        Deliberately just a desktop-open: the system's app association (e.g.
+        Inkscape for ``.svg``) decides, and the live reload brings any edit
+        straight back onto the board (#147).
+        """
+        if not isinstance(item, ImageItem):
+            return
+        path = Path(item.resolved_path)
+        if not path.exists():
+            self.toast(f"File not found: {item.image.image_path}", kind="warn")
+            return
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            # The app may take a moment or open behind this window — say the
+            # gesture landed so it never reads as "nothing happened".
+            self.toast(f"Opening {path.name}…")
+            return
+        # Qt can hold a stale LaunchServices view (e.g. the default app was
+        # registered while grafli was running) — the platform opener sees
+        # the current state, so try it before giving up.
+        opener = {"darwin": "open", "linux": "xdg-open"}.get(sys.platform)
+        if opener and shutil.which(opener):
+            try:
+                subprocess.Popen([opener, str(path)], start_new_session=True)
+                self.toast(f"Opening {path.name}…")
+                return
+            except OSError:
+                pass
+        self.toast(f"The system could not open {path.name} — "
+                   "is an app registered for this file type?", kind="warn")
+
+    def reload_images(self, changed_paths: list[str]):
+        """Re-read the image files listed in *changed_paths* into their items.
+
+        Called by the window's image watcher when a referenced file changed on
+        disk. Only the affected items are touched — no scene rebuild, so the
+        selection and every other item survive an external edit. A file whose
+        aspect ratio changed refits its element (see ``reload_from_disk``),
+        which is the one case that dirties the board.
+        """
+        import os
+        wanted = {os.path.normcase(os.path.normpath(p)) for p in changed_paths}
+        refitted = False
+        for item in self._image_items.values():
+            resolved = os.path.normcase(os.path.normpath(item.resolved_path))
+            if resolved in wanted:
+                refitted = item.reload_from_disk() or refitted
+        if refitted:
+            # A changed aspect ratio moved real geometry: connectors follow,
+            # and the new size is a board edit that must persist.
+            self.arrow_update_needed.emit()
+            self.mark_dirty()
+
     def _element_label(self, item) -> str:
         """Extract a label string from a graphics item."""
         if isinstance(item, BoxItem):
@@ -503,9 +558,14 @@ class ResourcesMixin:
             self.mark_dirty()
 
     def _edit_selected(self):
+        """Edit what the selected element *is*: a box's label and a note's
+        text inline, an image's file in the system app (#148)."""
         for item in self._scene.selectedItems():
             if isinstance(item, (BoxItem, NoteItem)):
                 self._start_editing(item)
+                return
+            if isinstance(item, ImageItem):
+                self._open_image_source(item)
                 return
 
     def _toggle_minimap(self):

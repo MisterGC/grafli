@@ -119,10 +119,26 @@ def _code_kind_color(kind: str) -> QColor:
     return theme.NOTE_CODE_TEXT_COLOR
 
 
-def _paint_link_glyph(painter: QPainter, rect: QRectF):
-    """Paint a link icon at the top-right of *rect*, on a small label-style
-    plate so it stays legible regardless of box fill color.
+def _attach_glyph_kind(el) -> str:
+    """Which indicator an element's attachment gets: doc, graph, or link.
+
+    Legacy untyped urls read as links — that is what following them does.
+    Empty when there is nothing to indicate.
     """
+    if el.attach_kind in ("doc", "graph"):
+        return el.attach_kind
+    return "link" if el.url else ""
+
+
+def _paint_attach_glyph(painter: QPainter, rect: QRectF, el):
+    """Paint the attachment indicator at the top-right of *rect*, on a small
+    label-style plate so it stays legible regardless of box fill color. The
+    glyph shows the attachment's kind: a chain for an external link, a page
+    for a markdown doc, a node pair for a sub-board (#148).
+    """
+    kind = _attach_glyph_kind(el)
+    if not kind:
+        return
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
     # Plate — mirrors BoxLabelItem's background plate.
@@ -133,15 +149,31 @@ def _paint_link_glyph(painter: QPainter, rect: QRectF):
     painter.setBrush(QBrush(bg))
     painter.drawRoundedRect(plate, 4, 4)
 
-    # Chain glyph — same color as label text, full alpha (plate carries contrast).
-    painter.setPen(QPen(QColor(theme.INK), 1.2))
+    # Glyph — same color as label text, full alpha (plate carries contrast).
+    ink = QColor(theme.INK)
+    painter.setPen(QPen(ink, 1.2))
     painter.setBrush(Qt.BrushStyle.NoBrush)
     cx = plate.center().x()
     cy = plate.center().y()
-    r1 = QRectF(cx - 4, cy - 3, 6, 4)
-    r2 = QRectF(cx - 2, cy - 1, 6, 4)
-    painter.drawRoundedRect(r1, 1.5, 1.5)
-    painter.drawRoundedRect(r2, 1.5, 1.5)
+    if kind == "doc":
+        # A page with two text lines.
+        page = QRectF(cx - 3, cy - 4, 6, 8)
+        painter.drawRoundedRect(page, 1, 1)
+        painter.setPen(QPen(ink, 1.0))
+        painter.drawLine(QPointF(cx - 1.5, cy - 1.5), QPointF(cx + 1.5, cy - 1.5))
+        painter.drawLine(QPointF(cx - 1.5, cy + 0.5), QPointF(cx + 1.5, cy + 0.5))
+    elif kind == "graph":
+        # Two nodes and their connector — a board in miniature.
+        painter.drawLine(QPointF(cx - 2.5, cy + 2), QPointF(cx + 2.5, cy - 2))
+        painter.setBrush(QBrush(ink))
+        painter.drawEllipse(QPointF(cx - 3.5, cy + 2.5), 1.6, 1.6)
+        painter.drawEllipse(QPointF(cx + 3.5, cy - 2.5), 1.6, 1.6)
+    else:
+        # Chain — an external link.
+        r1 = QRectF(cx - 4, cy - 3, 6, 4)
+        r2 = QRectF(cx - 2, cy - 1, 6, 4)
+        painter.drawRoundedRect(r1, 1.5, 1.5)
+        painter.drawRoundedRect(r2, 1.5, 1.5)
 
 # ── Handle IDs ───────────────────────────────────────────────────
 
@@ -1263,8 +1295,8 @@ class BoxItem(QGraphicsRectItem):
         elif self.box.icon and iconset.has_icon(self.box.icon):
             self._paint_icon(painter)
 
-        if self.box.url:
-            _paint_link_glyph(painter, self.rect())
+        if self.box.url or self.box.attach_kind == "doc":
+            _paint_attach_glyph(painter, self.rect(), self.box)
 
         if self.isSelected():
             sel_rect = self.rect().adjusted(-4, -4, 4, 4)
@@ -2512,7 +2544,7 @@ class NoteItem(QGraphicsSimpleTextItem):
                            ln, body_font, accent, self.note.emphasis)
 
         if self.note.url:
-            _paint_link_glyph(painter, bg_rect)
+            _paint_attach_glyph(painter, bg_rect, self.note)
 
         # Selection indicator + always-visible resize grip
         if self.isSelected():
@@ -2553,7 +2585,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         painter.restore()
 
         if self.note.url:
-            _paint_link_glyph(painter, bg_rect)
+            _paint_attach_glyph(painter, bg_rect, self.note)
 
         if self.isSelected():
             sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
@@ -2615,7 +2647,7 @@ class NoteItem(QGraphicsSimpleTextItem):
                 y += self._BLOCK_GAP
 
         if self.note.url:
-            _paint_link_glyph(painter, bg_rect)
+            _paint_attach_glyph(painter, bg_rect, self.note)
 
         if self.isSelected():
             sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
@@ -2741,7 +2773,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         self._code_ref_rects = ref_rects
 
         if self.note.url:
-            _paint_link_glyph(painter, bg_rect)
+            _paint_attach_glyph(painter, bg_rect, self.note)
 
         if self.isSelected():
             sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
@@ -2846,8 +2878,58 @@ class NoteItem(QGraphicsSimpleTextItem):
         return super().itemChange(change, value)
 
 
+# The box a newly placed image is fitted into: twice the default box, and
+# as wide as the 320px a pasted clipboard image has always used.
+IMAGE_FIT_W = 320.0
+IMAGE_FIT_H = 240.0
+
+# Below this on-screen size (shorter side, px) an image paints a generic
+# indicator instead of shrunken artwork (#150). Sits under the 40px minimum
+# element size, so at 100% zoom even the smallest image still shows its art.
+IMAGE_LOD_PX = 32.0
+
+
+def default_image_size(natural_w: float, natural_h: float,
+                       vector: bool) -> tuple[float, float]:
+    """Placement size of a newly added image, fitted into 320x240.
+
+    Vector art has no pixel size worth honouring, so an SVG is scaled to the
+    fit box in either direction. A raster image is only ever scaled down —
+    blowing it up past its pixels buys nothing. A file whose intrinsic size
+    is unusable lands at the full fit box.
+    """
+    if natural_w <= 0 or natural_h <= 0:
+        return (IMAGE_FIT_W, IMAGE_FIT_H)
+    scale = min(IMAGE_FIT_W / natural_w, IMAGE_FIT_H / natural_h)
+    if not vector:
+        scale = min(scale, 1.0)
+    return (natural_w * scale, natural_h * scale)
+
+
+def svg_natural_size(renderer) -> tuple[float, float]:
+    """Intrinsic size of a loaded SVG: ``defaultSize``, its viewBox, else 4:3.
+
+    An SVG with only a viewBox (no width/height attributes) reports a null
+    default size, and one with neither has no size at all — both still have
+    to render into *some* aspect ratio.
+    """
+    size = renderer.defaultSize()
+    w, h = float(size.width()), float(size.height())
+    if w <= 0 or h <= 0:
+        box = renderer.viewBoxF()
+        w, h = float(box.width()), float(box.height())
+    if w <= 0 or h <= 0:
+        w, h = 4.0, 3.0
+    return (w, h)
+
+
 class ImageItem(QGraphicsPixmapItem):
-    """A draggable image annotation with aspect-ratio-locked resize."""
+    """A draggable image annotation with aspect-ratio-locked resize.
+
+    Raster files are drawn from a pixmap; SVGs are rendered from a
+    ``QSvgRenderer`` at paint time, which keeps them crisp at any zoom and in
+    every export (exports go through this same ``paint``).
+    """
 
     _BORDER_PAD = 2
     _HANDLE_PAD = 4
@@ -2858,11 +2940,14 @@ class ImageItem(QGraphicsPixmapItem):
         self.image = image
         self._base_dir = base_dir
         self._aspect_ratio: float = 1.0
+        self._renderer = None            # QSvgRenderer for .svg sources
+        self._full_pixmap = QPixmap()
+        self._placeholder = False
         self._resizing = False
         self._resize_corner = -1
         self._resize_origin = QPointF()
 
-        self._load_pixmap()
+        self._load_media()
         self.setPos(image.x, image.y)
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -2882,20 +2967,117 @@ class ImageItem(QGraphicsPixmapItem):
         """Refresh tooltip based on the attachment."""
         self.setToolTip(_attach_tooltip(self.image))
 
-    def _load_pixmap(self):
-        import os
-        path = self.image.image_path
-        if self._base_dir and not os.path.isabs(path):
-            path = os.path.join(self._base_dir, path)
+    @property
+    def resolved_path(self) -> str:
+        """Absolute path of the file this image element points at."""
+        from grafli.resources import resolve_image_path
+        return resolve_image_path(self._base_dir, self.image.image_path)
+
+    def _load_media(self, keep_on_failure: bool = False):
+        """(Re)read the source file into a renderer or a pixmap.
+
+        With ``keep_on_failure`` an unreadable file leaves the current
+        rendering alone: a reload can catch an atomic write half-way through,
+        and the previous picture beats a placeholder flash.
+        """
+        path = self.resolved_path
+        loaded = (self._load_svg(path) if path.lower().endswith(".svg")
+                  else self._load_raster(path))
+        if loaded or (keep_on_failure and not self._placeholder):
+            return
+        self._renderer = None
+        pm = QPixmap(max(int(self.image.w), 1), max(int(self.image.h), 1))
+        pm.fill(QColor(theme.PLACEHOLDER_FILL))
+        self._full_pixmap = pm
+        self._placeholder = True
+
+    def _load_svg(self, path: str) -> bool:
+        """Load an SVG renderer from *path*. False if the file is unusable."""
+        from PySide6.QtCore import QByteArray
+        from PySide6.QtSvg import QSvgRenderer
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            return False
+        if not data:
+            return False
+        # From bytes rather than the file name: a half-written or broken file
+        # then fails isValid() instead of leaving a renderer in limbo.
+        renderer = QSvgRenderer(QByteArray(data))
+        if not renderer.isValid():
+            return False
+        w, h = svg_natural_size(renderer)
+        self._renderer = renderer
+        self._full_pixmap = QPixmap()
+        self._aspect_ratio = w / h
+        self._placeholder = False
+        return True
+
+    def _load_raster(self, path: str) -> bool:
+        """Load a pixmap from *path*. False if the file is unusable."""
         pm = QPixmap(path)
         if pm.isNull():
-            pm = QPixmap(int(self.image.w), int(self.image.h))
-            pm.fill(QColor(theme.PLACEHOLDER_FILL))
-            self._placeholder = True
-        else:
-            self._aspect_ratio = pm.width() / max(pm.height(), 1)
-            self._placeholder = False
+            return False
+        self._renderer = None
         self._full_pixmap = pm
+        self._aspect_ratio = pm.width() / max(pm.height(), 1)
+        self._placeholder = False
+        return True
+
+    def reload_from_disk(self) -> bool:
+        """Re-read the source file after an external edit.
+
+        A same-aspect edit leaves the element's placed size alone — including
+        a deliberate free-stretch. But when the file's intrinsic aspect ratio
+        changed (the placeholder became a portrait sword), keeping the old box
+        would distort the art, so the element refits to the new aspect inside
+        its current rect, centered. Returns True when geometry changed — the
+        caller owns the arrow refresh and the dirty flag.
+        """
+        old_ar = self._aspect_ratio
+        was_placeholder = self._placeholder
+        self._load_media(keep_on_failure=True)
+        changed = (not self._placeholder
+                   and (was_placeholder
+                        or abs(self._aspect_ratio - old_ar) > 1e-3))
+        if changed:
+            changed = self._refit_to_aspect()
+        self.update()
+        return changed
+
+    def _refit_to_aspect(self) -> bool:
+        """Fit the element to the artwork's aspect within its current rect,
+        keeping the center. Returns True when the size actually moved."""
+        ar = self._aspect_ratio
+        w, h = self.image.w, self.image.h
+        if ar <= 0 or h <= 0:
+            return False
+        if abs(w / h - ar) < 1e-3:
+            return False
+        cx, cy = self.image.x + w / 2, self.image.y + h / 2
+        if w / h > ar:
+            new_w, new_h = h * ar, h
+        else:
+            new_w, new_h = w, w / ar
+        self.prepareGeometryChange()
+        self.image.w, self.image.h = new_w, new_h
+        self.image.x, self.image.y = cx - new_w / 2, cy - new_h / 2
+        # A refit is not a drag: it must keep the exact center, so the grid
+        # snap (and the drag side effects) are suppressed around setPos —
+        # the caller owns arrows and the dirty flag.
+        view = _get_view(self)
+        if view is not None and hasattr(view, "_suppress_child_updates"):
+            old = view._suppress_child_updates
+            view._suppress_child_updates = True
+            try:
+                self.setPos(self.image.x, self.image.y)
+            finally:
+                view._suppress_child_updates = old
+        else:
+            self.setPos(self.image.x, self.image.y)
+        self._update_handles()
+        return True
 
     def _update_handles(self):
         r = QRectF(0, 0, self.image.w, self.image.h)
@@ -2983,17 +3165,28 @@ class ImageItem(QGraphicsPixmapItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         target = QRectF(0, 0, self.image.w, self.image.h)
-        source = QRectF(self._full_pixmap.rect())
-        painter.drawPixmap(target, self._full_pixmap, source)
+        if self._lod_indicator():
+            self._paint_lod_indicator(painter, target)
+        else:
+            if self._renderer is not None:
+                self._renderer.render(painter, target)
+            else:
+                source = QRectF(self._full_pixmap.rect())
+                painter.drawPixmap(target, self._full_pixmap, source)
 
-        # Subtle border
-        border = QColor(theme.CONTENT_BORDER_COLOR)
-        painter.setPen(QPen(border, 1))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(target)
+            # Subtle border — on by default for raster (a paper-white
+            # screenshot would bleed into the canvas), off for vector art
+            # (see #147).
+            from grafli.format import image_frame_enabled
+            if image_frame_enabled(self.image) or self._placeholder:
+                border = QColor(theme.CONTENT_BORDER_COLOR)
+                painter.setPen(QPen(border, 1))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRect(target)
 
-        if self.image.url:
-            _paint_link_glyph(painter, target)
+        if ((self.image.url or self.image.attach_kind == "doc")
+                and not self._lod_indicator()):
+            _paint_attach_glyph(painter, target, self.image)
 
         if self.isSelected():
             sel_pen = QPen(QColor(theme.ACCENT_TEAL), 2, Qt.PenStyle.DashLine)
@@ -3001,6 +3194,59 @@ class ImageItem(QGraphicsPixmapItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = target.adjusted(-3, -3, 3, 3)
             painter.drawRect(sel_rect)
+
+    def _lod_indicator(self) -> bool:
+        """Whether the zoomed-out generic indicator replaces the artwork.
+
+        Stateless — a pure function of the current zoom — so geometry,
+        connectors, and high-resolution exports are untouched (#150).
+        """
+        short = min(self.image.w, self.image.h) * _view_scale(self)
+        return short < IMAGE_LOD_PX
+
+    def _paint_lod_indicator(self, painter: QPainter, target: QRectF):
+        """A calm stand-in at thumbnail size: muted plate, picture glyph,
+        and an SVG tag for vector sources. Proportional to the element, so
+        it needs no screen-space math."""
+        fill = QColor(theme.BOX_FILL)
+        border = QColor(theme.CONTENT_BORDER_COLOR)
+        ink = QColor(theme.INK)
+        ink.setAlphaF(0.55)
+        r = min(target.width(), target.height()) * 0.08
+        painter.setPen(QPen(border, 1))
+        painter.setBrush(QBrush(fill))
+        painter.drawRoundedRect(target, r, r)
+
+        # Picture glyph: sun + mountain line, the language the placeholder
+        # starter and the mode preview already speak.
+        g = min(target.width(), target.height())
+        cx, cy = target.center().x(), target.center().y()
+        gw, gh = g * 0.56, g * 0.40
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(ink))
+        painter.drawEllipse(
+            QPointF(cx + gw * 0.34, cy - gh * 0.52), g * 0.08, g * 0.08)
+        pen = QPen(ink, max(1.5, g * 0.07))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        path = QPainterPath(QPointF(cx - gw / 2, cy + gh / 2))
+        path.lineTo(QPointF(cx - gw * 0.08, cy - gh * 0.25))
+        path.lineTo(QPointF(cx + gw * 0.22, cy + gh * 0.10))
+        path.lineTo(QPointF(cx + gw / 2, cy - gh * 0.15))
+        painter.drawPath(path)
+
+        if self._renderer is not None and target.width() >= target.height():
+            painter.setPen(QPen(ink))
+            f = QFont(FONT_FAMILY)
+            f.setPointSizeF(max(1.0, g * 0.16))
+            painter.setFont(f)
+            painter.drawText(
+                QRectF(target.x(), cy + gh * 0.45,
+                       target.width(), target.height() / 2),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                "SVG")
 
     def hoverMoveEvent(self, event):
         if self.isSelected():

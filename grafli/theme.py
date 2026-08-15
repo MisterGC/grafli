@@ -643,4 +643,10 @@ def resolve_color(color: str) -> str:
     return color
 
 
+def color_tokens() -> dict[str, str]:
+    """The active theme's ``%token`` palette as ``{name: hex}``, in the
+    order the colour grid shows them."""
+    return dict(_active.COLOR_TOKENS)
+
+
 _install(LIGHT)

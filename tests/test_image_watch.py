@@ -2,7 +2,7 @@
 
 A board's referenced image files are polled by their own MultiFileWatcher;
 when one changes on disk the matching ImageItem re-reads it in place — no
-board reload, no scene rebuild, no dirty flag.
+board reload, no scene rebuild; only an aspect-ratio refit dirties the board.
 """
 
 from __future__ import annotations
@@ -74,7 +74,32 @@ def test_external_svg_edit_reloads_the_item():
         w._images_watcher._check()
 
         assert abs(item._aspect_ratio - 3.0) < 0.01
-        # A file change is not a board change.
+        # The file's aspect changed (1:1 -> 3:1): the element refits inside
+        # its old rect, centered, so the art never renders distorted — and
+        # that geometry change is a board edit, so the board is dirty now.
+        img = w._view._board.image_by_id("i1")
+        assert abs(img.w / img.h - 3.0) < 0.01
+        assert (img.w, img.h) == (320.0, 320.0 / 3)
+        assert img.x == 0.0                       # width already filled the box
+        assert abs(img.y - (120.0 - img.h / 2)) < 0.01   # centered vertically
+        assert w._view._dirty
+
+
+def test_same_aspect_edit_keeps_layout_and_stays_clean():
+    with tempfile.TemporaryDirectory() as tmp:
+        svg = os.path.join(tmp, "logo.svg")
+        with open(svg, "w") as fh:
+            fh.write(SVG_SQUARE)
+        w = _window(tmp, '#!grafli v2\n'
+                         '@ image i1 "logo.svg" 0,0 320x240\n')
+        w._watch_images()
+        img = w._view._board.image_by_id("i1")
+        with open(svg, "w") as fh:
+            fh.write(SVG_SQUARE.replace("#4a90d9", "#aa3366"))
+        w._images_watcher._check()
+        # Same aspect: nothing moves — a deliberate stretch survives, and a
+        # pure repaint is not a board change.
+        assert (img.x, img.y, img.w, img.h) == (0.0, 0.0, 320.0, 240.0)
         assert not w._view._dirty
 
 

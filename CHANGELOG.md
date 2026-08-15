@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   relative path; a file from outside is copied into the `<stem>-res/` vault,
   as pasted images always were. Referenced image files are watched: edit the
   SVG in your editor, save, and the element refreshes on the board — the
-  selection and the rest of the scene are untouched. A newly placed image is
+  selection and the rest of the scene are untouched. An edit that changes
+  the file's aspect ratio refits the element to the new proportions inside
+  its previous footprint, so the art never renders distorted. A newly placed image is
   fitted into 320×240, with vectors normalized up or down and rasters only
   ever scaled down. ([#146](https://github.com/MisterGC/grafli/issues/146))
 - **Image frames follow the file type, and an image opens in its system app.**

@@ -373,14 +373,22 @@ class ResourcesMixin:
 
         Called by the window's image watcher when a referenced file changed on
         disk. Only the affected items are touched — no scene rebuild, so the
-        selection and every other item survive an external edit.
+        selection and every other item survive an external edit. A file whose
+        aspect ratio changed refits its element (see ``reload_from_disk``),
+        which is the one case that dirties the board.
         """
         import os
         wanted = {os.path.normcase(os.path.normpath(p)) for p in changed_paths}
+        refitted = False
         for item in self._image_items.values():
             resolved = os.path.normcase(os.path.normpath(item.resolved_path))
             if resolved in wanted:
-                item.reload_from_disk()
+                refitted = item.reload_from_disk() or refitted
+        if refitted:
+            # A changed aspect ratio moved real geometry: connectors follow,
+            # and the new size is a board edit that must persist.
+            self.arrow_update_needed.emit()
+            self.mark_dirty()
 
     def _element_label(self, item) -> str:
         """Extract a label string from a graphics item."""

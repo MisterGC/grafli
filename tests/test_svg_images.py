@@ -183,9 +183,13 @@ def test_reload_from_disk_picks_up_a_changed_svg(tmp_path: Path):
     item = _svg_item(tmp_path)
     assert item._aspect_ratio == 2.0
     (tmp_path / "logo.svg").write_bytes(SVG_1_2)
-    item.reload_from_disk()
+    changed = item.reload_from_disk()
     assert item._aspect_ratio == 0.5
-    assert item.image.w == 320 and item.image.h == 160   # layout untouched
+    # The file's aspect flipped (2:1 -> 1:2): the element refits inside its
+    # old rect, centered, so the art doesn't distort.
+    assert changed
+    assert (item.image.w, item.image.h) == (80.0, 160.0)
+    assert item.image.x == (320.0 - 80.0) / 2
 
 
 def test_reload_from_disk_recovers_from_missing_file(tmp_path: Path):

@@ -52,7 +52,11 @@ An SVG is rendered from its file every time it is painted, so it stays sharp
 at any zoom and in exports. grafli also watches the files its images
 reference: edit one in your editor, save, and the element updates on the
 board within a second — no re-import, no reopening the board. Nothing else
-moves, and your selection is kept.
+moves, and your selection is kept. If the edit changed the file's **aspect
+ratio** (the landscape placeholder became a portrait drawing), the element
+refits to the new proportions inside its previous footprint, centered — the
+art never renders distorted, and a same-aspect edit still leaves your
+layout, including a deliberate stretch, untouched.
 
 To jump into that editor from the board, press <kbd>e</kbd> (or
 double-click) on a selected image — the same gesture that edits a box's

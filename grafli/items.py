@@ -3025,15 +3025,47 @@ class ImageItem(QGraphicsPixmapItem):
         self._placeholder = False
         return True
 
-    def reload_from_disk(self):
+    def reload_from_disk(self) -> bool:
         """Re-read the source file after an external edit.
 
-        The element's placed width/height (the user's layout) stay as they
-        are; only the artwork and its aspect ratio come from the file. A file
-        that appeared since the last load replaces the placeholder.
+        A same-aspect edit leaves the element's placed size alone — including
+        a deliberate free-stretch. But when the file's intrinsic aspect ratio
+        changed (the placeholder became a portrait sword), keeping the old box
+        would distort the art, so the element refits to the new aspect inside
+        its current rect, centered. Returns True when geometry changed — the
+        caller owns the arrow refresh and the dirty flag.
         """
+        old_ar = self._aspect_ratio
+        was_placeholder = self._placeholder
         self._load_media(keep_on_failure=True)
+        changed = (not self._placeholder
+                   and (was_placeholder
+                        or abs(self._aspect_ratio - old_ar) > 1e-3))
+        if changed:
+            changed = self._refit_to_aspect()
         self.update()
+        return changed
+
+    def _refit_to_aspect(self) -> bool:
+        """Fit the element to the artwork's aspect within its current rect,
+        keeping the center. Returns True when the size actually moved."""
+        ar = self._aspect_ratio
+        w, h = self.image.w, self.image.h
+        if ar <= 0 or h <= 0:
+            return False
+        if abs(w / h - ar) < 1e-3:
+            return False
+        cx, cy = self.image.x + w / 2, self.image.y + h / 2
+        if w / h > ar:
+            new_w, new_h = h * ar, h
+        else:
+            new_w, new_h = w, w / ar
+        self.prepareGeometryChange()
+        self.image.w, self.image.h = new_w, new_h
+        self.image.x, self.image.y = cx - new_w / 2, cy - new_h / 2
+        self.setPos(self.image.x, self.image.y)
+        self._update_handles()
+        return True
 
     def _update_handles(self):
         r = QRectF(0, 0, self.image.w, self.image.h)

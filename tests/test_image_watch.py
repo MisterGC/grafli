@@ -64,6 +64,9 @@ def test_external_svg_edit_reloads_the_item():
             fh.write(SVG_SQUARE)
         w = _window(tmp, '#!grafli v2\n'
                          '@ image i1 "logo.svg" 0,0 320x240\n')
+        # Snap mode is the fresh-install default (a developer's QSettings may
+        # differ): a refit must keep the exact center, never grid-round it.
+        w._view._grid_mode = "snap"
         w._watch_images()
         item = w._view._image_items["i1"]
         before = item._aspect_ratio

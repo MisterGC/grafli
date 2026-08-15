@@ -3063,7 +3063,19 @@ class ImageItem(QGraphicsPixmapItem):
         self.prepareGeometryChange()
         self.image.w, self.image.h = new_w, new_h
         self.image.x, self.image.y = cx - new_w / 2, cy - new_h / 2
-        self.setPos(self.image.x, self.image.y)
+        # A refit is not a drag: it must keep the exact center, so the grid
+        # snap (and the drag side effects) are suppressed around setPos —
+        # the caller owns arrows and the dirty flag.
+        view = _get_view(self)
+        if view is not None and hasattr(view, "_suppress_child_updates"):
+            old = view._suppress_child_updates
+            view._suppress_child_updates = True
+            try:
+                self.setPos(self.image.x, self.image.y)
+            finally:
+                view._suppress_child_updates = old
+        else:
+            self.setPos(self.image.x, self.image.y)
         self._update_handles()
         return True
 

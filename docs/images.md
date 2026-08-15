@@ -105,6 +105,14 @@ only when it deviates from the default.
 ## What an image can do
 
 An image behaves like any other node: it can be nested with `>parent`,
-connected with <kbd>Alt</kbd>+drag, and carry an attachment — press
-<kbd>E</kbd> to open or create its
-[Markdown resource](text-annotations.md#markdown-resources).
+connected with <kbd>Alt</kbd>+drag (or <kbd>c</kbd> connect mode), and carry
+an attachment — press <kbd>E</kbd> to open or create its
+[Markdown resource](text-annotations.md#markdown-resources). A connector
+touching an image defaults to a thin annotation link; promote it to a full
+graph edge via the connector's kind (<kbd>s</kbd> <kbd>e</kbd>), like with
+notes.
+
+Zoomed far out — once an image would render below ~32 px — it paints a calm
+generic indicator (muted plate, picture glyph, an *SVG* tag for vector
+sources) instead of shrunken artwork. Element geometry, connectors, and
+exports are unaffected; zooming back in restores the art.

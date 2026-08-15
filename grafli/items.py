@@ -2883,6 +2883,11 @@ class NoteItem(QGraphicsSimpleTextItem):
 IMAGE_FIT_W = 320.0
 IMAGE_FIT_H = 240.0
 
+# Below this on-screen size (shorter side, px) an image paints a generic
+# indicator instead of shrunken artwork (#150). Sits under the 40px minimum
+# element size, so at 100% zoom even the smallest image still shows its art.
+IMAGE_LOD_PX = 32.0
+
 
 def default_image_size(natural_w: float, natural_h: float,
                        vector: bool) -> tuple[float, float]:
@@ -3116,22 +3121,27 @@ class ImageItem(QGraphicsPixmapItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         target = QRectF(0, 0, self.image.w, self.image.h)
-        if self._renderer is not None:
-            self._renderer.render(painter, target)
+        if self._lod_indicator():
+            self._paint_lod_indicator(painter, target)
         else:
-            source = QRectF(self._full_pixmap.rect())
-            painter.drawPixmap(target, self._full_pixmap, source)
+            if self._renderer is not None:
+                self._renderer.render(painter, target)
+            else:
+                source = QRectF(self._full_pixmap.rect())
+                painter.drawPixmap(target, self._full_pixmap, source)
 
-        # Subtle border — on by default for raster (a paper-white screenshot
-        # would bleed into the canvas), off for vector art (see #147).
-        from grafli.format import image_frame_enabled
-        if image_frame_enabled(self.image) or self._placeholder:
-            border = QColor(theme.CONTENT_BORDER_COLOR)
-            painter.setPen(QPen(border, 1))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(target)
+            # Subtle border — on by default for raster (a paper-white
+            # screenshot would bleed into the canvas), off for vector art
+            # (see #147).
+            from grafli.format import image_frame_enabled
+            if image_frame_enabled(self.image) or self._placeholder:
+                border = QColor(theme.CONTENT_BORDER_COLOR)
+                painter.setPen(QPen(border, 1))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRect(target)
 
-        if self.image.url or self.image.attach_kind == "doc":
+        if ((self.image.url or self.image.attach_kind == "doc")
+                and not self._lod_indicator()):
             _paint_attach_glyph(painter, target, self.image)
 
         if self.isSelected():
@@ -3140,6 +3150,59 @@ class ImageItem(QGraphicsPixmapItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             sel_rect = target.adjusted(-3, -3, 3, 3)
             painter.drawRect(sel_rect)
+
+    def _lod_indicator(self) -> bool:
+        """Whether the zoomed-out generic indicator replaces the artwork.
+
+        Stateless — a pure function of the current zoom — so geometry,
+        connectors, and high-resolution exports are untouched (#150).
+        """
+        short = min(self.image.w, self.image.h) * _view_scale(self)
+        return short < IMAGE_LOD_PX
+
+    def _paint_lod_indicator(self, painter: QPainter, target: QRectF):
+        """A calm stand-in at thumbnail size: muted plate, picture glyph,
+        and an SVG tag for vector sources. Proportional to the element, so
+        it needs no screen-space math."""
+        fill = QColor(theme.BOX_FILL)
+        border = QColor(theme.CONTENT_BORDER_COLOR)
+        ink = QColor(theme.INK)
+        ink.setAlphaF(0.55)
+        r = min(target.width(), target.height()) * 0.08
+        painter.setPen(QPen(border, 1))
+        painter.setBrush(QBrush(fill))
+        painter.drawRoundedRect(target, r, r)
+
+        # Picture glyph: sun + mountain line, the language the placeholder
+        # starter and the mode preview already speak.
+        g = min(target.width(), target.height())
+        cx, cy = target.center().x(), target.center().y()
+        gw, gh = g * 0.56, g * 0.40
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(ink))
+        painter.drawEllipse(
+            QPointF(cx + gw * 0.34, cy - gh * 0.52), g * 0.08, g * 0.08)
+        pen = QPen(ink, max(1.5, g * 0.07))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        path = QPainterPath(QPointF(cx - gw / 2, cy + gh / 2))
+        path.lineTo(QPointF(cx - gw * 0.08, cy - gh * 0.25))
+        path.lineTo(QPointF(cx + gw * 0.22, cy + gh * 0.10))
+        path.lineTo(QPointF(cx + gw / 2, cy - gh * 0.15))
+        painter.drawPath(path)
+
+        if self._renderer is not None and target.width() >= target.height():
+            painter.setPen(QPen(ink))
+            f = QFont(FONT_FAMILY)
+            f.setPointSizeF(max(1.0, g * 0.16))
+            painter.setFont(f)
+            painter.drawText(
+                QRectF(target.x(), cy + gh * 0.45,
+                       target.width(), target.height() / 2),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                "SVG")
 
     def hoverMoveEvent(self, event):
         if self.isSelected():

@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mockups to draw one by one without the board filling with anonymous
   empty boxes.
   ([#149](https://github.com/MisterGC/grafli/issues/149))
+- **Images simplify at low zoom.** Below ~32 on-screen pixels an image
+  paints a generic indicator — muted plate, picture glyph, an *SVG* tag for
+  vector sources — instead of shrunken artwork, so a zoomed-out board reads
+  as structure rather than noise (and complex SVGs stop re-rendering at
+  thumbnail size while you pan). Purely a function of the zoom: geometry,
+  connectors, and exports are untouched.
+  ([#150](https://github.com/MisterGC/grafli/issues/150))
 - **Editing an image means editing its file, and attachment badges show
   their kind.** <kbd>e</kbd> (or double-click) on an image opens its file in
   whatever the OS associates with it — Inkscape for `.svg`, say — the same
@@ -70,6 +77,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is reachable for the first time, and its plate toggle moved to
   <kbd>s</kbd> <kbd>e</kbd>. Nothing became unreachable, and no file changed
   meaning. ([#144](https://github.com/MisterGC/grafli/issues/144))
+
+### Fixed
+- **Connectors with an image endpoint actually render.** Alt-drag and
+  connect mode have always accepted images and wrote the `@ arrow` line to
+  the file — but the renderer silently dropped any connector touching an
+  image, so nothing appeared on the canvas. They now draw exactly as
+  documented: annotation-thin by default, promotable to a graph edge via
+  the connector kind. ([#150](https://github.com/MisterGC/grafli/issues/150))
 
 ## [0.9.0] - 2026-07-29
 

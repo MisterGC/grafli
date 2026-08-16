@@ -2158,20 +2158,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                 center.x(), center.y(), scene_pos.x(), scene_pos.y(), pen
             )
         else:
-            # Second click — create arrow or select existing
-            if item is not self._connect_source:
-                src_id = self._item_id(self._connect_source)
-                tgt_id = self._item_id(item)
-                existing = self._find_existing_arrow(src_id, tgt_id)
-                if existing:
-                    self.set_mode(Mode.SELECT)
-                    self._select_arrow(existing)
-                else:
-                    self._push_undo()
-                    arrow = self._make_connector(src_id, tgt_id)
-                    self._board.add_arrow(arrow)
-                    self._redraw_arrows()
-                    self.mark_dirty()
+            # Second click — create arrow or select existing. Clicking the
+            # source again is the self-connector gesture (#139): the release
+            # path keeps its same-element guard, so a plain click-and-release
+            # on one element never loops by accident.
+            src_id = self._item_id(self._connect_source)
+            tgt_id = self._item_id(item)
+            existing = self._find_existing_arrow(src_id, tgt_id)
+            if existing:
+                self.set_mode(Mode.SELECT)
+                self._select_arrow(existing)
+            else:
+                self._push_undo()
+                arrow = self._make_connector(src_id, tgt_id)
+                self._board.add_arrow(arrow)
+                self._redraw_arrows()
+                self.mark_dirty()
 
             self._connect_source = None
 

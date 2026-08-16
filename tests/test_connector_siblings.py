@@ -299,3 +299,53 @@ def test_a_routed_connector_keeps_its_route():
                           '@ arrow a -> b "two" !spline\n')
     one, two = _points(view, "one"), _points(view, "two")
     assert one and two and one != two
+
+
+# ── The connect gesture can author a loop ─────────────────────────
+
+
+def test_clicking_the_source_again_creates_a_self_connector():
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QMouseEvent
+    from grafli.constants import Mode
+
+    view = _view('#!grafli v1\n@ box a "A" 0,0 200x100\n')
+    view.resize(900, 600)
+    view.set_mode(Mode.CONNECT)
+
+    def press(vp_pos: QPointF):
+        ev = QMouseEvent(QEvent.Type.MouseButtonPress, vp_pos,
+                         view.viewport().mapToGlobal(vp_pos.toPoint()),
+                         Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier)
+        view.mousePressEvent(ev)
+
+    on_box = view.mapFromScene(QPointF(100, 50))
+    press(QPointF(on_box))
+    press(QPointF(on_box))
+
+    assert [(ar.from_id, ar.to_id) for ar in view.board.arrows] == [("a", "a")]
+
+
+def test_a_plain_press_release_on_one_element_does_not_loop():
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QMouseEvent
+    from grafli.constants import Mode
+
+    view = _view('#!grafli v1\n@ box a "A" 0,0 200x100\n')
+    view.resize(900, 600)
+    view.set_mode(Mode.CONNECT)
+
+    on_box = QPointF(view.mapFromScene(QPointF(100, 50)))
+    press = QMouseEvent(QEvent.Type.MouseButtonPress, on_box,
+                        view.viewport().mapToGlobal(on_box.toPoint()),
+                        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                        Qt.KeyboardModifier.NoModifier)
+    view.mousePressEvent(press)
+    release = QMouseEvent(QEvent.Type.MouseButtonRelease, on_box,
+                          view.viewport().mapToGlobal(on_box.toPoint()),
+                          Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton,
+                          Qt.KeyboardModifier.NoModifier)
+    view.mouseReleaseEvent(release)
+
+    assert view.board.arrows == []

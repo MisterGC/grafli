@@ -52,9 +52,13 @@ def _band(rect: tuple, pt: QPointF) -> float:
 
 
 def _is_central(rect: tuple, pt: QPointF) -> bool:
-    return (arrows.CENTRAL_BAND_LO - 1e-6
+    # _ends rounds coordinates to 3 decimals; on a ~30 px note side that
+    # alone shifts t by ~2e-5, and a clamped endpoint sits exactly on the
+    # band edge — Linux font metrics expose the combination. The tolerance
+    # covers that rounding, not a softer rule.
+    return (arrows.CENTRAL_BAND_LO - 1e-3
             <= _band(rect, pt)
-            <= arrows.CENTRAL_BAND_HI + 1e-6)
+            <= arrows.CENTRAL_BAND_HI + 1e-3)
 
 
 # The reported board: b and c graze each other's x range, c and d sit

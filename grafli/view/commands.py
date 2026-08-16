@@ -334,17 +334,16 @@ class CommandsMixin:
         A file already inside the board's directory is referenced where it
         lies; one from outside is copied into the vault (see
         ``grafli.resources.image_ref``). Several files at once cascade so a
-        multi-file drop doesn't pile up on one spot.
+        multi-file drop doesn't pile up on one spot. An untitled board is
+        given a save location first (#152) — the drop point still holds.
         """
         from pathlib import Path
         from grafli.resources import image_ref
 
         if not self._board:
             return
-        window = self.window()
-        file_path = getattr(window, "_file_path", None)
-        if not file_path:
-            self.toast("Save the board first to add images")
+        file_path = self._grafli_path_or_save()
+        if file_path is None:
             return
 
         pending: list[Image] = []
@@ -357,7 +356,7 @@ class CommandsMixin:
                 continue
             w, h = default_image_size(natural[0], natural[1],
                                       vector=src.suffix.lower() == ".svg")
-            ref = image_ref(Path(file_path), src)
+            ref = image_ref(file_path, src)
             pending.append(Image(
                 id="", image_path=ref,
                 x=scene_pos.x() + offset - w / 2,

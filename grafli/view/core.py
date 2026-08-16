@@ -489,6 +489,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
 
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
+        # The empty-board hint sits under everything else — any other chrome
+        # showing means the board is no longer a blank sheet anyway.
+        self._draw_empty_hint(painter)
         # Scene-coord overlays first (the painter is still in scene space here);
         # the viewport-space HUD below resets the transform.
         self._draw_drag_guides(painter)
@@ -754,6 +757,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             return
         scene_pos = self.mapToScene(event.position().toPoint())
         event.acceptProposedAction()
+        window = self.window()
+        untitled = (getattr(window, "_file_path", None) is None
+                    and hasattr(window, "_save_file"))
+        if untitled:
+            # An untitled board asks for a save location first (#152), and a
+            # modal dialog must not open while the system's drag session is
+            # still unwinding — let the drop return, then add.
+            QTimer.singleShot(0, lambda: self._add_image_files(paths, scene_pos))
+            return
         self._add_image_files(paths, scene_pos)
 
     def wheelEvent(self, event: QWheelEvent):
@@ -2055,24 +2067,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         """
         if not self._board:
             return
-        window = self.window()
-        file_path = getattr(window, "_file_path", None)
-        if not file_path:
-            self.toast("Save the board first to add images")
+        from grafli.resources import new_svg_resource
+        # Read the click before the save dialog can steal the pointer: the
+        # mockup belongs where the user clicked, not where the mouse ends up.
+        scene_pos = self.mapToScene(event.position().toPoint())
+        file_path = self._grafli_path_or_save()
+        if file_path is None:
             self.set_mode(Mode.SELECT)
             return
-        from grafli.resources import new_svg_resource
-        scene_pos = self.mapToScene(event.position().toPoint())
         self._push_undo()
         image_id = self._board.next_image_id()
-        ref = new_svg_resource(Path(file_path), image_id)
+        ref = new_svg_resource(file_path, image_id)
         w, h = 320.0, 240.0   # the 4:3 fit box; the starter canvas is 400x300
         image = Image(id=image_id, image_path=ref,
                       x=scene_pos.x() - w / 2, y=scene_pos.y() - h / 2,
                       w=w, h=h)
         self._board.add_image(image)
 
-        item = ImageItem(image, base_dir=str(Path(file_path).parent))
+        item = ImageItem(image, base_dir=str(file_path.parent))
         self._scene.addItem(item)
         self._image_items[image.id] = item
         self.mark_dirty()

@@ -336,6 +336,28 @@ class ResourcesMixin:
         elif kind == "file":
             self._set_url()
 
+    def _grafli_path_or_save(self) -> Path | None:
+        """Return the board's .grafli path, saving an untitled board first.
+
+        An image needs a file on disk to anchor its vault against, and an
+        untitled board has none — so the add asks the window for its save
+        location right here instead of turning the user away (#152). Returns
+        None when the save was cancelled, so the caller drops the add without
+        further noise, or when there is no window to ask (headless render),
+        where the toast is all that can be offered.
+        """
+        window = self.window()
+        file_path = getattr(window, "_file_path", None)
+        if file_path:
+            return Path(file_path)
+        save_file = getattr(window, "_save_file", None)
+        if save_file is None:
+            self.toast("Save the board first to add images")
+            return None
+        save_file()
+        file_path = getattr(window, "_file_path", None)
+        return Path(file_path) if file_path else None
+
     def _open_image_source(self, item):
         """Open an image's source file in whatever the OS has for it.
 

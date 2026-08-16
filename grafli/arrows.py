@@ -9,7 +9,6 @@ from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QPainterPath, QPolygonF
 
 from grafli.constants import ARROWHEAD_SIZE
-from grafli.format import Box
 
 
 def _rect_edge_point(x: float, y: float, w: float, h: float, target: QPointF) -> QPointF:
@@ -36,10 +35,46 @@ def _rect_edge_point(x: float, y: float, w: float, h: float, target: QPointF) ->
     return QPointF(cx + dx * t, cy + dy * t)
 
 
-def _box_edge_point(box: Box, target: QPointF) -> QPointF:
-    """Find the point on box's edge closest to target along the line
-    from box center to target."""
-    return _rect_edge_point(box.x, box.y, box.w, box.h, target)
+def _rect_centre(rect: tuple) -> QPointF:
+    x, y, w, h = rect
+    return QPointF(x + w / 2, y + h / 2)
+
+
+# ── Sides of a rect ────────────────────────────────────────────────
+#
+# Every connector endpoint is a (side, t) pair on one of the four sides,
+# whether it was derived from a ray, chosen for a routing, or pushed along by
+# the spread pass. These three convert between that pair and a scene point.
+
+
+def point_on_side(rect: tuple, side: str, t: float = 0.5) -> QPointF:
+    """The point ``t`` of the way along a rect's side (0..1, 0.5 = midpoint)."""
+    x, y, w, h = rect
+    if side == "n":
+        return QPointF(x + w * t, y)
+    if side == "s":
+        return QPointF(x + w * t, y + h)
+    if side == "w":
+        return QPointF(x, y + h * t)
+    return QPointF(x + w, y + h * t)
+
+
+def side_of_point(rect: tuple, pt: QPointF) -> str:
+    """Which side of ``rect`` a point sits on (nearest edge)."""
+    x, y, w, h = rect
+    dists = {
+        "w": abs(pt.x() - x), "e": abs(pt.x() - (x + w)),
+        "n": abs(pt.y() - y), "s": abs(pt.y() - (y + h)),
+    }
+    return min(dists, key=dists.get)
+
+
+def t_of_point(rect: tuple, side: str, pt: QPointF) -> float:
+    """Where along a side a point sits, as 0..1."""
+    x, y, w, h = rect
+    if side in ("n", "s"):
+        return 0.0 if w <= 0 else max(0.0, min(1.0, (pt.x() - x) / w))
+    return 0.0 if h <= 0 else max(0.0, min(1.0, (pt.y() - y) / h))
 
 
 def _line_rect_clip(p1: QPointF, p2: QPointF, rect: QRectF) -> tuple[QPointF, QPointF]:
@@ -88,38 +123,121 @@ def _line_rect_clip(p1: QPointF, p2: QPointF, rect: QRectF) -> tuple[QPointF, QP
 
 
 def _aligned_edge_points(
-    from_box: Box, to_box: Box,
+    f_rect: tuple, t_rect: tuple,
 ) -> tuple[QPointF, QPointF] | None:
-    """Return edge-to-edge points when boxes share horizontal or vertical range.
+    """Return edge-to-edge points when two rects share enough of an axis.
 
     Returns a (start, end) pair for a straight H or V segment, or None when
-    the boxes are diagonal (caller falls back to center-to-center logic).
+    the rects are diagonal (caller falls back to center-to-center logic).
+
+    "Enough" means the shared range covers at least one of the two centres.
+    That is the overlap a reader takes for deliberate alignment, and it is also
+    what keeps the straight segment out of both elements' corners. Two elements
+    that merely graze each other's range would otherwise get a line squeezed
+    into the sliver they share, hugging one corner of each (#156).
     """
-    fcy = from_box.y + from_box.h / 2
-    tcy = to_box.y + to_box.h / 2
-    fcx = from_box.x + from_box.w / 2
-    tcx = to_box.x + to_box.w / 2
+    fx, fy, fw, fh = f_rect
+    tx, ty, tw, th = t_rect
+    fcx, fcy = fx + fw / 2, fy + fh / 2
+    tcx, tcy = tx + tw / 2, ty + th / 2
 
-    x_lo = max(from_box.x, to_box.x)
-    x_hi = min(from_box.x + from_box.w, to_box.x + to_box.w)
-    y_lo = max(from_box.y, to_box.y)
-    y_hi = min(from_box.y + from_box.h, to_box.y + to_box.h)
+    x_lo = max(fx, tx)
+    x_hi = min(fx + fw, tx + tw)
+    y_lo = max(fy, ty)
+    y_hi = min(fy + fh, ty + th)
 
-    if x_lo < x_hi:
+    if x_lo < x_hi and (x_lo <= fcx <= x_hi or x_lo <= tcx <= x_hi):
         # Horizontal overlap -> straight vertical line
         mx = (x_lo + x_hi) / 2
-        sy = from_box.y + from_box.h if fcy < tcy else from_box.y
-        ey = to_box.y if fcy < tcy else to_box.y + to_box.h
+        sy = fy + fh if fcy < tcy else fy
+        ey = ty if fcy < tcy else ty + th
         return QPointF(mx, sy), QPointF(mx, ey)
 
-    if y_lo < y_hi:
+    if y_lo < y_hi and (y_lo <= fcy <= y_hi or y_lo <= tcy <= y_hi):
         # Vertical overlap -> straight horizontal line
         my = (y_lo + y_hi) / 2
-        sx = from_box.x + from_box.w if fcx < tcx else from_box.x
-        ex = to_box.x if fcx < tcx else to_box.x + to_box.w
+        sx = fx + fw if fcx < tcx else fx
+        ex = tx if fcx < tcx else tx + tw
         return QPointF(sx, my), QPointF(ex, my)
 
     return None
+
+
+# Where along a side a connector may attach, as fractions of the side's length.
+# Outside this band an endpoint reads as a corner connection rather than as a
+# link between two elements, so a natural position landing there is pulled back
+# in (#156). Wide enough that a correction stays close to the centre-to-centre
+# ray it replaces — a line that visibly misses the element it points at looks
+# worse than a corner exit.
+CENTRAL_BAND_LO = 0.25
+CENTRAL_BAND_HI = 1.0 - CENTRAL_BAND_LO
+
+
+def facing_sides(f_rect: tuple, t_rect: tuple) -> tuple[str, str]:
+    """The opposite pair of sides two rects turn toward each other.
+
+    Which axis dominates cannot be read off the centre delta alone: two boxes
+    stacked with a sideways offset would count as a horizontal relation as soon
+    as that offset is the larger number, however far apart they sit vertically.
+    Each axis is therefore measured against the extent the two rects themselves
+    cover on it, which asks the question that matters — on which axis do they
+    actually stand clear of each other.
+    """
+    d = _rect_centre(t_rect) - _rect_centre(f_rect)
+    span_x = (f_rect[2] + t_rect[2]) / 2
+    span_y = (f_rect[3] + t_rect[3]) / 2
+    reach_x = abs(d.x()) / span_x if span_x > 0 else math.inf
+    reach_y = abs(d.y()) / span_y if span_y > 0 else math.inf
+    if reach_x >= reach_y:
+        return ("e", "w") if d.x() >= 0 else ("w", "e")
+    return ("s", "n") if d.y() >= 0 else ("n", "s")
+
+
+def _central_endpoint(rect: tuple, pt: QPointF,
+                      other_centre: QPointF, facing: str) -> QPointF:
+    """``pt`` moved out of the corner zone, or returned untouched.
+
+    An endpoint already in the central band of its side is the one the reader
+    expects — the clipped centre-to-centre ray — and stays exactly where it is.
+    One in a corner zone moves onto the side that faces the other element,
+    aiming at that element's centre, and is then held inside the band.
+    """
+    side = side_of_point(rect, pt)
+    t = t_of_point(rect, side, pt)
+    if CENTRAL_BAND_LO <= t <= CENTRAL_BAND_HI:
+        return pt
+    if side != facing:
+        side = facing
+        t = t_of_point(rect, side, other_centre)
+    return point_on_side(rect, side, max(CENTRAL_BAND_LO,
+                                         min(CENTRAL_BAND_HI, t)))
+
+
+def endpoint_pair(f_rect: tuple, t_rect: tuple,
+                  allow_aligned: bool = True) -> tuple[QPointF, QPointF]:
+    """Where a direct connector between two elements attaches to each.
+
+    Conceptually centre-to-centre: the straight segment clipped to both edges
+    is what a reader expects, so it is kept whenever both of its ends already
+    land in the central band of their side. Only an end that would sit in a
+    corner is moved (#156).
+
+    ``allow_aligned`` enables the straight-segment shortcut for elements whose
+    ranges overlap deliberately; the caller withholds it where that shortcut
+    has never applied. Pure geometry throughout, so the app and a headless
+    render place every endpoint identically.
+    """
+    if allow_aligned:
+        aligned = _aligned_edge_points(f_rect, t_rect)
+        if aligned:
+            return aligned
+
+    f_mid, t_mid = _rect_centre(f_rect), _rect_centre(t_rect)
+    s_pt = _rect_edge_point(*f_rect, t_mid)
+    e_pt = _rect_edge_point(*t_rect, f_mid)
+    f_face, t_face = facing_sides(f_rect, t_rect)
+    return (_central_endpoint(f_rect, s_pt, t_mid, f_face),
+            _central_endpoint(t_rect, e_pt, f_mid, t_face))
 
 
 def _arrowhead_polygon(tip: QPointF, angle: float,
@@ -175,18 +293,6 @@ ORTHO_MAX_CANDIDATES = 16
 ORTHO_MAX_OBSTACLES = 24
 
 _NORMALS = {"n": (0.0, -1.0), "s": (0.0, 1.0), "e": (1.0, 0.0), "w": (-1.0, 0.0)}
-
-
-def point_on_side(rect: tuple, side: str, t: float = 0.5) -> QPointF:
-    """The point ``t`` of the way along a rect's side (0..1, 0.5 = midpoint)."""
-    x, y, w, h = rect
-    if side == "n":
-        return QPointF(x + w * t, y)
-    if side == "s":
-        return QPointF(x + w * t, y + h)
-    if side == "w":
-        return QPointF(x, y + h * t)
-    return QPointF(x + w, y + h * t)
 
 
 def _segment_hits_rect(a: QPointF, b: QPointF, rect: QRectF) -> bool:
@@ -538,24 +644,6 @@ ANCHOR_MIN_SEP = 26.0
 ROUTED_CENTRE_BIAS = 0.34
 # Anchors stay off the very corners, which read as ambiguous.
 ANCHOR_MARGIN = 0.06
-
-
-def side_of_point(rect: tuple, pt: QPointF) -> str:
-    """Which side of ``rect`` a point sits on (nearest edge)."""
-    x, y, w, h = rect
-    dists = {
-        "w": abs(pt.x() - x), "e": abs(pt.x() - (x + w)),
-        "n": abs(pt.y() - y), "s": abs(pt.y() - (y + h)),
-    }
-    return min(dists, key=dists.get)
-
-
-def t_of_point(rect: tuple, side: str, pt: QPointF) -> float:
-    """Where along a side a point sits, as 0..1."""
-    x, y, w, h = rect
-    if side in ("n", "s"):
-        return 0.0 if w <= 0 else max(0.0, min(1.0, (pt.x() - x) / w))
-    return 0.0 if h <= 0 else max(0.0, min(1.0, (pt.y() - y) / h))
 
 
 def relax_positions(desired: list[float], min_sep: float,

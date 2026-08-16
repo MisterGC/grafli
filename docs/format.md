@@ -46,6 +46,15 @@ image and are serialized only when they deviate from the default.
 | `<->`    | Bidirectional     |
 | `--`     | No arrowhead      |
 
+A connector runs **centre to centre**, clipped to both elements' edges, and
+attaches in the middle half of the side that faces the other element — never in
+a corner. Where the ray already leaves centrally, that is exactly the line you
+get; only an end that would land in a corner is moved. Two elements whose
+ranges overlap enough to read as a deliberate row or column — the shared range
+covers at least one of the two centres — are joined by a straight horizontal or
+vertical segment instead; a sliver of overlap is not an alignment and gets the
+ordinary slanted line.
+
 An arrow may point back at the element it starts from — `@ arrow a -> a` draws
 a **self-connector**: a loop that leaves one side of the element and re-enters
 the adjacent one, carrying its arrowhead and label like any other connector. It

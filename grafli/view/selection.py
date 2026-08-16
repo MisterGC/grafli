@@ -19,14 +19,12 @@ from PySide6.QtWidgets import (
 )
 from grafli import theme
 from grafli.arrows import (
-    _aligned_edge_points,
     _arrowhead_polygon,
-    _box_edge_point,
     _line_rect_clip,
-    _rect_edge_point,
     ANCHOR_MIN_SEP,
     ROUTED_CENTRE_BIAS,
     bowed_path,
+    endpoint_pair,
     fan_offsets,
     path_end_angle,
     pick_self_loop_sides,
@@ -488,18 +486,9 @@ class SelectionMixin:
                 self_conns.append((idx, f_id, f_rect))
                 continue                     # placed once the sides are known
 
-            aligned = (_aligned_edge_points(f_elem, t_elem)
-                       if isinstance(f_elem, Box) and isinstance(t_elem, Box)
-                       else None)
-            if aligned:
-                s_pt, e_pt = aligned
-            else:
-                f_mid = QPointF(f_rect[0] + f_rect[2] / 2,
-                                f_rect[1] + f_rect[3] / 2)
-                t_mid = QPointF(t_rect[0] + t_rect[2] / 2,
-                                t_rect[1] + t_rect[3] / 2)
-                s_pt = _rect_edge_point(*f_rect, t_mid)
-                e_pt = _rect_edge_point(*t_rect, f_mid)
+            s_pt, e_pt = endpoint_pair(
+                f_rect, t_rect,
+                isinstance(f_elem, Box) and isinstance(t_elem, Box))
 
             s_side = side_of_point(f_rect, s_pt)
             e_side = side_of_point(t_rect, e_pt)
@@ -712,26 +701,12 @@ class SelectionMixin:
                 if loop is None:
                     continue
                 start, end = loop[0], loop[2]
-            elif both_boxes:
-                aligned = _aligned_edge_points(from_elem, to_elem)
-                if aligned:
-                    start, end = aligned
-                else:
-                    from_center = QPointF(
-                        from_elem.x + from_elem.w / 2, from_elem.y + from_elem.h / 2
-                    )
-                    to_center = QPointF(
-                        to_elem.x + to_elem.w / 2, to_elem.y + to_elem.h / 2
-                    )
-                    start = _box_edge_point(from_elem, to_center)
-                    end = _box_edge_point(to_elem, from_center)
             else:
-                from_r = self._elem_rect(from_elem)
-                to_r = self._elem_rect(to_elem)
-                from_center = QPointF(from_r[0] + from_r[2] / 2, from_r[1] + from_r[3] / 2)
-                to_center = QPointF(to_r[0] + to_r[2] / 2, to_r[1] + to_r[3] / 2)
-                start = _rect_edge_point(*from_r, to_center)
-                end = _rect_edge_point(*to_r, from_center)
+                # Same call as _connector_anchors makes, so the drawn line and
+                # the anchors the spread pass reasons about cannot disagree.
+                start, end = endpoint_pair(self._elem_rect(from_elem),
+                                           self._elem_rect(to_elem),
+                                           both_boxes)
 
             # An endpoint hidden inside a cluster re-attaches to its hull outline.
             if from_hull is not None or to_hull is not None:

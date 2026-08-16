@@ -60,6 +60,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a merged `a -> b` / `b -> a` pair plus a third arrow between the same two
   nodes. A pair carrying a single connector is drawn exactly as before.
   ([#140](https://github.com/MisterGC/grafli/issues/140))
+- **Connector endpoints stay out of the corners.** A direct connector took
+  whichever edge the centre-to-centre ray crossed first, so a near-diagonal
+  relation left and arrived within a few pixels of a corner and read as a
+  corner-to-corner connection; two elements whose ranges merely grazed each
+  other got a straight segment squeezed into that sliver, hugging one corner
+  of each. An endpoint now sits in the middle half of its side, on the side
+  that faces the other element, and the straight segment is reserved for a
+  shared range that covers at least one of the two centres. A connector whose
+  ray already left centrally is drawn exactly as before, and crowded-side
+  spreading, fanning, self-loops and the `!spline` / `!ortho` routings all
+  build on the corrected positions.
+  ([#156](https://github.com/MisterGC/grafli/issues/156))
 - **Malformed-line warnings name the full grammar.** The `@ box` demotion
   message stopped at `[%color] [~size]`, so a line rejected for putting a
   legal token like `^topleft` or `!flat` in the wrong slot pointed the

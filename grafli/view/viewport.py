@@ -42,6 +42,9 @@ class ViewportMixin:
         if self._complexity_active:
             self._clear_complexity_heatmap()
         else:
+            if not self._complexity_analysable():
+                self.toast("No connectors to analyse", "warn")
+                return
             if self._focus_active:
                 self._clear_focus_filter()
             self._complexity_active = True
@@ -380,7 +383,8 @@ class ViewportMixin:
         keypress has a predictable direction. For "fit the whole graph"
         use Shift+Z.
         """
-        if not self._board:
+        if not self._board or self._scene.itemsBoundingRect().isNull():
+            self.toast("Nothing on the board yet", "info")
             return
         self._push_nav_snapshot()
         current = self.transform().m11()
@@ -399,9 +403,10 @@ class ViewportMixin:
 
     def _zoom_to_fit(self):
         """Shift+Z key: zoom to fit entire diagram."""
-        if not self._board:
+        items_rect = (self._scene.itemsBoundingRect() if self._board
+                      else QRectF())
+        if items_rect.isNull():
+            self.toast("Nothing on the board yet", "info")
             return
-        items_rect = self._scene.itemsBoundingRect()
-        if not items_rect.isNull():
-            self._animate_to_rect(items_rect.adjusted(-40, -40, 40, 40))
+        self._animate_to_rect(items_rect.adjusted(-40, -40, 40, 40))
 

@@ -47,6 +47,15 @@ class ComplexityMixin:
     _complexity_saved, _minimap_visible, _minimap_rect, viewport().
     """
 
+    def _complexity_analysable(self) -> bool:
+        """Whether a heatmap would say anything.
+
+        Degree centrality is measured over connectors: without boxes there is
+        nothing to paint, and without connectors every node is equally cold —
+        the mode would swallow Esc/A for a picture that carries no reading.
+        """
+        return bool(self._board and self._board.boxes and self._board.arrows)
+
     def _compute_node_heat(self) -> dict[str, float]:
         """Degree centrality per box, normalized 0.0-1.0."""
         if not self._board or not self._board.boxes:

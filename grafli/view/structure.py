@@ -303,6 +303,7 @@ class StructureMixin:
                  if isinstance(i, BoxItem)]
         if not boxes:
             self._record_shortcut("slide-ratio: select a container box first")
+            self.toast("Select a box to snap it to the slide ratio", "warn")
             return
         ratio = slide_content_ratio(self._board)
         targets = []
@@ -312,6 +313,7 @@ class StructureMixin:
                 targets.append((item, new_h))
         if not targets:
             self._record_shortcut(f"already at slide ratio {ratio:.2f}")
+            self.toast(f"Already at slide ratio {ratio:.2f}", "info")
             return
         self._push_undo()
         for item, new_h in targets:
@@ -399,6 +401,7 @@ class StructureMixin:
         selected = [i for i in self._scene.selectedItems()
                     if isinstance(i, (BoxItem, NoteItem, ImageItem))]
         if not selected:
+            self.toast("Select what the group should hold", "warn")
             return
 
         def model_of(item):

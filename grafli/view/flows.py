@@ -42,9 +42,15 @@ class FlowsMixin:
             return
         bm = self._board.bookmark_by_id(bookmark_id)
         if bm is None:
+            self.toast("Bookmark not found on this board", "warn")
             return
         from grafli.flows import bookmark_target_rect
         target = bookmark_target_rect(self, bm)
+        if target.isNull():
+            # All focus elements deleted and no stored view: no rect to fly to.
+            self.toast("This bookmark's elements are gone from the board",
+                       "warn")
+            return
         self.goto_rect(target, animate=animate)
         self.flash_anchor(target)
 
@@ -53,7 +59,10 @@ class FlowsMixin:
         if not self._board:
             return
         flow = self._board.flow_by_id(flow_id)
-        if flow is None or not flow.steps:
+        if flow is None:
+            return
+        if not flow.steps:
+            self.toast("This flow has no stops yet", "warn")
             return
         if self._flow_player is not None:
             self._flow_player.stop()
@@ -177,8 +186,10 @@ class FlowsMixin:
             flow = self._recording_flow
             self._recording_flow = None
             if not flow.steps:
-                # An empty recording is noise — drop it.
+                # An empty recording is noise — drop it, but say so: the
+                # recording badge vanishing is not an explanation.
                 self._board.remove_flow(flow)
+                self.toast("Recording discarded — no stops captured", "warn")
             self.mark_dirty()
             self.flows_changed.emit()
             self._update_recording_status()
@@ -333,16 +344,21 @@ class FlowsMixin:
         flow.steps = [FlowStep(ref=self._make_auto_bookmark(nid).id)
                       for nid in path]
         n = len(path)
+        steps = f"{n} stop{'s' if n != 1 else ''}"
         if reason == "branch":
             box = self._board.box_by_id(path[-1])
             where = (box.label.replace("\n", " ") if box and box.label
                      else path[-1])
             self._record_shortcut(
                 f"auto-flow: {n} step(s), stopped at branch '{where}'")
+            self.toast(f"Auto-flow: {steps}, stopped at the branch “{where}”",
+                       "info")
         elif reason == "cycle":
             self._record_shortcut(f"auto-flow: {n} step(s), stopped (cycle)")
+            self.toast(f"Auto-flow: {steps}, stopped at a cycle", "info")
         else:
             self._record_shortcut(f"auto-flow: {n} step(s)")
+            self.toast(f"Auto-flow: {steps}", "info")
 
     def _discard_auto_bookmarks(self, flow: Flow) -> None:
         """Remove the bookmarks this flow's steps own (not used by any other
@@ -369,6 +385,7 @@ class FlowsMixin:
         """Create a flow by walking forward arrows from ``start_id``."""
         if not self._node_exists(start_id):
             self._record_shortcut("auto-flow needs a node")
+            self.toast("Auto-flow needs a node to start from", "warn")
             return None
         self._push_undo()
         flow = Flow(id=self._board.next_flow_id(), label=label,
@@ -385,6 +402,7 @@ class FlowsMixin:
             return
         if not self._node_exists(flow.auto_start):
             self._record_shortcut("auto-flow: start node is gone")
+            self.toast("Auto-flow start node is gone from the board", "warn")
             return
         self._push_undo()
         self._discard_auto_bookmarks(flow)
@@ -397,6 +415,7 @@ class FlowsMixin:
                  if isinstance(i, (BoxItem, NoteItem, ImageItem))]
         if len(nodes) != 1:
             self._record_shortcut("auto-flow: select exactly one node first")
+            self.toast("Select exactly one node to auto-flow from", "warn")
             return None
         item = nodes[0]
         if isinstance(item, BoxItem):

@@ -1051,12 +1051,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event):
-        # Fuzzy overlay handles its own input
-        if self._fuzzy_overlay:
-            return
-
-        # Zen overlay handles its own input
-        if self._zen_editor:
+        # Fuzzy overlay / zen editor handle their own input: no canvas
+        # shortcut runs, but the key still travels down to Qt rather than
+        # being dropped here — a key that reaches the view while one of them
+        # is up would otherwise vanish without a trace.
+        if self._fuzzy_overlay or self._zen_editor:
+            super().keyPressEvent(event)
             return
 
         # Inline note editor: the view is the focused Qt widget, so forward
@@ -1487,8 +1487,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             event.accept()
             return
 
-        # Ctrl+G — encapsulate the selection in a new parent box
-        if event.key() == Qt.Key.Key_G and mods & _CTRL_MOD and has_selection:
+        # Ctrl+G — encapsulate the selection in a new parent box. Reached
+        # without a selection too, so the empty case can say what's missing.
+        if event.key() == Qt.Key.Key_G and mods & _CTRL_MOD:
             self._record_shortcut("Ctrl+G → encapsulate")
             self._encapsulate_selection()
             event.accept()
@@ -1524,8 +1525,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     amount = big_step if shift else step
                     dx = dx_dir * amount
                     dy = dy_dir * amount
+                    movable = [it for it in self._scene.selectedItems()
+                               if isinstance(it, (BoxItem, NoteItem, ImageItem))]
+                    if not movable:
+                        self.toast("Select a box, note, or image to move",
+                                   "warn")
+                        event.accept()
+                        return
                     self._push_undo()
-                    for item in self._scene.selectedItems():
+                    for item in movable:
                         if isinstance(item, BoxItem):
                             item.box.x += dx
                             item.box.y += dy
@@ -1534,6 +1542,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                             item.note.x += dx
                             item.note.y += dy
                             item.setPos(item.note.x, item.note.y)
+                        else:
+                            item.image.x += dx
+                            item.image.y += dy
+                            item.setPos(item.image.x, item.image.y)
                     self._update_mode_badge_pos()
                     self.arrow_update_needed.emit()
                     self.mark_dirty()
@@ -1589,10 +1601,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     Qt.Key.Key_K, Qt.Key.Key_L,
                 )
                 if dim_key and (no_mod or only_shift):
+                    boxes = [it for it in self._scene.selectedItems()
+                             if isinstance(it, BoxItem)]
+                    if not boxes:
+                        self.toast("Only boxes resize with hjkl", "warn")
+                        event.accept()
+                        return
                     self._push_undo()
-                    for item in self._scene.selectedItems():
-                        if not isinstance(item, BoxItem):
-                            continue
+                    for item in boxes:
                         x, y, w, h = item.box.x, item.box.y, item.box.w, item.box.h
                         if shift:
                             # Grow
@@ -1837,6 +1853,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     self._focus_direction = "all"
                     self._focus_depth = 0
                     self._apply_focus_filter()
+                else:
+                    self.toast("Select a single box to focus its subgraph",
+                               "warn")
             event.accept()
             return
 
@@ -1845,6 +1864,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             if self._focus_active:
                 self._focus_depth = 0 if self._focus_depth == 1 else 1
                 self._apply_focus_filter()
+            else:
+                self.toast("Press B first to focus a subgraph", "warn")
             event.accept()
             return
 

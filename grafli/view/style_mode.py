@@ -90,15 +90,23 @@ class StyleModeMixin:
         self._animate_scale(items, 0.86, 1.0)
 
     def _set_box_mode(self, mode: str):
+        # Dimension mode only has boxes to work on (hjkl resizes boxes, r
+        # snaps a box to the slide ratio): entering it on a note/image
+        # selection would badge a mode whose every key then refuses.
+        if mode == "dimension" and not any(
+                isinstance(it, BoxItem) for it in self._scene.selectedItems()):
+            self.toast("Only boxes resize with hjkl", "warn")
+            return
         self._box_mode = mode
         if not mode:
             self._clear_mode_badge(fade=True)
             return
         self._clear_mode_badge()
-        # Create badge above the first selected box
+        # Create badge above the first selected element — images carry styles
+        # too (#147), so they get the badge like boxes and notes.
         target = None
         for item in self._scene.selectedItems():
-            if isinstance(item, (BoxItem, NoteItem)):
+            if isinstance(item, (BoxItem, NoteItem, ImageItem)):
                 target = item
                 break
         if not target:
@@ -129,7 +137,7 @@ class StyleModeMixin:
             return
         target = None
         for item in self._scene.selectedItems():
-            if isinstance(item, (BoxItem, NoteItem)):
+            if isinstance(item, (BoxItem, NoteItem, ImageItem)):
                 target = item
                 break
         if not target:

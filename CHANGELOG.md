@@ -25,6 +25,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#153](https://github.com/MisterGC/grafli/issues/153))
 
 ### Changed
+- **Every keypress either acts or explains itself.** Roughly forty keys used
+  to do nothing at all when the selection, the board or the clipboard didn't
+  suit them — no message, no clue. They now either do the obvious thing
+  (<kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> moves an image like any
+  other element) or say what's missing ("Only boxes resize with hjkl",
+  "Nothing selected to copy", "No connectors to analyse"). A refused key no
+  longer pushes an undo step or marks the board dirty, an empty yank keeps
+  the previous copy, pasting an image on an untitled board asks where to
+  save, and a failed save, re-read or editor launch reports itself instead
+  of passing unnoticed.
+  ([#154](https://github.com/MisterGC/grafli/issues/154))
 - **Adding an image to an untitled board asks for a save location instead
   of turning you away.** Dropping an image file or placing an <kbd>i</kbd>
   mockup used to dead-end in a "Save the board first" toast, discarding the

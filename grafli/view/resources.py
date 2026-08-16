@@ -109,12 +109,16 @@ class ResourcesMixin:
         untyped urls) through the url path."""
         window = self.window()
         grafli_path = getattr(window, "_file_path", None)
-        if el.attach_kind == "doc" and grafli_path:
+        if el.attach_kind in ("doc", "graph") and not grafli_path:
+            # Vault attachments are resolved relative to the .grafli file.
+            self.toast("Save the board first to open its vault", "warn")
+            return
+        if el.attach_kind == "doc":
             from grafli.format import doc_name
             from grafli.resources import doc_path
             self._open_md_zen(doc_path(Path(grafli_path), doc_name(el)))
             return
-        if el.attach_kind == "graph" and grafli_path:
+        if el.attach_kind == "graph":
             from grafli.resources import graph_path
             if hasattr(window, "_open_file"):
                 window._open_file(graph_path(Path(grafli_path), el.url))
@@ -150,6 +154,7 @@ class ResourcesMixin:
                 else:
                     self._open_resource_picker(item, item.image.id)
                 return
+        self.toast("Select a box, note, image, or connector", "warn")
 
     def _open_code_ref(self, ref: str):
         """Open an ``@path[:line]`` reference from a code-mode note.
@@ -194,7 +199,8 @@ class ResourcesMixin:
                 subprocess.Popen(shlex.split(rendered), start_new_session=True)
                 return
             except (OSError, ValueError, KeyError):
-                pass
+                self.toast("Editor command failed — opening with the "
+                           "system default", "warn")
 
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
@@ -219,6 +225,7 @@ class ResourcesMixin:
         """Show the inline resource picker near the given item."""
         window = self.window()
         if not hasattr(window, '_file_path') or not window._file_path:
+            self.toast("Save the board first to attach resources")
             return
         picker = _ResourcePicker(self.viewport())
         item_rect = self.mapFromScene(item.sceneBoundingRect()).boundingRect()
@@ -240,6 +247,7 @@ class ResourcesMixin:
         """Show inline resource picker for an arrow."""
         window = self.window()
         if not hasattr(window, '_file_path') or not window._file_path:
+            self.toast("Save the board first to attach resources")
             return
         aid = f"{arrow.from_id}--{arrow.to_id}"
         # Position near arrow label or midpoint
@@ -451,6 +459,7 @@ class ResourcesMixin:
 
         window = self.window()
         if not hasattr(window, '_file_path') or not window._file_path:
+            self.toast("Save the board first to attach a markdown doc")
             return
         grafli_path = window._file_path
 
@@ -536,6 +545,7 @@ class ResourcesMixin:
                     return
                 QDesktopServices.openUrl(resolved)
                 return
+        self.toast("No link on the selected element", "info")
 
     def _open_md_zen(self, path: Path, anchor: str = ""):
         """Open a local markdown file in the zen editor."""

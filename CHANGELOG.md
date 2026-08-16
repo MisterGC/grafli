@@ -17,6 +17,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lines; `--check` makes it a CI gate. Files with malformed lines are left
   untouched and the offending lines reported.
   ([#20](https://github.com/MisterGC/grafli/issues/20))
+- **A blank board says how to start.** An empty board — fresh untitled
+  buffer or empty file — paints a muted hint in the middle of the canvas
+  (`n box · t note · i image`, `F1 all keys`) that vanishes the moment the
+  first element lands. Painted view chrome only: it takes no clicks and
+  never appears in renders or exports.
+  ([#153](https://github.com/MisterGC/grafli/issues/153))
+
+### Changed
+- **Adding an image to an untitled board asks for a save location instead
+  of turning you away.** Dropping an image file or placing an <kbd>i</kbd>
+  mockup used to dead-end in a "Save the board first" toast, discarding the
+  drop. The save dialog now opens right there; once the board has a path
+  the image lands where it was dropped or clicked, with the vault anchored
+  next to the new file. Cancelling the dialog cancels the add quietly.
+  ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
 - **A self-connector draws a loop instead of nothing.** `@ arrow a -> a`

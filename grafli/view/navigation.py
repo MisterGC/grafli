@@ -81,6 +81,7 @@ class NavigationMixin:
         ))
 
         if not visible and not offscreen:
+            self.toast("Nothing to jump to", "info")
             return
 
         # Unified label assignment: all items in one list (visible first)
@@ -666,6 +667,7 @@ class NavigationMixin:
     def _nav_back(self):
         """Ctrl+O: jump to previous viewport in nav stack."""
         if self._nav_index <= 0:
+            self.toast("No earlier view to jump back to", "info")
             return
         # Save current position if at the end
         if self._nav_index == len(self._nav_stack) - 1:
@@ -683,6 +685,7 @@ class NavigationMixin:
     def _nav_forward(self):
         """Ctrl+I: jump to next viewport in nav stack."""
         if self._nav_index >= len(self._nav_stack) - 1:
+            self.toast("No later view to jump forward to", "info")
             return
         self._nav_index += 1
         self._animate_to_rect(self._nav_stack[self._nav_index])
@@ -728,6 +731,7 @@ class NavigationMixin:
         rect = self._selection_scene_rect()
         if rect is None:
             self._record_shortcut("gz → select an element first")
+            self.toast("Select an element to zoom into", "warn")
             return
         self._focus_return = self.mapToScene(self.viewport().rect()).boundingRect()
         self._focus_target_ids = sel_ids
@@ -742,6 +746,7 @@ class NavigationMixin:
         # Single box selection only
         selected = self._scene.selectedItems()
         if len(selected) != 1 or not isinstance(selected[0], BoxItem):
+            self.toast("Select a single box to go to its parent", "warn")
             return
 
         self._push_nav_snapshot()
@@ -752,6 +757,7 @@ class NavigationMixin:
 
         parent_item = self._box_items.get(box.parent)
         if not parent_item:
+            self.toast("Parent box is not on the board", "warn")
             return
 
         # Select parent
@@ -772,6 +778,7 @@ class NavigationMixin:
             return
         selected = self._scene.selectedItems()
         if len(selected) != 1 or not isinstance(selected[0], BoxItem):
+            self.toast("Select a single box to go to its first child", "warn")
             return
         box = selected[0].box
         children = [
@@ -779,6 +786,7 @@ class NavigationMixin:
             if b.parent == box.id
         ]
         if not children:
+            self.toast("This box has no children", "info")
             return
         self._push_nav_snapshot()
         children.sort(key=lambda b: (b.y, b.x))
@@ -801,7 +809,6 @@ class NavigationMixin:
         selected = self._scene.selectedItems()
         if len(selected) != 1 or not isinstance(selected[0], BoxItem):
             return
-        self._push_nav_snapshot()
         box = selected[0].box
         siblings = [
             b for b in self._board.boxes
@@ -809,7 +816,9 @@ class NavigationMixin:
         ]
         siblings.sort(key=lambda b: (b.y, b.x))
         if len(siblings) <= 1:
+            self.toast("No siblings to cycle through", "info")
             return
+        self._push_nav_snapshot()
         idx = next(i for i, b in enumerate(siblings) if b.id == box.id)
         target = siblings[(idx + direction) % len(siblings)]
         target_item = self._box_items.get(target.id)
@@ -871,6 +880,7 @@ class NavigationMixin:
             return
 
         if not targets:
+            self.toast("No connectors from here", "info")
             self._graph_nav_active = True
             return
 

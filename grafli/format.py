@@ -609,13 +609,34 @@ _COORD_TOKEN_RE = re.compile(r'^-?[\d.]+,\s*-?[\d.]+$')
 _SIZE_TOKEN_RE = re.compile(r'(?<!\w)[\d.]+x[\d.]+(?!\w)')
 
 
+# The full accepted form of each directive, optional tokens in the order
+# the regexes above require them. Kept as constants right below the
+# regexes so the demotion messages can't drift from the grammar again
+# (#145); tests cross-check them against the regex sources.
+BOX_FORM = ('@ box <id> "label" x,y wxh [%color|#rrggbb] '
+            '[^topleft|^topcenter] [~size] '
+            '[!flat|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
+            '[*icon] [&attach] [>parent]')
+NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
+             '[~width=N] [!mono|!flat|!bold|!italic|!outline|!shadow ...] '
+             '[*icon] [&attach] [>parent]')
+ARROW_FORM = ('@ arrow <from> ->|<-|<->|-- <to> ["label"] [@dx,dy] '
+              '[%color|#rrggbb] '
+              '[!dashed|!dotted|!thin|!thick|!spline|!ortho ...] '
+              '[~size] [&attach] [~kind=graph|annotation]')
+IMAGE_FORM = ('@ image <id> "path" x,y wxh [!frame|!noframe] '
+              '[>parent] [&attach]')
+_ORDER_HINT = " — optional tokens must appear in this order"
+
+
 def _diagnose_malformed_directive(stripped: str) -> str:
     """Return a grammar-aware reason for an `@` line the parser dropped.
 
     The two traps agents hit are asymmetries between `@ box` and `@ note`:
     box wants the label before the coordinates, note wants coordinates
-    before the text and takes no `WxH`. Name the expected grammar, and
-    pinpoint the transposition when it's detectable.
+    before the text and takes no `WxH`. Name the full expected grammar —
+    the parser is order-sensitive, so a legal token in the wrong slot is
+    rejected too — and pinpoint the transposition when it's detectable.
     """
     parts = stripped.split()
     kind = parts[1] if len(parts) >= 2 else ""
@@ -624,17 +645,18 @@ def _diagnose_malformed_directive(stripped: str) -> str:
         # coordinate token there means the author wrote it note-style.
         if len(parts) >= 4 and _COORD_TOKEN_RE.match(parts[3]):
             return ('looks like coordinates where a label is expected — for '
-                    '@ box the label comes first: '
-                    '@ box <id> "label" x,y wxh')
-        return ('malformed @ box — expected '
-                '@ box <id> "label" x,y wxh [%color] [~size]')
+                    '@ box the label comes first: ' + BOX_FORM + _ORDER_HINT)
+        return 'malformed @ box — expected ' + BOX_FORM + _ORDER_HINT
     if kind == "note":
         if _SIZE_TOKEN_RE.search(stripped):
             return ('@ note takes no width×height — set size with ~size '
                     '(e.g. ~large) and wrap width with ~width=. Grammar: '
-                    '@ note <id> x,y "text" [~size] [~width=N]')
-        return ('malformed @ note — expected '
-                '@ note <id> x,y "text" [~size]')
+                    + NOTE_FORM + _ORDER_HINT)
+        return 'malformed @ note — expected ' + NOTE_FORM + _ORDER_HINT
+    if kind == "arrow":
+        return 'malformed @ arrow — expected ' + ARROW_FORM + _ORDER_HINT
+    if kind == "image":
+        return 'malformed @ image — expected ' + IMAGE_FORM + _ORDER_HINT
     return "malformed directive — kept as a comment"
 
 def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:

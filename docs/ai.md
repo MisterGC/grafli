@@ -115,7 +115,10 @@ Once the skill is installed, the agent:
 2. Asks any clarifying question (the planning loop).
 3. Produces a `.grafli` file using `Write`.
 4. Verifies its own work headlessly: `grafli render` (with `--focus`,
-   `--lod`, and `--bookmark` for targeted looks), `grafli diagnose`
+   `--lod`, and `--bookmark` for targeted looks), `grafli fmt` to
+   normalize what it wrote into the same canonical form the app saves
+   (integer coordinates, canonical spacing — keeps diffs clean),
+   `grafli diagnose`
    (incl. `parse-error` findings for lines that would silently drop),
    `grafli inspect` for placement geometry, and `grafli export --check`
    when a deck is involved. `grafli diagnose --fix` applies the

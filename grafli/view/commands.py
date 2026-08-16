@@ -25,28 +25,6 @@ from grafli.items import (
 from grafli.layout import compute_layout
 
 
-# ── TEMPORARY paste-crash diagnostics (remove once the segfault is fixed) ──
-# Writes each step of an image paste to ~/grafli-paste-debug.log, flushed and
-# fsync'd so the last line survives a hard segfault and pinpoints the crash.
-def _paste_dbg(msg: str) -> None:
-    import os
-    import sys
-    from pathlib import Path
-    line = f"[grafli-paste] {msg}\n"
-    try:
-        sys.stderr.write(line)
-        sys.stderr.flush()
-    except Exception:
-        pass
-    try:
-        with open(Path.home() / "grafli-paste-debug.log", "a") as f:
-            f.write(line)
-            f.flush()
-            os.fsync(f.fileno())
-    except Exception:
-        pass
-
-
 def _natural_size(path) -> tuple[float, float] | None:
     """Intrinsic size of an image file, or None when it can't be read."""
     from PySide6.QtGui import QImage
@@ -67,18 +45,6 @@ def _natural_size(path) -> tuple[float, float] | None:
     if img.isNull():
         return None
     return (float(img.width()), float(img.height()))
-
-
-def _img_props(im, tag: str) -> None:
-    try:
-        fmt = getattr(im.format(), "value", im.format())
-        _paste_dbg(
-            f"{tag}: null={im.isNull()} fmt={fmt} "
-            f"{im.width()}x{im.height()} depth={im.depth()} "
-            f"bpl={im.bytesPerLine()} bytes={im.sizeInBytes()} "
-            f"dpr={im.devicePixelRatio()} colors={im.colorCount()}")
-    except Exception as e:
-        _paste_dbg(f"{tag}: props-error {e!r}")
 
 
 class CommandsMixin:
@@ -123,7 +89,10 @@ class CommandsMixin:
             self._pre_move_snapshot = ""
 
     def _undo(self):
-        if not self._undo_stack or not self._board:
+        if not self._board:
+            return
+        if not self._undo_stack:
+            self.toast("Nothing to undo", "info")
             return
         self._redo_stack.append(serialize(self._board, embed_doc_bodies=True))
         text = self._undo_stack.pop()
@@ -132,7 +101,10 @@ class CommandsMixin:
         self.mark_dirty()
 
     def _redo(self):
-        if not self._redo_stack or not self._board:
+        if not self._board:
+            return
+        if not self._redo_stack:
+            self.toast("Nothing to redo", "info")
             return
         self._undo_stack.append(serialize(self._board, embed_doc_bodies=True))
         text = self._redo_stack.pop()
@@ -168,6 +140,12 @@ class CommandsMixin:
             return (img.width(), img.height(), img.sizeInBytes())
 
     def _copy_selected(self):
+        # An empty yank must leave the previous copy intact — clearing here
+        # would silently throw away what the user is about to paste.
+        if not [it for it in self._scene.selectedItems()
+                if isinstance(it, (BoxItem, NoteItem, ImageItem))]:
+            self.toast("Nothing selected to copy", "warn")
+            return
         self._clipboard_boxes.clear()
         self._clipboard_notes.clear()
         self._clipboard_arrows.clear()
@@ -223,27 +201,26 @@ class CommandsMixin:
         has_internal = bool(
             self._clipboard_boxes or self._clipboard_notes or self._clipboard_images
         )
-        _paste_dbg(f"_paste: has_image={has_image} has_internal={has_internal}")
 
         # Latest copy wins. A system-clipboard image wins when there's no
         # internal copy, or when it changed since the internal copy (i.e. was
         # copied afterwards). Otherwise the internal copy wins.
         if has_image and (not has_internal
                           or self._clipboard_image_fp() != self._copy_clip_img_fp):
-            _paste_dbg("_paste: routing to clipboard-image paste")
             self._paste_clipboard_image(cursor_scene, clipboard.image())
             return
 
         # External text copied *after* the internal copy also wins: drop it as a
         # new note at the cursor rather than re-pasting the stale element.
         if clip_text and (not has_internal or clip_text != self._copy_clip_text):
-            _paste_dbg("_paste: routing to clipboard-text paste")
             self._paste_text_note(cursor_scene, clip_text)
             return
 
         if has_internal:
-            _paste_dbg("_paste: routing to internal paste")
             self._paste_at(cursor_scene)
+            return
+
+        self.toast("Nothing to paste", "info")
 
     def _paste_text_note(self, center: QPointF, text: str):
         """Drop external clipboard text as a new note centred at the cursor."""
@@ -263,47 +240,37 @@ class CommandsMixin:
     def _paste_clipboard_image(self, center: QPointF, qimage):
         """Save a QImage from the system clipboard and add it as an image element."""
         from datetime import datetime
-        from pathlib import Path
         from PySide6.QtGui import QImage
 
-        _paste_dbg("_paste_clipboard_image: enter")
         if not self._board:
-            _paste_dbg("no board, abort")
             return
-        window = self.window()
-        if not hasattr(window, '_file_path') or not window._file_path:
-            _paste_dbg("no file_path, abort")
+        # An untitled board has no vault to hold the PNG — ask for a save
+        # location instead of dropping the paste (#152).
+        file_path = self._grafli_path_or_save()
+        if file_path is None:
             return
 
         from grafli.resources import ensure_res_dir
-        file_path = window._file_path
         images_dir = ensure_res_dir(file_path)
-        _paste_dbg(f"images_dir={images_dir}")
 
-        _img_props(qimage, "incoming")
         if qimage.isNull():
-            _paste_dbg("incoming null, abort")
+            self.toast("Couldn't read the pasted image", "error")
             return
         # A QImage straight from the macOS clipboard (TIFF/CGImage-backed) can
         # share a transient buffer (or carry a stride) the PNG writer walks off,
         # crashing in QImageWriter::write. Normalize the format AND force a deep
         # copy so the encoder sees a fresh, owned, self-consistent ARGB32 buffer.
         qimage = qimage.convertToFormat(QImage.Format.Format_ARGB32)
-        _paste_dbg("convertToFormat ok")
         qimage = qimage.copy()
-        _paste_dbg("deep copy ok")
-        _img_props(qimage, "to-save")
         if qimage.isNull():
-            _paste_dbg("null after normalize, abort")
+            self.toast("Couldn't read the pasted image", "error")
             return
 
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         img_name = f"img-{timestamp}.png"
         img_path = images_dir / img_name
-        _paste_dbg(f"about to save -> {img_path}")
-        ok = qimage.save(str(img_path), "PNG")
-        _paste_dbg(f"save returned {ok}")
-        if not ok:
+        if not qimage.save(str(img_path), "PNG"):
+            self.toast(f"Couldn't write {img_name}", "error")
             return
 
         # Same placement rule as a dropped file: fitted into the 320x240 box.
@@ -319,14 +286,11 @@ class CommandsMixin:
             w=default_w, h=default_h,
         )
         self._board.add_image(image)
-        _paste_dbg(f"added image id={image.id}, rebuilding scene")
         self._rebuild_scene()
-        _paste_dbg("rebuild done")
 
         if image.id in self._image_items:
             self._image_items[image.id].setSelected(True)
         self.mark_dirty()
-        _paste_dbg("_paste_clipboard_image: complete")
 
     def _add_image_files(self, paths: list, scene_pos: QPointF) -> None:
         """Add dropped image files as image elements around the drop point.
@@ -334,17 +298,16 @@ class CommandsMixin:
         A file already inside the board's directory is referenced where it
         lies; one from outside is copied into the vault (see
         ``grafli.resources.image_ref``). Several files at once cascade so a
-        multi-file drop doesn't pile up on one spot.
+        multi-file drop doesn't pile up on one spot. An untitled board is
+        given a save location first (#152) — the drop point still holds.
         """
         from pathlib import Path
         from grafli.resources import image_ref
 
         if not self._board:
             return
-        window = self.window()
-        file_path = getattr(window, "_file_path", None)
-        if not file_path:
-            self.toast("Save the board first to add images")
+        file_path = self._grafli_path_or_save()
+        if file_path is None:
             return
 
         pending: list[Image] = []
@@ -357,7 +320,7 @@ class CommandsMixin:
                 continue
             w, h = default_image_size(natural[0], natural[1],
                                       vector=src.suffix.lower() == ".svg")
-            ref = image_ref(Path(file_path), src)
+            ref = image_ref(file_path, src)
             pending.append(Image(
                 id="", image_path=ref,
                 x=scene_pos.x() + offset - w / 2,
@@ -479,9 +442,14 @@ class CommandsMixin:
         size is unset, but stepping always yields an explicit size so a parent
         can reach the same sizes as any other node.
         """
+        targets = [it for it in self._scene.selectedItems()
+                   if isinstance(it, (BoxItem, NoteItem))]
+        if not targets:
+            self.toast("Select a box or note to size its text", "warn")
+            return
         self._push_undo()
         new_textsize = None
-        for item in self._scene.selectedItems():
+        for item in targets:
             if isinstance(item, BoxItem):
                 is_parent = self._has_children(item.box.id)
                 cur_px = resolve_textsize_px(
@@ -499,13 +467,17 @@ class CommandsMixin:
         self.mark_dirty()
 
     def _cycle_style(self):
+        boxes = [it for it in self._scene.selectedItems()
+                 if isinstance(it, BoxItem)]
+        if not boxes:
+            self.toast("Select a box to cycle its style", "warn")
+            return
         self._push_undo()
-        for item in self._scene.selectedItems():
-            if isinstance(item, BoxItem):
-                cur = item.box.style
-                seq = _BOX_STYLE_CYCLE
-                idx = seq.index(cur) if cur in seq else 0
-                item.set_style(seq[(idx + 1) % len(seq)])
+        for item in boxes:
+            cur = item.box.style
+            seq = _BOX_STYLE_CYCLE
+            idx = seq.index(cur) if cur in seq else 0
+            item.set_style(seq[(idx + 1) % len(seq)])
         self.mark_dirty()
 
     def _snap_to_grid(self):
@@ -542,6 +514,7 @@ class CommandsMixin:
 
         groups = self._compute_layout_groups(selected_ids)
         if not groups:
+            self.toast("Nothing to lay out", "info")
             return
 
         self._push_undo()

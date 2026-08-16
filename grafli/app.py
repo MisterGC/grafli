@@ -478,7 +478,7 @@ class MainWindow(QMainWindow):
 
         zoom_fit = QAction(self)
         zoom_fit.setShortcut(QKeySequence("Ctrl+0"))
-        zoom_fit.triggered.connect(self._zoom_fit)
+        zoom_fit.triggered.connect(self._zoom_fit_shortcut)
         self.addAction(zoom_fit)
 
         present = QAction(self)
@@ -540,6 +540,16 @@ class MainWindow(QMainWindow):
             f"⚠ {n} line{'s' if n != 1 else ''} couldn't be parsed "
             f"({'lines' if n != 1 else 'line'} {shown}{more}) — kept as comments",
             "warn")
+
+    def _zoom_fit_shortcut(self):
+        """Ctrl+0 from the keyboard. Separate from ``_zoom_fit`` because the
+        automatic fits (open, buffer switch, first resize) must stay quiet on
+        an empty board — only the deliberate keypress explains itself."""
+        if not (self.board and (self.board.boxes or self.board.notes
+                                or self.board.images)):
+            self._view.toast("Nothing on the board yet", "info")
+            return
+        self._zoom_fit()
 
     def _zoom_fit(self, animate: bool = True):
         if not (self.board and (self.board.boxes or self.board.notes
@@ -706,6 +716,9 @@ class MainWindow(QMainWindow):
                     text = buf.file_path.read_text(encoding="utf-8")
                 except OSError:
                     text = None
+                    self._view.toast(
+                        f"Could not re-read {buf.file_path.name} — "
+                        "showing the in-memory copy", "warn")
                 if text is not None and text != buf.last_written:
                     new_board = parse(text)
                     # Smart merge positions
@@ -799,6 +812,9 @@ class MainWindow(QMainWindow):
                     text = buf.file_path.read_text(encoding="utf-8")
                 except OSError:
                     text = None
+                    self._view.toast(
+                        f"Could not re-read {buf.file_path.name} — "
+                        "showing the in-memory copy", "warn")
                 if text is not None and text != buf.last_written:
                     new_board = parse(text)
                     old_positions = {
@@ -831,6 +847,8 @@ class MainWindow(QMainWindow):
         if prev >= 0 and prev < self._buffers.count and prev != self._buffers.active_index:
             self._snapshot_current()
             self._switch_buffer(prev)
+        else:
+            self._view.toast("No other buffer to switch to", "info")
 
     # ── Fuzzy finders ────────────────────────────────────────────
 
@@ -955,7 +973,10 @@ class MainWindow(QMainWindow):
         if self.board and self._file_path:
             self._write_file()
 
-    def _write_file(self) -> bool:
+    def _write_file(self, *, manual: bool = False) -> bool:
+        """Serialize the board to disk. ``manual`` marks the ⌘S path, which is
+        the only one allowed to report a deferred save — autosave retries on
+        its own and must not narrate the retry."""
         if not self.board or not self._file_path:
             return False
         from grafli.resources import (classify_attachments, externalize_md_notes,
@@ -976,6 +997,9 @@ class MainWindow(QMainWindow):
                 # from a non-atomic external editor). Skip this save and let
                 # the next tick retry against a complete file rather than
                 # overwrite an edit we couldn't read.
+                if manual:
+                    self._view.toast(
+                        "Save deferred — the file on disk is mid-write", "warn")
                 return False
             _load_vault(self._file_path, merged)
             self._view.load_board(merged)
@@ -1036,7 +1060,7 @@ class MainWindow(QMainWindow):
                 buf.file_path = self._file_path
             self._start_watching()
 
-        if self._write_file():
+        if self._write_file(manual=True):
             self._view.toast(f"Saved {self._file_path.name}")
 
     def _start_watching(self):
@@ -1125,6 +1149,9 @@ class MainWindow(QMainWindow):
         try:
             base = parse(self._last_written) if self._last_written else None
         except Exception:
+            # No readable base snapshot: the merge degrades to 2-way (local vs
+            # remote), which resolves more edits as conflicts. Silent by
+            # design — the conflict report is what the human acts on.
             base = None
         return merge_boards(base, self.board, remote)
 
@@ -1134,6 +1161,9 @@ class MainWindow(QMainWindow):
         try:
             text = self._file_path.read_text(encoding="utf-8")
         except OSError:
+            self._view.toast(
+                f"Could not re-read {self._file_path.name} — "
+                "showing the in-memory copy", "warn")
             return
         if text == self._last_written:
             return
@@ -2223,6 +2253,57 @@ def _describe_fix(fix: dict) -> str:
     return f"{iid!r} {action.removeprefix('set-')} {old} -> {new}"
 
 
+def _cmd_fmt(argv: list[str]) -> int:
+    """Normalize .grafli files the way the app's save path does: quantized
+    coordinates, canonical token order and spacing. For boards authored by
+    agents or by hand, which never pass through an app save."""
+    parser = argparse.ArgumentParser(
+        prog="grafli fmt",
+        description=(
+            "Rewrite .grafli files in the canonical serialized form — "
+            "integer coordinates, canonical token order and spacing — "
+            "preserving line order, comments, and blank lines. Files with "
+            "malformed lines are left untouched (a rewrite would demote "
+            "them to comments); fix the reported lines first."
+        ),
+    )
+    parser.add_argument("files", nargs="+", type=Path,
+                        help="Input .grafli files (rewritten in place)")
+    parser.add_argument("--check", action="store_true",
+                        help="Write nothing; exit 1 if any file would change")
+    args = parser.parse_args(argv)
+
+    changed = malformed = 0
+    for path in args.files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"cannot read {path}: {exc}", file=sys.stderr)
+            return 2
+        board = parse(text)
+        if board.parse_warnings:
+            for w in board.parse_warnings:
+                print(f"{path}:{w.line}: {w.reason}", file=sys.stderr)
+            print(f"{path}: left untouched — fix the lines above first",
+                  file=sys.stderr)
+            malformed += 1
+            continue
+        out = serialize(board)
+        if out == text:
+            continue
+        changed += 1
+        if args.check:
+            print(f"would format {path}")
+        else:
+            path.write_text(out, encoding="utf-8")
+            print(f"formatted {path}")
+    if malformed:
+        return 2
+    if args.check and changed:
+        return 1
+    return 0
+
+
 def _cmd_inspect(argv: list[str]) -> int:
     """Resolved-geometry report (JSON) for agents: element bounds,
     container inner rects, sibling gaps, next free slot per container."""
@@ -2355,7 +2436,8 @@ def _resolve_launch_file(file_arg: str | None) -> Path:
 def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
     if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
-                                              "export", "vault", "inspect"):
+                                              "export", "vault", "inspect",
+                                              "fmt"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
         if sub == "skill":
@@ -2368,12 +2450,14 @@ def main():
             sys.exit(_cmd_vault(rest))
         if sub == "inspect":
             sys.exit(_cmd_inspect(rest))
+        if sub == "fmt":
+            sys.exit(_cmd_fmt(rest))
         sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
         description="Grafli whiteboard. Subcommands: skill, render, diagnose, "
-                    "inspect, export, vault.",
+                    "inspect, export, vault, fmt.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

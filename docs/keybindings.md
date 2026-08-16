@@ -98,6 +98,7 @@ press <kbd>F1</kbd> inside the editor. See
 | <kbd>Ctrl</kbd>+<kbd>G</kbd> | Encapsulate selection in a new parent box |
 | <kbd>Ctrl</kbd>+arrow | Create connected box in that direction |
 | <kbd>Alt</kbd>+drag | Connect nodes — boxes, notes, images (from Select) |
+| <kbd>c</kbd>, click, click | Connect two nodes; clicking the same node twice draws a self-connector loop |
 | <kbd>Alt</kbd>+click | Paste at position |
 
 ## Style

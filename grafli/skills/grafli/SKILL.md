@@ -298,6 +298,13 @@ in `references/genres.md` instead.)
     (For flows/decks there is a matching check:
     `grafli export <file> --check` — see
     `references/presenting.md`.)
+11. **Format before committing.** `grafli fmt <file>.grafli` rewrites
+    the board in the canonical serialized form — integer coordinates,
+    canonical token order and spacing — exactly what the app's own save
+    produces, so hand-authored edits don't create noisy git diffs later.
+    Line order, comments, and blank lines survive; files with malformed
+    lines are left untouched (fix the reported lines first). `--check`
+    makes it a CI gate: exit 1 when a file would change.
 
 ## File format quick reference
 

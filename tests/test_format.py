@@ -1784,6 +1784,45 @@ def test_note_with_wxh_is_told_to_use_size():
     assert "~size" in w.reason
 
 
+def test_legal_tokens_out_of_order_get_the_full_grammar():
+    """#145: `^topleft` after `!flat` is legal vocabulary in an illegal
+    order — the message must name both tokens so the author isn't sent
+    hunting for a typo that isn't there."""
+    from grafli.format import parse
+    b = parse('@ box l2 "Domain" 20,150 700x110 %accent !flat ^topleft\n')
+    assert b.boxes == []
+    w = b.parse_warnings[0]
+    assert "^topleft" in w.reason
+    assert "!flat" in w.reason
+    assert "order" in w.reason
+
+
+def test_malformed_arrow_and_image_name_their_grammar():
+    from grafli.format import parse
+    b = parse('@ arrow a => b\n@ image i1 broken.svg 0,0 100x100\n')
+    reasons = [w.reason for w in b.parse_warnings]
+    assert any("malformed @ arrow" in r and "!spline" in r for r in reasons)
+    assert any("malformed @ image" in r and "!frame|!noframe" in r
+               for r in reasons)
+
+
+def test_grammar_messages_track_the_regexes():
+    """Every `!` flag a directive regex accepts appears in its FORM
+    constant — the drift that produced #145 can't silently recur."""
+    import re as _re
+    from grafli import format as fmt
+    pairs = ((fmt._RE_BOX, fmt.BOX_FORM), (fmt._RE_NOTE, fmt.NOTE_FORM),
+             (fmt._RE_ARROW, fmt.ARROW_FORM), (fmt._RE_IMAGE, fmt.IMAGE_FORM))
+    for regex, form in pairs:
+        for group in _re.findall(r'!\((?:\?:)?([a-z|]+)\)', regex.pattern):
+            for flag in group.split("|"):
+                assert "!" + flag in form, (flag, form)
+    for token in ("^topleft", "^topcenter", "*icon", "&attach", ">parent"):
+        assert token in fmt.BOX_FORM
+    assert "~width=N" in fmt.NOTE_FORM and "*icon" in fmt.NOTE_FORM
+    assert "@dx,dy" in fmt.ARROW_FORM and "~kind=" in fmt.ARROW_FORM
+
+
 def test_clean_file_has_no_parse_warnings():
     from grafli.format import parse
     b = parse('#!grafli v1\n@ box a "A" 0,0 200x80\n@ note n 0,0 "hi"\n')

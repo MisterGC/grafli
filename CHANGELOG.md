@@ -5,6 +5,81 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`grafli fmt` — canonical form for hand- and agent-authored boards.**
+  Boards written outside the app never pass through its save path, so their
+  coordinates and token spacing drift from what the app would write and the
+  next in-app save shows up as a noisy diff. `grafli fmt <file>` rewrites a
+  board exactly as the app's save would — integer coordinates, canonical
+  token order and spacing — preserving line order, comments, and blank
+  lines; `--check` makes it a CI gate. Files with malformed lines are left
+  untouched and the offending lines reported.
+  ([#20](https://github.com/MisterGC/grafli/issues/20))
+- **A blank board says how to start.** An empty board — fresh untitled
+  buffer or empty file — paints a muted hint in the middle of the canvas
+  (`n box · t note · i image`, `F1 all keys`) that vanishes the moment the
+  first element lands. Painted view chrome only: it takes no clicks and
+  never appears in renders or exports.
+  ([#153](https://github.com/MisterGC/grafli/issues/153))
+
+### Changed
+- **Every keypress either acts or explains itself.** Roughly forty keys used
+  to do nothing at all when the selection, the board or the clipboard didn't
+  suit them — no message, no clue. They now either do the obvious thing
+  (<kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> moves an image like any
+  other element) or say what's missing ("Only boxes resize with hjkl",
+  "Nothing selected to copy", "No connectors to analyse"). A refused key no
+  longer pushes an undo step or marks the board dirty, an empty yank keeps
+  the previous copy, pasting an image on an untitled board asks where to
+  save, and a failed save, re-read or editor launch reports itself instead
+  of passing unnoticed.
+  ([#154](https://github.com/MisterGC/grafli/issues/154))
+- **Adding an image to an untitled board asks for a save location instead
+  of turning you away.** Dropping an image file or placing an <kbd>i</kbd>
+  mockup used to dead-end in a "Save the board first" toast, discarding the
+  drop. The save dialog now opens right there; once the board has a path
+  the image lands where it was dropped or clicked, with the vault anchored
+  next to the new file. Cancelling the dialog cancels the add quietly.
+  ([#152](https://github.com/MisterGC/grafli/issues/152))
+
+### Fixed
+- **A self-connector draws a loop instead of nothing.** `@ arrow a -> a`
+  resolved both of its ends to the element's centre, so it rendered as a
+  zero-length line — invisible, while still counting in the graph stats and
+  the complexity heatmap. It now loops out over one of the element's corners,
+  carrying its arrowhead and label; the corner is the one whose two sides
+  carry the fewest other connectors, and a second loop takes the next corner.
+  Boxes, notes, and images all loop.
+  ([#139](https://github.com/MisterGC/grafli/issues/139))
+- **Parallel connectors between the same pair fan apart.** Two arrows between
+  one pair had identical geometry, so the second drew on top of the first and
+  its label landed on the first's. They now bow aside from the straight run,
+  one slot each, in the order they appear in the file — including the case of
+  a merged `a -> b` / `b -> a` pair plus a third arrow between the same two
+  nodes. A pair carrying a single connector is drawn exactly as before.
+  ([#140](https://github.com/MisterGC/grafli/issues/140))
+- **Connector endpoints stay out of the corners.** A direct connector took
+  whichever edge the centre-to-centre ray crossed first, so a near-diagonal
+  relation left and arrived within a few pixels of a corner and read as a
+  corner-to-corner connection; two elements whose ranges merely grazed each
+  other got a straight segment squeezed into that sliver, hugging one corner
+  of each. An endpoint now sits in the middle half of its side, on the side
+  that faces the other element, and the straight segment is reserved for a
+  shared range that covers at least one of the two centres. A connector whose
+  ray already left centrally is drawn exactly as before, and crowded-side
+  spreading, fanning, self-loops and the `!spline` / `!ortho` routings all
+  build on the corrected positions.
+  ([#156](https://github.com/MisterGC/grafli/issues/156))
+- **Malformed-line warnings name the full grammar.** The `@ box` demotion
+  message stopped at `[%color] [~size]`, so a line rejected for putting a
+  legal token like `^topleft` or `!flat` in the wrong slot pointed the
+  author at a typo that wasn't there. All four directive warnings (`box`,
+  `note`, `arrow`, `image`) now spell out every accepted token in the order
+  the parser requires, and say that the order is load-bearing.
+  ([#145](https://github.com/MisterGC/grafli/issues/145))
+
 ## [0.10.0] - 2026-08-15
 
 ### Added

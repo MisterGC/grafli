@@ -489,6 +489,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
 
     def drawForeground(self, painter: QPainter, rect: QRectF):
         super().drawForeground(painter, rect)
+        # The empty-board hint sits under everything else — any other chrome
+        # showing means the board is no longer a blank sheet anyway.
+        self._draw_empty_hint(painter)
         # Scene-coord overlays first (the painter is still in scene space here);
         # the viewport-space HUD below resets the transform.
         self._draw_drag_guides(painter)
@@ -754,6 +757,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             return
         scene_pos = self.mapToScene(event.position().toPoint())
         event.acceptProposedAction()
+        window = self.window()
+        untitled = (getattr(window, "_file_path", None) is None
+                    and hasattr(window, "_save_file"))
+        if untitled:
+            # An untitled board asks for a save location first (#152), and a
+            # modal dialog must not open while the system's drag session is
+            # still unwinding — let the drop return, then add.
+            QTimer.singleShot(0, lambda: self._add_image_files(paths, scene_pos))
+            return
         self._add_image_files(paths, scene_pos)
 
     def wheelEvent(self, event: QWheelEvent):
@@ -1039,12 +1051,12 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event):
-        # Fuzzy overlay handles its own input
-        if self._fuzzy_overlay:
-            return
-
-        # Zen overlay handles its own input
-        if self._zen_editor:
+        # Fuzzy overlay / zen editor handle their own input: no canvas
+        # shortcut runs, but the key still travels down to Qt rather than
+        # being dropped here — a key that reaches the view while one of them
+        # is up would otherwise vanish without a trace.
+        if self._fuzzy_overlay or self._zen_editor:
+            super().keyPressEvent(event)
             return
 
         # Inline note editor: the view is the focused Qt widget, so forward
@@ -1475,8 +1487,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             event.accept()
             return
 
-        # Ctrl+G — encapsulate the selection in a new parent box
-        if event.key() == Qt.Key.Key_G and mods & _CTRL_MOD and has_selection:
+        # Ctrl+G — encapsulate the selection in a new parent box. Reached
+        # without a selection too, so the empty case can say what's missing.
+        if event.key() == Qt.Key.Key_G and mods & _CTRL_MOD:
             self._record_shortcut("Ctrl+G → encapsulate")
             self._encapsulate_selection()
             event.accept()
@@ -1512,8 +1525,15 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     amount = big_step if shift else step
                     dx = dx_dir * amount
                     dy = dy_dir * amount
+                    movable = [it for it in self._scene.selectedItems()
+                               if isinstance(it, (BoxItem, NoteItem, ImageItem))]
+                    if not movable:
+                        self.toast("Select a box, note, or image to move",
+                                   "warn")
+                        event.accept()
+                        return
                     self._push_undo()
-                    for item in self._scene.selectedItems():
+                    for item in movable:
                         if isinstance(item, BoxItem):
                             item.box.x += dx
                             item.box.y += dy
@@ -1522,6 +1542,10 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                             item.note.x += dx
                             item.note.y += dy
                             item.setPos(item.note.x, item.note.y)
+                        else:
+                            item.image.x += dx
+                            item.image.y += dy
+                            item.setPos(item.image.x, item.image.y)
                     self._update_mode_badge_pos()
                     self.arrow_update_needed.emit()
                     self.mark_dirty()
@@ -1577,10 +1601,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     Qt.Key.Key_K, Qt.Key.Key_L,
                 )
                 if dim_key and (no_mod or only_shift):
+                    boxes = [it for it in self._scene.selectedItems()
+                             if isinstance(it, BoxItem)]
+                    if not boxes:
+                        self.toast("Only boxes resize with hjkl", "warn")
+                        event.accept()
+                        return
                     self._push_undo()
-                    for item in self._scene.selectedItems():
-                        if not isinstance(item, BoxItem):
-                            continue
+                    for item in boxes:
                         x, y, w, h = item.box.x, item.box.y, item.box.w, item.box.h
                         if shift:
                             # Grow
@@ -1825,6 +1853,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                     self._focus_direction = "all"
                     self._focus_depth = 0
                     self._apply_focus_filter()
+                else:
+                    self.toast("Select a single box to focus its subgraph",
+                               "warn")
             event.accept()
             return
 
@@ -1833,6 +1864,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             if self._focus_active:
                 self._focus_depth = 0 if self._focus_depth == 1 else 1
                 self._apply_focus_filter()
+            else:
+                self.toast("Press B first to focus a subgraph", "warn")
             event.accept()
             return
 
@@ -2055,24 +2088,24 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         """
         if not self._board:
             return
-        window = self.window()
-        file_path = getattr(window, "_file_path", None)
-        if not file_path:
-            self.toast("Save the board first to add images")
+        from grafli.resources import new_svg_resource
+        # Read the click before the save dialog can steal the pointer: the
+        # mockup belongs where the user clicked, not where the mouse ends up.
+        scene_pos = self.mapToScene(event.position().toPoint())
+        file_path = self._grafli_path_or_save()
+        if file_path is None:
             self.set_mode(Mode.SELECT)
             return
-        from grafli.resources import new_svg_resource
-        scene_pos = self.mapToScene(event.position().toPoint())
         self._push_undo()
         image_id = self._board.next_image_id()
-        ref = new_svg_resource(Path(file_path), image_id)
+        ref = new_svg_resource(file_path, image_id)
         w, h = 320.0, 240.0   # the 4:3 fit box; the starter canvas is 400x300
         image = Image(id=image_id, image_path=ref,
                       x=scene_pos.x() - w / 2, y=scene_pos.y() - h / 2,
                       w=w, h=h)
         self._board.add_image(image)
 
-        item = ImageItem(image, base_dir=str(Path(file_path).parent))
+        item = ImageItem(image, base_dir=str(file_path.parent))
         self._scene.addItem(item)
         self._image_items[image.id] = item
         self.mark_dirty()
@@ -2125,20 +2158,22 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                 center.x(), center.y(), scene_pos.x(), scene_pos.y(), pen
             )
         else:
-            # Second click — create arrow or select existing
-            if item is not self._connect_source:
-                src_id = self._item_id(self._connect_source)
-                tgt_id = self._item_id(item)
-                existing = self._find_existing_arrow(src_id, tgt_id)
-                if existing:
-                    self.set_mode(Mode.SELECT)
-                    self._select_arrow(existing)
-                else:
-                    self._push_undo()
-                    arrow = self._make_connector(src_id, tgt_id)
-                    self._board.add_arrow(arrow)
-                    self._redraw_arrows()
-                    self.mark_dirty()
+            # Second click — create arrow or select existing. Clicking the
+            # source again is the self-connector gesture (#139): the release
+            # path keeps its same-element guard, so a plain click-and-release
+            # on one element never loops by accident.
+            src_id = self._item_id(self._connect_source)
+            tgt_id = self._item_id(item)
+            existing = self._find_existing_arrow(src_id, tgt_id)
+            if existing:
+                self.set_mode(Mode.SELECT)
+                self._select_arrow(existing)
+            else:
+                self._push_undo()
+                arrow = self._make_connector(src_id, tgt_id)
+                self._board.add_arrow(arrow)
+                self._redraw_arrows()
+                self.mark_dirty()
 
             self._connect_source = None
 

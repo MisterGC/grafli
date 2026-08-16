@@ -1,9 +1,10 @@
 """Transient overlays and feedback for GrafliView (mixin).
 
 The view's ephemeral UI layer: confirmation flashes, toasts, the shared
-fade helper behind all transient micro-motion, the debug overlay, the
-glyph picker, and the Shift+H cheatsheet dialog. Nothing here touches the
-board model — it is presentation-only feedback on top of the canvas.
+fade helper behind all transient micro-motion, the empty-board hint, the
+debug overlay, the glyph picker, and the Shift+H cheatsheet dialog. Nothing
+here touches the board model — it is presentation-only feedback on top of
+the canvas.
 """
 
 from __future__ import annotations
@@ -226,6 +227,56 @@ class OverlaysMixin:
         painter.setPen(QPen(theme.overlay_ink(0.92)))
         painter.drawText(QRectF(rx, ry, rw, rh), Qt.AlignmentFlag.AlignCenter,
                          text)
+        painter.restore()
+
+    # ── Empty-board hint ──
+
+    # (line, point size) — the first keys a blank board can be started with.
+    # Keys must stay in sync with the mode shortcuts in GrafliView.keyPressEvent.
+    _EMPTY_HINT = (
+        ("n box  ·  t note  ·  i image", 15),
+        ("F1 all keys", 11),
+    )
+
+    def _empty_hint_lines(self) -> tuple[tuple[str, int], ...]:
+        """Return the starting hint's (line, size) pairs, () when it is off.
+
+        A board with nothing on it offers no way in to a keyboard-driven
+        canvas (#153); the moment the first element lands the hint has done
+        its job and the board speaks for itself.
+        """
+        board = self._board
+        if board is None:
+            return ()
+        if board.boxes or board.notes or board.images or board.arrows:
+            return ()
+        return self._EMPTY_HINT
+
+    def _draw_empty_hint(self, painter: QPainter):
+        """Paint the starting hint in the middle of the viewport.
+
+        Painted rather than a widget, so it takes no clicks and — like the
+        grid dots — stays out of exports, which render the scene, not the view.
+        """
+        lines = self._empty_hint_lines()
+        if not lines:
+            return
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        painter.setPen(QPen(QColor(theme.INK_MUTED)))
+        gap = 12
+        heights = []
+        for _, size in lines:
+            painter.setFont(QFont(FONT_FAMILY, size))
+            heights.append(painter.fontMetrics().height())
+        vp = self.viewport().rect()
+        y = vp.center().y() - (sum(heights) + gap * (len(lines) - 1)) / 2
+        for (text, size), h in zip(lines, heights):
+            painter.setFont(QFont(FONT_FAMILY, size))
+            painter.drawText(QRectF(0, y, vp.width(), h),
+                             Qt.AlignmentFlag.AlignCenter, text)
+            y += h + gap
         painter.restore()
 
     # ── Debug overlay ──

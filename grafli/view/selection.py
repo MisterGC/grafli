@@ -1280,12 +1280,13 @@ class SelectionMixin:
                            + "  (Shift+Del deletes the doc too)")
             return
         removed, shared = [], sorted(n for n in names if n in still)
+        failed = []
         for n in orphaned:
             try:
                 doc_path(Path(grafli_path), n).unlink(missing_ok=True)
                 removed.append(n)
             except OSError:
-                pass
+                failed.append(n)
         if removed and hasattr(window, "_watch_docs"):
             window._watch_docs()   # re-baseline so the unlink doesn't echo back
         msg = ""
@@ -1294,6 +1295,9 @@ class SelectionMixin:
         if shared:
             msg += (" · " if msg else "") + "kept (still referenced): " \
                 + ", ".join(f"{n}.md" for n in shared)
+        if failed:
+            msg += (" · " if msg else "") + "could not delete: " \
+                + ", ".join(f"{n}.md" for n in failed) + " — check permissions"
         if msg:
-            self.toast(msg, "warn" if shared else "info")
+            self.toast(msg, "warn" if (shared or failed) else "info")
 

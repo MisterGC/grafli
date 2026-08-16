@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`grafli fmt` — canonical form for hand- and agent-authored boards.**
+  Boards written outside the app never pass through its save path, so their
+  coordinates and token spacing drift from what the app would write and the
+  next in-app save shows up as a noisy diff. `grafli fmt <file>` rewrites a
+  board exactly as the app's save would — integer coordinates, canonical
+  token order and spacing — preserving line order, comments, and blank
+  lines; `--check` makes it a CI gate. Files with malformed lines are left
+  untouched and the offending lines reported.
+  ([#20](https://github.com/MisterGC/grafli/issues/20))
+
+### Fixed
+- **Malformed-line warnings name the full grammar.** The `@ box` demotion
+  message stopped at `[%color] [~size]`, so a line rejected for putting a
+  legal token like `^topleft` or `!flat` in the wrong slot pointed the
+  author at a typo that wasn't there. All four directive warnings (`box`,
+  `note`, `arrow`, `image`) now spell out every accepted token in the order
+  the parser requires, and say that the order is load-bearing.
+  ([#145](https://github.com/MisterGC/grafli/issues/145))
+
 ## [0.10.0] - 2026-08-15
 
 ### Added

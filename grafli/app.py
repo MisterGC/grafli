@@ -2223,6 +2223,57 @@ def _describe_fix(fix: dict) -> str:
     return f"{iid!r} {action.removeprefix('set-')} {old} -> {new}"
 
 
+def _cmd_fmt(argv: list[str]) -> int:
+    """Normalize .grafli files the way the app's save path does: quantized
+    coordinates, canonical token order and spacing. For boards authored by
+    agents or by hand, which never pass through an app save."""
+    parser = argparse.ArgumentParser(
+        prog="grafli fmt",
+        description=(
+            "Rewrite .grafli files in the canonical serialized form — "
+            "integer coordinates, canonical token order and spacing — "
+            "preserving line order, comments, and blank lines. Files with "
+            "malformed lines are left untouched (a rewrite would demote "
+            "them to comments); fix the reported lines first."
+        ),
+    )
+    parser.add_argument("files", nargs="+", type=Path,
+                        help="Input .grafli files (rewritten in place)")
+    parser.add_argument("--check", action="store_true",
+                        help="Write nothing; exit 1 if any file would change")
+    args = parser.parse_args(argv)
+
+    changed = malformed = 0
+    for path in args.files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"cannot read {path}: {exc}", file=sys.stderr)
+            return 2
+        board = parse(text)
+        if board.parse_warnings:
+            for w in board.parse_warnings:
+                print(f"{path}:{w.line}: {w.reason}", file=sys.stderr)
+            print(f"{path}: left untouched — fix the lines above first",
+                  file=sys.stderr)
+            malformed += 1
+            continue
+        out = serialize(board)
+        if out == text:
+            continue
+        changed += 1
+        if args.check:
+            print(f"would format {path}")
+        else:
+            path.write_text(out, encoding="utf-8")
+            print(f"formatted {path}")
+    if malformed:
+        return 2
+    if args.check and changed:
+        return 1
+    return 0
+
+
 def _cmd_inspect(argv: list[str]) -> int:
     """Resolved-geometry report (JSON) for agents: element bounds,
     container inner rects, sibling gaps, next free slot per container."""
@@ -2355,7 +2406,8 @@ def _resolve_launch_file(file_arg: str | None) -> Path:
 def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
     if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
-                                              "export", "vault", "inspect"):
+                                              "export", "vault", "inspect",
+                                              "fmt"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
         if sub == "skill":
@@ -2368,12 +2420,14 @@ def main():
             sys.exit(_cmd_vault(rest))
         if sub == "inspect":
             sys.exit(_cmd_inspect(rest))
+        if sub == "fmt":
+            sys.exit(_cmd_fmt(rest))
         sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
         description="Grafli whiteboard. Subcommands: skill, render, diagnose, "
-                    "inspect, export, vault.",
+                    "inspect, export, vault, fmt.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

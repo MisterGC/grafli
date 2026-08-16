@@ -19,6 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#20](https://github.com/MisterGC/grafli/issues/20))
 
 ### Fixed
+- **A self-connector draws a loop instead of nothing.** `@ arrow a -> a`
+  resolved both of its ends to the element's centre, so it rendered as a
+  zero-length line — invisible, while still counting in the graph stats and
+  the complexity heatmap. It now loops out over one of the element's corners,
+  carrying its arrowhead and label; the corner is the one whose two sides
+  carry the fewest other connectors, and a second loop takes the next corner.
+  Boxes, notes, and images all loop.
+  ([#139](https://github.com/MisterGC/grafli/issues/139))
+- **Parallel connectors between the same pair fan apart.** Two arrows between
+  one pair had identical geometry, so the second drew on top of the first and
+  its label landed on the first's. They now bow aside from the straight run,
+  one slot each, in the order they appear in the file — including the case of
+  a merged `a -> b` / `b -> a` pair plus a third arrow between the same two
+  nodes. A pair carrying a single connector is drawn exactly as before.
+  ([#140](https://github.com/MisterGC/grafli/issues/140))
 - **Malformed-line warnings name the full grammar.** The `@ box` demotion
   message stopped at `[%color] [~size]`, so a line rejected for putting a
   legal token like `^topleft` or `!flat` in the wrong slot pointed the

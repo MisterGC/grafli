@@ -598,3 +598,141 @@ def relax_positions(desired: list[float], min_sep: float,
         out[i] = vals[slot]
     return out
 
+
+# ── Self-connectors and parallel edges ─────────────────────────────
+#
+# Both are cases where a connector's own two endpoints don't determine its
+# shape. A self-connector has one endpoint, so there is no centre-to-centre ray
+# to follow at all (#139); parallel connectors between one pair have *identical*
+# endpoints, so nothing local to a connector tells it apart from its sibling
+# (#140). Each therefore takes one extra input — which corner is free, which
+# slot in the fan — and stays a pure function of that plus the element rects.
+
+# The adjacent side pairs a self-connector can loop over, in the order they are
+# tried. A pair carrying no other connector wins; a tie keeps this order, so the
+# app and a headless render pick the same corner.
+SELF_LOOP_SIDES = (("n", "e"), ("e", "s"), ("s", "w"), ("w", "n"))
+# How close to the shared corner each end of the loop sits, along its side.
+# Close enough that the loop reads as a loop rather than as a connector
+# wandering around the element, clear enough that it isn't a kink in the corner.
+SELF_LOOP_T = 0.72
+# How far the loop bulges past the corner, as a fraction of the element's
+# smaller side, clamped so a tiny note still gets a visible loop and a large
+# container doesn't get a balloon.
+SELF_LOOP_REACH = 0.62
+SELF_LOOP_REACH_MIN = 40.0
+SELF_LOOP_REACH_MAX = 120.0
+
+# How far apart a fan pushes the middles of two connectors between the same
+# pair. The anchor pass has already separated their ends, so the fan only has to
+# open up the run between them — where the labels sit. Modest on purpose: a wide
+# bow reads as a detour rather than as a second connector.
+PARALLEL_FAN_STEP = 22.0
+PARALLEL_FAN_MAX_SPAN = 110.0
+
+# Which way "further along the side" points. Anchors are spread by increasing
+# ``t`` (see relax_positions), so a fan measured against this direction puts
+# every connector's bow on the same side as its own anchor — bowing the other
+# way would send it across the sibling it is being separated from.
+_SIDE_ALONG = {"n": (1.0, 0.0), "s": (1.0, 0.0), "e": (0.0, 1.0), "w": (0.0, 1.0)}
+
+
+def pick_self_loop_sides(load: dict[str, int]) -> tuple[str, str]:
+    """The adjacent side pair a self-connector loops over.
+
+    ``load`` counts the connectors already attached to each side, so the loop
+    settles on the emptiest corner of the element instead of landing on top of
+    its neighbours.
+    """
+    return min(SELF_LOOP_SIDES,
+               key=lambda pair: load.get(pair[0], 0) + load.get(pair[1], 0))
+
+
+def self_loop_ts(out_side: str, in_side: str) -> tuple[float, float]:
+    """Where the two ends of a self-loop sit on their sides, as 0..1.
+
+    Both sit near the corner the two sides share; which end of a side that is
+    depends on the corner, since ``t`` always runs left-to-right or top-to-bottom.
+    """
+    corner = {out_side, in_side}
+
+    def near(side: str) -> float:
+        at_high_end = ("e" in corner) if side in ("n", "s") else ("s" in corner)
+        return SELF_LOOP_T if at_high_end else 1.0 - SELF_LOOP_T
+
+    return near(out_side), near(in_side)
+
+
+def self_loop_path(rect: tuple, start: QPointF, start_side: str,
+                   end: QPointF, end_side: str) -> QPainterPath:
+    """A loop leaving one side of ``rect`` and re-entering an adjacent one.
+
+    Same construction as a spline — leave along each side's normal — with the
+    bulge derived from the element's own size rather than from the distance
+    between the two ends, which on a loop is only ever a corner apart.
+    """
+    _x, _y, w, h = rect
+    reach = max(SELF_LOOP_REACH_MIN,
+                min(SELF_LOOP_REACH_MAX, min(w, h) * SELF_LOOP_REACH))
+    sx, sy = _NORMALS[start_side]
+    ex, ey = _NORMALS[end_side]
+    path = QPainterPath(start)
+    path.cubicTo(
+        QPointF(start.x() + sx * reach, start.y() + sy * reach),
+        QPointF(end.x() + ex * reach, end.y() + ey * reach),
+        end,
+    )
+    return path
+
+
+def fan_offsets(n: int) -> list[float]:
+    """Lateral offsets for ``n`` connectors between the same pair.
+
+    Symmetric about the straight run, so a fan grows outward from where the
+    single connector would have been. The span is capped, so a pair with many
+    connectors tightens rather than sweeping across the board.
+    """
+    if n < 2:
+        return [0.0] * n
+    step = min(PARALLEL_FAN_STEP, PARALLEL_FAN_MAX_SPAN / (n - 1))
+    return [(i - (n - 1) / 2) * step for i in range(n)]
+
+
+def fan_normal(start: QPointF, end: QPointF,
+               start_side: str) -> tuple[float, float]:
+    """Unit vector a positive fan offset bows toward."""
+    dx, dy = end.x() - start.x(), end.y() - start.y()
+    length = math.hypot(dx, dy)
+    if length < 1e-9:
+        return 0.0, 0.0
+    nx, ny = -dy / length, dx / length
+    ax, ay = _SIDE_ALONG[start_side]
+    along = nx * ax + ny * ay
+    # A connector running along its own side has no ordering to agree with, so
+    # break the tie on the vector itself and keep the choice deterministic.
+    if along < 0 or (along == 0 and (nx < 0 or (nx == 0 and ny < 0))):
+        nx, ny = -nx, -ny
+    return nx, ny
+
+
+def bowed_path(start: QPointF, end: QPointF, start_side: str,
+               offset: float) -> QPainterPath:
+    """The run between two anchors, bowed sideways by ``offset`` at its middle.
+
+    A zero offset gives back the straight line, so the only boards this touches
+    are the ones that actually have connectors to separate.
+    """
+    path = QPainterPath(start)
+    if abs(offset) < 1e-9:
+        path.lineTo(end)
+        return path
+    nx, ny = fan_normal(start, end, start_side)
+    # A quadratic passes through (P0 + 2C + P1) / 4 at its middle, so the
+    # control point carries twice the offset the apex should show.
+    path.quadTo(
+        QPointF((start.x() + end.x()) / 2 + nx * offset * 2,
+                (start.y() + end.y()) / 2 + ny * offset * 2),
+        end,
+    )
+    return path
+

@@ -26,10 +26,15 @@ from grafli.arrows import (
     _rect_edge_point,
     ANCHOR_MIN_SEP,
     ROUTED_CENTRE_BIAS,
+    bowed_path,
+    fan_offsets,
     path_end_angle,
+    pick_self_loop_sides,
     point_on_side,
     relax_positions,
     routed_path,
+    self_loop_path,
+    self_loop_ts,
     side_of_point,
     split_path_at_rect,
     t_of_point,
@@ -445,18 +450,26 @@ class SelectionMixin:
         makes a connector heading right sit to the right of one arriving from
         above-left, instead of crossing it.
 
+        A self-connector has no ray at all — both ends resolve to the same
+        element — so its ends are chosen rather than derived: it loops over the
+        corner whose two sides carry the fewest other connectors (#139). It
+        registers those ends like any other connector, so a second self-loop on
+        the same element picks a different corner and the spread below keeps the
+        loop clear of the connectors already there.
+
         Returns ``idx -> (start, start_side, end, end_side, moved)``, where
         ``moved`` is False for a direct connector that kept its natural
         position — the caller leaves those on the untouched code path.
         """
         natural: dict[int, list] = {}
         groups: dict[tuple[str, str], list] = {}
+        self_conns: list[tuple[int, str, tuple]] = []
 
         for idx, (from_id, to_id, _ht, _hf, fwd, _rev) in enumerate(render_list):
             f_id = self._lod_reroute(from_id)
             t_id = self._lod_reroute(to_id)
-            if f_id == t_id:
-                continue
+            if f_id == t_id and from_id != to_id:
+                continue                     # collapsed into one tile
             if (self._lod_hull_member.get(f_id) is not None
                     or self._lod_hull_member.get(t_id) is not None):
                 continue                     # hull boundary, not a box side
@@ -470,6 +483,10 @@ class SelectionMixin:
                 continue
             f_rect = self._elem_rect(f_elem)
             t_rect = self._elem_rect(t_elem)
+
+            if f_id == t_id:
+                self_conns.append((idx, f_id, f_rect))
+                continue                     # placed once the sides are known
 
             aligned = (_aligned_edge_points(f_elem, t_elem)
                        if isinstance(f_elem, Box) and isinstance(t_elem, Box)
@@ -503,6 +520,16 @@ class SelectionMixin:
             groups.setdefault((f_id, s_side), []).append((idx, 0))
             groups.setdefault((t_id, e_side), []).append((idx, 1))
 
+        for idx, elem_id, rect in self_conns:
+            load = {side: len(groups.get((elem_id, side), ()))
+                    for side in ("n", "e", "s", "w")}
+            out_side, in_side = pick_self_loop_sides(load)
+            out_t, in_t = self_loop_ts(out_side, in_side)
+            natural[idx] = [rect, out_side, out_t, rect, in_side, in_t,
+                            True, out_t, in_t]
+            groups.setdefault((elem_id, out_side), []).append((idx, 0))
+            groups.setdefault((elem_id, in_side), []).append((idx, 1))
+
         slots: dict[tuple[int, int], float] = {}
         for (_elem_id, side), members in groups.items():
             if len(members) < 2:
@@ -518,17 +545,48 @@ class SelectionMixin:
                 slots[member] = value
 
         anchors = {}
-        for idx, (f_rect, s_side, s_t, t_rect, e_side, e_t, routed,
+        for idx, (f_rect, s_side, s_t, t_rect, e_side, e_t, derived,
                   _rs, _re) in natural.items():
+            # ``derived`` marks a connector whose shape comes from these anchors
+            # whether or not they moved — a routed one, or a self-loop.
             new_s = slots.get((idx, 0), s_t)
             new_e = slots.get((idx, 1), e_t)
             moved = abs(new_s - s_t) > 1e-6 or abs(new_e - e_t) > 1e-6
-            if not routed and not moved:
+            if not derived and not moved:
                 continue                     # untouched: keep the old path
             anchors[idx] = (point_on_side(f_rect, s_side, new_s), s_side,
                             point_on_side(t_rect, e_side, new_e), e_side,
                             moved)
         return anchors
+
+    def _parallel_offsets(self, render_list) -> dict[int, float]:
+        """How far each connector between an already-linked pair bows aside.
+
+        Two connectors between the same two elements have the same geometry, so
+        nothing local to one of them can tell it apart from its sibling — the
+        fan is the one place a connector has to know what else runs alongside it
+        (#140). The order is the order the connectors appear in the file, so the
+        app and a headless render fan them the same way.
+
+        Only pairs are grouped, never a self-connector: a loop has no run to bow
+        and gets its own corner instead. Returns nothing for a pair carrying a
+        single connector, which is what keeps those boards untouched.
+        """
+        groups: dict[tuple[str, str], list[int]] = {}
+        for idx, (from_id, to_id, *_rest) in enumerate(render_list):
+            f_id = self._lod_reroute(from_id)
+            t_id = self._lod_reroute(to_id)
+            if f_id == t_id:
+                continue
+            groups.setdefault(tuple(sorted((f_id, t_id))), []).append(idx)
+
+        offsets: dict[int, float] = {}
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            for idx, offset in zip(members, fan_offsets(len(members))):
+                offsets[idx] = offset
+        return offsets
 
     def _redraw_arrows(self):
         for item in self._arrow_items:
@@ -556,6 +614,7 @@ class SelectionMixin:
             if (
                 reverse is not None
                 and reverse is not arrow
+                and arrow.from_id != arrow.to_id   # two loops aren't a pair
                 and not (arrow.head_from and arrow.head_to)
                 and not (reverse.head_from and reverse.head_to)
                 and id(reverse) not in {id(self._board.arrows[j]) for j in merged}
@@ -576,16 +635,21 @@ class SelectionMixin:
                 ))
 
         conn_anchors = self._connector_anchors(render_list)
+        conn_offsets = self._parallel_offsets(render_list)
         obstacle_rects = self._routing_obstacles()
 
         for idx, (from_id, to_id, draw_head_to, draw_head_from, fwd, rev) in enumerate(
                 render_list):
+            # A connector authored onto one element loops back to it; it is not
+            # an edge that collapsed into a single tile, so it survives the drop
+            # below and draws from the anchors chosen for it.
+            is_self = from_id == to_id
             # Level-of-Detail: an endpoint inside a collapsed container re-routes
             # to that container's tile; an edge that becomes internal to a single
             # tile (both ends resolve to it) is dropped.
             from_id = self._lod_reroute(from_id)
             to_id = self._lod_reroute(to_id)
-            if from_id == to_id:
+            if from_id == to_id and not is_self:
                 continue
             from_hull = self._lod_hull_member.get(from_id)
             to_hull = self._lod_hull_member.get(to_id)
@@ -640,7 +704,15 @@ class SelectionMixin:
                 pen.setWidthF(max(0.5, arrow_width * 0.5))
 
             # Calculate start/end points
-            if both_boxes:
+            if is_self:
+                # No centre-to-centre ray to cross an edge with: a loop's two
+                # ends are the side anchors chosen in _connector_anchors, and
+                # without them there is nothing to draw.
+                loop = conn_anchors.get(idx)
+                if loop is None:
+                    continue
+                start, end = loop[0], loop[2]
+            elif both_boxes:
                 aligned = _aligned_edge_points(from_elem, to_elem)
                 if aligned:
                     start, end = aligned
@@ -678,7 +750,11 @@ class SelectionMixin:
             if anchors and from_hull is None and to_hull is None:
                 a_start, a_start_side, a_end, a_end_side, _moved = anchors
                 start, end = a_start, a_end
-                if fwd.routing:
+                if is_self:
+                    conn_path = self_loop_path(self._elem_rect(from_elem),
+                                               start, a_start_side,
+                                               end, a_end_side)
+                elif fwd.routing:
                     # A connector may pass over its own endpoints and over any
                     # container holding them — it starts on their edges, so
                     # counting those as obstacles would block every candidate.
@@ -688,6 +764,16 @@ class SelectionMixin:
                         fwd.routing, start, a_start_side, end, a_end_side,
                         [r for bid, r in obstacle_rects.items()
                          if bid not in skip])
+
+            # Connectors sharing a pair leave from anchors the spread pass has
+            # already pushed apart, but the run between them still coincides, so
+            # each bows aside by its slot in the fan. A routed connector is
+            # already shaped from its own anchors and keeps its route.
+            offset = conn_offsets.get(idx, 0.0)
+            if conn_path is None and offset and not fwd.routing:
+                bow_side = (anchors[1] if anchors and from_hull is None
+                            else side_of_point(self._elem_rect(from_elem), start))
+                conn_path = bowed_path(start, end, bow_side, offset)
 
             dx = end.x() - start.x()
             dy = end.y() - start.y()

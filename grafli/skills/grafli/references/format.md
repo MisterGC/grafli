@@ -121,7 +121,12 @@ your diagram is the graph; the detail lives in notes adjacent to it.
 | Annotation | `# text` | authoring metadata (indicator dot, not visible text) |
 
 Arrows auto-route from box edge to box edge. Opposite arrows
-(`A->B` and `B->A`) merge into a single bidirectional line.
+(`A->B` and `B->A`) merge into a single bidirectional line. An arrow
+onto its own source (`A->A`) draws a loop over the emptiest corner of
+the element — use it for retries, recursion, and self-transitions.
+Several arrows between the same two elements fan apart, one line and
+one label each, in the order they appear in the file; a third arrow
+between a merged pair fans against the merged line.
 
 **Connector kind.** An arrow touching a note or image defaults to an
 *annotation* link (muted, "just extra text"); box↔box arrows are *graph*

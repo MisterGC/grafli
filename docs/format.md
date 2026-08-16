@@ -46,6 +46,20 @@ image and are serialized only when they deviate from the default.
 | `<->`    | Bidirectional     |
 | `--`     | No arrowhead      |
 
+An arrow may point back at the element it starts from — `@ arrow a -> a` draws
+a **self-connector**: a loop that leaves one side of the element and re-enters
+the adjacent one, carrying its arrowhead and label like any other connector. It
+takes the corner whose two sides carry the fewest other connectors, so it
+settles in the free space around the element rather than on top of its
+neighbours; a second loop on the same element takes the next corner.
+
+Several arrows between the *same* two elements **fan apart** instead of stacking
+— each one bows aside from the straight run so its own label sits on its own
+line. `a -> b` plus `b -> a` still merge into a single two-headed connector; a
+third arrow between the pair fans against that merged line. The order is the
+order the arrows appear in the file, so the picture is the same in the app and
+in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
+
 ### Modifiers
 
 - `<color>` — built-in tokens: `%base`, `%primary`, `%secondary`,

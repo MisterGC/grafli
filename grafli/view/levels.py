@@ -235,12 +235,37 @@ class LevelsMixin:
         """Animate level changes only on screen; offscreen they are instant."""
         return self.isVisible() and ZOOM_MS > 0
 
+    def _board_file(self):
+        return getattr(self.window(), "_file_path", None)
+
+    def _track_level_transition(self):
+        """Remember the running level zoom and the board it plays on, so a
+        board switch before it ends can call it off."""
+        self._level_timeline = self._zoom_timeline
+        self._level_board = self._board_file()
+
+    def _cancel_level_transition(self):
+        """Called as a board loads: a level zoom still running on another
+        board stops, so it neither drags the new board's camera nor opens
+        the sub-board or restores the parent's view afterwards."""
+        tl = getattr(self, "_level_timeline", None)
+        if tl is None:
+            return
+        if tl is self._zoom_timeline and self._board_file() != self._level_board:
+            tl.stop()
+            self._zoom_timeline = None
+            self._level_timeline = None
+
     def play_enter(self, el, rect: QRectF, switch):
         """Zoom into *rect* (where *el* sits on this board), then call
         *switch* to open the sub-board and crossfade over to it."""
         self._show_entry_miniature(el)
+        here = self._board_file()
 
         def handover():
+            self._level_timeline = None
+            if self._board_file() != here:
+                return
             still = self.viewport().grab()
             switch()
             _Crossfade(self.viewport(), still)
@@ -249,8 +274,9 @@ class LevelsMixin:
                               easing=QEasingCurve.Type.InOutCubic)
         if self._zoom_timeline is None:
             handover()
-        else:
-            self._zoom_timeline.finished.connect(handover)
+            return
+        self._track_level_transition()
+        self._zoom_timeline.finished.connect(handover)
 
     def play_exit(self, el, rect: QRectF, still: QPixmap, vs):
         """`gu`'s reverse transition, called right after the parent board was
@@ -269,8 +295,17 @@ class LevelsMixin:
         _Crossfade(self.viewport(), still)
         self._animate_to_zoom_and_center(zoom, center, duration=ZOOM_MS,
                                          easing=QEasingCurve.Type.InOutCubic)
-        # Land exactly where you left the board, rounding aside.
+        # Land exactly where you left the board, rounding aside — unless you
+        # have left it again since.
+        here = self._board_file()
+
+        def land():
+            self._level_timeline = None
+            if self._board_file() == here:
+                self.restore_view(vs)
+
         if self._zoom_timeline is None:
-            self.restore_view(vs)
-        else:
-            self._zoom_timeline.finished.connect(lambda: self.restore_view(vs))
+            land()
+            return
+        self._track_level_transition()
+        self._zoom_timeline.finished.connect(land)

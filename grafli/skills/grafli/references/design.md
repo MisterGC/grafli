@@ -294,7 +294,10 @@ Every element can carry **one** typed attachment:
 - `&doc:<name>` — a markdown document at `<stem>-res/<name>.md` (bare
   name, no path/extension). On a **note** it is rendered as the body
   (that's what a markdown note is — bare `&doc` names it after the note
-  id); on a box/image/arrow it opens in the editor.
+  id); on a box/image/arrow it opens in the editor. A box shows the
+  doc's first sentence on one line below its label (when the box has
+  room for it) and `gv` peeks the whole doc — so open the doc with one
+  sentence that says what the box is.
 - `&graph:<name>` — a sub-board at `<stem>-res/<name>.grafli`; its own
   resources nest at `<stem>-res/<name>-res/`.
 - `&graph:<name>#<id>` / `&link:<path>.grafli#<id>` — open that board

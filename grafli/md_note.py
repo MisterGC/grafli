@@ -134,3 +134,80 @@ def md_body(text: str) -> str:
             out.append(line)
             consumed = True
     return "\n".join(out)
+
+
+# Inline Markdown reduced to its text, in order: images and links keep their
+# text, code spans, bold, italic and strikethrough lose their markers.
+_INLINE_RULES = (
+    (re.compile(r"!\[([^\]]*)\]\([^)]*\)"), r"\1"),
+    (re.compile(r"\[([^\]]*)\]\([^)]*\)"), r"\1"),
+    (re.compile(r"<((?:https?|mailto):[^>]+)>"), r"\1"),
+    (re.compile(r"`([^`]*)`"), r"\1"),
+    (re.compile(r"(\*\*|__)(.+?)\1"), r"\2"),
+    (re.compile(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])"), r"\1"),
+    (re.compile(r"(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)"), r"\1"),
+    (re.compile(r"~~(.+?)~~"), r"\1"),
+)
+# CriticMarkup: comments and deletions go, additions, highlights and the
+# new side of a substitution stay.
+_CRITIC_RULES = (
+    (re.compile(r"\{>>.*?<<\}", re.S), ""),
+    (re.compile(r"\{--.*?--\}", re.S), ""),
+    (re.compile(r"\{~~.*?~>(.*?)~~\}", re.S), r"\1"),
+    (re.compile(r"\{\+\+(.*?)\+\+\}", re.S), r"\1"),
+    (re.compile(r"\{==(.*?)==\}", re.S), r"\1"),
+)
+_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
+_FENCE_RE = re.compile(r"^\s{0,3}(```|~~~)")
+_RULE_RE = re.compile(r"^\s{0,3}([-*_])(\s*\1){2,}\s*$")
+_BLOCK_MARKER_RE = re.compile(
+    r"^\s*(?:>\s*)*(?:(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?)?")
+_SENTENCE_RE = re.compile(r"^(.+?[.!?])(?=\s|$)")
+
+
+def _inline_text(text: str) -> str:
+    for rule, repl in _INLINE_RULES:
+        text = rule.sub(repl, text)
+    return " ".join(text.split())
+
+
+def doc_first_sentence(body: str) -> str:
+    """The first sentence of a Markdown doc as plain text (D2).
+
+    Taken from the first paragraph of prose: front matter, headings, rules
+    and fenced code are skipped, list and quote markers, inline markup and
+    CriticMarkup marks are dropped. A doc without prose falls back to its
+    first heading; an empty doc gives "".
+    """
+    for rule, repl in _CRITIC_RULES:
+        body = rule.sub(repl, body)
+    lines = body.split("\n")
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() in ("---", "..."):
+                lines = lines[i + 1:]
+                break
+    heading = ""
+    paragraph: list[str] = []
+    fenced = False
+    for line in lines:
+        if _FENCE_RE.match(line):
+            fenced = not fenced
+            if paragraph:
+                break
+            continue
+        if fenced:
+            continue
+        m = _HEADING_RE.match(line)
+        if not line.strip() or m or _RULE_RE.match(line):
+            if paragraph:
+                break
+            if m and not heading:
+                heading = _inline_text(m.group(1))
+            continue
+        paragraph.append(_BLOCK_MARKER_RE.sub("", line, count=1))
+    text = _inline_text(" ".join(paragraph))
+    if not text:
+        return heading
+    m = _SENTENCE_RE.match(text)
+    return m.group(1) if m else text

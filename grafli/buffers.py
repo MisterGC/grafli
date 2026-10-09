@@ -20,6 +20,9 @@ class ViewState:
     v_scroll: int = 0
     selected_box_ids: list[str] = field(default_factory=list)
     selected_note_ids: list[str] = field(default_factory=list)
+    # Ctrl+O / Ctrl+I jumplist (scene rects), kept per board
+    nav_stack: list = field(default_factory=list)
+    nav_index: int = -1
 
 
 @dataclass

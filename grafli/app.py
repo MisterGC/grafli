@@ -31,7 +31,8 @@ from grafli.buffers import BufferManager, BufferState, ViewState
 from grafli.constants import Mode
 from grafli.fonts import register_bundled_fonts as _register_bundled_fonts
 from grafli.filewatcher import JsonSafeWatcher, MultiFileWatcher
-from grafli.format import Board, parse, serialize, serialize_to_file
+from grafli.format import (Board, is_newer, parse, serialize,
+                           serialize_to_file, supported_version)
 from grafli.sync import Conflict, atomic_write, merge_boards
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
 from grafli.sidepanel import PanelToggleButton, SidePanel, ThemeToggleButton
@@ -188,7 +189,8 @@ class MainWindow(QMainWindow):
         if path is None:
             return "Grafli — untitled"
         label = f"{path.parent.name}/{path.name}"
-        return f"Grafli — {label}{'*' if dirty else ''}"
+        ro = " [read-only]" if self.board and is_newer(self.board) else ""
+        return f"Grafli — {label}{'*' if dirty else ''}{ro}"
 
     def _on_mode_changed(self, mode: Mode):
         self._status_mode.setText(mode.value.upper())
@@ -516,6 +518,12 @@ class MainWindow(QMainWindow):
     def _warn_parse_issues(self, board):
         """Surface lines the parser couldn't read (and demoted to comments) on
         open/reload — so an AI/hand-edit slip is visible, not silently lost."""
+        if is_newer(board):
+            # Lines in a newer board's syntax are expected not to parse; the
+            # version is the one thing worth saying.
+            self._view.toast(
+                f"Opened read-only — {_newer_board_reason(board)}", "warn")
+            return
         warnings = getattr(board, "parse_warnings", None)
         if not warnings:
             return
@@ -666,7 +674,8 @@ class MainWindow(QMainWindow):
 
         board = parse(text)
         from grafli.resources import migrate_all
-        if migrate_all(path, board):
+        # A newer board is never rewritten — not even by a migration.
+        if not is_newer(board) and migrate_all(path, board):
             text = serialize(board)
             path.write_text(text, encoding="utf-8")
         missing = _load_vault(path, board)
@@ -680,12 +689,13 @@ class MainWindow(QMainWindow):
         self._snapshot_current()
         idx = self._buffers.add(buf)
         self._switch_buffer(idx, zoom_fit=True)
-        self._warn_parse_issues(board)
         if missing:
             self._view.toast(
                 "Missing vault doc"
                 + ("s" if len(missing) > 1 else "")
                 + ": " + ", ".join(f"{m}.md" for m in missing), "warn")
+        # Last, so a newer board's read-only notice is the toast that shows.
+        self._warn_parse_issues(board)
 
     def _snapshot_current(self):
         """Snapshot the current buffer state before switching away."""
@@ -771,7 +781,8 @@ class MainWindow(QMainWindow):
         if self._buffers.count <= 0:
             return
 
-        if self._view.dirty:
+        # A read-only board's edits can't be saved — nothing to ask.
+        if self._view.dirty and not (self.board and is_newer(self.board)):
             name = self._file_path.name if self._file_path else "untitled"
             reply = QMessageBox.question(
                 self,
@@ -1005,6 +1016,12 @@ class MainWindow(QMainWindow):
             self._view.load_board(merged)
             if conflicts:
                 self._report_conflicts(conflicts)
+        if is_newer(self.board):
+            # Written by a newer grafli: this build would drop its syntax.
+            self._view.toast(
+                f"Read-only — {_newer_board_reason(self.board)}; "
+                "changes are not saved", "warn")
+            return False
         # Save is the migration moment (opening never mutates the working
         # tree): inline md: notes become doc-bodied, legacy &url attachments
         # take their kind, and doc bodies land in the vault.
@@ -1168,6 +1185,7 @@ class MainWindow(QMainWindow):
         if text == self._last_written:
             return
 
+        was_newer = self.board is not None and is_newer(self.board)
         merged, conflicts = self._reconcile_external(text)
         _load_vault(self._file_path, merged)
         self._view.load_board(merged)
@@ -1177,7 +1195,7 @@ class MainWindow(QMainWindow):
         # If the merge folded in local edits not yet on disk, the board is
         # dirty and the next autosave converges the file to the merged
         # result; otherwise it already matches disk and is clean.
-        if serialize(merged) != text:
+        if not is_newer(merged) and serialize(merged) != text:
             self._view.mark_dirty()
         else:
             self._view.mark_clean()
@@ -1187,6 +1205,9 @@ class MainWindow(QMainWindow):
             buf.last_written = text
         if conflicts:
             self._report_conflicts(conflicts)
+        if is_newer(merged) and not was_newer:
+            self._view.toast(
+                f"Now read-only — {_newer_board_reason(merged)}", "warn")
 
     def _report_conflicts(self, conflicts: list[Conflict]) -> None:
         """Surface merge conflicts so a concurrent edit clash is never
@@ -1223,7 +1244,8 @@ class MainWindow(QMainWindow):
             dirty = buf.view_state.dirty
             if i == self._buffers.active_index:
                 dirty = self._view.dirty
-            if dirty:
+            # A read-only board's edits can't be saved — nothing to ask.
+            if dirty and not is_newer(buf.board):
                 name = buf.file_path.name if buf.file_path else "untitled"
                 reply = QMessageBox.question(
                     self,
@@ -1254,6 +1276,12 @@ class MainWindow(QMainWindow):
 # ── Entry point ─────────────────────────────────────────────────
 
 _SERVER_NAME = "grafli-instance"
+
+
+def _newer_board_reason(board: Board) -> str:
+    """Why *board* is read-only: its header is newer than this build."""
+    return (f"this board is grafli v{board.version}, this build reads up "
+            f"to v{supported_version()}")
 
 
 def _load_vault(path: Path, board: Board) -> list[str]:
@@ -2185,7 +2213,10 @@ def _cmd_diagnose(argv: list[str]) -> int:
     diags = _collect(board)
 
     applied: list = []
-    if args.fix and not args.dry_run:
+    if args.fix and not args.dry_run and is_newer(board):
+        print(f"{args.input}: not fixed — {_newer_board_reason(board)}",
+              file=sys.stderr)
+    elif args.fix and not args.dry_run:
         # Fixes can cascade (widening a box may push it back outside its
         # parent), so iterate to a fixpoint — bounded, and each pass must
         # make progress. One write at the end.
@@ -2264,7 +2295,8 @@ def _cmd_fmt(argv: list[str]) -> int:
             "integer coordinates, canonical token order and spacing — "
             "preserving line order, comments, and blank lines. Files with "
             "malformed lines are left untouched (a rewrite would demote "
-            "them to comments); fix the reported lines first."
+            "them to comments); fix the reported lines first. So are "
+            "boards with a newer #!grafli vN header than this build reads."
         ),
     )
     parser.add_argument("files", nargs="+", type=Path,
@@ -2281,6 +2313,13 @@ def _cmd_fmt(argv: list[str]) -> int:
             print(f"cannot read {path}: {exc}", file=sys.stderr)
             return 2
         board = parse(text)
+        if is_newer(board):
+            # A rewrite would drop the newer syntax; untouched like a
+            # malformed file.
+            print(f"{path}: left untouched — {_newer_board_reason(board)}",
+                  file=sys.stderr)
+            malformed += 1
+            continue
         if board.parse_warnings:
             for w in board.parse_warnings:
                 print(f"{path}:{w.line}: {w.reason}", file=sys.stderr)

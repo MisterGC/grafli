@@ -39,17 +39,21 @@ layout edits. A flow is an ordered list of bookmark refs with optional
 auto-play dwell times. ``footer`` is a single board-global markdown branding
 line rendered at the bottom of every exported PDF slide. The v2 header is
 emitted only when such directives are present; pure-diagram files stay on v1.
+Each version's features are listed in ``VERSION_FEATURES``; a board whose
+header is newer than the newest listed version opens read-only.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from grafli.glyphs import ensure_text_presentation
 
 HEADER = "#!grafli v1"
 HEADER_V2 = "#!grafli v2"
+_RE_HEADER = re.compile(r'^#!grafli v(\d+)$')
 DEFAULT_BOOKMARK_PAD = 60   # scene px of breathing room around the anchor
 
 # Presentation settings a flow (as the default for its steps) or a single step
@@ -271,6 +275,10 @@ class Board:
     """True if the file carried a `#!grafli` header line. A file without one
     that also fails to parse most of its lines is probably not a board at all
     (e.g. a Markdown doc opened by mistake) rather than a broken board."""
+    version: int = field(default=0, repr=False)
+    """The N of the file's `#!grafli vN` header, 0 without one. Above
+    ``supported_version()`` the board holds syntax this build can't
+    represent, so it must not be written back (see ``is_newer``)."""
 
     def box_by_id(self, box_id: str) -> Box | None:
         for b in self.boxes:
@@ -737,9 +745,11 @@ def parse(text: str) -> Board:
             board._lines.append(("blank", None))
             continue
 
-        if stripped in (HEADER, HEADER_V2):
+        m = _RE_HEADER.match(stripped)
+        if m:
             board._lines.append(("header", stripped))
             board.had_header = True
+            board.version = int(m.group(1))
             continue
 
         if stripped.startswith("#"):
@@ -1000,6 +1010,36 @@ def parse_file(path: str) -> Board:
         return parse(f.read())
 
 
+# ── Format versions ─────────────────────────────────────────────
+
+# The header version each format feature needs, keyed by feature name, with
+# the test whether a board uses it. A board is written with the highest
+# version among the features it uses (v1 when none); the highest registered
+# version is the newest header this build reads without losing data. New
+# syntax registers itself here.
+VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
+    "tours": (2, lambda b: bool(b.bookmarks or b.flows or b.footer
+                                or b.title_bg)),
+}
+
+
+def supported_version() -> int:
+    """The newest ``#!grafli vN`` this build can read and write back."""
+    return max([1, *(v for v, _ in VERSION_FEATURES.values())])
+
+
+def required_version(board: Board) -> int:
+    """The header version *board* must be written with."""
+    return max([1, *(v for v, uses in VERSION_FEATURES.values()
+                     if uses(board))])
+
+
+def is_newer(board: Board) -> bool:
+    """True if *board* was written by a newer grafli than this build — it
+    may hold syntax this build drops, so it opens read-only."""
+    return board.version > supported_version()
+
+
 # ── Serializer ──────────────────────────────────────────────────
 
 def _q(value: float) -> int:
@@ -1201,8 +1241,9 @@ def _serialize_title_bg(title_bg: str) -> str:
 def serialize(board: Board, *, embed_doc_bodies: bool = False) -> str:
     """Serialize a Board object back to .grafli format.
 
-    Emits the v2 header only when the board carries bookmarks or flows;
-    otherwise stays on v1 so existing files round-trip byte-stable.
+    Emits the header version the board's features need (see
+    ``VERSION_FEATURES``): v2 once it carries bookmarks or flows, v1 for a
+    pure diagram, so existing files round-trip byte-stable.
     If the board was parsed (has _lines), preserves original ordering.
     Otherwise, outputs comments, then boxes, arrows, notes.
 
@@ -1211,8 +1252,7 @@ def serialize(board: Board, *, embed_doc_bodies: bool = False) -> str:
     which must restore bodies without filesystem reads. Never written to
     disk.
     """
-    header = (HEADER_V2 if (board.bookmarks or board.flows or board.footer
-                            or board.title_bg) else HEADER)
+    header = f"#!grafli v{required_version(board)}"
     meta_lines = []
     if board.footer:
         meta_lines.append(_serialize_footer(board.footer))

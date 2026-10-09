@@ -81,12 +81,14 @@ class LevelsMixin:
     @staticmethod
     def _may_show_miniature(item: BoxItem) -> bool:
         """A box draws a miniature only where its body is free: not as a
-        container (its children own the body) and not under a fill icon."""
+        container (its children own the body), and not with a fill or lead
+        icon (both lay the label out around the icon, not at the top). A
+        corner badge leaves the body free."""
         if item._is_parent:
             return False
         icon = item.box.icon
         return not (icon and iconset.has_icon(icon)
-                    and item.box.icon_placement not in ("badge", "lead"))
+                    and item.box.icon_placement != "badge")
 
     def _refresh_miniatures(self, scale: float, skip=frozenset()):
         """Give every `&graph` box whose body is large enough on screen its

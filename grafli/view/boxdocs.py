@@ -249,6 +249,7 @@ class BoxDocsMixin:
         x = max(vp.left() + PEEK_GAP, min(x, vp.right() - PEEK_GAP - w))
         y = max(vp.top() + PEEK_GAP, min(y, vp.bottom() - PEEK_GAP - h))
         peek.move(x, y)
+        peek.raise_()   # above any other widget on the viewport
 
     def doc_peek_rect(self) -> QRect | None:
         """The peek's place in viewport coordinates, None while closed."""

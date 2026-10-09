@@ -652,7 +652,7 @@ class MainWindow(QMainWindow):
         if path:
             self._open_file(Path(path))
 
-    def _open_file(self, path: Path):
+    def _open_file(self, path: Path, *, zoom_fit: bool = True):
         # Already open — focus it and re-fit, since an explicit "open this
         # file" (CLI, single-instance forward, file pick) means "show me this
         # board," not "restore my last scroll position" (that's buffer
@@ -660,7 +660,7 @@ class MainWindow(QMainWindow):
         existing = self._buffers.find_by_path(path)
         if existing >= 0:
             self._snapshot_current()
-            self._switch_buffer(existing, zoom_fit=True)
+            self._switch_buffer(existing, zoom_fit=zoom_fit)
             return
 
         if not path.exists():
@@ -688,7 +688,7 @@ class MainWindow(QMainWindow):
 
         self._snapshot_current()
         idx = self._buffers.add(buf)
-        self._switch_buffer(idx, zoom_fit=True)
+        self._switch_buffer(idx, zoom_fit=zoom_fit)
         if missing:
             self._view.toast(
                 "Missing vault doc"

@@ -62,6 +62,12 @@ you did not enter that way, <kbd>g</kbd><kbd>u</kbd> says "Already at the top".
 <kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd> walk the view
 history of the board you are on only.
 
+A link can point at one place in the board it opens: `&graph:combat#impact`
+or `&link:../System.grafli#impact` opens the board framed on the bookmark
+`impact` — or, if there is no such bookmark, on the element `impact` — with it
+selected. If the board has neither, it opens fitted and says
+"No element 'impact' in combat.grafli".
+
 To *build* that hierarchy, select one or more elements and press
 <kbd>Ctrl</kbd>+<kbd>G</kbd> — grafli wraps them in a new parent box sized to
 contain them, then opens its label editor so you can name the group. Inner

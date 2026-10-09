@@ -697,16 +697,25 @@ class MainWindow(QMainWindow):
         # Last, so a newer board's read-only notice is the toast that shows.
         self._warn_parse_issues(board)
 
-    def _enter_board(self, path: Path, label: str):
+    def _enter_board(self, path: Path, label: str, target_id: str = ""):
         """Open *path* as a board entered from this one through the element
-        *label*, so `gu` comes back here as you left it."""
+        *label*, so `gu` comes back here as you left it. A *target_id* (the
+        link's ``#<id>``) opens it framed on that bookmark or element."""
         here = self._file_path
         if here is not None and path.resolve() != here.resolve():
             self._buffers.push_frame(BoardFrame(
                 parent_path=here, parent_view=self._view.snapshot_state(),
                 child_path=path, label=label or path.stem,
             ))
-        self._open_file(path)
+        self._open_file(path, zoom_fit=not target_id)
+        if not target_id or self._file_path is None \
+                or self._file_path.resolve() != path.resolve():
+            return
+        if self._view.frame_fragment(target_id):
+            self._pending_zoom_fit = False
+            return
+        self._zoom_fit(animate=False)
+        self._view.toast(f"No element '{target_id}' in {path.name}", "warn")
 
     def _board_path(self) -> list[str]:
         """Labels from the root board down to this one, for the breadcrumb."""

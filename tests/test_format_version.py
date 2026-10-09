@@ -10,11 +10,11 @@ from grafli.format import is_newer, parse, required_version, serialize, \
 
 
 @pytest.fixture
-def v3_feature(monkeypatch):
-    """Register a stand-in v3 feature: a board uses it when it has a box
-    labelled "v3". Later issues register their real syntax the same way."""
+def v4_feature(monkeypatch):
+    """Register a stand-in v4 feature: a board uses it when it has a box
+    labelled "v4". Later issues register their real syntax the same way."""
     features = dict(fmt.VERSION_FEATURES)
-    features["test-v3"] = (3, lambda b: any(x.label == "v3" for x in b.boxes))
+    features["test-v4"] = (4, lambda b: any(x.label == "v4" for x in b.boxes))
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
 
 
@@ -26,23 +26,23 @@ def test_header_version_is_parsed():
 
 
 def test_newer_header_is_not_a_comment():
-    board = parse('#!grafli v3\n# title\n')
+    board = parse('#!grafli v4\n# title\n')
     assert board.had_header
     assert board.comments == ["# title"]
     assert not board.parse_warnings
 
 
-def test_build_reads_up_to_v2_today():
-    assert supported_version() == 2
-    assert not is_newer(parse('#!grafli v2\n'))
+def test_build_reads_up_to_v3_today():
+    assert supported_version() == 3
+    assert not is_newer(parse('#!grafli v3\n'))
     assert not is_newer(parse('# no header\n'))
-    assert is_newer(parse('#!grafli v3\n'))
+    assert is_newer(parse('#!grafli v4\n'))
 
 
 def test_newer_header_is_not_duplicated_on_save():
     # Before #158 a v3 header was kept as a comment and a v2 header was
     # written above it.
-    text = '#!grafli v3\n@ box a "A" 0,0 10x10\n'
+    text = '#!grafli v4\n@ box a "A" 0,0 10x10\n'
     out = serialize(parse(text))
     assert out.count("#!grafli") == 1
 
@@ -55,20 +55,49 @@ def test_plain_and_tour_boards_keep_their_header():
     assert serialize(parse(v2)) == v2
 
 
-def test_registered_v3_feature_writes_v3(v3_feature):
-    board = parse('#!grafli v1\n@ box a "v3" 0,0 10x10\n')
-    assert required_version(board) == 3
-    assert serialize(board).splitlines()[0] == "#!grafli v3"
+def test_registered_v4_feature_writes_v4(v4_feature):
+    board = parse('#!grafli v1\n@ box a "v4" 0,0 10x10\n')
+    assert required_version(board) == 4
+    assert serialize(board).splitlines()[0] == "#!grafli v4"
 
 
-def test_boards_without_the_v3_feature_keep_their_header(v3_feature):
+def test_boards_without_the_v4_feature_keep_their_header(v4_feature):
     v1 = '#!grafli v1\n@ box a "A" 0,0 10x10\n'
     v2 = '#!grafli v2\n@ box a "A" 0,0 10x10\n@ bookmark bm1 "S" @a\n'
     assert serialize(parse(v1)) == v1
     assert serialize(parse(v2)) == v2
 
 
-def test_registering_v3_makes_v3_readable(v3_feature):
-    assert supported_version() == 3
-    assert not is_newer(parse('#!grafli v3\n'))
-    assert is_newer(parse('#!grafli v4\n'))
+def test_registering_v4_makes_v4_readable(v4_feature):
+    assert supported_version() == 4
+    assert not is_newer(parse('#!grafli v4\n'))
+    assert is_newer(parse('#!grafli v5\n'))
+
+
+@pytest.mark.parametrize("attach", [
+    "&graph:combat#blow",
+    "&link:../System.grafli#impact",
+    "&link:https://example.com/map.grafli#impact",
+])
+def test_a_board_fragment_writes_v3(attach):
+    board = parse(f'#!grafli v1\n@ box a "A" 0,0 10x10 {attach}\n')
+    out = serialize(board)
+    assert out.splitlines()[0] == "#!grafli v3"
+    assert attach in out
+
+
+@pytest.mark.parametrize("attach", [
+    "&graph:combat",
+    "&link:../System.grafli",
+    "&link:notes.md#intro",
+    "&link:https://example.com/#top",
+])
+def test_links_without_a_board_fragment_stay_v1(attach):
+    text = f'#!grafli v1\n@ box a "A" 0,0 10x10 {attach}\n'
+    assert serialize(parse(text)) == text
+
+
+def test_a_board_fragment_on_a_connector_writes_v3():
+    text = ('#!grafli v1\n@ box a "A" 0,0 10x10\n@ box b "B" 50,0 10x10\n'
+            '@ arrow a -> b &graph:combat#blow\n')
+    assert serialize(parse(text)).splitlines()[0] == "#!grafli v3"

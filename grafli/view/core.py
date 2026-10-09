@@ -1341,6 +1341,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             elif event.key() == Qt.Key.Key_Z and no_mod:
                 self._record_shortcut("gz → focus zoom")
                 self._toggle_focus_zoom()
+            elif event.key() == Qt.Key.Key_D and no_mod:
+                self._record_shortcut("gd → down into the sub-board")
+                self._go_down()
             elif event.key() == Qt.Key.Key_U and no_mod:
                 self._record_shortcut("gu → up a board")
                 window = self.window()

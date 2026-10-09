@@ -697,16 +697,37 @@ class MainWindow(QMainWindow):
         # Last, so a newer board's read-only notice is the toast that shows.
         self._warn_parse_issues(board)
 
-    def _enter_board(self, path: Path, label: str, target_id: str = ""):
+    def _enter_board(self, path: Path, label: str, target_id: str = "",
+                     via=None):
         """Open *path* as a board entered from this one through the element
         *label*, so `gu` comes back here as you left it. A *target_id* (the
-        link's ``#<id>``) opens it framed on that bookmark or element."""
+        link's ``#<id>``) opens it framed on that bookmark or element. With
+        the element *via* on screen, a zoom into it plays first and hands
+        over to the board."""
         here = self._file_path
+        frame = None
         if here is not None and path.resolve() != here.resolve():
-            self._buffers.push_frame(BoardFrame(
+            frame = BoardFrame(
                 parent_path=here, parent_view=self._view.snapshot_state(),
                 child_path=path, label=label or path.stem,
-            ))
+                via_id=getattr(via, "id", "") or "",
+            )
+        rect = (self._view.level_entry_rect(via)
+                if frame is not None and self._view.transitions_enabled()
+                else None)
+
+        def switch():
+            if frame is not None:
+                self._buffers.push_frame(frame)
+            self._open_board_at(path, target_id)
+
+        if rect is None:
+            switch()
+        else:
+            self._view.play_enter(via, rect, switch)
+
+    def _open_board_at(self, path: Path, target_id: str):
+        """Open *path* fitted, or framed on *target_id* when it names one."""
         self._open_file(path, zoom_fit=not target_id)
         if not target_id or self._file_path is None \
                 or self._file_path.resolve() != path.resolve():
@@ -733,6 +754,8 @@ class MainWindow(QMainWindow):
         if existing < 0 and not parent.exists():
             self._view.toast(f"{parent.name} is gone", "warn")
             return
+        animate = self._view.transitions_enabled()
+        still = self._view.viewport().grab() if animate else None
         self._buffers.pop_frame()
         if existing >= 0:
             self._snapshot_current()
@@ -740,6 +763,10 @@ class MainWindow(QMainWindow):
         else:
             self._open_file(parent, zoom_fit=False)
         self._view.restore_view(frame.parent_view)
+        via = self._view.element_by_id(frame.via_id) if animate else None
+        rect = self._view.level_entry_rect(via) if via is not None else None
+        if rect is not None:
+            self._view.play_exit(via, rect, still, frame.parent_view)
 
     def _snapshot_current(self):
         """Snapshot the current buffer state before switching away."""

@@ -396,6 +396,7 @@ class OverlaysMixin:
                 ("gz", "Focus: zoom to selection ⇄ back"),
                 ("gp", "Select parent (zoom if needed)"),
                 ("gc", "Select first child"),
+                ("gd / Return", "Zoom into the box's sub-board"),
                 ("gu", "Back to the board you came from"),
                 ("Tab / \u21e7Tab", "Cycle siblings (or search matches)"),
                 ("f / Ctrl+J", "Jump to any item (global)"),

@@ -185,7 +185,7 @@ class BoxDocsMixin:
         if peek is not None and peek.box_id == item.box.id:
             self._close_doc_peek()
             return
-        label = item.box.label or item.box.id
+        label = " ".join(item.box.label.split()) or item.box.id
         if item.box.attach_kind != "doc":
             self.toast(f"'{label}' has no doc to peek at", "info")
             return

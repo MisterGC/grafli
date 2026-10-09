@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 import textli
 
 from grafli import theme
-from grafli.buffers import BufferManager, BufferState, ViewState
+from grafli.buffers import BoardFrame, BufferManager, BufferState, ViewState
 from grafli.constants import Mode
 from grafli.fonts import register_bundled_fonts as _register_bundled_fonts
 from grafli.filewatcher import JsonSafeWatcher, MultiFileWatcher
@@ -696,6 +696,37 @@ class MainWindow(QMainWindow):
                 + ": " + ", ".join(f"{m}.md" for m in missing), "warn")
         # Last, so a newer board's read-only notice is the toast that shows.
         self._warn_parse_issues(board)
+
+    def _enter_board(self, path: Path, label: str):
+        """Open *path* as a board entered from this one through the element
+        *label*, so `gu` comes back here as you left it."""
+        here = self._file_path
+        if here is not None and path.resolve() != here.resolve():
+            self._buffers.push_frame(BoardFrame(
+                parent_path=here, parent_view=self._view.snapshot_state(),
+                child_path=path, label=label or path.stem,
+            ))
+        self._open_file(path)
+
+    def _go_up(self):
+        """`gu`: back to the board you entered this one from, restored to the
+        zoom, scroll and selection you left it with — no fit."""
+        frame = self._buffers.frame_for(self._file_path)
+        if frame is None:
+            self._view.toast("Already at the top", "info")
+            return
+        parent = frame.parent_path
+        existing = self._buffers.find_by_path(parent)
+        if existing < 0 and not parent.exists():
+            self._view.toast(f"{parent.name} is gone", "warn")
+            return
+        self._buffers.pop_frame()
+        if existing >= 0:
+            self._snapshot_current()
+            self._switch_buffer(existing)
+        else:
+            self._open_file(parent, zoom_fit=False)
+        self._view.restore_view(frame.parent_view)
 
     def _snapshot_current(self):
         """Snapshot the current buffer state before switching away."""

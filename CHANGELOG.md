@@ -42,6 +42,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "No element '<id>' in <file>". A board using such a link is written with a
   `#!grafli v3` header.
   ([#161](https://github.com/MisterGC/grafli/issues/161))
+- **A box with a sub-board shows a miniature of it; <kbd>g</kbd><kbd>d</kbd>
+  or <kbd>Return</kbd> zooms into it.** Once a `&graph` box is large enough on
+  screen, its label moves to the top and the body shows the sub-board as it
+  looks when you open it. The miniature is rendered on first need and kept
+  until the sub-board file changes, so an edit to it shows within a second.
+  <kbd>g</kbd><kbd>d</kbd> or <kbd>Return</kbd> plays a zoom into the box
+  that hands over to the sub-board; <kbd>g</kbd><kbd>u</kbd> plays it in
+  reverse. Zooming alone never switches boards. Exports, slides and bookmark
+  thumbnails draw the box without the miniature, and a board without `&graph`
+  boxes looks as before.
+  ([#162](https://github.com/MisterGC/grafli/issues/162))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

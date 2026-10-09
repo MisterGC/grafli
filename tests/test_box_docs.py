@@ -352,6 +352,18 @@ def test_gv_toasts_on_a_box_without_a_doc(tmp_path: Path):
     win.close()
 
 
+def test_gv_toast_names_a_multi_line_label_on_one_line(tmp_path: Path):
+    root = _write(tmp_path / "Two.grafli",
+                  '#!grafli v2\n'
+                  '@ box gw "API Gateway\\nrate limits" 0,0 240x80\n')
+    win = _window(root)
+    _select(win, "gw")
+    _press_gv(win)
+    assert win._view._toast_text == \
+        "'API Gateway rate limits' has no doc to peek at"
+    win.close()
+
+
 def test_gv_toasts_without_a_selected_box(tmp_path: Path):
     root, _ = _system(tmp_path)
     win = _window(root)

@@ -45,6 +45,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **An older grafli no longer rewrites a newer board.** A board whose
+  `#!grafli vN` header is newer than the running build now opens read-only,
+  with a toast naming the version and `[read-only]` in the window title:
+  autosave, save, the open-time migration, `grafli fmt` and
+  `grafli diagnose --fix` all leave the file as it is. Before, a `v3` header
+  got a `v2` header written above it. Independently, a save no longer drops
+  what it does not understand: unknown flow step segments (`bm:3:zoom=x`),
+  unknown `~key=` flow markers (which used to turn into step refs) and a
+  `# annotation` behind an attachment now survive byte for byte.
+  ([#158](https://github.com/MisterGC/grafli/issues/158))
 - **A self-connector draws a loop instead of nothing.** `@ arrow a -> a`
   resolved both of its ends to the element's centre, so it rendered as a
   zero-length line — invisible, while still counting in the graph stats and

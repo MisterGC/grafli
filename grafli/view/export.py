@@ -108,7 +108,9 @@ class ExportMixin:
 
     def _render_svg_bytes(self, padding: int = 20, region=None) -> QByteArray:
         """Render the current diagram (or selection) to SVG bytes."""
-        with self._export_scene_context(padding=padding, region=region) as rect:
+        with self.miniatures_held(), \
+                self._export_scene_context(padding=padding,
+                                           region=region) as rect:
             buf = QByteArray()
             io = QBuffer(buf)
             io.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -128,7 +130,9 @@ class ExportMixin:
         self, scale: int = 2, padding: int = 20, region=None,
     ) -> QImage:
         """Render the current diagram (or selection) to a QImage."""
-        with self._export_scene_context(padding=padding, region=region) as rect:
+        with self.miniatures_held(), \
+                self._export_scene_context(padding=padding,
+                                           region=region) as rect:
             size = rect.size().toSize()
             image = QImage(
                 size.width() * scale,

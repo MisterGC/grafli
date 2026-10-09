@@ -647,6 +647,9 @@ class BoxItem(QGraphicsRectItem):
         # count) tuple; paint() then draws a counter-scaled headline + count
         # badge in place of the hidden children, and the normal label is hidden.
         self._lod_tile: tuple[str, int] | None = None
+        # A `&graph` box large enough on screen shows a raster miniature of its
+        # sub-board below its label (D3); the view sets and clears it.
+        self._miniature: QPixmap | None = None
 
         self._label = BoxLabelItem(self)
         self._label.setFont(self._box_font())
@@ -785,6 +788,8 @@ class BoxItem(QGraphicsRectItem):
     def _get_effective_anchor(self) -> str:
         if self.box.anchor:
             return self.box.anchor
+        if self._miniature is not None:
+            return "topcenter"   # the miniature takes the body below
         view = _get_view(self)
         if view and hasattr(view, '_has_children') and view._has_children(self.box.id):
             return "topleft"
@@ -1259,6 +1264,49 @@ class BoxItem(QGraphicsRectItem):
         self._lod_simplified = simplified
         self.update()
 
+    def set_miniature(self, pixmap: QPixmap | None) -> None:
+        """Show *pixmap* as the sub-board miniature, or None to drop it. The
+        label moves to the top while a miniature shows."""
+        if pixmap is self._miniature:
+            return
+        moved = (pixmap is None) != (self._miniature is None)
+        self._miniature = pixmap
+        if moved:
+            self._position_label()
+        self.update()
+
+    def miniature_rect(self) -> QRectF:
+        """Where the miniature goes, in item coordinates: the body below a
+        top-anchored label."""
+        top = 8.0 + self._label.boundingRect().height() + 6.0
+        return QRectF(8.0, top, self.box.w - 16.0, self.box.h - top - 8.0)
+
+    def miniature_pixmap_rect(self, pixmap: QPixmap) -> QRectF:
+        """The part of miniature_rect() *pixmap* fills, keeping its aspect."""
+        area = self.miniature_rect()
+        pw, ph = pixmap.width(), pixmap.height()
+        if area.width() <= 0 or area.height() <= 0 or pw <= 0 or ph <= 0:
+            return QRectF()
+        k = min(area.width() / pw, area.height() / ph)
+        w, h = pw * k, ph * k
+        return QRectF(area.center().x() - w / 2, area.center().y() - h / 2,
+                      w, h)
+
+    def _paint_miniature(self, painter: QPainter):
+        target = self.miniature_pixmap_rect(self._miniature)
+        if target.isEmpty():
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.drawPixmap(target, self._miniature,
+                           QRectF(self._miniature.rect()))
+        frame = QColor(theme.INK)
+        frame.setAlphaF(0.25)
+        painter.setPen(QPen(frame, 1.0))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(target)
+        painter.restore()
+
     def set_lod_tile(self, summary) -> None:
         """Set/clear collapsed-container tile rendering from a ContainerSummary."""
         tile = (summary.label, summary.descendants) if summary else None
@@ -1294,6 +1342,10 @@ class BoxItem(QGraphicsRectItem):
             self._paint_lod_shell_bars(painter)
         elif self.box.icon and iconset.has_icon(self.box.icon):
             self._paint_icon(painter)
+        # Only on the canvas: exports and thumbnails render the scene without
+        # a widget and show the box as it is drawn without a miniature.
+        if self._miniature is not None and widget is not None:
+            self._paint_miniature(painter)
 
         if self.box.url or self.box.attach_kind == "doc":
             _paint_attach_glyph(painter, self.rect(), self.box)

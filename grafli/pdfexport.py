@@ -438,7 +438,8 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     # Suppress the container box's own chrome too — its label is in the title
     # bar. The step's detail/focus settings apply for the raster's duration;
     # notes they hide or fade stay in the raster instead of overlaying as text.
-    with slide_presentation(view, plan):
+    # Sub-board miniatures are a canvas aid: the slide shows the box plain.
+    with view.miniatures_held(), slide_presentation(view, plan):
         overlays = live_overlays(view, plan)
         with _hidden(overlays + list(plan.chrome_suppress)):
             if plan.isolate:

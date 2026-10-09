@@ -67,6 +67,7 @@ from grafli.lod import LodModel
 from grafli.view.minimap import MinimapMixin
 from grafli.view.export import ExportMixin
 from grafli.view.flows import FlowsMixin
+from grafli.view.levels import LevelsMixin
 from grafli.view.navigation import NavigationMixin
 from grafli.view.overlays import OverlaysMixin
 from grafli.view.resources import ResourcesMixin
@@ -113,7 +114,7 @@ def flow_caption_metrics(vp_w: float, vp_h: float) -> dict:
 class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                  SelectionMixin, StructureMixin, ResourcesMixin,
                  NavigationMixin, ViewportMixin, FlowsMixin, OverlaysMixin,
-                 ExportMixin, QGraphicsView):
+                 ExportMixin, LevelsMixin, QGraphicsView):
     """QGraphicsView with pan/zoom and file-backed board rendering."""
 
     arrow_update_needed = Signal()

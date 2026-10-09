@@ -778,7 +778,8 @@ def _render_region(view, plan: SlidePlan, fitted: QRectF,
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     ip.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     from grafli.pdfexport import _hidden
-    with _hidden(list(overlays) + list(plan.chrome_suppress)):
+    with view.miniatures_held(), \
+            _hidden(list(overlays) + list(plan.chrome_suppress)):
         if plan.isolate:
             with isolate_focus(view, plan.isolate):
                 view._scene.render(ip, QRectF(0, 0, iw, ih), source)

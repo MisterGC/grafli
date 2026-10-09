@@ -177,6 +177,29 @@ def test_container_box_shows_no_miniature(tmp_path: Path):
     win.close()
 
 
+def test_icon_boxes_show_a_miniature_only_with_a_corner_badge(tmp_path: Path):
+    root = _write(tmp_path / "Icons.grafli",
+                  '#!grafli v2\n'
+                  '@ box lead "Lead" 0,0 400x300 *lead:gear &graph:combat\n'
+                  '@ box fill "Fill" 500,0 400x300 *gear &graph:combat\n'
+                  '@ box badge "Badge" 1000,0 400x300 *badge:gear '
+                  '&graph:combat\n')
+    _write(tmp_path / "Icons-res" / "combat.grafli",
+           '#!grafli v2\n@ box x "X" 0,0 160x60\n')
+    win = _window(root)
+    _zoom(win, 1.0)
+    items = win._view._box_items
+    # A lead icon keeps its label centred beside the icon: no room below.
+    assert items["lead"]._miniature is None
+    assert items["fill"]._miniature is None
+    badge = items["badge"]
+    assert badge._miniature is not None
+    # The badge sits in the corner, above the miniature.
+    side = badge._badge_icon_side()
+    assert 8.0 + side <= badge.miniature_rect().top()
+    win.close()
+
+
 # ── Cache ──
 
 

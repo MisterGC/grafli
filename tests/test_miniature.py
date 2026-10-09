@@ -329,6 +329,51 @@ def test_gu_zooms_back_out_to_where_you_left(tmp_path: Path):
     win.close()
 
 
+def test_switching_boards_mid_zoom_calls_the_entry_off(tmp_path: Path):
+    root, _ = _system(tmp_path)
+    other = _write(tmp_path / "Other.grafli",
+                   '#!grafli v2\n@ box o "Other" 0,0 160x60\n')
+    win = _window(root, transitions=True)
+    view = win._view
+    _zoom(win, 0.5)
+    _select(win, "combat")
+    QTest.keyClick(view, Qt.Key.Key_Return)
+    QTest.qWait(levels.ZOOM_MS // 3)
+    win._open_file(other)
+    QTest.qWait(300)   # Other's own animated fit
+    settled = view.snapshot_state().transform
+    _wait_for_transition()
+    # Still on Other, its camera left alone, nothing pushed for `gu`.
+    assert win._file_path.resolve() == other.resolve()
+    assert view.snapshot_state().transform == settled
+    assert win._buffers.frame_for(other) is None
+    assert win._board_path() == []
+    win.close()
+
+
+def test_switching_boards_mid_gu_leaves_the_new_board_alone(tmp_path: Path):
+    root, sub = _system(tmp_path)
+    other = _write(tmp_path / "Other.grafli",
+                   '#!grafli v2\n@ box o "Other" 0,0 160x60\n')
+    win = _window(root, transitions=True)
+    view = win._view
+    _zoom(win, 0.5)
+    _select(win, "combat")
+    QTest.keyClick(view, Qt.Key.Key_Return)
+    _wait_for_transition()
+    assert win._file_path.resolve() == sub.resolve()
+    QTest.keyClick(view, Qt.Key.Key_G)
+    QTest.keyClick(view, Qt.Key.Key_U)
+    QTest.qWait(levels.ZOOM_MS // 3)
+    # No fit of its own, so nothing else would stop the reverse zoom.
+    win._open_file(other, zoom_fit=False)
+    settled = view.snapshot_state().transform
+    _wait_for_transition()
+    assert win._file_path.resolve() == other.resolve()
+    assert view.snapshot_state().transform == settled
+    win.close()
+
+
 def test_zooming_alone_never_switches_boards(tmp_path: Path):
     root, _ = _system(tmp_path)
     win = _window(root, transitions=True)

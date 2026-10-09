@@ -704,6 +704,10 @@ class MainWindow(QMainWindow):
         link's ``#<id>``) opens it framed on that bookmark or element. With
         the element *via* on screen, a zoom into it plays first and hands
         over to the board."""
+        if self._view.level_transition_running():
+            # A second Return or `gd` mid-zoom would record the half-zoomed
+            # view as the place `gu` returns to; the first one is on its way.
+            return
         here = self._file_path
         frame = None
         if here is not None and path.resolve() != here.resolve():

@@ -246,6 +246,12 @@ class LevelsMixin:
         self._level_timeline = self._zoom_timeline
         self._level_board = self._board_file()
 
+    def level_transition_running(self) -> bool:
+        """True while a zoom into a level, or `gu`'s zoom back out of one,
+        is still playing."""
+        tl = getattr(self, "_level_timeline", None)
+        return tl is not None and tl is self._zoom_timeline
+
     def _cancel_level_transition(self):
         """Called as a board loads: a level zoom still running on another
         board stops, so it neither drags the new board's camera nor opens

@@ -47,7 +47,7 @@ class DegreeProvider:
     edge resolver so annotation arrows (box→note, note→box) don't heat a box.
     """
 
-    TITLE = "COMPLEXITY"
+    TITLE = "Connectivity"
 
     def __init__(self, counts: Callable[[Arrow], bool] = lambda a: True):
         self._counts = counts

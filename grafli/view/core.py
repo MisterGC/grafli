@@ -425,7 +425,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         self._complexity_node_heat: dict[str, float] = {}
         self._complexity_legend: HeatLegend | None = None
         # What the heatmap colours by; the renderer only paints its reading.
-        self._heat_provider: HeatProvider = DegreeProvider()
+        self._heat_provider: HeatProvider = DegreeProvider(self._is_graph_edge)
         self._complexity_saved: list[tuple] = []
 
         # Arrow dim state
@@ -1823,7 +1823,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             event.accept()
             return
 
-        # A — complexity analysis heatmap
+        # A — connectivity heatmap
         if event.key() == Qt.Key.Key_A and no_mod:
             self._toggle_complexity()
             event.accept()

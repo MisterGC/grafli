@@ -650,6 +650,9 @@ class BoxItem(QGraphicsRectItem):
         # A `&graph` box large enough on screen shows a raster miniature of its
         # sub-board below its label (D3); the view sets and clears it.
         self._miniature: QPixmap | None = None
+        # A `&doc` box shows its doc's first sentence on one line below its
+        # label at the detailed zoom level (D2); the view sets and clears it.
+        self._doc_line = ""
 
         self._label = BoxLabelItem(self)
         self._label.setFont(self._box_font())
@@ -832,7 +835,9 @@ class BoxItem(QGraphicsRectItem):
                 opt = QTextOption()
                 opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
                 doc.setDefaultTextOption(opt)
-                self._label.setPos(bx + gutter, by + (h - br.height()) / 2)
+                block_h = br.height() + (self._doc_line_extra_h()
+                                         if self._doc_line else 0.0)
+                self._label.setPos(bx + gutter, by + (h - block_h) / 2)
                 return
             opt = QTextOption()
             opt.setAlignment(Qt.AlignmentFlag.AlignHCenter)
@@ -850,7 +855,10 @@ class BoxItem(QGraphicsRectItem):
             self._label.setPos(bx + (w - br.width()) / 2, by + 8)
         else:
             opt.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            self._label.setPos(bx + (w - br.width()) / 2, by + (h - br.height()) / 2)
+            # A doc line below the label centres with it as one block.
+            block_h = br.height() + (self._doc_line_extra_h()
+                                     if self._doc_line else 0.0)
+            self._label.setPos(bx + (w - br.width()) / 2, by + (h - block_h) / 2)
         doc.setDefaultTextOption(opt)
 
     def refresh_auto_layout(self):
@@ -1307,6 +1315,76 @@ class BoxItem(QGraphicsRectItem):
         painter.drawRect(target)
         painter.restore()
 
+    _DOC_LINE_GAP = 2.0
+
+    def _doc_line_font(self) -> QFont:
+        """The doc line's face: the label's, a step smaller and in italics."""
+        px = resolve_textsize_px(self.box.textsize, "")
+        font = QFont(FONT_FAMILY, max(8, round(px * 0.8)))
+        font.setItalic(True)
+        return font
+
+    def doc_line_px(self) -> float:
+        """The doc line's text size in scene pixels, for the legibility test."""
+        return float(self._doc_line_font().pointSizeF())
+
+    def _doc_line_extra_h(self) -> float:
+        return self._DOC_LINE_GAP + QFontMetricsF(self._doc_line_font()).height()
+
+    def doc_line_fits(self) -> bool:
+        """True when the body has room for the doc line below the label,
+        keeping the label's 8 px margins; a box never grows for it."""
+        needed = (self._label.boundingRect().height()
+                  + self._doc_line_extra_h() + 16.0)
+        return self.box.h >= needed
+
+    def set_doc_line(self, text: str) -> None:
+        """Show *text* on one line below the label, or "" to drop it."""
+        if text == self._doc_line:
+            return
+        moved = bool(text) != bool(self._doc_line)
+        self._doc_line = text
+        if moved:
+            self._position_label()
+        self.update()
+
+    def doc_line_rect(self) -> QRectF:
+        """Where the doc line goes, in item coordinates: right below the
+        label, as wide as the label's wrap width."""
+        label_top = self._label.pos().y() - self.pos().y()
+        top = label_top + self._label.boundingRect().height() + self._DOC_LINE_GAP
+        width = self._label_width_for(self.box.w)
+        if self._has_lead_icon():
+            left = self._label.pos().x() - self.pos().x()
+            width = self.box.w - left - 8.0
+        elif self._get_effective_anchor() == "topleft":
+            left = 8.0
+        else:
+            left = (self.box.w - width) / 2
+        return QRectF(left, top, width,
+                      QFontMetricsF(self._doc_line_font()).height())
+
+    def _paint_doc_line(self, painter: QPainter):
+        rect = self.doc_line_rect()
+        if rect.width() <= 0:
+            return
+        font = self._doc_line_font()
+        text = QFontMetricsF(font).elidedText(
+            self._doc_line, Qt.TextElideMode.ElideRight, rect.width())
+        ink = theme.ink_on(self.brush().color()
+                           if self.brush().style() != Qt.BrushStyle.NoBrush
+                           else QColor(theme.SCENE_BG))
+        ink.setAlphaF(0.7)
+        align = (Qt.AlignmentFlag.AlignLeft
+                 if self._get_effective_anchor() == "topleft"
+                 or self._has_lead_icon()
+                 else Qt.AlignmentFlag.AlignHCenter)
+        painter.save()
+        painter.setFont(font)
+        painter.setPen(ink)
+        painter.drawText(rect, int(align | Qt.AlignmentFlag.AlignTop), text)
+        painter.restore()
+
     def set_lod_tile(self, summary) -> None:
         """Set/clear collapsed-container tile rendering from a ContainerSummary."""
         tile = (summary.label, summary.descendants) if summary else None
@@ -1346,6 +1424,8 @@ class BoxItem(QGraphicsRectItem):
         # a widget and show the box as it is drawn without a miniature.
         if self._miniature is not None and widget is not None:
             self._paint_miniature(painter)
+        if self._doc_line and widget is not None:
+            self._paint_doc_line(painter)
 
         if self.box.url or self.box.attach_kind == "doc":
             _paint_attach_glyph(painter, self.rect(), self.box)

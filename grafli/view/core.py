@@ -67,6 +67,7 @@ from grafli.lod import LodModel
 from grafli.view.minimap import MinimapMixin
 from grafli.view.export import ExportMixin
 from grafli.view.flows import FlowsMixin
+from grafli.view.boxdocs import BoxDocsMixin
 from grafli.view.levels import LevelsMixin
 from grafli.view.navigation import NavigationMixin
 from grafli.view.overlays import OverlaysMixin
@@ -114,7 +115,7 @@ def flow_caption_metrics(vp_w: float, vp_h: float) -> dict:
 class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                  SelectionMixin, StructureMixin, ResourcesMixin,
                  NavigationMixin, ViewportMixin, FlowsMixin, OverlaysMixin,
-                 ExportMixin, LevelsMixin, QGraphicsView):
+                 ExportMixin, LevelsMixin, BoxDocsMixin, QGraphicsView):
     """QGraphicsView with pan/zoom and file-backed board rendering."""
 
     arrow_update_needed = Signal()
@@ -1144,6 +1145,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             return
 
         if event.key() == Qt.Key.Key_Escape:
+            if self._close_doc_peek():
+                event.accept()
+                return
             if self._search_filter_active:
                 self._clear_search_filter()
                 event.accept()
@@ -1344,6 +1348,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             elif event.key() == Qt.Key.Key_D and no_mod:
                 self._record_shortcut("gd → down into the sub-board")
                 self._go_down()
+            elif event.key() == Qt.Key.Key_V and no_mod:
+                self._record_shortcut("gv → peek at the box's doc")
+                self._peek_doc()
             elif event.key() == Qt.Key.Key_U and no_mod:
                 self._record_shortcut("gu → up a board")
                 window = self.window()

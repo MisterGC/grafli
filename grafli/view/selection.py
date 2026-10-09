@@ -255,6 +255,7 @@ class SelectionMixin:
 
     def load_board(self, board: Board):
         self._cancel_level_transition()
+        self._reset_box_docs()
         self._board = board
         self._lod = LodModel.from_board(board)
         self._lod_simplified = set()
@@ -275,6 +276,7 @@ class SelectionMixin:
         self._feed_lod_note_extents()
         self._lod_dirty = False  # fresh model; ignore any mark_dirty during load
         self._refresh_lod()
+        self._refresh_doc_peek()
         self.flows_changed.emit()
 
     def snapshot_state(self) -> ViewState:
@@ -419,6 +421,7 @@ class SelectionMixin:
         self._update_z_values()
         self._update_scene_rect()
         self._invalidate_graph_stats()
+        self._refresh_doc_lines()
 
     def _routing_obstacles(self) -> dict[str, QRectF]:
         """Box rects a stair slides clear of, keyed by box id.

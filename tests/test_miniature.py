@@ -352,6 +352,28 @@ def test_gu_zooms_back_out_to_where_you_left(tmp_path: Path):
     win.close()
 
 
+def test_a_second_return_mid_zoom_keeps_gu_on_where_you_left(tmp_path: Path):
+    root, sub = _system(tmp_path)
+    win = _window(root, transitions=True)
+    view = win._view
+    _zoom(win, 0.5)
+    left = view.snapshot_state()
+    _select(win, "combat")
+    QTest.keyClick(view, Qt.Key.Key_Return)
+    QTest.qWait(levels.ZOOM_MS // 2)
+    QTest.keyClick(view, Qt.Key.Key_Return)
+    _wait_for_transition()
+    assert win._file_path.resolve() == sub.resolve()
+    assert win._buffers.frame_for(sub).parent_view.transform == left.transform
+
+    QTest.keyClick(view, Qt.Key.Key_G)
+    QTest.keyClick(view, Qt.Key.Key_U)
+    _wait_for_transition()
+    assert win._file_path.resolve() == root.resolve()
+    assert view.snapshot_state().transform == left.transform
+    win.close()
+
+
 def test_switching_boards_mid_zoom_calls_the_entry_off(tmp_path: Path):
     root, _ = _system(tmp_path)
     other = _write(tmp_path / "Other.grafli",

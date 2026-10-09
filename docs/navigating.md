@@ -93,8 +93,9 @@ looked.
 
 - <kbd>M</kbd> — toggle the **minimap**: a corner overview with your viewport
   rectangle, so you never lose your bearings in a large graph.
-- <kbd>A</kbd> — **complexity heatmap**: colours nodes by how connected/busy
-  they are, to spot where the density is.
+- <kbd>A</kbd> — **connectivity heatmap**: colours boxes by how many graph
+  arrows touch them (arrows to and from notes or images don't count), to
+  spot where the density is.
 
 ## Read a board zoomed out (semantic zoom)
 

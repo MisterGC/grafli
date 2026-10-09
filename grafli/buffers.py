@@ -20,6 +20,9 @@ class ViewState:
     v_scroll: int = 0
     selected_box_ids: list[str] = field(default_factory=list)
     selected_note_ids: list[str] = field(default_factory=list)
+    # Ctrl+O / Ctrl+I jumplist (scene rects), kept per board
+    nav_stack: list = field(default_factory=list)
+    nav_index: int = -1
 
 
 @dataclass
@@ -33,6 +36,17 @@ class BufferState:
     file_mtime: float = 0.0
 
 
+@dataclass
+class BoardFrame:
+    """One step into a board: the board you came from, as you left it, and
+    the element you entered through. Session state only, never written."""
+
+    parent_path: Path
+    parent_view: ViewState
+    child_path: Path
+    label: str
+
+
 class BufferManager:
     """Manages a list of open buffers with an active index."""
 
@@ -40,6 +54,8 @@ class BufferManager:
         self._buffers: list[BufferState] = []
         self._active_index: int = -1
         self._prev_index: int = -1
+        # Boards entered through a link, root first; `gu` pops the last one.
+        self._frames: list[BoardFrame] = []
 
     @property
     def active_index(self) -> int:
@@ -104,3 +120,35 @@ class BufferManager:
             if buf.file_path and buf.file_path.resolve() == resolved:
                 return i
         return -1
+
+    # ── Board stack ──
+
+    def push_frame(self, frame: BoardFrame) -> None:
+        """Record entering ``frame.child_path`` from ``frame.parent_path``.
+        Entering from a board off the current chain starts a new chain."""
+        if self._frames and not _same(self._frames[-1].child_path,
+                                      frame.parent_path):
+            self._frames.clear()
+        self._frames.append(frame)
+
+    def frame_for(self, path: Path | None) -> BoardFrame | None:
+        """The frame that leads back up from *path*, or None at the top."""
+        if path is None or not self._frames:
+            return None
+        top = self._frames[-1]
+        return top if _same(top.child_path, path) else None
+
+    def pop_frame(self) -> BoardFrame | None:
+        return self._frames.pop() if self._frames else None
+
+    def board_path(self, path: Path | None) -> list[str]:
+        """Labels from the root board down to *path*, or [] when *path* was
+        not entered through a link."""
+        if self.frame_for(path) is None:
+            return []
+        return ([self._frames[0].parent_path.stem]
+                + [f.label for f in self._frames])
+
+
+def _same(a: Path, b: Path) -> bool:
+    return a.resolve() == b.resolve()

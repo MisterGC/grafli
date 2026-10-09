@@ -294,6 +294,8 @@ class SelectionMixin:
             v_scroll=self.verticalScrollBar().value(),
             selected_box_ids=sel_boxes,
             selected_note_ids=sel_notes,
+            nav_stack=list(self._nav_stack),
+            nav_index=self._nav_index,
         )
 
     def restore_state(self, vs: ViewState):
@@ -301,6 +303,12 @@ class SelectionMixin:
         self._undo_stack = list(vs.undo_stack)
         self._redo_stack = list(vs.redo_stack)
         self._dirty = vs.dirty
+        self._nav_stack = list(vs.nav_stack)
+        self._nav_index = vs.nav_index
+        self.restore_view(vs)
+
+    def restore_view(self, vs: ViewState):
+        """Apply only the place you were at: zoom, scroll and selection."""
         if vs.transform:
             m11, m12, m21, m22, dx, dy = vs.transform
             self.setTransform(QTransform(m11, m12, m21, m22, dx, dy))

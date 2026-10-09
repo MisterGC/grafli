@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 import textli
 
 from grafli import theme
-from grafli.buffers import BufferManager, BufferState, ViewState
+from grafli.buffers import BoardFrame, BufferManager, BufferState, ViewState
 from grafli.constants import Mode
 from grafli.fonts import register_bundled_fonts as _register_bundled_fonts
 from grafli.filewatcher import JsonSafeWatcher, MultiFileWatcher
@@ -652,7 +652,7 @@ class MainWindow(QMainWindow):
         if path:
             self._open_file(Path(path))
 
-    def _open_file(self, path: Path):
+    def _open_file(self, path: Path, *, zoom_fit: bool = True):
         # Already open — focus it and re-fit, since an explicit "open this
         # file" (CLI, single-instance forward, file pick) means "show me this
         # board," not "restore my last scroll position" (that's buffer
@@ -660,7 +660,7 @@ class MainWindow(QMainWindow):
         existing = self._buffers.find_by_path(path)
         if existing >= 0:
             self._snapshot_current()
-            self._switch_buffer(existing, zoom_fit=True)
+            self._switch_buffer(existing, zoom_fit=zoom_fit)
             return
 
         if not path.exists():
@@ -688,7 +688,7 @@ class MainWindow(QMainWindow):
 
         self._snapshot_current()
         idx = self._buffers.add(buf)
-        self._switch_buffer(idx, zoom_fit=True)
+        self._switch_buffer(idx, zoom_fit=zoom_fit)
         if missing:
             self._view.toast(
                 "Missing vault doc"
@@ -696,6 +696,41 @@ class MainWindow(QMainWindow):
                 + ": " + ", ".join(f"{m}.md" for m in missing), "warn")
         # Last, so a newer board's read-only notice is the toast that shows.
         self._warn_parse_issues(board)
+
+    def _enter_board(self, path: Path, label: str):
+        """Open *path* as a board entered from this one through the element
+        *label*, so `gu` comes back here as you left it."""
+        here = self._file_path
+        if here is not None and path.resolve() != here.resolve():
+            self._buffers.push_frame(BoardFrame(
+                parent_path=here, parent_view=self._view.snapshot_state(),
+                child_path=path, label=label or path.stem,
+            ))
+        self._open_file(path)
+
+    def _board_path(self) -> list[str]:
+        """Labels from the root board down to this one, for the breadcrumb."""
+        return self._buffers.board_path(self._file_path)
+
+    def _go_up(self):
+        """`gu`: back to the board you entered this one from, restored to the
+        zoom, scroll and selection you left it with — no fit."""
+        frame = self._buffers.frame_for(self._file_path)
+        if frame is None:
+            self._view.toast("Already at the top", "info")
+            return
+        parent = frame.parent_path
+        existing = self._buffers.find_by_path(parent)
+        if existing < 0 and not parent.exists():
+            self._view.toast(f"{parent.name} is gone", "warn")
+            return
+        self._buffers.pop_frame()
+        if existing >= 0:
+            self._snapshot_current()
+            self._switch_buffer(existing)
+        else:
+            self._open_file(parent, zoom_fit=False)
+        self._view.restore_view(frame.parent_view)
 
     def _snapshot_current(self):
         """Snapshot the current buffer state before switching away."""
@@ -763,6 +798,7 @@ class MainWindow(QMainWindow):
             self._title_for_path(self._file_path, dirty=self._view.dirty)
         )
         self._update_buf_status()
+        self._view._update_breadcrumb()
 
         # An explicit open leaves the canvas focused so its shortcuts (M, ⇧Z,
         # …) work immediately — without this the keys silently do nothing until
@@ -852,6 +888,7 @@ class MainWindow(QMainWindow):
             self._title_for_path(self._file_path, dirty=self._view.dirty)
         )
         self._update_buf_status()
+        self._view._update_breadcrumb()
 
     def _toggle_last_buffer(self):
         prev = self._buffers.prev_index

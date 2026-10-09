@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   save, and a failed save, re-read or editor launch reports itself instead
   of passing unnoticed.
   ([#154](https://github.com/MisterGC/grafli/issues/154))
+- **The <kbd>A</kbd> heatmap is called Connectivity and counts graph arrows
+  only.** Its legend said "COMPLEXITY" while it coloured boxes by the arrow
+  ends touching them; legend and help now say Connectivity, and arrows to
+  or from a note or image (annotation arrows) no longer heat a box. A board
+  whose only arrows are annotations has nothing to analyse. The count now sits
+  behind a provider the renderer reads, so other heat sources can plug in.
+  ([#159](https://github.com/MisterGC/grafli/issues/159))
 - **Adding an image to an untitled board asks for a save location instead
   of turning you away.** Dropping an image file or placing an <kbd>i</kbd>
   mockup used to dead-end in a "Save the board first" toast, discarding the

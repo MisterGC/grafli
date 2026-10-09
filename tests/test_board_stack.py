@@ -54,7 +54,9 @@ def _window(path: Path) -> MainWindow:
     app.processEvents()
     view = win._view
     # Instant navigation, so transforms can be asserted right away.
-    view._animate_to_rect = lambda rect: view.goto_rect(rect, animate=False)
+    view._animate_to_rect = lambda rect, **_: view.goto_rect(rect,
+                                                             animate=False)
+    view.transitions_enabled = lambda: False   # no zoom into the level
     return win
 
 

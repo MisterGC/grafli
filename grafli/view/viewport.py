@@ -258,7 +258,8 @@ class ViewportMixin:
 
     # ── Animated zoom ──
 
-    def _animate_to_rect(self, target_rect: QRectF):
+    def _animate_to_rect(self, target_rect: QRectF, duration: int = 250,
+                         easing=QEasingCurve.Type.OutCubic):
         """Smoothly animate zoom and pan to show target_rect."""
         if self._zoom_timeline is not None:
             self._zoom_timeline.stop()
@@ -279,15 +280,17 @@ class ViewportMixin:
         self._anim_start_center = start_center
         self._anim_end_center = end_center
 
-        tl = QTimeLine(250, self)
+        tl = QTimeLine(duration, self)
         tl.setUpdateInterval(16)
-        tl.setEasingCurve(QEasingCurve.Type.OutCubic)
+        tl.setEasingCurve(easing)
         tl.valueChanged.connect(self._on_zoom_anim_step)
         tl.finished.connect(self._on_zoom_anim_finished)
         self._zoom_timeline = tl
         tl.start()
 
-    def _animate_to_zoom_and_center(self, zoom: float, center: QPointF):
+    def _animate_to_zoom_and_center(self, zoom: float, center: QPointF,
+                                    duration: int = 250,
+                                    easing=QEasingCurve.Type.OutCubic):
         """Smoothly animate to an explicit zoom level centered on a scene
         point. Unlike `_animate_to_rect` (which derives zoom from a fit),
         this preserves an exact scale — used by search cycling so every
@@ -306,9 +309,9 @@ class ViewportMixin:
         self._anim_start_center = start_center
         self._anim_end_center = center
 
-        tl = QTimeLine(250, self)
+        tl = QTimeLine(duration, self)
         tl.setUpdateInterval(16)
-        tl.setEasingCurve(QEasingCurve.Type.OutCubic)
+        tl.setEasingCurve(easing)
         tl.valueChanged.connect(self._on_zoom_anim_step)
         tl.finished.connect(self._on_zoom_anim_finished)
         self._zoom_timeline = tl

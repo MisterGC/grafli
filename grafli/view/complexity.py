@@ -397,6 +397,10 @@ class ComplexityMixin:
             if lod_on and should_collapse(px, key in prev_labels_hidden):
                 arrow_labels_hidden.add(key)
 
+        # Sub-board miniatures follow the zoom on every tick; boxes the tiers
+        # hide or reduce never show one.
+        self._refresh_miniatures(scale, hidden | tiles | shells)
+
         state = (frozenset(collapsed), frozenset(shells), frozenset(clusters),
                  frozenset(hidden_notes), frozenset(note_shells),
                  frozenset(hidden_images), frozenset(arrow_labels_hidden))

@@ -700,13 +700,16 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
                 self._clear_focus_filter()
 
     def _update_breadcrumb(self):
-        """Update status bar breadcrumb showing ancestry path."""
+        """Update status bar breadcrumb: the boards entered through, then the
+        selected box's ancestry within this board."""
         window = self.window()
         if not hasattr(window, '_status_breadcrumb'):
             return
+        boards = " \u203a ".join(window._board_path()) \
+            if hasattr(window, '_board_path') else ""
         selected = self._scene.selectedItems()
         if len(selected) != 1 or not isinstance(selected[0], BoxItem) or not self._board:
-            window._status_breadcrumb.setText("")
+            window._status_breadcrumb.setText(boards)
             return
         box = selected[0].box
         path: list[str] = [box.label or box.id]
@@ -723,6 +726,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         text = " > ".join(path)
         if len(text) > 60:
             text = "... " + text[-(60 - 4):]
+        if boards:
+            text = f"{boards} \u203a {text}"
         window._status_breadcrumb.setText(text)
 
     # Image files accepted by drag & drop onto the canvas.

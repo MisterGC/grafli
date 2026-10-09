@@ -708,6 +708,10 @@ class MainWindow(QMainWindow):
             ))
         self._open_file(path)
 
+    def _board_path(self) -> list[str]:
+        """Labels from the root board down to this one, for the breadcrumb."""
+        return self._buffers.board_path(self._file_path)
+
     def _go_up(self):
         """`gu`: back to the board you entered this one from, restored to the
         zoom, scroll and selection you left it with — no fit."""
@@ -794,6 +798,7 @@ class MainWindow(QMainWindow):
             self._title_for_path(self._file_path, dirty=self._view.dirty)
         )
         self._update_buf_status()
+        self._view._update_breadcrumb()
 
         # An explicit open leaves the canvas focused so its shortcuts (M, ⇧Z,
         # …) work immediately — without this the keys silently do nothing until
@@ -883,6 +888,7 @@ class MainWindow(QMainWindow):
             self._title_for_path(self._file_path, dirty=self._view.dirty)
         )
         self._update_buf_status()
+        self._view._update_breadcrumb()
 
     def _toggle_last_buffer(self):
         prev = self._buffers.prev_index

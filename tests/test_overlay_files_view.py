@@ -266,3 +266,34 @@ def test_escape_leaves_an_overlay_and_a_starts_over(tmp_path):
     assert not view._complexity_active
     _key(view)
     assert isinstance(view._heat_provider, DegreeProvider)
+
+
+def test_leaving_an_overlay_after_an_arrow_redraw_restores_the_board(
+        tmp_path):
+    data = json.loads(json.dumps(TESTS))
+    data["entries"]["n"] = {"category": "pass"}
+    view = _view(tmp_path, tests=data)
+    before = {bid: _fill(view, bid) for bid in "abc"}
+    _key(view)
+    _key(view)
+
+    view._redraw_arrows()             # re-applies the painted overlay
+    view._apply_presentation_focus()  # and so does a focus change
+    assert _fill(view, "a") == (Qt.BrushStyle.SolidPattern, "#ff0000")
+    _key(view)
+
+    assert not view._complexity_active
+    assert {bid: _fill(view, bid) for bid in "abc"} == before
+    assert view._note_items["n"].graphicsEffect() is None
+
+
+def test_leaving_connectivity_after_an_arrow_redraw_restores_the_glow(
+        tmp_path):
+    view = _view(tmp_path)
+    _key(view)
+    view._redraw_arrows()
+    _key(view)
+
+    assert not view._complexity_active
+    assert all(item.graphicsEffect() is None
+               for item in view._box_items.values())

@@ -432,8 +432,10 @@
     const home = tour.home;
     stopTour();
     if (board.id !== home) {
+      // Back along the stack restores the view left there; a board the
+      // tour never came through is shown whole.
       const frame = boardFor(home);
-      if (frame) setView(frame.view);
+      setView(frame ? frame.view : fitBoard());
     }
   }
 

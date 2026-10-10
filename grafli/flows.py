@@ -105,6 +105,10 @@ def isolate_focus(view, focus_ids: list[str]):
     exit, so the live canvas is unaffected.
     """
     keep = set(focus_ids)
+    # An arrow in the focus keeps its two ends, and so the arrow itself.
+    if view._board is not None:
+        for arrow in focus_arrows(view._board, focus_ids):
+            keep.update((arrow.from_id, arrow.to_id))
     hidden = []
 
     def hide(item):
@@ -140,17 +144,50 @@ def resolve_focus_rect(view, focus_ids: list[str]) -> QRectF:
     current layout. Ids that no longer exist are skipped.
     """
     rect = QRectF()
-    for fid in focus_ids:
-        item = (
-            view._box_items.get(fid)
-            or view._note_items.get(fid)
-            or view._image_items.get(fid)
-        )
-        if item is None:
-            continue
-        r = item.sceneBoundingRect()
+
+    def add(r: QRectF):
+        nonlocal rect
         rect = QRectF(r) if rect.isNull() else rect.united(r)
+
+    for fid in focus_ids:
+        item = _element_item(view, fid)
+        if item is not None:
+            add(item.sceneBoundingRect())
+            continue
+        # An arrow id frames the arrow's two ends and the line drawn between
+        # them, which may bow or route outside the ends' union.
+        arrow = view._board.arrow_by_id(fid) if view._board else None
+        if arrow is None:
+            continue
+        for end_id in (arrow.from_id, arrow.to_id):
+            end = _element_item(view, end_id)
+            if end is not None:
+                add(end.sceneBoundingRect())
+        for gfx in view._arrow_items:
+            if gfx.data(0) is arrow and gfx.isVisible():
+                add(gfx.sceneBoundingRect())
     return rect
+
+
+def _element_item(view, element_id: str):
+    """The graphics item of a box, note or image id, or None."""
+    return (view._box_items.get(element_id)
+            or view._note_items.get(element_id)
+            or view._image_items.get(element_id))
+
+
+def focus_arrows(board, focus_ids: list[str]) -> list:
+    """The arrows a bookmark's focus names by their ``~id=``. An element id
+    wins over an arrow carrying the same id, as it does when framing."""
+    arrows = []
+    for fid in focus_ids:
+        if (board.box_by_id(fid) or board.note_by_id(fid)
+                or board.image_by_id(fid)):
+            continue
+        arrow = board.arrow_by_id(fid)
+        if arrow is not None:
+            arrows.append(arrow)
+    return arrows
 
 
 def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,

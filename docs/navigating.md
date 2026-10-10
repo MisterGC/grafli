@@ -127,7 +127,10 @@ looked.
   rectangle, so you never lose your bearings in a large graph.
 - <kbd>A</kbd> — **connectivity heatmap**: colours boxes by how many graph
   arrows touch them (arrows to and from notes or images don't count), to
-  spot where the density is.
+  spot where the density is. When the board has
+  [overlay files](format.md#overlay-files) beside it, further presses show
+  each of them in turn — test results, churn, whatever a script wrote — with
+  a legend card that shows the selected element's note and refs.
 
 ## Read a board zoomed out (semantic zoom)
 

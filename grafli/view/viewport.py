@@ -37,19 +37,6 @@ class ViewportMixin:
                 gfx.setOpacity(opacity)
             self.viewport().update()
 
-    def _toggle_complexity(self):
-        """Toggle the connectivity heatmap overlay."""
-        if self._complexity_active:
-            self._clear_complexity_heatmap()
-        else:
-            if not self._complexity_analysable():
-                self.toast("No connectors to analyse", "warn")
-                return
-            if self._focus_active:
-                self._clear_focus_filter()
-            self._complexity_active = True
-            self._apply_complexity_heatmap()
-
     def _toggle_notes_hidden(self):
         """Toggle low-opacity dim on all notes and their connector arrows.
 

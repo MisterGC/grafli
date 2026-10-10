@@ -424,8 +424,9 @@ task needs them:
 
 * `references/format.md` — the full element syntax: box / arrow / note
   modifier tables, code-mode keywords, markdown-note subset, discussion
-  notes, images, colors, glyphs, `>parent` nesting, attachments. Open
-  when you write any element beyond the quick reference above.
+  notes, images, colors, glyphs, `>parent` nesting, attachments, and
+  overlay files (analysis data beside a board). Open when you write any
+  element beyond the quick reference above, or analysis data for a board.
 * `references/design.md` — diagram design principles: visual hierarchy,
   typography, layout strategy, container margin model, arrow discipline,
   the pattern gallery (architecture, pipeline, hub-and-spoke, visual

@@ -75,6 +75,13 @@ class FlowsMixin:
                     or self._image_items.get(fid))
             if item is not None:
                 item.setSelected(True)
+        if not self._scene.selectedItems():
+            # An arrow id (a path stop's or a link's #<arrow-id>) selects the
+            # arrow; selecting one clears element selection, so arrows are
+            # selected only when no element is.
+            from grafli.flows import focus_arrows
+            for i, arrow in enumerate(focus_arrows(self._board, bm.focus)):
+                self._select_arrow(arrow, additive=i > 0)
         self.goto_rect(rect, animate=False)
         self.flash_anchor(rect)
         return True

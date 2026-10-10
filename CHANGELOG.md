@@ -135,6 +135,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   level mid-tour parks it and going back up resumes it. Boards a tour stops
   in go into the page even when nothing links to them.
   ([#61](https://github.com/MisterGC/grafli/issues/61))
+- **The skill teaches explanation maps of any subject.** A new reference,
+  `references/explaining.md`, is what an agent reads when asked to help you
+  understand, learn, explain or review a codebase, a system or a concept on
+  a map: every level states its question and the evidence for its split,
+  about nine parts a level, one-line labels with the explanation in the
+  box's own `&doc`, one board per repo plus a bench board linking in,
+  relationship kinds on the arrows, tours across levels, overlay files with
+  their provenance, and marking a map stale. A `Q:` you leave on the map is
+  answered on the map — by a deeper level, one line or a tour, never a
+  paragraph. The skill's rule that boxes are identifiers now names the
+  box's own `&doc` as a place for its explanation.
+  ([#170](https://github.com/MisterGC/grafli/issues/170))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

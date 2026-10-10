@@ -91,10 +91,12 @@ shortest phrase that names the node — typically one line, two at
 most. If you're tempted to add bullet points, pseudocode,
 behavioral detail, or a multi-paragraph description inside a box
 label, that content belongs in a `code:` or plain note next to the
-box — not inside it. Notes carry distinct visual affordances (badge
-colours for `T:` / `Q:`, handwriting font, syntax-styled `code:`
-rendering) that you forfeit by inlining the detail. The shape of
-your diagram is the graph; the detail lives in notes adjacent to it.
+box, or in the box's own `&doc` (its first sentence shows on one line
+under the label, `gv` peeks the rest) — not inside the label. Notes
+carry distinct visual affordances (badge colours for `T:` / `Q:`,
+handwriting font, syntax-styled `code:` rendering) that you forfeit
+by inlining the detail. The shape of your diagram is the graph; the
+detail lives in notes adjacent to it or in the box's own `&doc`.
 
 ## Arrow syntax
 
@@ -232,8 +234,9 @@ Goal: a reviewer can verify in seconds that an implementation covers
 the expected steps, branches, and side effects — without opening the
 source.
 
-`code:` notes are the right home for any multi-line detail you might
-otherwise be tempted to cram into a box label: assertion lists,
+`code:` notes (or, for prose, the box's own `&doc`) are the right home
+for any multi-line detail you might otherwise be tempted to cram into a
+box label: assertion lists,
 phase checklists, configuration snippets, behavioral specs, sequence
 sketches. The syntax-styled rendering (bold signature line, indent
 guides, coloured keywords) gives that content a distinct visual voice

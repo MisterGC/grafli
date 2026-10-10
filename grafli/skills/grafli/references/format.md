@@ -590,7 +590,15 @@ unchanged.
 A flow `<step>` is `<bookmark_ref>` plus optional `:`-separated segments in
 any order: a bare number is the dwell, `detail=<v>` / `focus=<v>` override
 the flow's presentation settings for that stop —
-`bm_all:6:detail=summary`, `bm_api:focus=complete`.
+`bm_all:6:detail=summary`, `bm_api:focus=complete`. A
+`<bookmark_ref>` of the form `<board>#<bookmark>` is a stop in another
+board — `<board>` is the name of a sub-board of the flow's own board, or a
+path ending in `.grafli` relative to the flow's board file, which a
+sub-board deeper down needs (`combat#lunge`,
+`System-res/combat-res/impact.grafli#hit`, `../engine.grafli#loop`; never
+`graph:…`, the `:` would split the step). The flow stays on its own board; playback
+enters the other board for that stop and export renders it from there. A
+board with such a step carries a `#!grafli v3` header — bump it yourself.
 
 * `@<ids>` is the **semantic anchor** — the item ids the view frames; the
   pan/zoom is computed at display time by fitting them, so a bookmark

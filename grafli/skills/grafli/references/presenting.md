@@ -28,6 +28,14 @@ v1 file? Bump the header to `#!grafli v2` yourself.)
 * A **flow** lists bookmark ids in order. `:<dwell>` is that stop's auto-play
   time in seconds (omit for the default); it only matters for auto-play /
   booth playback.
+* A stop may lie in **another board**: `<board>#<bookmark>`, with `<board>`
+  the name of a sub-board of the flow's own board, or a `.grafli` path
+  relative to the flow's board file for anything deeper — on
+  `System.grafli`: `combat#lunge`, `System-res/combat-res/impact.grafli#hit`. Use it for a tour that
+  crosses levels (a request path, "a blow lands"); author the bookmark in
+  that board, keep the flow on the board the tour starts on, and bump its
+  header to `#!grafli v3`. Playback enters the board for that stop; the
+  slide export renders it from there.
 * `@ footer` (board-global, one per file) brands the bottom of every exported
   content slide with a small muted markdown line; the title slide stays a
   clean cover. `@ title-bg thumbnail-art` backs the title slide with a faint

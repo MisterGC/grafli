@@ -115,3 +115,25 @@ def test_arrows_without_ids_stay_v1():
     text = ('#!grafli v1\n@ box a "A" 0,0 10x10\n@ box b "B" 50,0 10x10\n'
             '@ arrow a -> b "call" ~kind=graph\n')
     assert serialize(parse(text)) == text
+
+
+def test_a_stop_in_another_board_writes_v3():
+    text = ('#!grafli v2\n@ box a "A" 0,0 10x10\n'
+            '@ bookmark bm1 "A" @a\n'
+            '@ flow tour "Tour" bm1 combat#blow:3 ../other.grafli#hit\n')
+    out = serialize(parse(text))
+    assert out.splitlines()[0] == "#!grafli v3"
+    assert "@ flow tour \"Tour\" bm1 combat#blow:3 ../other.grafli#hit" in out
+
+
+def test_a_tour_on_its_own_board_stays_v2():
+    text = ('#!grafli v2\n@ box a "A" 0,0 10x10\n'
+            '@ bookmark bm1 "A" @a\n'
+            '@ flow tour "Tour" bm1:3\n')
+    assert serialize(parse(text)) == text
+
+
+def test_a_step_ref_splits_into_board_and_bookmark():
+    assert fmt.split_step_ref("bm1") == ("", "bm1")
+    assert fmt.split_step_ref("combat#blow") == ("combat", "blow")
+    assert fmt.split_step_ref("../x.grafli#hit") == ("../x.grafli", "hit")

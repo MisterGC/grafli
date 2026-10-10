@@ -11,6 +11,7 @@ from __future__ import annotations
 import random
 import zlib
 from contextlib import contextmanager
+from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import (
@@ -24,7 +25,7 @@ from PySide6.QtGui import (
 )
 
 from grafli import theme
-from grafli.format import DEFAULT_BOOKMARK_PAD, Bookmark, Flow
+from grafli.format import DEFAULT_BOOKMARK_PAD, Bookmark, Flow, split_step_ref
 
 DEFAULT_DWELL = 4.0   # seconds to rest on a stop during auto-play
 
@@ -289,17 +290,25 @@ def bookmark_target_rect(view, bookmark: Bookmark) -> QRectF:
 
 
 class FlowPlayer:
-    """Steps a flow on the live canvas, manually or auto-played."""
+    """Steps a flow on the live canvas, manually or auto-played.
+
+    A stop ``<board>#<bookmark>`` lies in another board: the player asks the
+    window to show that board (``_tour_goto_board``) before framing it. The
+    flow stays owned by ``home``, the board it started on."""
 
     _MODES = ("paused", "playing", "loop")
 
-    def __init__(self, view, flow: Flow):
+    def __init__(self, view, flow: Flow, home: Path | None = None):
         self.view = view
         self.flow = flow
+        self.home = home
         self.index = 0
         self.smooth = True       # smooth camera vs instant cuts
         self.mode = "paused"     # paused | playing | loop
         self.active = True
+        # True while the player switches boards for a stop, so loading that
+        # board does not end the tour.
+        self.navigating = False
         self._timer = QTimer(view)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._auto_advance)
@@ -315,6 +324,24 @@ class FlowPlayer:
             return
         self.goto(0)
 
+    def end(self) -> None:
+        """Leave the tour on purpose (Esc): stop, and come back to the board
+        the flow belongs to when a stop took you elsewhere."""
+        home = self.home
+        self.stop()
+        if home is not None and not self._on_board(home):
+            go = getattr(self.view.window(), "_tour_goto_board", None)
+            if go is not None:
+                go(home)
+
+    def position(self):
+        """Where the tour stands, for a board-stack frame to keep."""
+        from grafli.buffers import TourPosition
+        return TourPosition(home=self.home, flow_id=self.flow.id,
+                            index=self.index, mode=self.mode,
+                            smooth=self.smooth, flow_label=self.flow.label,
+                            total=len(self.flow.steps))
+
     def stop(self) -> None:
         self.active = False
         self.mode = "paused"
@@ -327,14 +354,18 @@ class FlowPlayer:
         self.view.playback_ended.emit()
 
     # ── navigation ─────────────────────────────────────────────
-    def goto(self, index: int) -> None:
+    def goto(self, index: int, move: bool = True) -> None:
+        """Show stop *index*. With *move* False the camera stays where it is
+        — a resumed tour comes back to the view you left it with."""
         steps = self.flow.steps
         if not steps:
             self.stop()
             return
         self.index = max(0, min(index, len(steps) - 1))
         step = steps[self.index]
-        bookmark = self.view.board.bookmark_by_id(step.ref) if self.view.board else None
+        bookmark = self._step_bookmark(step, navigate=True)
+        if not self.active:
+            return
         # Presentation settings resolve per step (step ← flow ← global) and
         # must be in force before the camera moves, so the stop lands on the
         # intended reading. Detail "" clears the override back to the global
@@ -345,7 +376,7 @@ class FlowPlayer:
         rect = QRectF()
         if bookmark is not None:
             rect = bookmark_target_rect(self.view, bookmark)
-            if not rect.isNull():
+            if not rect.isNull() and move:
                 self.view.goto_rect(rect, animate=self.smooth)
         if step_focus(self.flow, step) == "complete" and not rect.isNull():
             vp = self.view.viewport().rect()
@@ -384,6 +415,44 @@ class FlowPlayer:
             self._schedule_next(self.flow.steps[self.index])
         self._refresh_overlay(self._current_bookmark())
 
+    # ── stops in other boards ──────────────────────────────────
+    def _step_board(self, target: str) -> Path | None:
+        """The board a step's ``<board>`` names ("" = the flow's own), or
+        None when it can't be resolved (no home board to resolve from)."""
+        if not target:
+            return self.home
+        if self.home is None:
+            return None
+        from grafli.resources import board_target_path
+        return board_target_path(self.home, target)
+
+    def _on_board(self, path: Path) -> bool:
+        current = getattr(self.view.window(), "_file_path", None)
+        return current is not None and \
+            Path(current).resolve() == path.resolve()
+
+    def _step_bookmark(self, step, navigate: bool = False) -> Bookmark | None:
+        """The bookmark *step* frames, on the board that holds it. With
+        *navigate* the window is first switched to that board; without, a
+        stop on a board not shown resolves to None."""
+        target, bookmark_id = split_step_ref(step.ref)
+        path = self._step_board(target)
+        if target and path is None:
+            return None
+        if path is not None and not self._on_board(path):
+            go = getattr(self.view.window(), "_tour_goto_board", None)
+            if not navigate or go is None:
+                return None
+            self.navigating = True
+            try:
+                shown = go(path)
+            finally:
+                self.navigating = False
+            if not shown:
+                return None
+        board = self.view.board
+        return board.bookmark_by_id(bookmark_id) if board else None
+
     # ── auto-play timing ───────────────────────────────────────
     def _schedule_next(self, step) -> None:
         dwell = step.dwell if step.dwell is not None else DEFAULT_DWELL
@@ -397,7 +466,7 @@ class FlowPlayer:
     def _current_bookmark(self) -> Bookmark | None:
         if not self.flow.steps or not self.view.board:
             return None
-        return self.view.board.bookmark_by_id(self.flow.steps[self.index].ref)
+        return self._step_bookmark(self.flow.steps[self.index])
 
     def _refresh_overlay(self, bookmark: Bookmark | None) -> None:
         total = len(self.flow.steps)
@@ -420,7 +489,7 @@ class FlowPlayer:
     def handle_key(self, event: QKeyEvent) -> None:
         key = event.key()
         if key in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
-            self.stop()
+            self.end()
         elif key in (Qt.Key.Key_Space, Qt.Key.Key_Right, Qt.Key.Key_L, Qt.Key.Key_J):
             self.next()
         elif key in (Qt.Key.Key_Left, Qt.Key.Key_H, Qt.Key.Key_K):

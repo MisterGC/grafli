@@ -364,7 +364,8 @@ class MainWindow(QMainWindow):
             return
         from grafli.pdfexport import export_flow_to_pdf
         try:
-            slides, overloaded = export_flow_to_pdf(self._view, flow, path)
+            slides, overloaded = export_flow_to_pdf(self._view, flow, path,
+                                                    self._file_path)
         except Exception as exc:  # surface any render/IO failure
             self._view.toast(f"PDF export failed: {exc}", "error")
             return
@@ -409,7 +410,8 @@ class MainWindow(QMainWindow):
         try:
             slides, overloaded = export_flow_to_pptx(
                 self._view, flow, path, theme=theme, template=template,
-                title_layout=title_layout, content_layout=content_layout)
+                title_layout=title_layout, content_layout=content_layout,
+                board_path=self._file_path)
         except Exception as exc:  # surface any render/IO failure
             self._view.toast(f"PPTX export failed: {exc}", "error")
             return
@@ -715,6 +717,7 @@ class MainWindow(QMainWindow):
                 parent_path=here, parent_view=self._view.snapshot_state(),
                 child_path=path, label=label or path.stem,
                 via_id=getattr(via, "id", "") or "",
+                tour=self._view.tour_position(),
             )
         rect = (self._view.level_entry_rect(via)
                 if frame is not None and self._view.transitions_enabled()
@@ -724,6 +727,9 @@ class MainWindow(QMainWindow):
             if frame is not None:
                 self._buffers.push_frame(frame)
             self._open_board_at(path, target_id)
+            if frame is not None and frame.tour is not None:
+                self._view.toast(f"Tour paused at stop {frame.tour.index + 1}"
+                                 " — gu resumes it", "info")
 
         if rect is None:
             switch()
@@ -771,6 +777,46 @@ class MainWindow(QMainWindow):
         rect = self._view.level_entry_rect(via) if via is not None else None
         if rect is not None:
             self._view.play_exit(via, rect, still, frame.parent_view)
+        if frame.tour is not None:
+            self._resume_tour(frame.tour)
+
+    def _resume_tour(self, position):
+        """Pick up the tour a frame kept, at the stop it was left at."""
+        home = position.home
+        board = self.board
+        if home is not None and (self._file_path is None
+                                 or home.resolve() != self._file_path.resolve()):
+            idx = self._buffers.find_by_path(home)
+            board = self._buffers.buffers[idx].board if idx >= 0 else None
+        flow = board.flow_by_id(position.flow_id) if board else None
+        if flow is None or not flow.steps:
+            self._view.toast("The paused tour is gone", "warn")
+            return
+        self._view.resume_flow(flow, position)
+
+    def _paused_tour(self):
+        """The tour a board above this one keeps for `gu`, or None."""
+        if self._buffers.frame_for(self._file_path) is None:
+            return None
+        return self._buffers.paused_tour()
+
+    def _tour_goto_board(self, path: Path) -> bool:
+        """Show *path* for a tour stop: back along the board stack when it is
+        a board the tour came through, else one level down from here. True
+        when the board is shown."""
+        here = self._file_path
+        if here is not None and here.resolve() == path.resolve():
+            return True
+        if self._buffers.find_by_path(path) < 0 and not path.exists():
+            self._view.toast(f"{path.name} is gone", "warn")
+            return False
+        if here is not None and not self._buffers.pop_to(path):
+            self._buffers.push_frame(BoardFrame(
+                parent_path=here, parent_view=self._view.snapshot_state(),
+                child_path=path, label=path.stem))
+        self._open_file(path, zoom_fit=False)
+        return (self._file_path is not None
+                and self._file_path.resolve() == path.resolve())
 
     def _snapshot_current(self):
         """Snapshot the current buffer state before switching away."""
@@ -1362,6 +1408,22 @@ def _newer_board_reason(board: Board) -> str:
             f"to v{supported_version()}")
 
 
+def _step_bookmark(board_path: Path, board: Board, ref: str):
+    """The bookmark a flow step names — on *board*, or for a
+    ``<board>#<bookmark>`` stop on that other board — or None."""
+    from grafli.format import split_step_ref
+    target, bookmark_id = split_step_ref(ref)
+    if not target:
+        return board.bookmark_by_id(bookmark_id)
+    from grafli.resources import board_target_path
+    path = board_target_path(board_path, target)
+    try:
+        other = parse(path.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    return other.bookmark_by_id(bookmark_id)
+
+
 def _load_vault(path: Path, board: Board) -> list[str]:
     """Resolve a freshly parsed board against its vault: classify legacy
     untyped attachments and read doc-bodied note texts from <stem>-res/.
@@ -1884,7 +1946,19 @@ def _cmd_render(argv: list[str]) -> int:
                   f"for flow '{flow_id}'", file=sys.stderr)
             return 2
         step = flow.steps[idx]
-        bookmark_id = step.ref
+        from grafli.format import split_step_ref
+        target, bookmark_id = split_step_ref(step.ref)
+        if target:
+            # A stop in another board renders from that board.
+            from grafli.resources import board_target_path
+            other = board_target_path(args.input.resolve(), target)
+            if not other.exists():
+                print(f"Step {step_no} of flow '{flow_id}' lies in "
+                      f"{other}, which does not exist", file=sys.stderr)
+                return 2
+            board = parse(other.read_text(encoding="utf-8"))
+            view.base_dir = str(other.parent)
+            view.load_board(board)
         # Explicit CLI flags override the step's resolved settings.
         if detail is None:
             detail = step_detail(flow, step) or None
@@ -2055,9 +2129,10 @@ def _cmd_export(argv: list[str]) -> int:
         | {n.id for n in board.notes}
         | {im.id for im in board.images}
     )
+    board_path = args.input.resolve()
     dangling: list[str] = []
     for step in flow.steps:
-        if board.bookmark_by_id(step.ref) is None:
+        if _step_bookmark(board_path, board, step.ref) is None:
             dangling.append(
                 f"flow '{flow.id}' step references missing bookmark "
                 f"'{step.ref}'"
@@ -2074,7 +2149,7 @@ def _cmd_export(argv: list[str]) -> int:
     from grafli.format import MAX_DESCRIPTION_CHARS
     overlong: list[dict] = []
     for bm_id in dict.fromkeys(step.ref for step in flow.steps):
-        bm = board.bookmark_by_id(bm_id)
+        bm = _step_bookmark(board_path, board, bm_id)
         if bm is not None and len(bm.description) > MAX_DESCRIPTION_CHARS:
             overlong.append({"bookmark": bm.id,
                              "chars": len(bm.description),
@@ -2104,10 +2179,12 @@ def _cmd_export(argv: list[str]) -> int:
                     view, flow, tmp_path, theme=args.theme,
                     template=args.template,
                     title_layout=args.title_layout,
-                    content_layout=args.content_layout)
+                    content_layout=args.content_layout,
+                    board_path=board_path)
             else:
                 from grafli.pdfexport import export_flow_to_pdf
-                slides, overloaded = export_flow_to_pdf(view, flow, tmp_path)
+                slides, overloaded = export_flow_to_pdf(view, flow, tmp_path,
+                                                        board_path)
         finally:
             tmp_path.unlink(missing_ok=True)
         report = {
@@ -2155,10 +2232,12 @@ def _cmd_export(argv: list[str]) -> int:
             view, flow, args.output, theme=args.theme,
             template=args.template,
             title_layout=args.title_layout,
-            content_layout=args.content_layout)
+            content_layout=args.content_layout,
+            board_path=board_path)
     else:
         from grafli.pdfexport import export_flow_to_pdf
-        slides, overloaded = export_flow_to_pdf(view, flow, args.output)
+        slides, overloaded = export_flow_to_pdf(view, flow, args.output,
+                                                board_path)
     print(f"Wrote {args.output} ({slides} slides)", file=sys.stderr)
     if overloaded:
         where = ", ".join(f"#{i + 1} {lbl}".strip() for i, lbl in overloaded)

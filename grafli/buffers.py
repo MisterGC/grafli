@@ -37,6 +37,21 @@ class BufferState:
 
 
 @dataclass
+class TourPosition:
+    """Where a tour stood when you navigated away from it: the board that
+    owns the flow, the flow and the stop, and how it was playing."""
+
+    home: Path | None
+    flow_id: str
+    index: int
+    mode: str = "paused"
+    smooth: bool = True
+    # For the flows panel's "paused at" line.
+    flow_label: str = ""
+    total: int = 0
+
+
+@dataclass
 class BoardFrame:
     """One step into a board: the board you came from, as you left it, and
     the element you entered through. Session state only, never written."""
@@ -47,6 +62,9 @@ class BoardFrame:
     label: str
     # Id of the element entered through, so `gu` can zoom back out of it.
     via_id: str = ""
+    # The tour that was playing on the parent when you left it; `gu` back
+    # resumes it at that stop.
+    tour: TourPosition | None = None
 
 
 class BufferManager:
@@ -142,6 +160,22 @@ class BufferManager:
 
     def pop_frame(self) -> BoardFrame | None:
         return self._frames.pop() if self._frames else None
+
+    def pop_to(self, path: Path) -> bool:
+        """Drop the frames below *path* when it is a board on the current
+        chain, so it becomes the deepest one. False when it is not on it."""
+        for i in range(len(self._frames) - 1, -1, -1):
+            if _same(self._frames[i].parent_path, path):
+                del self._frames[i:]
+                return True
+        return False
+
+    def paused_tour(self) -> TourPosition | None:
+        """The tour a frame on the current chain keeps, nearest first."""
+        for frame in reversed(self._frames):
+            if frame.tour is not None:
+                return frame.tour
+        return None
 
     def board_path(self, path: Path | None) -> list[str]:
         """Labels from the root board down to *path*, or [] when *path* was

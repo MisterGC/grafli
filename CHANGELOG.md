@@ -147,6 +147,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paragraph. The skill's rule that boxes are identifiers now names the
   box's own `&doc` as a place for its explanation.
   ([#170](https://github.com/MisterGC/grafli/issues/170))
+- **A worked explanation map ships in `examples/`.**
+  `examples/navigation-map.grafli` maps grafli's own path from Return on a
+  box to the board behind it in three levels — the parts, the dispatch, the
+  algorithm with its source refs — with box docs, deep links, a tour across
+  the levels with path stops, and a Tests overlay that
+  `examples/navigation-map-overlay.py` regenerates.
+  ([#171](https://github.com/MisterGC/grafli/issues/171))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

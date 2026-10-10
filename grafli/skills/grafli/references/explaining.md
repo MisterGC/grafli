@@ -232,3 +232,7 @@ split by the files that own each step
 Each `&doc` file starts with the one sentence the canvas shows; `impact`
 gets a level because its three effects relate; the evidence note backs the
 split; the tour walks the call chain as arrow stops.
+
+A complete map in three levels — box docs, deep links, a tour across the
+levels and a generated overlay — ships as `examples/navigation-map.grafli`
+in the grafli repository.

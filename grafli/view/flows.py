@@ -564,6 +564,19 @@ class FlowsMixin:
         self._apply_presentation_focus()
         self.viewport().update()
 
+    def _set_presentation_emphasis(
+            self, emphasis: tuple[set[str], set[str]] | None):
+        """Set (or clear, with None) a path stop's emphasis: (arrow ids, kept
+        element ids). The arrows redraw in the tour accent, thicker; every
+        other arrow and every element not kept dims as "complete" focus
+        does."""
+        if emphasis is None and self._present_emphasis is None:
+            return
+        self._present_emphasis = emphasis
+        self._redraw_arrows()
+        self._apply_presentation_focus()
+        self.viewport().update()
+
     def _presentation_focus_contained(self) -> set[str]:
         """Ids of the visible boxes/notes/images completely inside the focus
         frame. Only meaningful while a focus frame is set."""
@@ -580,7 +593,11 @@ class FlowsMixin:
     def _apply_presentation_focus(self):
         """(Re)apply the focus fade — or restore the resting opacities, which
         must respect the standing dim toggles (⇧N notes, "," arrows) and the
-        subgraph-focus / complexity filters when clearing."""
+        subgraph-focus / complexity filters when clearing. A path stop's
+        emphasis, when set, decides the fade instead of the focus frame."""
+        if self._present_emphasis is not None:
+            self._apply_presentation_emphasis()
+            return
         if self._present_focus_rect is None:
             for item in self._box_items.values():
                 item.setOpacity(1.0)
@@ -621,4 +638,33 @@ class FlowsMixin:
             to_id = self._lod_reroute(arrow.to_id)
             both_in = from_id in contained and to_id in contained
             gfx.setOpacity(1.0 if both_in else 0.08)
+
+    def _apply_presentation_emphasis(self):
+        """Fade everything but a path stop's arrows and kept elements to the
+        standard 0.08 blend level. A kept element inside a collapsed
+        container is shown by that container's tile, so the tile stays."""
+        arrow_ids, keep = self._present_emphasis
+        keep = keep | {self._lod_reroute(eid) for eid in keep}
+        for bid, item in self._box_items.items():
+            opacity = 1.0 if bid in keep else 0.08
+            item.setOpacity(opacity)
+            item._label.setOpacity(opacity)
+        for nid, item in self._note_items.items():
+            item.setOpacity(1.0 if nid in keep else 0.08)
+        for iid, item in self._image_items.items():
+            item.setOpacity(1.0 if iid in keep else 0.08)
+        for gfx in self._arrow_items:
+            gfx.setOpacity(1.0 if self._arrow_emphasised(gfx.data(0))
+                           else 0.08)
+
+    def _arrow_emphasised(self, arrow) -> bool:
+        """Whether a drawn connector shows an arrow a path stop emphasises:
+        its own, or the reverse arrow merged into the same line."""
+        if self._present_emphasis is None or arrow is None:
+            return False
+        arrow_ids = self._present_emphasis[0]
+        if arrow.id and arrow.id in arrow_ids:
+            return True
+        merged = self._merged_reverse.get(id(arrow))
+        return merged is not None and merged.id in arrow_ids
 

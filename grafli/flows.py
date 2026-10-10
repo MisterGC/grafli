@@ -190,6 +190,23 @@ def focus_arrows(board, focus_ids: list[str]) -> list:
     return arrows
 
 
+def emphasis_for(board, bookmark: Bookmark | None):
+    """What a stop on *bookmark* emphasises, as the view's
+    ``_set_presentation_emphasis`` takes it: the ids of the arrows its focus
+    names and the elements kept bright beside them (its other focus elements
+    and each arrow's two ends). None when the focus names no arrow."""
+    if bookmark is None or board is None:
+        return None
+    arrows = focus_arrows(board, bookmark.focus)
+    if not arrows:
+        return None
+    arrow_ids = {a.id for a in arrows}
+    keep = {fid for fid in bookmark.focus if fid not in arrow_ids}
+    for arrow in arrows:
+        keep.update((arrow.from_id, arrow.to_id))
+    return arrow_ids, keep
+
+
 def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
                            max_h: int) -> QPixmap | None:
     """A small preview of what a bookmark frames, fit within max_w x max_h.
@@ -406,6 +423,7 @@ class FlowPlayer:
         self._timer.stop()
         self.view._set_presentation_detail(None)
         self.view._set_presentation_focus(None)
+        self.view._set_presentation_emphasis(None)
         self.view._clear_flow_overlay()
         if self.view._flow_player is self:
             self.view._flow_player = None
@@ -430,6 +448,9 @@ class FlowPlayer:
         # GUI state; focus fades everything not fully inside the frame the
         # viewport will actually show (the target grown to viewport aspect).
         self.view._set_presentation_detail(step_detail(self.flow, step) or None)
+        # A stop framing arrows emphasises them over everything else.
+        self.view._set_presentation_emphasis(
+            emphasis_for(self.view._board, bookmark))
         focus_frame = None
         rect = QRectF()
         if bookmark is not None:

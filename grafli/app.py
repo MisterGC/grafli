@@ -1965,7 +1965,8 @@ def _cmd_render(argv: list[str]) -> int:
         if focus_mode is None:
             focus_mode = step_focus(flow, step) or None
     if bookmark_id:
-        from grafli.flows import bookmark_target_rect, isolate_focus
+        from grafli.flows import (bookmark_target_rect, emphasis_for,
+                                  isolate_focus)
         bm = board.bookmark_by_id(bookmark_id)
         if bm is None:
             ids = ", ".join(b.id for b in board.bookmarks) or "none"
@@ -1979,6 +1980,8 @@ def _cmd_render(argv: list[str]) -> int:
             return 2
         if bm.isolate and bm.focus:
             iso_ctx = isolate_focus(view, bm.focus)
+        # A bookmark framing arrows emphasises them, as its tour stop does.
+        view._set_presentation_emphasis(emphasis_for(board, bm))
     elif args.focus:
         wanted = [i.strip() for i in args.focus.split(",") if i.strip()]
         items = {**view._box_items, **view._note_items, **view._image_items}

@@ -168,3 +168,63 @@ def test_export_check_takes_an_arrow_id_as_a_focus(tmp_path: Path, capsys):
     report = json.loads(capsys.readouterr().out)
     assert report["dangling"] == [
         "bookmark 'b_mixed' anchors missing element 'gone'"]
+
+
+# ── slide export ──
+
+
+def _accent_pixels(image) -> int:
+    """Pixels close to the tour accent on a rendered page."""
+    accent = theme.FLOWS_ACCENT
+    count = 0
+    for y in range(0, image.height(), 2):
+        for x in range(0, image.width(), 2):
+            c = image.pixelColor(x, y)
+            if (abs(c.red() - accent.red()) < 24
+                    and abs(c.green() - accent.green()) < 24
+                    and abs(c.blue() - accent.blue()) < 24):
+                count += 1
+    return count
+
+
+def _pdf_pages(path: Path) -> list:
+    from PySide6.QtCore import QSize
+    from PySide6.QtPdf import QPdfDocument
+    doc = QPdfDocument()
+    doc.load(str(path))
+    pages = [doc.render(i, QSize(960, 540)) for i in range(doc.pageCount())]
+    doc.close()
+    return pages
+
+
+def test_the_slide_plan_carries_the_stop_emphasis():
+    from grafli.slideplan import build_slide_plan
+    view = _view(parse(BOARD))
+    plans = build_slide_plan(view, view._board.flow_by_id("f"))
+    # Cover, then b_aside (no arrow), then b_call.
+    assert plans[1].emphasis is None
+    assert plans[2].emphasis == ({"call"}, {"client", "server"})
+
+
+def test_an_exported_arrow_stop_draws_the_arrow_in_the_accent(tmp_path):
+    from grafli.pdfexport import export_flow_to_pdf
+    view = _view(parse(BOARD))
+    out = tmp_path / "path.pdf"
+    export_flow_to_pdf(view, view._board.flow_by_id("f"), out)
+    cover, aside, call = _pdf_pages(out)
+    assert _accent_pixels(call) > 50
+    assert _accent_pixels(aside) == 0
+    # The export leaves the live view as it found it.
+    assert view._present_emphasis is None
+    for line in _lines(view, "call"):
+        assert line.pen().color() != theme.FLOWS_ACCENT
+
+
+def test_pptx_export_of_an_arrow_stop_restores_the_view(tmp_path):
+    from pptx import Presentation
+    from grafli.pptxexport import export_flow_to_pptx
+    view = _view(parse(BOARD))
+    out = tmp_path / "path.pptx"
+    export_flow_to_pptx(view, view._board.flow_by_id("f"), out)
+    assert len(Presentation(str(out)).slides) == 3
+    assert view._present_emphasis is None

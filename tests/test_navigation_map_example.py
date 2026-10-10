@@ -81,9 +81,9 @@ def test_walk_from_the_overview_into_the_algorithm_and_back(tmp_path: Path):
     _enter(win, "open")
     assert win._file_path == level2
     _enter(win, "enter")
-    # The deep link &graph:enter#b_algo frames the algorithm and its refs.
+    # The deep link &graph:enter#b_algo frames the algorithm.
     assert win._file_path == level3
-    assert _selected(win) == {"algo", "source"}
+    assert _selected(win) == {"algo"}
     assert win._board_path() == ["navigation-map", "Open dispatch",
                                  "_enter_board"]
 
@@ -133,3 +133,9 @@ def test_the_overlay_colours_every_part_of_the_top_level():
     parts = {b.id for b in parse(ROOT.read_text(encoding="utf-8")).boxes}
     assert set(overlay.entries) == parts
     assert overlay.producer and overlay.revision
+
+
+def test_the_tour_passes_the_slide_check(capsys):
+    from grafli.app import _cmd_export
+    assert _cmd_export([str(ROOT), "--flow", "enter", "--check", "--json"]) == 0
+    assert '"overloaded": []' in capsys.readouterr().out

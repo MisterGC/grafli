@@ -39,4 +39,5 @@ source
 @ arrow push -> goup "data: frame stack"
 @ arrow goup -> map "depends: level 1" !dashed
 
-@ bookmark b_algo "The algorithm" @algo,source "Entering builds a frame of where you were, pushes it, opens the board framed on its #id; gu pops it."
+@ bookmark b_algo "The algorithm" @algo "Entering builds a frame of where you were, pushes it, opens the board framed on its #id; gu pops it."
+@ bookmark b_source "The source" @source "Each step of the algorithm is one ref away: click it to open the line in your editor."

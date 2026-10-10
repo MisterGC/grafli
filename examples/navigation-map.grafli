@@ -39,4 +39,4 @@ split by the files that own each step
 @ bookmark b_attach "What the box carries" @attach "The parser split &graph:open#id into its kind, the sub-board name and the id to frame."
 @ bookmark b_push "The way back" @push "Entering pushes a frame: the board you left, its zoom, scroll and selection, and the box you came through."
 @ bookmark b_up "Going up" @up "gu pops the frame and restores the parent as you left it, zooming back out of the box."
-@ flow enter "Return on a box with a level" b_whole:6 b_enter b_attach open#b_graph navigation-map-res/open-res/enter.grafli#b_algo b_push b_up ~focus=complete "From the key to the sub-board and back: across all three levels of the map."
+@ flow enter "Return on a box with a level" b_whole:6 b_enter b_attach open#b_graph navigation-map-res/open-res/enter.grafli#b_algo navigation-map-res/open-res/enter.grafli#b_source b_push b_up ~focus=complete "From the key to the sub-board and back: across all three levels of the map."

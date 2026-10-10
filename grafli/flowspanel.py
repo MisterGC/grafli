@@ -31,7 +31,7 @@ from grafli.constants import (
 )
 from grafli.flows import (bookmark_target_rect, render_bookmark_pixmap,
                           text_slide_note)
-from grafli.format import MAX_DESCRIPTION_CHARS, FlowStep
+from grafli.format import MAX_DESCRIPTION_CHARS, FlowStep, split_step_ref
 
 # Thumbnail render resolution — rendered at 2x the display max so the
 # _ThumbLabel has the device pixels to paint crisply on a hi-dpi screen.
@@ -319,6 +319,14 @@ class FlowsPanel(QWidget):
         if board is None:
             return
 
+        window = self._view.window() if self._view else None
+        paused = (window._paused_tour()
+                  if hasattr(window, "_paused_tour") else None)
+        if paused is not None:
+            self._layout.addWidget(self._hint(
+                f"Tour “{paused.flow_label}” paused at stop "
+                f"{paused.index + 1}/{paused.total} — gu resumes it"))
+
         self._layout.addWidget(
             self._text_button("＋  New flow", self._new_flow, fill=True))
         self._layout.addWidget(self._text_button(
@@ -580,6 +588,14 @@ class FlowsPanel(QWidget):
                 tag.setStyleSheet(f"color: {theme.FLOWS_ACCENT.name()}; background: transparent;")
                 tag.setAlignment(Qt.AlignmentFlag.AlignTop)
                 head.addWidget(tag)
+        elif "#" in step.ref:
+            # A stop in another board: named, not flagged — it is fine.
+            target, bookmark_id = split_step_ref(step.ref)
+            where = QLabel(f"↪ {bookmark_id}  in {target}")
+            where.setToolTip("A stop in another board — playing the flow "
+                             "enters it")
+            where.setStyleSheet(f"color: {theme.FLOWS_ACCENT.name()}; background: transparent;")
+            head.addWidget(where, stretch=1)
         else:
             warn = QLabel(f"⚠ {step.ref}")
             warn.setStyleSheet(f"color: {theme.NOTE_TASK_COLOR.name()}; background: transparent;")
@@ -678,7 +694,10 @@ class FlowsPanel(QWidget):
         self._selected = ("step", flow.id, index)
         self._view.set_flow_edit_target(flow, index)
         self.refresh()
-        self._view.goto_bookmark(flow.steps[index].ref)
+        # A stop in another board is selected for editing, not visited: the
+        # flow being edited lives on this board.
+        if "#" not in flow.steps[index].ref:
+            self._view.goto_bookmark(flow.steps[index].ref)
         self._view.setFocus()
 
     def _select_bookmark(self, bm):

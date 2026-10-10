@@ -715,6 +715,7 @@ class MainWindow(QMainWindow):
                 parent_path=here, parent_view=self._view.snapshot_state(),
                 child_path=path, label=label or path.stem,
                 via_id=getattr(via, "id", "") or "",
+                tour=self._view.tour_position(),
             )
         rect = (self._view.level_entry_rect(via)
                 if frame is not None and self._view.transitions_enabled()
@@ -724,6 +725,9 @@ class MainWindow(QMainWindow):
             if frame is not None:
                 self._buffers.push_frame(frame)
             self._open_board_at(path, target_id)
+            if frame is not None and frame.tour is not None:
+                self._view.toast(f"Tour paused at stop {frame.tour.index + 1}"
+                                 " — gu resumes it", "info")
 
         if rect is None:
             switch()
@@ -771,6 +775,46 @@ class MainWindow(QMainWindow):
         rect = self._view.level_entry_rect(via) if via is not None else None
         if rect is not None:
             self._view.play_exit(via, rect, still, frame.parent_view)
+        if frame.tour is not None:
+            self._resume_tour(frame.tour)
+
+    def _resume_tour(self, position):
+        """Pick up the tour a frame kept, at the stop it was left at."""
+        home = position.home
+        board = self.board
+        if home is not None and (self._file_path is None
+                                 or home.resolve() != self._file_path.resolve()):
+            idx = self._buffers.find_by_path(home)
+            board = self._buffers.buffers[idx].board if idx >= 0 else None
+        flow = board.flow_by_id(position.flow_id) if board else None
+        if flow is None or not flow.steps:
+            self._view.toast("The paused tour is gone", "warn")
+            return
+        self._view.resume_flow(flow, position)
+
+    def _paused_tour(self):
+        """The tour a board above this one keeps for `gu`, or None."""
+        if self._buffers.frame_for(self._file_path) is None:
+            return None
+        return self._buffers.paused_tour()
+
+    def _tour_goto_board(self, path: Path) -> bool:
+        """Show *path* for a tour stop: back along the board stack when it is
+        a board the tour came through, else one level down from here. True
+        when the board is shown."""
+        here = self._file_path
+        if here is not None and here.resolve() == path.resolve():
+            return True
+        if self._buffers.find_by_path(path) < 0 and not path.exists():
+            self._view.toast(f"{path.name} is gone", "warn")
+            return False
+        if here is not None and not self._buffers.pop_to(path):
+            self._buffers.push_frame(BoardFrame(
+                parent_path=here, parent_view=self._view.snapshot_state(),
+                child_path=path, label=path.stem))
+        self._open_file(path, zoom_fit=False)
+        return (self._file_path is not None
+                and self._file_path.resolve() == path.resolve())
 
     def _snapshot_current(self):
         """Snapshot the current buffer state before switching away."""

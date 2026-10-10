@@ -90,8 +90,30 @@ class FlowsMixin:
             return
         if self._flow_player is not None:
             self._flow_player.stop()
-        self._flow_player = FlowPlayer(self, flow)
+        home = getattr(self.window(), "_file_path", None)
+        self._flow_player = FlowPlayer(self, flow,
+                                       Path(home) if home else None)
         self._flow_player.start()
+        self.setFocus()
+
+    def tour_position(self):
+        """Where the playing tour stands, or None when none plays."""
+        player = self._flow_player
+        if player is None or not player.active:
+            return None
+        return player.position()
+
+    def resume_flow(self, flow, position):
+        """Pick a tour up at the stop it was left at, keeping the view."""
+        if not flow.steps:
+            return
+        if self._flow_player is not None:
+            self._flow_player.stop()
+        player = FlowPlayer(self, flow, position.home)
+        player.mode = position.mode
+        player.smooth = position.smooth
+        self._flow_player = player
+        player.goto(position.index, move=False)
         self.setFocus()
 
     def export_flow(self, flow, fmt: str = "pdf"):

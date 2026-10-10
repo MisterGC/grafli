@@ -20,7 +20,8 @@ from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
 
-from grafli.flows import (bookmark_target_rect, presentation_detail,
+from grafli.flows import (bookmark_target_rect, emphasis_for,
+                          presentation_detail, presentation_emphasis,
                           presentation_focus, step_detail, step_focus,
                           text_slide_note)
 from grafli.format import split_step_ref
@@ -61,6 +62,9 @@ class SlidePlan:
     # off) — applied around the raster via slide_presentation().
     detail: str = ""
     focus: str = ""
+    # A path stop's (arrow ids, kept element ids), as playback emphasises
+    # them; None when the bookmark frames no arrow.
+    emphasis: tuple | None = None
     # The view whose scene this slide renders from: the flow's own view, or
     # one holding the other board a ``<board>#<bookmark>`` stop lies in.
     view: object | None = None
@@ -93,6 +97,7 @@ def build_slide_plan(view, flow,
         plan = _content_plan(step_view, bm, i, total)
         plan.detail = step_detail(flow, step)
         plan.focus = step_focus(flow, step)
+        plan.emphasis = emphasis_for(step_view.board, bm)
         plan.view = step_view
         plans.append(plan)
     return plans
@@ -125,7 +130,8 @@ def _stop_view(board_path: Path | None, target: str, views: dict):
 
 @contextmanager
 def slide_presentation(view, plan: SlidePlan):
-    """Apply a plan's detail/focus settings for the duration of its raster.
+    """Apply a plan's detail/focus settings and its path stop's emphasis for
+    the duration of its raster.
 
     The focus frame is the plan's own source rect: the exported image shows
     exactly that region, so "completely inside the frame" and "completely on
@@ -133,7 +139,8 @@ def slide_presentation(view, plan: SlidePlan):
     with presentation_detail(view, plan.detail):
         rect = (plan.source if plan.focus == "complete"
                 and plan.source is not None else None)
-        with presentation_focus(view, rect):
+        with presentation_focus(view, rect), \
+                presentation_emphasis(view, plan.emphasis):
             yield
 
 
@@ -145,6 +152,10 @@ def live_overlays(view, plan: SlidePlan) -> list:
     a note faded by "complete" focus must keep its faded raster look instead
     of being re-drawn as full-opacity text."""
     items = [it for it in plan.overlays if it.isVisible()]
+    if plan.emphasis is not None:
+        # A path stop fades every note it does not keep.
+        keep = plan.emphasis[1]
+        return [it for it in items if it.note.id in keep]
     if plan.focus == "complete" and plan.source is not None:
         contained = view._presentation_focus_contained()
         items = [it for it in items if it.note.id in contained]

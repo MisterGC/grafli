@@ -207,6 +207,21 @@ def emphasis_for(board, bookmark: Bookmark | None):
     return arrow_ids, keep
 
 
+@contextmanager
+def presentation_emphasis(view, emphasis):
+    """Temporarily apply a path stop's emphasis (see :func:`emphasis_for`;
+    None yields unchanged), restoring the previous one on exit."""
+    if emphasis is None:
+        yield
+        return
+    prev = view._present_emphasis
+    view._set_presentation_emphasis(emphasis)
+    try:
+        yield
+    finally:
+        view._set_presentation_emphasis(prev)
+
+
 def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
                            max_h: int) -> QPixmap | None:
     """A small preview of what a bookmark frames, fit within max_w x max_h.

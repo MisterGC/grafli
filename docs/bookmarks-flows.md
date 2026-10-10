@@ -59,7 +59,8 @@ bookmark's focus:
 The stop frames the arrow's two ends. While a tour shows it, the arrow draws
 in the tour accent, twice as thick, and everything but the arrow, its two
 ends and the bookmark's other focus elements dims. `grafli render <file>
-out.png --bookmark b_call` renders the stop the same way. A focus may mix
+out.png --bookmark b_call` and the PDF/PPTX export render the stop the same
+way. A focus may mix
 arrows and elements (`@call,db`); an element id wins over an arrow carrying
 the same id.
 

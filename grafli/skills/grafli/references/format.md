@@ -605,8 +605,9 @@ board with such a step carries a `#!grafli v3` header — bump it yourself.
   survives layout edits. Always anchor on ids, never raw coordinates
   (`~view` exists only for hand-tuned or node-less viewpoints).
 * An anchor id may name an **arrow** by its `~id=` — a path stop: it frames
-  the arrow's two ends, and playback and `grafli render --bookmark` draw the
-  arrow in the tour accent, thicker, with the rest dimmed.
+  the arrow's two ends, and playback, `grafli render --bookmark` and the
+  slide export draw the arrow in the tour accent, thicker, with the rest
+  dimmed.
 * `~pad=<n>` overrides the framing padding.
 * `~iso` makes the anchor a **narrowed selection**: thumbnails and the
   exported slide render *only* the anchored items (and the arrows between

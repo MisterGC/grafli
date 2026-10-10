@@ -144,12 +144,14 @@ stops there, and `grafli export --check` flags older files past the budget
 
 ### Stops in other boards
 
-A step `<board>#<bookmark>` is a stop in another board: `<board>` is a vault
-sub-board name (as in `&graph:<name>`) or a relative path ending in
-`.grafli`. A tour can so walk down the levels of a map —
+A step `<board>#<bookmark>` is a stop in another board: `<board>` is the
+name of a sub-board of the flow's own board (as in `&graph:<name>`) or a path
+ending in `.grafli`, relative to the flow's board file. A sub-board deeper
+down needs the path, since a name only reaches the flow board's own vault. A
+tour on `System.grafli` can so walk down the levels of a map —
 
 ```
-@ flow blow "A blow lands" overview combat#lunge combat-res/impact.grafli#hit
+@ flow blow "A blow lands" overview combat#lunge System-res/combat-res/impact.grafli#hit
 ```
 
 Playing such a stop enters that board as a link would — the breadcrumb shows

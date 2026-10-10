@@ -1,0 +1,42 @@
+#!grafli v3
+# What happens between Return on a box and the board behind it?
+# Worked example of an explanation map (skill: references/explaining.md):
+# three levels of grafli's own attachment-and-navigation path, box docs,
+# deep links, a tour across the levels with path stops, and an overlay a
+# script generates (navigation-map-overlay.py).
+# source: grafli @ 1bddca7
+
+@ note question 0,-240 "What happens between Return on a box and the board behind it?" ~small
+@ box keys "Keys" 380,-100 200x80 &doc:keys
+@ box parse "Parser" -140,170 200x80 &doc:parse
+@ box open "Open dispatch" 330,100 300x220 &graph:open
+@ box stack "Board stack" 900,170 220x80 &doc:stack
+@ box tours "Tours" 900,420 220x80 &doc:tours
+@ box peek "Box doc peek" 0,-100 200x80 &doc:peek
+@ box export "HTML export" 370,460 220x80 &doc:export
+@ note evidence 900,580 """
+code:
+split by the files that own each step
+  @../grafli/view/core.py:1748
+  @../grafli/format.py:451
+  @../grafli/view/resources.py:106
+  @../grafli/buffers.py:146
+  @../grafli/view/flows.py:82
+  @../grafli/view/boxdocs.py:177
+  @../grafli/htmlexport.py:128
+""" ~small
+
+@ arrow keys -> open "call: _open_attachment" ~id=enter
+@ arrow parse -> open "data: kind + url#id" ~id=attach
+@ arrow open -> stack "call: push_frame" ~id=push
+@ arrow keys -> stack "call: _go_up (gu)" ~id=up
+@ arrow tours -> stack "data: TourPosition" ~id=paused
+@ arrow keys -> peek "call: _peek_doc (gv)"
+@ arrow parse -> export "data: levels, links, stops"
+
+@ bookmark b_whole "The whole path" @keys,parse,open,stack,tours,peek,export "Seven parts: a key, the parsed attachment, the dispatch that opens it, and the stack that remembers the way back."
+@ bookmark b_enter "Return on a box" @enter "Return (or gd) on a box with a level calls _open_attachment with that box."
+@ bookmark b_attach "What the box carries" @attach "The parser split &graph:open#id into its kind, the sub-board name and the id to frame."
+@ bookmark b_push "The way back" @push "Entering pushes a frame: the board you left, its zoom, scroll and selection, and the box you came through."
+@ bookmark b_up "Going up" @up "gu pops the frame and restores the parent as you left it, zooming back out of the box."
+@ flow enter "Return on a box with a level" b_whole:6 b_enter b_attach open#b_graph navigation-map-res/open-res/enter.grafli#b_algo navigation-map-res/open-res/enter.grafli#b_source b_push b_up ~focus=complete "From the key to the sub-board and back: across all three levels of the map."

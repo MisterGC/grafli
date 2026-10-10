@@ -1,0 +1,43 @@
+#!grafli v3
+# How does entering a board keep the way back?
+# Level 3 of navigation-map.grafli: the algorithm, its parts, and the
+# source refs (click a ref in the code note to open it in your editor).
+# source: grafli @ 1bddca7
+
+@ note question 0,-120 "How does entering a board keep the way back?" ~small
+@ note algo 0,0 """
+code:
+_enter_board(path, label, target_id, via)
+  if level zoom running: return
+  frame = BoardFrame(parent, view, via, tour)
+  call play_enter(via), then
+    call push_frame(frame)
+    if not frame_fragment(target_id)
+      err fit + toast "No element"
+_go_up()
+  frame = pop_frame()
+  state restore parent view, play_exit(via)
+  if frame.tour: call _resume_tour
+""" ~small
+@ note source 0,400 """
+code:
+source
+  @../../../grafli/app.py:734
+  @../../../grafli/buffers.py:146
+  @../../../grafli/view/flows.py:58
+  @../../../grafli/app.py:787
+""" ~small
+@ box frame "BoardFrame" 700,0 220x80 &doc:frame
+@ box push "push_frame" 700,180 220x80 &doc:push
+@ box fragment "frame_fragment" 1120,180 220x80 &doc:fragment
+@ box goup "_go_up" 700,360 220x80 &doc:goup
+@ box map "Back to the map" 1120,360 220x80 &link:../../navigation-map.grafli#stack
+
+@ arrow algo -> frame "data: BoardFrame"
+@ arrow frame -> push "data: frame"
+@ arrow push -> fragment "call: #id"
+@ arrow push -> goup "data: frame stack"
+@ arrow goup -> map "depends: level 1" !dashed
+
+@ bookmark b_algo "The algorithm" @algo "Entering builds a frame of where you were, pushes it, opens the board framed on its #id; gu pops it."
+@ bookmark b_source "The source" @source "Each step of the algorithm is one ref away: click it to open the line in your editor."

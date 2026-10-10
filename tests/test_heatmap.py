@@ -149,3 +149,33 @@ def test_renderer_paints_any_provider():
     _key(view, Qt.Key.Key_A)
     assert not view._complexity_active
     assert view._complexity_legend is None
+
+
+class _ColorProvider:
+    def analysable(self, board):
+        return True
+
+    def read(self, board):
+        return HeatReading({"b": 1.0}, HeatLegend("Tests"),
+                           colors={"a": "#ff0000", "n": "#00ff00"},
+                           no_data=True)
+
+
+def test_renderer_paints_pinned_colours_and_no_data():
+    view = _view(_BOARD)
+    view._heat_provider = _ColorProvider()
+    _key(view, Qt.Key.Key_A)
+
+    a = view._box_items["a"].brush()
+    assert (a.color().red(), a.color().green()) == (255, 0)
+    assert a.style() == Qt.BrushStyle.SolidPattern
+    # b has a value, c has nothing: hatched, not cold.
+    assert view._box_items["b"].brush().style() == Qt.BrushStyle.SolidPattern
+    assert view._box_items["c"].brush().style() == Qt.BrushStyle.BDiagPattern
+    # A note the reading covers stays visible and glows.
+    assert view._note_items["n"].opacity() == 1.0
+    assert view._note_items["n"].graphicsEffect() is not None
+
+    _key(view, Qt.Key.Key_A)
+    assert view._box_items["c"].brush().style() != Qt.BrushStyle.BDiagPattern
+    assert view._note_items["n"].graphicsEffect() is None

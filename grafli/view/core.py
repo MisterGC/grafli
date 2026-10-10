@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
 
 from grafli import theme
 from grafli.view.commands import CommandsMixin
-from grafli.heat import DegreeProvider, HeatLegend, HeatProvider
+from grafli.heat import DegreeProvider, HeatLegend, HeatProvider, HeatReading
 from grafli.view.complexity import ComplexityMixin
 from grafli.constants import (
     ARROW_WIDTH,
@@ -434,6 +434,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         # What the heatmap colours by; the renderer only paints its reading.
         self._heat_provider: HeatProvider = DegreeProvider(self._is_graph_edge)
         self._complexity_saved: list[tuple] = []
+        self._complexity_reading: HeatReading | None = None
+        self._complexity_saved_notes: list[tuple] = []
 
         # Arrow dim state
         self._arrows_dimmed: bool = False

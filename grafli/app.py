@@ -2126,11 +2126,13 @@ def _cmd_export(argv: list[str]) -> int:
         return 2
 
     # Flow-integrity findings (cheap, no Qt needed): steps referencing a
-    # missing bookmark, bookmark focus ids that resolve to no element.
+    # missing bookmark, bookmark focus ids that resolve to no element (an
+    # arrow's ~id= counts: a path stop frames the arrow).
     element_ids = (
         {b.id for b in board.boxes}
         | {n.id for n in board.notes}
         | {im.id for im in board.images}
+        | {a.id for a in board.arrows if a.id}
     )
     board_path = args.input.resolve()
     dangling: list[str] = []

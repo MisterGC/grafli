@@ -157,3 +157,14 @@ def test_render_bookmark_draws_the_arrow_in_the_accent(tmp_path: Path):
     aside = tmp_path / "aside.svg"
     assert _cmd_render([str(path), str(aside), "--bookmark", "b_aside"]) == 0
     assert accent not in aside.read_text().lower()
+
+
+def test_export_check_takes_an_arrow_id_as_a_focus(tmp_path: Path, capsys):
+    import json
+    from grafli.app import _cmd_export
+    path = tmp_path / "path.grafli"
+    path.write_text(BOARD.replace("@call,db", "@call,gone"))
+    assert _cmd_export([str(path), "--check", "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["dangling"] == [
+        "bookmark 'b_mixed' anchors missing element 'gone'"]

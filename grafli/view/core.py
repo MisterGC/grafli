@@ -70,6 +70,7 @@ from grafli.view.flows import FlowsMixin
 from grafli.view.boxdocs import BoxDocsMixin
 from grafli.view.levels import LevelsMixin
 from grafli.view.navigation import NavigationMixin
+from grafli.view.overlay_files import OverlayFilesMixin
 from grafli.view.overlays import OverlaysMixin
 from grafli.view.resources import ResourcesMixin
 from grafli.view.selection import SelectionMixin
@@ -112,7 +113,8 @@ def flow_caption_metrics(vp_w: float, vp_h: float) -> dict:
 
 # ── Canvas view ─────────────────────────────────────────────────
 
-class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
+class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
+                 MinimapMixin, StyleModeMixin,
                  SelectionMixin, StructureMixin, ResourcesMixin,
                  NavigationMixin, ViewportMixin, FlowsMixin, OverlaysMixin,
                  ExportMixin, LevelsMixin, BoxDocsMixin, QGraphicsView):
@@ -432,7 +434,8 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         self._complexity_node_heat: dict[str, float] = {}
         self._complexity_legend: HeatLegend | None = None
         # What the heatmap colours by; the renderer only paints its reading.
-        self._heat_provider: HeatProvider = DegreeProvider(self._is_graph_edge)
+        self._degree_provider = DegreeProvider(self._is_graph_edge)
+        self._heat_provider: HeatProvider = self._degree_provider
         self._complexity_saved: list[tuple] = []
         self._complexity_reading: HeatReading | None = None
         self._complexity_saved_notes: list[tuple] = []
@@ -511,6 +514,7 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         self._draw_flashes(painter)
         self._draw_complexity_legend(painter)
         self._draw_minimap(painter)
+        self._draw_overlay_legend(painter)
         self._draw_search_badge(painter)
         self._draw_flow_overlay(painter)
         self._draw_debug_overlay(painter)
@@ -842,6 +846,11 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
 
         # Minimap click-to-navigate / drag
         if self._minimap_press(event.position()):
+            event.accept()
+            return
+
+        # A ref in the overlay legend opens like a code-note @ref
+        if self._overlay_legend_press(event.position()):
             event.accept()
             return
 

@@ -209,9 +209,11 @@ class OverlayProvider:
     gradient. Elements without an entry draw as no data.
     """
 
-    def __init__(self, overlay: Overlay, base_dir: Path):
+    def __init__(self, overlay: Overlay, base_dir: Path,
+                 path: Path | None = None):
         self.overlay = overlay
         self.base_dir = base_dir
+        self.path = path
         self.stale = stale_line(overlay, base_dir)
 
     def analysable(self, board: Board) -> bool:

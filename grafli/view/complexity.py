@@ -248,6 +248,8 @@ class ComplexityMixin:
         """Horizontal gradient bar above minimap stats line."""
         if not self._complexity_active or not self._minimap_visible:
             return
+        if self._overlay_shown() is not None:
+            return   # an overlay file draws its own legend card
         if not self._board:
             return
 

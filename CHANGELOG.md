@@ -127,7 +127,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **▶ Play** / **❚❚ Pause**, the stop's caption and a progress bar, the
   camera gliding between stops. Auto-play rests on each stop for its dwell.
   A stop in another board shows that board the way the app does, with the
-  breadcrumb, and a stop framing an arrow draws it in the accent colour. The
+  breadcrumb. A stop framing an arrow draws it in the accent colour and dims
+  everything but the arrow and its ends; a stop with `focus=complete` dims
+  what its frame does not hold whole, as in the app. The
   keys are the app's playback keys (<kbd>Space</kbd> / <kbd>→</kbd>,
   <kbd>←</kbd>, <kbd>p</kbd>, <kbd>t</kbd>, <kbd>Esc</kbd>); entering a
   level mid-tour parks it and going back up resumes it. Boards a tour stops

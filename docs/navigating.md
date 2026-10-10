@@ -206,7 +206,10 @@ The tour player shows the stop's caption, a progress bar and **‹ Prev**,
 **▶ Play** / **❚❚ Pause**, **Next ›** and **✕**. The camera glides between
 stops on one board; a stop in another board shows that board, with the
 breadcrumb, and **↑ Back** leads back out. Auto-play rests on each stop for
-its dwell (4 s when the stop sets none) and stops at the last one. While a
+its dwell (4 s when the stop sets none) and stops at the last one. A stop
+dims the rest as the app does: a stop with `focus=complete` everything its
+frame does not hold whole, a stop framing an arrow everything but that arrow
+and its two ends. While a
 tour plays, the keys are the app's playback keys:
 
 | Key | What happens |

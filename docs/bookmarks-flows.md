@@ -139,7 +139,27 @@ stops there, and `grafli export --check` flags older files past the budget
 | <kbd>←</kbd> | Previous stop |
 | <kbd>t</kbd> | Toggle **smooth** camera ↔ **instant** cuts (flip mid-flow to step quickly, then settle) |
 | <kbd>p</kbd> | Cycle **paused → playing → playing (loop)** — looping wraps to the first stop |
+| <kbd>g</kbd><kbd>d</kbd> / <kbd>Return</kbd> | On a selected box with a level: leave the tour into it; <kbd>g</kbd><kbd>u</kbd> back resumes the tour at the same stop |
 | <kbd>Esc</kbd> | Exit playback |
+
+### Stops in other boards
+
+A step `<board>#<bookmark>` is a stop in another board: `<board>` is a vault
+sub-board name (as in `&graph:<name>`) or a relative path ending in
+`.grafli`. A tour can so walk down the levels of a map —
+
+```
+@ flow blow "A blow lands" overview combat#lunge combat-res/impact.grafli#hit
+```
+
+Playing such a stop enters that board as a link would — the breadcrumb shows
+the path, and stepping back climbs out again — and frames the bookmark with
+its caption. The flow stays on the board it starts on; <kbd>Esc</kbd> ends
+the tour back there. To dig into a stop, select a box with a level and press
+<kbd>g</kbd><kbd>d</kbd> or <kbd>Return</kbd>: the tour waits, the Flows tab
+says at which stop, and <kbd>g</kbd><kbd>u</kbd> back to the board of that
+stop resumes it there. A board with such a step is written with a
+`#!grafli v3` header.
 
 ## Per-stop detail & focus
 
@@ -204,7 +224,9 @@ floor.
 grafli export diagram.grafli tour.pdf --flow tour
 ```
 
-`--flow` is optional when the file has a single flow.
+`--flow` is optional when the file has a single flow. A stop in another
+board renders from that board, framed as `grafli render <that board>
+--bookmark <id>` frames it.
 
 ### Composing slides
 

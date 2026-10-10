@@ -258,6 +258,49 @@ using one carries a `#!grafli v3` header.
 See [Bookmarks & flows](bookmarks-flows.md) for capturing, editing, playback,
 present mode, and PDF export.
 
+## Overlay files
+
+Analysis data — test results, churn, ownership, what a reader has
+understood — lives beside the board, not in it: one JSON file per overlay at
+`<stem>-res/<name>.overlay.json`. Nothing in the `.grafli` changes; the
+files are derived data their producer regenerates, outside undo and the
+board merge.
+
+```json
+{
+  "title": "Tests",
+  "producer": "scripts/overlay_tests.py (pytest 8.3)",
+  "created": "2026-10-09T14:00:00Z",
+  "source": {"repo": "~/dev/shapes-and-stone", "revision": "a1b2c3d"},
+  "kind": "category",
+  "categories": [
+    {"id": "pass", "label": "Passing", "color": "%forest"},
+    {"id": "fail", "label": "Failing", "color": "%rose"}
+  ],
+  "entries": {
+    "impact": {"category": "fail", "note": "drifts after the third hit", "refs": ["@Game.qml:2233"]},
+    "camera": {"category": "pass"}
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `title` | Legend title and toast; the file name when missing |
+| `producer`, `created` | Shown in the legend (`created` is kept, not shown) |
+| `source` | Optional `repo` (relative to the board's directory, `~` allowed) and `revision`; when `revision` is not the repo's `HEAD` the legend says **stale** |
+| `kind` | `category` (needs `categories`: `id`, `label`, `color` as `%token` or `#hex`) or `value` (needs `"scale": {"min", "max", "low", "high"}`) |
+| `entries` | Keyed by element id — boxes, notes, and arrows with a `~id=` — each with `category` or `value`, an optional `note` and `refs` |
+
+A value maps onto the file's scale, not onto the board's maximum. An element
+without an entry draws hatched as **no data**; states such as "unexamined"
+are categories the producer declares. Relative `refs` point into the
+`source` repo, or the board's directory without one.
+
+<kbd>A</kbd> cycles off → Connectivity → each overlay file in file-name order
+→ off. A file that does not parse is skipped with a toast naming the
+problem. The file on screen is watched: an edit recolours the board.
+
 ## Why plain text
 
 - **Git-native** — every change is a line-level diff with intent baked in.

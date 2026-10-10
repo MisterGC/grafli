@@ -183,7 +183,8 @@ canvas.
 
 `grafli export-html board.grafli board.html` (or **HTML** in the side panel's
 Export section) writes the board and every board reachable from it through
-`&graph` and `.grafli` `&link` into one HTML file. It needs no server and no
+`&graph`, `.grafli` `&link` and tour stops in other boards into one HTML
+file. It needs no server and no
 internet: drawings, script, styles, fonts and images are all inside, so it
 opens from a mail attachment or a shared folder in any current browser. It
 prints its size and warns above 20 MB.
@@ -199,6 +200,27 @@ app. On the page:
 | Click a box with a doc, or <kbd>g</kbd><kbd>v</kbd> | Read the doc in a panel beside it; <kbd>Esc</kbd> closes it |
 | **Overlay** selector or <kbd>A</kbd> | Switch between no overlay and each overlay file, with its legend and the selected element's note |
 | <kbd>Return</kbd> on a box with a web link | Open the link in a new tab |
+| **Tour** selector | Play one of the board's tours in the player card |
+
+The tour player shows the stop's caption, a progress bar and **‹ Prev**,
+**▶ Play** / **❚❚ Pause**, **Next ›** and **✕**. The camera glides between
+stops on one board; a stop in another board shows that board, with the
+breadcrumb, and **↑ Back** leads back out. Auto-play rests on each stop for
+its dwell (4 s when the stop sets none) and stops at the last one. A stop
+dims the rest as the app does: a stop with `focus=complete` everything its
+frame does not hold whole, a stop framing an arrow everything but that arrow
+and its two ends. While a
+tour plays, the keys are the app's playback keys:
+
+| Key | What happens |
+|-----|--------------|
+| <kbd>Space</kbd>, <kbd>→</kbd>, <kbd>l</kbd>, <kbd>j</kbd> | Next stop |
+| <kbd>←</kbd>, <kbd>h</kbd>, <kbd>k</kbd> | Previous stop |
+| <kbd>p</kbd> | Cycle paused / playing / loop |
+| <kbd>t</kbd> | Smooth or instant camera |
+| <kbd>Return</kbd> or <kbd>g</kbd><kbd>d</kbd> on a box with a level | Leave the tour into the level; going back up resumes it |
+| <kbd>Backspace</kbd> or <kbd>g</kbd><kbd>u</kbd> | End the tour and go back up |
+| <kbd>Esc</kbd>, <kbd>q</kbd> | End the tour, back on its own board |
 
 The page is for reading: code refs (`@path:line`) show as plain text,
 because the people you send it to don't have the checkout, and there are no

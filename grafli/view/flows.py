@@ -12,8 +12,9 @@ from __future__ import annotations
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QTransform
 from PySide6.QtWidgets import QInputDialog
-from grafli.flows import FlowPlayer
+from grafli.flows import FlowPlayer, tours_through
 from grafli.format import Arrow, Bookmark, Flow, FlowStep
+from grafli.fuzzy import FuzzyItem, FuzzyOverlay
 from grafli.items import BoxItem, ImageItem, NoteItem
 from pathlib import Path
 
@@ -78,8 +79,9 @@ class FlowsMixin:
         self.flash_anchor(rect)
         return True
 
-    def play_flow(self, flow_id: str):
-        """Enter modal playback for a flow, starting at its first stop."""
+    def play_flow(self, flow_id: str, start: int = 0):
+        """Enter modal playback for a flow, starting at stop *start* (its
+        first unless told otherwise)."""
         if not self._board:
             return
         flow = self._board.flow_by_id(flow_id)
@@ -93,7 +95,45 @@ class FlowsMixin:
         home = getattr(self.window(), "_file_path", None)
         self._flow_player = FlowPlayer(self, flow,
                                        Path(home) if home else None)
-        self._flow_player.start()
+        self._flow_player.start(start)
+        self.setFocus()
+
+    def _tours_through_selection(self):
+        """`gt`: pick one of the tours through the selected box and play it
+        from the first stop that frames the box or one of its containers."""
+        if not self._board or self._fuzzy_overlay:
+            return
+        item = self._selected_box_item()
+        if item is None:
+            self.toast("Select a box to find the tours through it", "info")
+            return
+        label = " ".join(item.box.label.split()) or item.box.id
+        tours = tours_through(self._board, item.box.id)
+        if not tours:
+            self.toast(f"no tour passes through {label}", "info")
+            return
+        items = []
+        for flow, index in tours:
+            bookmark = self._board.bookmark_by_id(flow.steps[index].ref)
+            items.append(FuzzyItem(
+                display=flow.label or flow.id,
+                detail=f"stop {index + 1}/{len(flow.steps)} · "
+                       f"{bookmark.label or bookmark.id}",
+                data=(flow.id, index),
+            ))
+        overlay = FuzzyOverlay(f"Tours through {label}", items,
+                               self.viewport())
+        overlay.selected.connect(self._on_tour_picked)
+        overlay.cancelled.connect(self._on_tour_pick_cancelled)
+        self._fuzzy_overlay = overlay
+
+    def _on_tour_picked(self, item):
+        self._fuzzy_overlay = None
+        flow_id, index = item.data
+        self.play_flow(flow_id, index)
+
+    def _on_tour_pick_cancelled(self):
+        self._fuzzy_overlay = None
         self.setFocus()
 
     def tour_position(self):

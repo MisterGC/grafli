@@ -208,3 +208,61 @@ def test_the_menu_entry_sits_with_the_exports_and_writes_the_page(
     assert out.is_file()
     assert toasts and toasts[-1].startswith("HTML exported · ")
     assert "2 boards" in toasts[-1]
+
+
+def _tour_map(tmp: Path) -> Path:
+    """A board whose tour has a stop on itself, two in a sub-board nothing
+    else links to (one framing an arrow) and one in a board that is gone."""
+    root = tmp / "shop.grafli"
+    root.write_text(
+        '#!grafli v3\n'
+        '@ box web "Web" 0,0 160x70\n'
+        '@ box api "API" 300,0 160x70\n'
+        '@ bookmark entry "Entry" @web,api "Requests come in."\n'
+        '@ flow path "Order path" entry:2 steps#pay:3 steps#done '
+        'gone#x:1\n')
+    res = tmp / "shop-res"
+    res.mkdir()
+    (res / "steps.grafli").write_text(
+        '#!grafli v3\n'
+        '@ box pay "Pay" 0,0 140x60\n'
+        '@ box save "Save" 240,0 140x60\n'
+        '@ arrow pay -> save ~id=charge\n'
+        '@ bookmark pay "Pay" @charge\n'
+        '@ bookmark done "Done" @save "Saved."\n')
+    return root
+
+
+def test_boards_a_tour_stops_in_go_in_and_a_missing_one_warns(tmp_path):
+    root = _tour_map(tmp_path)
+    paths, warnings = reachable_boards(root)
+    assert paths == [root.resolve(),
+                     (tmp_path / "shop-res" / "steps.grafli").resolve()]
+    assert len(warnings) == 1
+    assert "the tour 'path' stops in gone.grafli" in warnings[0]
+
+
+def test_each_stop_carries_its_board_and_dwell_and_the_page_its_player(
+        tmp_path):
+    _app()
+    root = _tour_map(tmp_path)
+    out = tmp_path / "shop.html"
+    export_html(root, out)
+    page = out.read_text(encoding="utf-8")
+    data = _data(page)
+    top, sub = data["boards"]["b0"], data["boards"]["b1"]
+    assert top["flows"] == [{"id": "path", "label": "Order path", "steps": [
+        {"board": "b0", "bookmark": "entry", "dwell": 2.0},
+        {"board": "b1", "bookmark": "pay", "dwell": 3.0},
+        {"board": "b1", "bookmark": "done", "dwell": None},
+        {"board": None, "bookmark": "x", "dwell": 1.0},
+    ]}]
+    assert data["dwell"] == 4.0
+    # Each stop's bookmark sits on its board; a path stop names its arrow.
+    assert top["bookmarks"]["entry"]["description"] == "Requests come in."
+    assert sub["bookmarks"]["pay"]["arrows"] == ["charge"]
+    assert "arrows" not in sub["bookmarks"]["done"]
+    assert _el(sub, "charge")["paths"]
+    for part in ('id="tour"', 'id="player"', 'id="pl-prev"', 'id="pl-play"',
+                 'id="pl-next"', 'id="pl-bar"', 'id="pl-dwell"'):
+        assert part in page

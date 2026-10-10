@@ -177,6 +177,39 @@ def test_arrow_without_kind_is_byte_stable():
     assert out == src
 
 
+def test_arrow_id_roundtrips():
+    src = (
+        '#!grafli v3\n'
+        '@ box a "A" 0,0 100x50\n'
+        '@ box b "B" 300,0 100x50\n'
+        '@ arrow a -> b "send" !dashed ~kind=graph ~id=send-req # why\n'
+        '@ arrow a -> b "ack" ~id=ack\n'
+    )
+    board = parse(src)
+    assert [a.id for a in board.arrows] == ["send-req", "ack"]
+    assert board.arrows[0].kind == "graph"
+    assert board.arrows[0].annotation == "why"
+    assert serialize(board) == src
+
+
+def test_arrows_without_ids_are_byte_stable():
+    src = (
+        '#!grafli v1\n'
+        '@ box a "A" 0,0 100x50\n'
+        '@ box b "B" 300,0 100x50\n'
+        '@ note n1 300,200 "hi"\n'
+        '@ arrow a -> b "x" @4,-8 %red !dotted !thick !ortho ~large '
+        '&link:https://k.io ~kind=annotation # note\n'
+        '@ arrow b <-> a\n'
+        '@ arrow a -- n1 "explains"\n'
+    )
+    board = parse(src)
+    assert all(a.id == "" for a in board.arrows)
+    out = serialize(board)
+    assert "~id=" not in out
+    assert out == src
+
+
 def test_flow_auto_start_roundtrips():
     src = (
         '#!grafli v2\n'

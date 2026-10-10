@@ -14,6 +14,7 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" !thick      (thickness: thin / thick; default tracks node size)
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
   @ arrow <from_id> -> <to_id> "label" ~kind=graph (connector kind: graph / annotation; default derives from endpoints)
+  @ arrow <from_id> -> <to_id> "label" ~id=<id>    (stable id, only when something references the arrow; v3)
   @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&attach] [>parent]
   @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono] [&attach] [>parent]
   @ note <id> <x>,<y> [...] &doc [>parent]         (doc-bodied: body = <stem>-res/<id>.md)
@@ -41,7 +42,8 @@ line rendered at the bottom of every exported PDF slide. The v2 header is
 emitted only when such directives are present; pure-diagram files stay on v1.
 A board link with a ``#<id>`` fragment (``&graph:<name>#<id>``,
 ``&link:<path>.grafli#<id>``) opens that board framed on the bookmark or
-element ``<id>``; a board using one is written as v3.
+element ``<id>``; a board using one is written as v3. So is a board whose
+arrows carry ``~id=<id>``.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -126,6 +128,9 @@ class Arrow:
     # Connector kind: "" derives from endpoints (a note endpoint ⇒ annotation,
     # box↔box ⇒ graph); "graph"/"annotation" override that default.
     kind: str = ""
+    # Optional stable id, written only when something references the arrow
+    # (a bookmark, a tour stop, an overlay entry); "" for a plain arrow.
+    id: str = ""
     annotation: str = ""     # deprecated — kept for migration parsing
 
 
@@ -567,6 +572,7 @@ _RE_ARROW = re.compile(
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+~kind=(graph|annotation))?'
+    r'(?:\s+~id=([^\s#]\S*))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
 )
@@ -659,7 +665,7 @@ NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
 ARROW_FORM = ('@ arrow <from> ->|<-|<->|-- <to> ["label"] [@dx,dy] '
               '[%color|#rrggbb] '
               '[!dashed|!dotted|!thin|!thick|!spline|!ortho ...] '
-              '[~size] [&attach] [~kind=graph|annotation]')
+              '[~size] [&attach] [~kind=graph|annotation] [~id=<id>]')
 IMAGE_FORM = ('@ image <id> "path" x,y wxh [!frame|!noframe] '
               '[>parent] [&attach]')
 _ORDER_HINT = " — optional tokens must appear in this order"
@@ -858,7 +864,8 @@ def parse(text: str) -> Board:
                 url=url,
                 attach_kind=kind,
                 kind=m.group(11) or "",
-                annotation=(m.group(12) or "").replace("\\n", "\n"),
+                id=m.group(12) or "",
+                annotation=(m.group(13) or "").replace("\\n", "\n"),
             )
             board.arrows.append(arrow)
             board._lines.append(("arrow", arrow))
@@ -1066,6 +1073,7 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "tours": (2, lambda b: bool(b.bookmarks or b.flows or b.footer
                                 or b.title_bg)),
     "board fragments": (3, uses_board_fragments),
+    "arrow ids": (3, lambda b: any(a.id for a in b.arrows)),
 }
 
 
@@ -1178,6 +1186,8 @@ def _serialize_arrow(arrow: Arrow) -> str:
     base += _attach_token(arrow)
     if arrow.kind:
         base += f" ~kind={arrow.kind}"
+    if arrow.id:
+        base += f" ~id={arrow.id}"
     return base + _annotation_token(arrow)
 
 

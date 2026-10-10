@@ -1,0 +1,31 @@
+#!grafli v3
+# How does an attachment pick where it goes?
+# Level 2 of navigation-map.grafli.
+# source: grafli @ 1bddca7
+
+@ note question 0,-120 "How does an attachment pick where it goes?" ~small
+@ box dispatch "_open_attachment" 0,130 240x80 &doc:dispatch
+@ box doc "doc → zen editor" 480,0 240x80 &doc:doc
+@ box graph "graph → sub-board" 480,130 240x80 &doc:graph
+@ box url "_open_url_string" 480,260 240x80 &doc:url
+@ box enter "_enter_board" 980,70 300x200 &graph:enter#b_algo
+@ box system "System opener" 980,380 240x80 &doc:system
+@ note evidence 0,420 """
+code:
+split by the branches of the dispatch
+  @../../grafli/view/resources.py:106
+  @../../grafli/view/resources.py:116
+  @../../grafli/view/resources.py:121
+  @../../grafli/view/resources.py:221
+  @../../grafli/app.py:734
+""" ~small
+
+@ arrow dispatch -> doc "call: _open_md_zen"
+@ arrow dispatch -> graph "call: name#id"
+@ arrow dispatch -> url "call: _open_url_string"
+@ arrow graph -> enter "call: _enter_board(#id)" ~id=to_enter
+@ arrow url -> enter "call: .grafli link"
+@ arrow url -> system "call: openUrl"
+
+@ bookmark b_graph "A sub-board link" @to_enter "A &graph attachment resolves to <board>-res/<name>.grafli and hands it, with its #id, to _enter_board."
+@ bookmark b_kinds "Three kinds" @doc,graph,url "A doc opens in the zen editor, a sub-board in the app, anything else as a link."

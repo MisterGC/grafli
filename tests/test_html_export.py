@@ -219,8 +219,8 @@ def _tour_map(tmp: Path) -> Path:
         '@ box web "Web" 0,0 160x70\n'
         '@ box api "API" 300,0 160x70\n'
         '@ bookmark entry "Entry" @web,api "Requests come in."\n'
-        '@ flow path "Order path" entry:2 steps#pay:3 steps#done '
-        'gone#x:1\n')
+        '@ flow path "Order path" entry:2 steps#pay:3 '
+        'steps#done:focus=complete gone#x:1\n')
     res = tmp / "shop-res"
     res.mkdir()
     (res / "steps.grafli").write_text(
@@ -252,10 +252,11 @@ def test_each_stop_carries_its_board_and_dwell_and_the_page_its_player(
     data = _data(page)
     top, sub = data["boards"]["b0"], data["boards"]["b1"]
     assert top["flows"] == [{"id": "path", "label": "Order path", "steps": [
-        {"board": "b0", "bookmark": "entry", "dwell": 2.0},
-        {"board": "b1", "bookmark": "pay", "dwell": 3.0},
-        {"board": "b1", "bookmark": "done", "dwell": None},
-        {"board": None, "bookmark": "x", "dwell": 1.0},
+        {"board": "b0", "bookmark": "entry", "dwell": 2.0, "focus": ""},
+        {"board": "b1", "bookmark": "pay", "dwell": 3.0, "focus": ""},
+        {"board": "b1", "bookmark": "done", "dwell": None,
+         "focus": "complete"},
+        {"board": None, "bookmark": "x", "dwell": 1.0, "focus": ""},
     ]}]
     assert data["dwell"] == 4.0
     # Each stop's bookmark sits on its board; a path stop names its arrow.

@@ -111,6 +111,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Nothing in the `.grafli` changes; a board without overlay files keeps the
   plain Connectivity toggle.
   ([#168](https://github.com/MisterGC/grafli/issues/168))
+- **`grafli export-html` shares a whole map as one page.** It writes a board
+  and every board reachable through `&graph` and `.grafli` `&link` into one
+  self-contained HTML file — no server, no internet, fonts and images inside.
+  Each board is the app's own SVG drawing, once plain and once per overlay
+  file. In the browser you pan and zoom, click a box with a level to zoom
+  into it, go back up with **↑ Back**, <kbd>Backspace</kbd> or
+  <kbd>g</kbd><kbd>u</kbd> along a breadcrumb, peek at a box's doc, and
+  switch overlays with their legend and notes. Code refs stay plain text.
+  The export prints its size and warns above 20 MB; **HTML** in the side
+  panel's Export section does the same from the app.
+  ([#169](https://github.com/MisterGC/grafli/issues/169))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used
@@ -140,6 +151,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **The SVG export no longer shifts a board out of its picture.** A board
+  whose content did not start at the origin was painted offset by its own
+  top-left corner inside the SVG's viewBox, cropping it; `grafli render
+  out.svg` and Ctrl+E now draw it where it lies.
+  ([#169](https://github.com/MisterGC/grafli/issues/169))
 - **An older grafli no longer rewrites a newer board.** A board whose
   `#!grafli vN` header is newer than the running build now opens read-only,
   with a toast naming the version and `[read-only]` in the window title:

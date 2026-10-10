@@ -1,0 +1,114 @@
+/* The page grafli export-html writes. Colours come from the exporting
+   theme as --bg, --surface, --ink, --accent, --card and --card-ink. */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+#bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+}
+#bar button, #bar select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--ink) 25%, transparent);
+  border-radius: 6px;
+  padding: 3px 10px;
+}
+#bar button:disabled { opacity: 0.4; }
+#bar button:not(:disabled) { cursor: pointer; }
+#crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+#crumbs .crumb {
+  border: 0; background: none; padding: 2px 4px; font: inherit;
+  color: var(--accent); cursor: pointer; text-decoration: underline;
+}
+#crumbs .crumb.here { color: var(--ink); cursor: default; text-decoration: none; font-weight: 600; }
+#crumbs .sep { opacity: 0.5; }
+#overlay-pick { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+#overlay-pick[hidden] { display: none; }
+
+#stage-wrap { position: relative; overflow: hidden; min-height: 0; }
+#stage {
+  display: block; width: 100%; height: 100%;
+  touch-action: none; cursor: grab; user-select: none;
+}
+#stage.panning { cursor: grabbing; }
+#art.fade { animation: fade 180ms ease-out; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.hit { fill: transparent; stroke: none; }
+.hit.act { cursor: pointer; }
+.hit.act:hover {
+  stroke: var(--accent); stroke-opacity: 0.7; stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.hit-arrow {
+  fill: none; stroke: transparent; stroke-width: 12;
+  vector-effect: non-scaling-stroke; pointer-events: stroke;
+}
+.hit-arrow.act { cursor: pointer; }
+.hit-arrow.selected { stroke: var(--accent); stroke-opacity: 0.45; }
+#sel {
+  fill: none; stroke: var(--accent); stroke-width: 2.5;
+  vector-effect: non-scaling-stroke; pointer-events: none;
+}
+
+#legend {
+  position: absolute; right: 16px; bottom: 16px;
+  width: min(280px, calc(100% - 32px));
+  max-height: calc(100% - 32px); overflow: auto;
+  padding: 10px 12px; border-radius: 6px;
+  background: var(--card); color: var(--card-ink);
+  font-size: 13px;
+}
+#legend[hidden], #peek[hidden], #toast[hidden] { display: none; }
+#legend .title { font-weight: 700; font-size: 15px; }
+#legend .dim { opacity: 0.65; }
+#legend .stale { color: var(--accent); }
+#legend .row { display: flex; align-items: center; gap: 6px; }
+#legend .swatch {
+  width: 11px; height: 11px; border-radius: 2px; flex: none;
+  border: 1px solid color-mix(in srgb, var(--card-ink) 40%, transparent);
+}
+#legend .swatch.none {
+  background: repeating-linear-gradient(45deg,
+    color-mix(in srgb, var(--card-ink) 60%, transparent) 0 1px, transparent 1px 4px);
+}
+#legend .bar { height: 11px; border-radius: 2px; margin-top: 4px; }
+#legend .ends { display: flex; justify-content: space-between; opacity: 0.65; }
+#legend hr { border: 0; border-top: 1px solid color-mix(in srgb, var(--card-ink) 25%, transparent); }
+#legend .ref { font-family: "JetBrainsMono Nerd Font", ui-monospace, monospace; font-size: 12px; overflow-wrap: anywhere; }
+
+#peek {
+  position: absolute; max-width: min(440px, calc(100% - 32px)); max-height: 55%;
+  overflow: auto; padding: 10px 14px;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--ink) 25%, transparent);
+  border-radius: 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+/* The app's peek renders a doc like a doc-bodied note: handwritten, code
+   in the monospace face. */
+#peek-body, #peek-body * { font-family: "Patrick Hand", "Comic Sans MS", cursive !important; }
+#peek-body code, #peek-body pre, #peek-body pre * {
+  font-family: "JetBrainsMono Nerd Font", ui-monospace, monospace !important;
+}
+#peek-body { font-size: 16px; }
+#peek-body p, #peek-body ul, #peek-body ol { margin: 0.4em 0; }
+#peek-body a { color: var(--accent); }
+
+#toast {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 6px 14px; border-radius: 6px;
+  background: var(--card); color: var(--card-ink);
+}

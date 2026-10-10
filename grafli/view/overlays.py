@@ -399,6 +399,7 @@ class OverlaysMixin:
                 ("gd / Return", "Zoom into the box's sub-board"),
                 ("gu", "Back to the board you came from"),
                 ("gv", "Peek at the box's doc (Esc closes)"),
+                ("gt", "Pick a tour through the box, play from there"),
                 ("Tab / \u21e7Tab", "Cycle siblings (or search matches)"),
                 ("f / Ctrl+J", "Jump to any item (global)"),
                 ("Ctrl+O / Ctrl+I", "Nav history back / forward"),

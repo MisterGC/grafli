@@ -126,7 +126,10 @@ one slide per node:
 
 ## Playback
 
-Launch a flow with the ▶ button on its header (or present it, below). During
+Launch a flow with the ▶ button on its header (or present it, below), or
+start from a box: select it and press <kbd>g</kbd><kbd>t</kbd> to pick one of
+the tours with a stop that frames the box or a box it sits in — the tour
+plays from the first such stop. During
 playback an on-canvas caption shows the current stop and its description —
 **in full, word-wrapped** over as many lines as it needs. To keep a caption a
 caption, descriptions are budgeted at **280 characters**: the inline editor

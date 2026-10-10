@@ -124,6 +124,7 @@
       (n) => document.importNode(n, true)));
     $("stage-wrap").style.background = state.background;
     showLegend();
+    showVeil();
   }
 
   function hitTitle(el) {
@@ -444,6 +445,7 @@
     tour = null;
     $("player").hidden = true;
     emphasise(null);
+    showVeil();
     showTourPick();
   }
 
@@ -502,6 +504,7 @@
       if (tour.smooth) glide(to, STOP_MS); else setView(to);
     }
     emphasise(there === board ? bookmark : null);
+    showVeil();
     showPlayer(bookmark);
     if (tour.mode !== "paused") schedule(step);
   }
@@ -559,6 +562,73 @@
     for (const node of hits.querySelectorAll(".hit-arrow")) {
       node.classList.toggle("tour", ids.has(node.dataset.id));
     }
+  }
+
+  // What a stop keeps bright, as the app's presentation focus decides it:
+  // a path stop its arrows, their ends and its other focus elements; a stop
+  // with focus "complete" every element its frame holds whole, and each
+  // arrow between two of them. Null when nothing dims.
+  function stopKeeps() {
+    if (!tour) return null;
+    const step = tour.flow.steps[tour.index];
+    const { board: there, bookmark } = stopTarget(step);
+    if (!bookmark || there !== board) return null;
+    if (bookmark.arrows) {
+      const arrows = new Set(bookmark.arrows);
+      return { elements: new Set(bookmark.keep),
+               lines: board.lines.filter((l) => arrows.has(l.id)) };
+    }
+    if (step.focus !== "complete") return null;
+    const f = frameRect(bookmark.rect, 0);
+    const inside = (r) => r[0] >= f.x && r[1] >= f.y &&
+      r[0] + r[2] <= f.x + f.w && r[1] + r[3] <= f.y + f.h;
+    const elements = new Set(board.elements
+      .filter((e) => e.rect && inside(e.rect)).map((e) => e.id));
+    return { elements, lines: board.lines.filter(
+      (l) => elements.has(l.ends[0]) && elements.has(l.ends[1])) };
+  }
+
+  // Dimming without a second renderer: a veil in the canvas colour over the
+  // drawing, cut open over the kept elements' rects and arrows' lines, so
+  // the rest shows at the app's 0.08 blend.
+  function showVeil() {
+    const veil = $("veil"), mask = $("veil-mask");
+    const keeps = board ? stopKeeps() : null;
+    if (!keeps) { veil.style.display = "none"; mask.replaceChildren(); return; }
+    const [bx, by, bw, bh] = board.bounds;
+    const big = [bx - bw, by - bh, bw * 3, bh * 3];
+    const rect = (r, fill) => {
+      const n = document.createElementNS(SVGNS, "rect");
+      n.setAttribute("x", r[0]); n.setAttribute("y", r[1]);
+      n.setAttribute("width", r[2]); n.setAttribute("height", r[3]);
+      n.setAttribute("fill", fill);
+      return n;
+    };
+    const nodes = [rect(big, "white")];
+    for (const el of board.elements) {
+      if (el.rect && keeps.elements.has(el.id)) nodes.push(rect(el.rect, "black"));
+    }
+    for (const line of keeps.lines) {
+      for (const r of line.marks) nodes.push(rect(r, "black"));
+      for (const d of line.paths) {
+        const n = document.createElementNS(SVGNS, "path");
+        n.setAttribute("d", d);
+        n.setAttribute("fill", "none");
+        n.setAttribute("stroke", "black");
+        n.setAttribute("stroke-width", "14");
+        n.setAttribute("stroke-linecap", "round");
+        nodes.push(n);
+      }
+    }
+    mask.replaceChildren(...nodes);
+    // The mask's region defaults to a share of the viewport; it must cover
+    // the whole veil.
+    for (const [k, v] of Object.entries({ x: big[0], y: big[1], width: big[2], height: big[3] })) {
+      veil.setAttribute(k, v);
+      mask.setAttribute(k, v);
+    }
+    veil.setAttribute("fill", board.states[overlayOf[board.id] || 0].background);
+    veil.style.display = "";
   }
 
   function showPlayer(bookmark) {
@@ -748,6 +818,7 @@
     view: () => ({ ...vb }), busy: () => busy,
     tour: () => (tour ? { flow: tour.flow.id, index: tour.index,
                           mode: tour.mode, dwellMs: tour.dwellMs || 0 } : null),
+    dimmed: () => $("veil").style.display !== "none",
   };
 
   loadFonts();

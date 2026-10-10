@@ -61,6 +61,7 @@ body {
 .hit-arrow.act { cursor: pointer; }
 .hit-arrow.selected { stroke: var(--accent); stroke-opacity: 0.45; }
 .hit-arrow.tour { stroke: var(--accent); stroke-opacity: 0.6; stroke-width: 6; }
+#veil { opacity: 0.92; pointer-events: none; }
 #sel {
   fill: none; stroke: var(--accent); stroke-width: 2.5;
   vector-effect: non-scaling-stroke; pointer-events: none;

@@ -480,7 +480,9 @@ def _page(title: str, data: dict, svgs: list[tuple[str, str]],
 </header>
 <main id="stage-wrap">
   <svg id="stage" xmlns="http://www.w3.org/2000/svg">
+    <defs><mask id="veil-mask" maskUnits="userSpaceOnUse"></mask></defs>
     <g id="art"></g>
+    <rect id="veil" mask="url(#veil-mask)" style="display:none"></rect>
     <g id="hits"></g>
     <rect id="sel" style="display:none"></rect>
   </svg>

@@ -122,6 +122,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The export prints its size and warns above 20 MB; **HTML** in the side
   panel's Export section does the same from the app.
   ([#169](https://github.com/MisterGC/grafli/issues/169))
+- **The exported page plays the tours.** Pick a tour from the **Tour**
+  selector and a player card steps through it: **‹ Prev** / **Next ›**,
+  **▶ Play** / **❚❚ Pause**, the stop's caption and a progress bar, the
+  camera gliding between stops. Auto-play rests on each stop for its dwell.
+  A stop in another board shows that board the way the app does, with the
+  breadcrumb, and a stop framing an arrow draws it in the accent colour. The
+  keys are the app's playback keys (<kbd>Space</kbd> / <kbd>→</kbd>,
+  <kbd>←</kbd>, <kbd>p</kbd>, <kbd>t</kbd>, <kbd>Esc</kbd>); entering a
+  level mid-tour parks it and going back up resumes it. Boards a tour stops
+  in go into the page even when nothing links to them.
+  ([#61](https://github.com/MisterGC/grafli/issues/61))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

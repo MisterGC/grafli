@@ -169,7 +169,9 @@ class Conflict:
 _ELEMENT_LISTS = [
     ("boxes", "box", lambda e: e.id),
     ("notes", "note", lambda e: e.id),
-    ("arrows", "arrow", lambda e: (e.from_id, e.to_id)),
+    # An arrow with an id is keyed by it, so parallel arrows stay apart;
+    # a plain arrow is keyed by its endpoints.
+    ("arrows", "arrow", lambda e: e.id or (e.from_id, e.to_id)),
     ("images", "image", lambda e: e.id),
     ("bookmarks", "bookmark", lambda e: e.id),
     ("flows", "flow", lambda e: e.id),

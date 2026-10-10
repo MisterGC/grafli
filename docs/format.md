@@ -215,7 +215,9 @@ using one carries a `#!grafli v3` header.
 
 - `@<ids>` is the **semantic anchor** — the item ids the view frames. The
   pan/zoom is computed by fitting them, so the bookmark survives layout edits.
-  `~pad=<n>` overrides the framing padding.
+  `~pad=<n>` overrides the framing padding. An id may name an arrow by its
+  `~id=`: the stop frames the arrow's two ends and emphasises the arrow — see
+  [path stops](bookmarks-flows.md#path-stops-framing-an-arrow).
 - `~iso` marks the anchor as a **narrowed selection**: thumbnails and exported
   slides render only the anchored items (and the arrows between them), not
   everything inside the framed region — see

@@ -93,6 +93,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the tour from there. Without any, a toast says "no tour passes through"
   the box's label.
   ([#166](https://github.com/MisterGC/grafli/issues/166))
+- **A tour stop can be an arrow.** A bookmark's focus may name an arrow by
+  its `~id=`: the stop frames the arrow's two ends and, while the tour shows
+  it, draws the arrow in the tour accent, twice as thick, with everything
+  else dimmed — "this step is this call". `grafli render --bookmark` draws it
+  the same way, and `grafli export --check` takes the arrow id as resolved.
+  ([#167](https://github.com/MisterGC/grafli/issues/167))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

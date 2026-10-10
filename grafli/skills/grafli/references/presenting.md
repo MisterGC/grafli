@@ -36,6 +36,11 @@ v1 file? Bump the header to `#!grafli v2` yourself.)
   that board, keep the flow on the board the tour starts on, and bump its
   header to `#!grafli v3`. Playback enters the board for that stop; the
   slide export renders it from there.
+* A stop may frame an **arrow**: give it `~id=<id>` and list that id in the
+  bookmark's focus (`@ bookmark b_call "The call" @call`). Playback frames
+  its two ends and draws the arrow in the tour accent, thicker, with the
+  rest dimmed — use it for a step of a runtime flow or pipeline ("this step
+  is this call"). An arrow id makes the board `#!grafli v3`.
 * `@ footer` (board-global, one per file) brands the bottom of every exported
   content slide with a small muted markdown line; the title slide stays a
   clean cover. `@ title-bg thumbnail-art` backs the title slide with a faint

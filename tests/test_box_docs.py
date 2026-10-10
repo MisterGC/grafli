@@ -103,6 +103,15 @@ def test_doc_without_prose_has_no_first_sentence():
     assert doc_first_sentence("") == ""
 
 
+def test_heading_only_doc_shows_no_line(tmp_path: Path):
+    root, doc = _system(tmp_path)
+    doc.write_text("# Combat\n")
+    win = _window(root)
+    _zoom(win, 1.0)
+    assert win._view._box_items["combat"]._doc_line == ""
+    win.close()
+
+
 # ── The doc line ──
 
 

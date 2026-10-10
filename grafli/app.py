@@ -1169,8 +1169,8 @@ class MainWindow(QMainWindow):
 
     def _watch_docs(self):
         """(Re)start the consolidated poller over the board's vault docs, so
-        external edits to a doc-bodied note's .md reload live — one timer for
-        all docs, re-baselined after our own writes."""
+        external edits to a doc-bodied note's or a box's .md reload live —
+        one timer for all docs, re-baselined after our own writes."""
         if self._docs_watcher:
             self._docs_watcher.stop()
             self._docs_watcher = None
@@ -1178,8 +1178,9 @@ class MainWindow(QMainWindow):
             return
         from grafli.format import doc_name
         from grafli.resources import doc_path
-        paths = [str(doc_path(self._file_path, doc_name(n)))
-                 for n in self.board.notes if n.attach_kind == "doc"]
+        paths = [str(doc_path(self._file_path, doc_name(el)))
+                 for el in (*self.board.notes, *self.board.boxes)
+                 if el.attach_kind == "doc"]
         if not paths:
             return
         self._docs_watcher = MultiFileWatcher(paths)

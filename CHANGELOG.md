@@ -53,6 +53,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   thumbnails draw the box without the miniature, and a board without `&graph`
   boxes looks as before.
   ([#162](https://github.com/MisterGC/grafli/issues/162))
+- **A box's doc shows one line on the canvas; <kbd>g</kbd><kbd>v</kbd> peeks
+  the whole doc.** A box with `&doc:<name>` shows the doc's first sentence,
+  cut to one line, below its label — once the box is shown in full detail and
+  has room for the line; a box never grows for it. <kbd>g</kbd><kbd>v</kbd>
+  opens a read-only panel beside the box with the whole doc, rendered like a
+  Markdown note, at most twelve lines tall and scrollable; it moves nothing
+  and <kbd>Esc</kbd> closes it. <kbd>E</kbd> still opens the doc in textli.
+  Box docs are watched like note docs, so an edit to the file shows on the
+  canvas and in an open panel within a second. On a box without a doc
+  <kbd>g</kbd><kbd>v</kbd> says so. Exports draw the box without the line,
+  and a board without box docs looks as before.
+  ([#163](https://github.com/MisterGC/grafli/issues/163))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

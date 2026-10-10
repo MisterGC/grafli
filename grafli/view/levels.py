@@ -143,13 +143,18 @@ class LevelsMixin:
 
     @contextmanager
     def miniatures_held(self):
-        """Render the scene without miniatures for the duration — exports and
-        thumbnails show a `&graph` box as it is drawn without one."""
+        """Render the scene without miniatures and box doc lines for the
+        duration — exports and thumbnails show a `&graph` or `&doc` box as it
+        is drawn without them."""
         shown = {bid: item._miniature for bid, item in self._box_items.items()
                  if item._miniature is not None}
+        lines = {bid: item._doc_line for bid, item in self._box_items.items()
+                 if item._doc_line}
         self._miniatures_held = getattr(self, "_miniatures_held", 0) + 1
         for bid in shown:
             self._box_items[bid].set_miniature(None)
+        for bid in lines:
+            self._box_items[bid].set_doc_line("")
         try:
             yield
         finally:
@@ -159,6 +164,10 @@ class LevelsMixin:
                     item = self._box_items.get(bid)
                     if item is not None and item.scene() is not None:
                         item.set_miniature(pix)
+                for bid, line in lines.items():
+                    item = self._box_items.get(bid)
+                    if item is not None and item.scene() is not None:
+                        item.set_doc_line(line)
 
     # ── Entering a level ──
 

@@ -270,6 +270,9 @@ class MainWindow(QMainWindow):
         if action_id == "export_flow_pptx":
             self._export_flow_pptx()
             return
+        if action_id == "export_html":
+            self._export_html()
+            return
         handler = actions.get(action_id)
         if handler:
             handler()
@@ -419,6 +422,35 @@ class MainWindow(QMainWindow):
         if overloaded:
             msg += f" · {len(overloaded)} overloaded — trim or split"
         self._view.toast(msg, "warn" if overloaded else "info")
+
+    def _export_html(self):
+        """Export this board and every board reachable from it as one
+        self-contained HTML page, in the theme on screen."""
+        from PySide6.QtWidgets import QFileDialog
+        if self._file_path is None:
+            self._view.toast("Save the board first to export it", "warn")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export HTML", str(self._file_path.with_suffix(".html")),
+            "HTML files (*.html);;All Files (*)",
+        )
+        if not path:
+            return
+        from grafli.htmlexport import SIZE_WARN_BYTES, export_html, format_size
+        try:
+            result = export_html(self._file_path, Path(path))
+        except Exception as exc:  # surface any render/IO failure
+            self._view.toast(f"HTML export failed: {exc}", "error")
+            return
+        boards = len(result.boards)
+        msg = (f"HTML exported · {format_size(result.size)} · {boards} "
+               f"board{'s' if boards != 1 else ''}")
+        if result.too_big:
+            msg += f" · above {format_size(SIZE_WARN_BYTES)}, heavy to send"
+        if result.warnings:
+            msg += f" · {len(result.warnings)} left out: {result.warnings[0]}"
+        self._view.toast(msg, "warn" if result.too_big or result.warnings
+                         else "info")
 
     def _pick_pptx_template(self):
         """Choose a .pptx template and the layouts to use for the title and

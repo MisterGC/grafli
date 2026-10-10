@@ -78,6 +78,9 @@ class ComplexityMixin:
         """Color boxes/arrows by the provider's reading."""
         if not self._board:
             return
+        # A re-apply while painted (an arrow redraw, a presentation focus
+        # change) starts from the originals, never from the painted state.
+        self._restore_heat_items()
         reading = self._heat_provider.read(self._board)
         self._complexity_node_heat = reading.values
         self._complexity_legend = reading.legend
@@ -200,33 +203,32 @@ class ComplexityMixin:
                          BOX_BORDER_WIDTH))
         item._label.setDefaultTextColor(self._no_data_color(0.5))
 
-    def _clear_complexity_heatmap(self):
-        """Restore original box/note/arrow appearance."""
-        self._complexity_active = False
-
-        # Restore background
+    def _restore_heat_items(self):
+        """Put back the background, boxes and notes the heatmap painted."""
         if hasattr(self, '_saved_bg_brush'):
             self._scene.setBackgroundBrush(self._saved_bg_brush)
             del self._saved_bg_brush
 
-        # Restore boxes
         for item, pen, brush, text_color, effect in self._complexity_saved:
             item.setPen(pen)
             item.setBrush(brush)
             item._label.setDefaultTextColor(text_color)
             item.setGraphicsEffect(effect)
-
         self._complexity_saved.clear()
-        self._complexity_node_heat.clear()
-        self._complexity_legend = None
-        self._complexity_reading = None
 
-        # Restore notes
         for item in self._note_items.values():
             item.setOpacity(1.0)
         for item, effect in self._complexity_saved_notes:
             item.setGraphicsEffect(effect)
         self._complexity_saved_notes.clear()
+
+    def _clear_complexity_heatmap(self):
+        """Restore original box/note/arrow appearance."""
+        self._complexity_active = False
+        self._restore_heat_items()
+        self._complexity_node_heat.clear()
+        self._complexity_legend = None
+        self._complexity_reading = None
 
         # Redraw arrows to restore original colors
         self._redraw_arrows()

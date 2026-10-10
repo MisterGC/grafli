@@ -267,3 +267,23 @@ def test_each_stop_carries_its_board_and_dwell_and_the_page_its_player(
     for part in ('id="tour"', 'id="player"', 'id="pl-prev"', 'id="pl-play"',
                  'id="pl-next"', 'id="pl-bar"', 'id="pl-dwell"'):
         assert part in page
+
+
+def test_stops_carry_what_they_keep_bright_and_every_arrow_its_ends(tmp_path):
+    _app()
+    root = _tour_map(tmp_path)
+    out = tmp_path / "shop.html"
+    export_html(root, out)
+    data = _data(out.read_text(encoding="utf-8"))
+    sub = data["boards"]["b1"]
+    # A path stop keeps its arrow's two ends, as the app's emphasis does.
+    assert sub["bookmarks"]["pay"]["keep"] == ["pay", "save"]
+    assert "keep" not in sub["bookmarks"]["done"]
+    # Every drawn arrow goes in with its ends, lines and head, id or not.
+    top = data["boards"]["b0"]
+    assert top["lines"] == []
+    [line] = sub["lines"]
+    assert line["id"] == "charge" and line["ends"] == ["pay", "save"]
+    assert line["paths"] and line["marks"]
+    x, y, w, h = line["marks"][0]
+    assert 140 <= x <= 240 and w > 0 and h > 0

@@ -138,12 +138,21 @@ def test_isolating_an_arrow_keeps_it_and_its_ends():
         assert query and not any(g.isVisible() for g in query)
 
 
-def test_a_board_link_to_an_arrow_frames_it():
+def test_a_board_link_to_an_arrow_frames_and_selects_it():
     view = _view(parse(BOARD))
     assert view.frame_fragment("call")
     visible = view.mapToScene(view.viewport().rect()).boundingRect()
     for end in ("client", "server"):
         assert visible.contains(view._box_items[end].sceneBoundingRect())
+    assert view._selected_arrows == [view._board.arrow_by_id("call")]
+    assert view._scene.selectedItems() == []
+
+
+def test_a_bookmark_with_elements_selects_them_not_its_arrows():
+    view = _view(parse(BOARD))
+    assert view.frame_fragment("b_mixed")
+    assert view._selected_arrows == []
+    assert view._scene.selectedItems() == [view._box_items["db"]]
 
 
 def test_render_bookmark_draws_the_arrow_in_the_accent(tmp_path: Path):

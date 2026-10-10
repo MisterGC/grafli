@@ -176,8 +176,8 @@ def doc_first_sentence(body: str) -> str:
 
     Taken from the first paragraph of prose: front matter, headings, rules
     and fenced code are skipped, list and quote markers, inline markup and
-    CriticMarkup marks are dropped. A doc without prose falls back to its
-    first heading; an empty doc gives "".
+    CriticMarkup marks are dropped. A doc without prose (only headings,
+    rules or code) gives "", so its box shows no line.
     """
     for rule, repl in _CRITIC_RULES:
         body = rule.sub(repl, body)
@@ -187,7 +187,6 @@ def doc_first_sentence(body: str) -> str:
             if lines[i].strip() in ("---", "..."):
                 lines = lines[i + 1:]
                 break
-    heading = ""
     paragraph: list[str] = []
     fenced = False
     for line in lines:
@@ -198,16 +197,14 @@ def doc_first_sentence(body: str) -> str:
             continue
         if fenced:
             continue
-        m = _HEADING_RE.match(line)
-        if not line.strip() or m or _RULE_RE.match(line):
+        if (not line.strip() or _HEADING_RE.match(line)
+                or _RULE_RE.match(line)):
             if paragraph:
                 break
-            if m and not heading:
-                heading = _inline_text(m.group(1))
             continue
         paragraph.append(_BLOCK_MARKER_RE.sub("", line, count=1))
     text = _inline_text(" ".join(paragraph))
     if not text:
-        return heading
+        return ""
     m = _SENTENCE_RE.match(text)
     return m.group(1) if m else text

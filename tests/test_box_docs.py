@@ -97,8 +97,9 @@ def test_first_sentence_keeps_a_paragraph_without_a_full_stop():
         "one list item, no stop two"
 
 
-def test_first_sentence_falls_back_to_the_heading_or_nothing():
-    assert doc_first_sentence("# Only a heading\n") == "Only a heading"
+def test_doc_without_prose_has_no_first_sentence():
+    assert doc_first_sentence("# Only a heading\n") == ""
+    assert doc_first_sentence("# Title\n\n---\n\n```\ncode.\n```\n") == ""
     assert doc_first_sentence("") == ""
 
 

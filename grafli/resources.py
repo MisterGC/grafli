@@ -158,6 +158,16 @@ def graph_path(grafli_path: Path, name: str) -> Path:
     return res_dir(grafli_path) / f"{name}.grafli"
 
 
+def board_target_path(grafli_path: Path, target: str) -> Path:
+    """The board a tour stop's ``<board>`` names: a relative path ending in
+    ``.grafli`` resolves against the board's folder, anything else is a vault
+    sub-board name."""
+    if target.endswith(".grafli"):
+        path = Path(target).expanduser()
+        return path if path.is_absolute() else grafli_path.parent / path
+    return graph_path(grafli_path, target)
+
+
 def _attachables(board: Board):
     yield from board.boxes
     yield from board.notes

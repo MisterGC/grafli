@@ -16,12 +16,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from PySide6.QtCore import QRectF
+from PySide6.QtCore import QRectF, Qt
 
 from grafli.flows import (bookmark_target_rect, presentation_detail,
                           presentation_focus, step_detail, step_focus,
                           text_slide_note)
+from grafli.format import split_step_ref
 
 
 @dataclass
@@ -59,12 +61,19 @@ class SlidePlan:
     # off) — applied around the raster via slide_presentation().
     detail: str = ""
     focus: str = ""
+    # The view whose scene this slide renders from: the flow's own view, or
+    # one holding the other board a ``<board>#<bookmark>`` stop lies in.
+    view: object | None = None
 
 
-def build_slide_plan(view, flow) -> list[SlidePlan]:
+def build_slide_plan(view, flow,
+                     board_path: Path | None = None) -> list[SlidePlan]:
     """The ordered slide plan for ``flow``: a title cover followed by one content
     slide per step. ``view`` is a GrafliView whose scene holds the rendered graph
-    (used to resolve anchors and as the eventual render source)."""
+    (used to resolve anchors and as the eventual render source). A stop in
+    another board is resolved from ``board_path``, the flow's own board, and
+    rendered from an offscreen view of that board (``SlidePlan.view``); without
+    a ``board_path`` it renders as a missing bookmark."""
     board = view.board
     plans: list[SlidePlan] = [SlidePlan(
         kind="title",
@@ -73,13 +82,45 @@ def build_slide_plan(view, flow) -> list[SlidePlan]:
         thumbnail_art=(board is not None and board.title_bg == "thumbnail-art"),
     )]
     total = len(flow.steps)
+    views: dict[Path, object | None] = {}
     for i, step in enumerate(flow.steps):
-        bm = board.bookmark_by_id(step.ref)
-        plan = _content_plan(view, bm, i, total)
+        target, bookmark_id = split_step_ref(step.ref)
+        step_view = (_stop_view(board_path, target, views) if target
+                     else view)
+        bm = (step_view.board.bookmark_by_id(bookmark_id)
+              if step_view is not None and step_view.board else None)
+        step_view = step_view or view
+        plan = _content_plan(step_view, bm, i, total)
         plan.detail = step_detail(flow, step)
         plan.focus = step_focus(flow, step)
+        plan.view = step_view
         plans.append(plan)
     return plans
+
+
+def _stop_view(board_path: Path | None, target: str, views: dict):
+    """An offscreen view of the board a stop's ``<board>`` names, made once
+    per board, or None when it can't be found. Its paper background is off,
+    as the exporters switch it off on the flow's own view."""
+    if board_path is None:
+        return None
+    from grafli.resources import board_target_path
+    path = board_target_path(Path(board_path), target).resolve()
+    if path not in views:
+        views[path] = None
+        if path.exists():
+            from grafli.format import parse
+            from grafli.resources import classify_attachments, load_docs
+            from grafli.view import GrafliView
+            board = parse(path.read_text(encoding="utf-8"))
+            classify_attachments(path, board)
+            load_docs(path, board)
+            stop_view = GrafliView()
+            stop_view.base_dir = str(path.parent)
+            stop_view.load_board(board)
+            stop_view._scene.setBackgroundBrush(Qt.GlobalColor.transparent)
+            views[path] = stop_view
+    return views[path]
 
 
 @contextmanager

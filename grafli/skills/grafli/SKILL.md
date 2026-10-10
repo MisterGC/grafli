@@ -250,8 +250,10 @@ in `references/genres.md` instead.)
    other multi-line detail, use a `code:` note; for prose with light
    structure (rationale, checklists, review notes), use an `md:`
    Markdown note — those are the right home for content too long for
-   a box label. Boxes are identifiers, notes are bodies (see the Box
-   section) — never inline multi-line detail into a box label.
+   a box label — or the box's own `&doc`, whose first sentence shows
+   on one line under the label and whose whole text `gv` peeks. Boxes
+   are identifiers; notes or the box's own `&doc` are bodies (see the
+   Box section) — never inline multi-line detail into a box label.
 8. **Re-read against the quality bar.** Pretend you're the user opening
    the file: the eye lands on the entry point, the board answers its one
    question, depth is on demand, no arrows crossing. If not, reposition

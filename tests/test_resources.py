@@ -192,3 +192,12 @@ def test_migrate_all(tmp_path: Path):
     assert box.annotation == ""
     assert (tmp_path / "demo-res" / "api.md").exists()
     assert (tmp_path / "demo-res" / "img.png").exists()
+
+
+def test_a_stop_board_is_a_vault_name_or_a_relative_grafli_path(tmp_path):
+    from grafli.resources import board_target_path
+    home = tmp_path / "System.grafli"
+    assert board_target_path(home, "combat") == \
+        tmp_path / "System-res" / "combat.grafli"
+    assert board_target_path(home, "../repo/map.grafli") == \
+        tmp_path / ".." / "repo" / "map.grafli"

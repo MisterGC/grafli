@@ -311,10 +311,26 @@ class _Exporter:
                 paths.setdefault(id(arrow), []).append(d)
         return paths
 
+    def _arrow_marks(self) -> dict[int, list[list[float]]]:
+        """The rects of each arrow's heads and label, by the arrow object's
+        identity."""
+        from grafli.items import ArrowLineItem
+        marks: dict[int, list[list[float]]] = {}
+        for item in self.view._arrow_items:
+            arrow = item.data(0)
+            if (isinstance(arrow, Arrow) and item.isVisible()
+                    and not isinstance(item, ArrowLineItem)):
+                marks.setdefault(id(arrow), []).append(
+                    _rect(item.sceneBoundingRect()))
+        return marks
+
     def _flows(self, path: Path, key: str, board: Board,
                ids: dict[Path, str]) -> list[dict]:
         """The board's flows, each stop with the board it lies in (None when
-        that board is missing) and its dwell (None = the default)."""
+        that board is missing), its dwell (None = the default) and its focus
+        ("complete" dims what its frame does not hold whole, as in the
+        app)."""
+        from grafli.flows import step_focus
         flows = []
         for f in board.flows:
             steps = []
@@ -323,13 +339,13 @@ class _Exporter:
                 other = _stop_board(path, s.ref)
                 stop_board = key if other is None else ids.get(other.resolve())
                 steps.append({"board": stop_board, "bookmark": bookmark,
-                              "dwell": s.dwell})
+                              "dwell": s.dwell, "focus": step_focus(f, s)})
             flows.append({"id": f.id, "label": f.label, "steps": steps})
         return flows
 
     def board(self, path: Path, key: str, ids: dict[Path, str],
               padding: int) -> dict:
-        from grafli.flows import bookmark_target_rect, focus_arrows
+        from grafli.flows import bookmark_target_rect, emphasis_for
         from grafli.overlay_file import (OverlayProvider, load_overlay,
                                          overlay_paths)
         board = self._load(path)
@@ -346,6 +362,13 @@ class _Exporter:
                 elements.append(self._element(
                     path, key, el, item.sceneBoundingRect(), ids, kind))
         arrow_paths = self._arrow_paths()
+        # Every drawn arrow with its ends, lines, heads and label: a stop's
+        # dimming keeps an arrow whose ends it keeps.
+        arrow_marks = self._arrow_marks()
+        arrow_lines = [{"id": a.id, "ends": [a.from_id, a.to_id],
+                        "paths": arrow_paths[id(a)],
+                        "marks": arrow_marks.get(id(a), [])}
+                       for a in board.arrows if arrow_paths.get(id(a))]
         for arrow in board.arrows:
             if not (arrow.id or arrow.url or arrow.attach_kind == "doc"):
                 continue
@@ -364,10 +387,12 @@ class _Exporter:
             if not r.isNull():
                 bookmarks[bm.id] = {"rect": _rect(r), "label": bm.label,
                                     "description": bm.description}
-                # A path stop emphasises the arrows its focus names.
-                arrows = [a.id for a in focus_arrows(board, bm.focus)]
-                if arrows:
-                    bookmarks[bm.id]["arrows"] = arrows
+                # A path stop emphasises the arrows its focus names and keeps
+                # their ends and its other focus elements bright.
+                emphasis = emphasis_for(board, bm)
+                if emphasis is not None:
+                    bookmarks[bm.id]["arrows"] = sorted(emphasis[0])
+                    bookmarks[bm.id]["keep"] = sorted(emphasis[1])
         flows = self._flows(path, key, board, ids)
 
         states = [{"name": "", "svg": f"{key}-0", "background": background}]
@@ -391,7 +416,7 @@ class _Exporter:
         return {"id": key, "title": path.stem, "file": path.name,
                 "bounds": _rect(rect), "states": states,
                 "elements": elements, "bookmarks": bookmarks,
-                "flows": flows}
+                "flows": flows, "lines": arrow_lines}
 
 
 def _fonts(svgs: list[tuple[str, str]], docs: bool) -> list[dict]:
@@ -455,7 +480,9 @@ def _page(title: str, data: dict, svgs: list[tuple[str, str]],
 </header>
 <main id="stage-wrap">
   <svg id="stage" xmlns="http://www.w3.org/2000/svg">
+    <defs><mask id="veil-mask" maskUnits="userSpaceOnUse"></mask></defs>
     <g id="art"></g>
+    <rect id="veil" mask="url(#veil-mask)" style="display:none"></rect>
     <g id="hits"></g>
     <rect id="sel" style="display:none"></rect>
   </svg>

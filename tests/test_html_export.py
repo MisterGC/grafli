@@ -219,8 +219,8 @@ def _tour_map(tmp: Path) -> Path:
         '@ box web "Web" 0,0 160x70\n'
         '@ box api "API" 300,0 160x70\n'
         '@ bookmark entry "Entry" @web,api "Requests come in."\n'
-        '@ flow path "Order path" entry:2 steps#pay:3 steps#done '
-        'gone#x:1\n')
+        '@ flow path "Order path" entry:2 steps#pay:3 '
+        'steps#done:focus=complete gone#x:1\n')
     res = tmp / "shop-res"
     res.mkdir()
     (res / "steps.grafli").write_text(
@@ -252,10 +252,11 @@ def test_each_stop_carries_its_board_and_dwell_and_the_page_its_player(
     data = _data(page)
     top, sub = data["boards"]["b0"], data["boards"]["b1"]
     assert top["flows"] == [{"id": "path", "label": "Order path", "steps": [
-        {"board": "b0", "bookmark": "entry", "dwell": 2.0},
-        {"board": "b1", "bookmark": "pay", "dwell": 3.0},
-        {"board": "b1", "bookmark": "done", "dwell": None},
-        {"board": None, "bookmark": "x", "dwell": 1.0},
+        {"board": "b0", "bookmark": "entry", "dwell": 2.0, "focus": ""},
+        {"board": "b1", "bookmark": "pay", "dwell": 3.0, "focus": ""},
+        {"board": "b1", "bookmark": "done", "dwell": None,
+         "focus": "complete"},
+        {"board": None, "bookmark": "x", "dwell": 1.0, "focus": ""},
     ]}]
     assert data["dwell"] == 4.0
     # Each stop's bookmark sits on its board; a path stop names its arrow.
@@ -266,3 +267,23 @@ def test_each_stop_carries_its_board_and_dwell_and_the_page_its_player(
     for part in ('id="tour"', 'id="player"', 'id="pl-prev"', 'id="pl-play"',
                  'id="pl-next"', 'id="pl-bar"', 'id="pl-dwell"'):
         assert part in page
+
+
+def test_stops_carry_what_they_keep_bright_and_every_arrow_its_ends(tmp_path):
+    _app()
+    root = _tour_map(tmp_path)
+    out = tmp_path / "shop.html"
+    export_html(root, out)
+    data = _data(out.read_text(encoding="utf-8"))
+    sub = data["boards"]["b1"]
+    # A path stop keeps its arrow's two ends, as the app's emphasis does.
+    assert sub["bookmarks"]["pay"]["keep"] == ["pay", "save"]
+    assert "keep" not in sub["bookmarks"]["done"]
+    # Every drawn arrow goes in with its ends, lines and head, id or not.
+    top = data["boards"]["b0"]
+    assert top["lines"] == []
+    [line] = sub["lines"]
+    assert line["id"] == "charge" and line["ends"] == ["pay", "save"]
+    assert line["paths"] and line["marks"]
+    x, y, w, h = line["marks"][0]
+    assert 140 <= x <= 240 and w > 0 and h > 0

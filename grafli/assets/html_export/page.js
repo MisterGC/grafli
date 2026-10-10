@@ -79,13 +79,19 @@
               w, h: vb.h * f });
   }
 
-  // Glide the camera to *to*: centre linear, size geometric, eased.
+  // Glide the camera to *to*: centre linear, size geometric, eased. A newer
+  // glide, a new stop or a board switch cancels it, so its last frames never
+  // land on a board or stop that has replaced its target.
+  let glideId = 0;
+  function cancelGlide() { glideId++; }
+
   function glide(to, ms, done) {
-    const from = vb, t0 = performance.now();
+    const from = vb, t0 = performance.now(), id = ++glideId;
     const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
     const cx0 = from.x + from.w / 2, cy0 = from.y + from.h / 2;
     const cx1 = to.x + to.w / 2, cy1 = to.y + to.h / 2;
     function step(now) {
+      if (id !== glideId) return;
       const t = Math.min((now - t0) / ms, 1), k = ease(t);
       const w = from.w * Math.pow(to.w / from.w, k);
       const h = from.h * Math.pow(to.h / from.h, k);
@@ -99,6 +105,7 @@
   // ── Boards ──
 
   function showBoard(id) {
+    cancelGlide();
     board = DATA.boards[id];
     closePeek();
     select(null);
@@ -483,6 +490,7 @@
     const step = steps[tour.index];
     const { board: there, bookmark } = stopTarget(step);
     clearTimeout(tourTimer);
+    cancelGlide();
     closePeek();
     if (there && there.id !== board.id) {
       boardFor(there.id);

@@ -383,6 +383,15 @@ class Board:
         self.images.remove(image)
         self._lines = [(k, v) for k, v in self._lines if v is not image]
 
+    def arrow_by_id(self, arrow_id: str) -> Arrow | None:
+        """The arrow carrying ``~id=<arrow_id>``; plain arrows have no id."""
+        if not arrow_id:
+            return None
+        for arrow in self.arrows:
+            if arrow.id == arrow_id:
+                return arrow
+        return None
+
     def bookmark_by_id(self, bookmark_id: str) -> Bookmark | None:
         for bm in self.bookmarks:
             if bm.id == bookmark_id:

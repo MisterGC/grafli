@@ -105,6 +105,10 @@ def isolate_focus(view, focus_ids: list[str]):
     exit, so the live canvas is unaffected.
     """
     keep = set(focus_ids)
+    # An arrow in the focus keeps its two ends, and so the arrow itself.
+    if view._board is not None:
+        for arrow in focus_arrows(view._board, focus_ids):
+            keep.update((arrow.from_id, arrow.to_id))
     hidden = []
 
     def hide(item):
@@ -140,17 +144,82 @@ def resolve_focus_rect(view, focus_ids: list[str]) -> QRectF:
     current layout. Ids that no longer exist are skipped.
     """
     rect = QRectF()
-    for fid in focus_ids:
-        item = (
-            view._box_items.get(fid)
-            or view._note_items.get(fid)
-            or view._image_items.get(fid)
-        )
-        if item is None:
-            continue
-        r = item.sceneBoundingRect()
+
+    def add(r: QRectF):
+        nonlocal rect
         rect = QRectF(r) if rect.isNull() else rect.united(r)
+
+    for fid in focus_ids:
+        item = _element_item(view, fid)
+        if item is not None:
+            add(item.sceneBoundingRect())
+            continue
+        # An arrow id frames the arrow's two ends and the line drawn between
+        # them, which may bow or route outside the ends' union.
+        arrow = view._board.arrow_by_id(fid) if view._board else None
+        if arrow is None:
+            continue
+        for end_id in (arrow.from_id, arrow.to_id):
+            end = _element_item(view, end_id)
+            if end is not None:
+                add(end.sceneBoundingRect())
+        for gfx in view._arrow_items:
+            if gfx.data(0) is arrow and gfx.isVisible():
+                add(gfx.sceneBoundingRect())
     return rect
+
+
+def _element_item(view, element_id: str):
+    """The graphics item of a box, note or image id, or None."""
+    return (view._box_items.get(element_id)
+            or view._note_items.get(element_id)
+            or view._image_items.get(element_id))
+
+
+def focus_arrows(board, focus_ids: list[str]) -> list:
+    """The arrows a bookmark's focus names by their ``~id=``. An element id
+    wins over an arrow carrying the same id, as it does when framing."""
+    arrows = []
+    for fid in focus_ids:
+        if (board.box_by_id(fid) or board.note_by_id(fid)
+                or board.image_by_id(fid)):
+            continue
+        arrow = board.arrow_by_id(fid)
+        if arrow is not None:
+            arrows.append(arrow)
+    return arrows
+
+
+def emphasis_for(board, bookmark: Bookmark | None):
+    """What a stop on *bookmark* emphasises, as the view's
+    ``_set_presentation_emphasis`` takes it: the ids of the arrows its focus
+    names and the elements kept bright beside them (its other focus elements
+    and each arrow's two ends). None when the focus names no arrow."""
+    if bookmark is None or board is None:
+        return None
+    arrows = focus_arrows(board, bookmark.focus)
+    if not arrows:
+        return None
+    arrow_ids = {a.id for a in arrows}
+    keep = {fid for fid in bookmark.focus if fid not in arrow_ids}
+    for arrow in arrows:
+        keep.update((arrow.from_id, arrow.to_id))
+    return arrow_ids, keep
+
+
+@contextmanager
+def presentation_emphasis(view, emphasis):
+    """Temporarily apply a path stop's emphasis (see :func:`emphasis_for`;
+    None yields unchanged), restoring the previous one on exit."""
+    if emphasis is None:
+        yield
+        return
+    prev = view._present_emphasis
+    view._set_presentation_emphasis(emphasis)
+    try:
+        yield
+    finally:
+        view._set_presentation_emphasis(prev)
 
 
 def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
@@ -369,6 +438,7 @@ class FlowPlayer:
         self._timer.stop()
         self.view._set_presentation_detail(None)
         self.view._set_presentation_focus(None)
+        self.view._set_presentation_emphasis(None)
         self.view._clear_flow_overlay()
         if self.view._flow_player is self:
             self.view._flow_player = None
@@ -393,6 +463,9 @@ class FlowPlayer:
         # GUI state; focus fades everything not fully inside the frame the
         # viewport will actually show (the target grown to viewport aspect).
         self.view._set_presentation_detail(step_detail(self.flow, step) or None)
+        # A stop framing arrows emphasises them over everything else.
+        self.view._set_presentation_emphasis(
+            emphasis_for(self.view._board, bookmark))
         focus_frame = None
         rect = QRectF()
         if bookmark is not None:

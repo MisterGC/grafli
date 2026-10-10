@@ -8,7 +8,7 @@ beside it, so the page looks exactly like the app. A JSON block beside the
 SVGs holds what the page needs to act — element rects and ids, attachments,
 bookmark rects, box docs as HTML, overlay legends and notes, the tours with
 each stop's board and dwell — and the page's script places invisible click
-areas from those rects. No second renderer is written in JS.
+areas from those rects and plays the tours by moving its camera. No second renderer is written in JS.
 
 Code refs (``@path:line``) stay plain text: the people the page is sent to
 don't have the checkout. Miniatures and editing are left out.
@@ -446,6 +446,9 @@ def _page(title: str, data: dict, svgs: list[tuple[str, str]],
 <header id="bar">
   <button id="back" type="button" title="Back up a level (Backspace, g u)">&#8593; Back</button>
   <nav id="crumbs" aria-label="Board path"></nav>
+  <label id="tour-pick" hidden>Tour
+    <select id="tour"></select>
+  </label>
   <label id="overlay-pick" hidden>Overlay
     <select id="overlay"></select>
   </label>
@@ -458,6 +461,19 @@ def _page(title: str, data: dict, svgs: list[tuple[str, str]],
   </svg>
   <aside id="legend" hidden></aside>
   <aside id="peek" hidden><div id="peek-body"></div></aside>
+  <aside id="player" hidden aria-live="polite">
+    <div class="head"><span id="pl-flow"></span><span id="pl-count"></span></div>
+    <div id="pl-label"></div>
+    <div id="pl-desc"></div>
+    <div class="track"><div id="pl-bar"></div></div>
+    <div class="track dwell"><div id="pl-dwell"></div></div>
+    <div class="buttons">
+      <button id="pl-prev" type="button" title="Previous stop (&#8592;)">&#8249; Prev</button>
+      <button id="pl-play" type="button" title="Play or pause (p cycles play, loop, pause)">&#9654; Play</button>
+      <button id="pl-next" type="button" title="Next stop (Space, &#8594;)">Next &#8250;</button>
+      <button id="pl-close" type="button" title="Leave the tour (Esc)">&#10005;</button>
+    </div>
+  </aside>
   <div id="toast" hidden></div>
 </main>
 {templates}

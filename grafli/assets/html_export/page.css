@@ -35,8 +35,10 @@ body {
 }
 #crumbs .crumb.here { color: var(--ink); cursor: default; text-decoration: none; font-weight: 600; }
 #crumbs .sep { opacity: 0.5; }
+#tour-pick { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 #overlay-pick { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-#overlay-pick[hidden] { display: none; }
+#tour-pick:not([hidden]) + #overlay-pick { margin-left: 0; }
+#overlay-pick[hidden], #tour-pick[hidden] { display: none; }
 
 #stage-wrap { position: relative; overflow: hidden; min-height: 0; }
 #stage {
@@ -58,6 +60,7 @@ body {
 }
 .hit-arrow.act { cursor: pointer; }
 .hit-arrow.selected { stroke: var(--accent); stroke-opacity: 0.45; }
+.hit-arrow.tour { stroke: var(--accent); stroke-opacity: 0.6; stroke-width: 6; }
 #sel {
   fill: none; stroke: var(--accent); stroke-width: 2.5;
   vector-effect: non-scaling-stroke; pointer-events: none;
@@ -71,7 +74,8 @@ body {
   background: var(--card); color: var(--card-ink);
   font-size: 13px;
 }
-#legend[hidden], #peek[hidden], #toast[hidden] { display: none; }
+#legend[hidden], #peek[hidden], #toast[hidden], #player[hidden],
+#pl-desc[hidden] { display: none; }
 #legend .title { font-weight: 700; font-size: 15px; }
 #legend .dim { opacity: 0.65; }
 #legend .stale { color: var(--accent); }
@@ -112,3 +116,30 @@ body {
   padding: 6px 14px; border-radius: 6px;
   background: var(--card); color: var(--card-ink);
 }
+
+/* The tour player: the app's flow caption as a card, bottom left so the
+   legend keeps its place. */
+#player {
+  position: absolute; left: 16px; bottom: 16px;
+  width: min(420px, calc(100% - 32px));
+  padding: 10px 12px; border-radius: 6px;
+  background: var(--card); color: var(--card-ink);
+}
+#player .head { display: flex; justify-content: space-between; gap: 8px; opacity: 0.7; font-size: 12px; }
+#pl-label { font-weight: 700; font-size: 16px; margin-top: 2px; }
+#pl-desc { margin-top: 2px; }
+#player .track {
+  height: 4px; margin-top: 8px; border-radius: 2px;
+  background: color-mix(in srgb, var(--card-ink) 20%, transparent);
+}
+#player .track.dwell { height: 2px; margin-top: 3px; background: none; }
+#pl-bar, #pl-dwell { height: 100%; width: 0; border-radius: 2px; background: var(--accent); }
+#pl-dwell { opacity: 0.6; }
+#player .buttons { display: flex; gap: 6px; margin-top: 8px; }
+#player button {
+  font: inherit; color: var(--card-ink); background: transparent; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--card-ink) 35%, transparent);
+  border-radius: 6px; padding: 2px 10px;
+}
+#player button:disabled { opacity: 0.35; cursor: default; }
+#pl-close { margin-left: auto; }

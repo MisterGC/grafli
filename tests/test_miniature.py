@@ -200,6 +200,48 @@ def test_icon_boxes_show_a_miniature_only_with_a_corner_badge(tmp_path: Path):
     win.close()
 
 
+def test_label_band_stays_clear_of_the_corner_icons(tmp_path: Path):
+    long = "Combat, damage and stagger resolution for every hit"
+    root = _write(tmp_path / "Corner.grafli",
+                  '#!grafli v2\n'
+                  f'@ box glyph "{long}" 0,0 420x300 &graph:combat\n'
+                  f'@ box badge "{long}" 500,0 420x300 #8ecae6 *badge:gear '
+                  '&graph:combat\n')
+    _write(tmp_path / "Corner-res" / "combat.grafli",
+           '#!grafli v2\n@ box x "X" 0,0 160x60\n')
+    win = _window(root)
+    _zoom(win, 1.0)
+    for bid, n_icons in (("glyph", 1), ("badge", 2)):
+        item = win._view._box_items[bid]
+        assert item._miniature is not None
+        icons = item.corner_icon_rects()
+        assert len(icons) == n_icons
+        label = item._label
+        plate = label.mapRectToScene(label._plate_rect())
+        for icon in icons:
+            assert not plate.intersects(item.mapRectToScene(icon)), bid
+            # The label item paints the icons itself, after its text.
+            assert label.boundingRect().contains(
+                icon.translated(label._icon_offset()))
+        assert item._icons_above_label()
+    win.close()
+
+
+def test_label_band_widens_again_when_the_miniature_goes(tmp_path: Path):
+    root, _ = _system(tmp_path)
+    win = _window(root)
+    view = win._view
+    view._lod_enabled = False
+    item = view._box_items["combat"]
+    _zoom(win, 1.0)
+    assert item._label.textWidth() < item.box.w - 16.0
+    _zoom(win, 0.1)
+    assert item._miniature is None
+    assert item._label.textWidth() == item.box.w - 16.0
+    assert not item._icons_above_label()
+    win.close()
+
+
 # ── Cache ──
 
 

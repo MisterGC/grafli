@@ -592,13 +592,33 @@ class BoxLabelItem(QGraphicsTextItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self.setAcceptHoverEvents(False)
 
+    def icons_changed(self):
+        """The box's corner icons moved onto or off this label."""
+        self.prepareGeometryChange()
+
+    def _icon_offset(self) -> QPointF:
+        """Box item coordinates → this item's coordinates."""
+        return self._box_item.pos() - self.pos()
+
+    def boundingRect(self):
+        r = super().boundingRect()
+        if not self._box_item._icons_above_label():
+            return r
+        off = self._icon_offset()
+        for icon in self._box_item.corner_icon_rects():
+            r = r.united(icon.translated(off))
+        return r
+
+    def _plate_rect(self) -> QRectF:
+        return super().boundingRect()
+
     def paint(self, painter: QPainter, option, widget=None):
         # No caption (e.g. a glyph box cleared to fill with its icon) → draw
         # nothing, so the contrast plate doesn't linger as an empty strip.
         if not self._box_item.box.label:
             return
         if theme.resolve_color(self._box_item.box.color):
-            bg_rect = self.boundingRect()
+            bg_rect = self._plate_rect()
             bg = QColor(theme.SURFACE)
             bg.setAlphaF(0.6)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -606,6 +626,12 @@ class BoxLabelItem(QGraphicsTextItem):
             painter.setBrush(QBrush(bg))
             painter.drawRoundedRect(bg_rect, 4, 4)
         super().paint(painter, option, widget)
+        if self._box_item._icons_above_label():
+            # Corner icons are clickable affordances: above the label, always.
+            painter.save()
+            painter.translate(self._icon_offset())
+            self._box_item._paint_corner_icons(painter)
+            painter.restore()
 
 
 class BoxItem(QGraphicsRectItem):
@@ -731,7 +757,13 @@ class BoxItem(QGraphicsRectItem):
     def _label_width_for(self, w: float) -> float:
         """Wrap width for the label — leaves room for a lead-icon gutter so
         the text never runs past the box edge, and keeps the label plate
-        clear of a corner badge (symmetric, so the label stays centred)."""
+        clear of a corner badge (symmetric, so the label stays centred).
+        While a miniature shows, the label band at the top also stops short
+        of the corner icons on both sides."""
+        if self._miniature is not None:
+            right = max((w - r.left() for r in self.corner_icon_rects()),
+                        default=0.0)
+            return w - 2 * max(8.0, right + 6.0)
         if self._has_lead_icon():
             return w - (self._lead_icon_w() + 24.0)
         if self._has_badge_icon():
@@ -1266,14 +1298,43 @@ class BoxItem(QGraphicsRectItem):
 
     def set_miniature(self, pixmap: QPixmap | None) -> None:
         """Show *pixmap* as the sub-board miniature, or None to drop it. The
-        label moves to the top while a miniature shows."""
+        label moves to the top while a miniature shows, and the corner icons
+        are drawn above it."""
         if pixmap is self._miniature:
             return
         moved = (pixmap is None) != (self._miniature is None)
+        if moved:
+            self._label.icons_changed()
         self._miniature = pixmap
         if moved:
             self._position_label()
+            self._label.update()
         self.update()
+
+    def corner_icon_rects(self) -> list[QRectF]:
+        """The top-right icons in item coordinates: a corner badge and the
+        attachment glyph (the same rects their painters use)."""
+        w = self.box.w
+        rects = []
+        if self._has_badge_icon():
+            side = self._badge_icon_side()
+            dx = 20.0 if self.box.url else 0.0
+            rects.append(QRectF(w - side - 8.0 - dx, 8.0, side, side))
+        if self.box.url or self.box.attach_kind == "doc":
+            rects.append(QRectF(w - 17, 2, 14, 11))
+        return rects
+
+    def _icons_above_label(self) -> bool:
+        """While a miniature puts the label at the top, the label item paints
+        the corner icons over itself instead of the box painting them under
+        it."""
+        return self._miniature is not None and bool(self.box.label)
+
+    def _paint_corner_icons(self, painter: QPainter):
+        if self._has_badge_icon():
+            self._paint_icon(painter)
+        if self.box.url or self.box.attach_kind == "doc":
+            _paint_attach_glyph(painter, self.rect(), self.box)
 
     def miniature_rect(self) -> QRectF:
         """Where the miniature goes, in item coordinates: the body below a
@@ -1340,14 +1401,16 @@ class BoxItem(QGraphicsRectItem):
             self._paint_lod_tile(painter)
         elif self._lod_simplified:
             self._paint_lod_shell_bars(painter)
-        elif self.box.icon and iconset.has_icon(self.box.icon):
+        elif (self.box.icon and iconset.has_icon(self.box.icon)
+              and not (self._icons_above_label() and self._has_badge_icon())):
             self._paint_icon(painter)
         # Only on the canvas: exports and thumbnails render the scene without
         # a widget and show the box as it is drawn without a miniature.
         if self._miniature is not None and widget is not None:
             self._paint_miniature(painter)
 
-        if self.box.url or self.box.attach_kind == "doc":
+        if ((self.box.url or self.box.attach_kind == "doc")
+                and not self._icons_above_label()):
             _paint_attach_glyph(painter, self.rect(), self.box)
 
         if self.isSelected():

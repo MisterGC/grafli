@@ -43,6 +43,8 @@ _FONT_FILES = {
     ("JetBrainsMono Nerd Font", False): "JetBrainsMonoNerdFont-Regular.ttf",
     ("JetBrainsMono Nerd Font", True): "JetBrainsMonoNerdFont-Bold.ttf",
     ("Patrick Hand", False): "PatrickHand-Regular.ttf",
+    ("Inter", False): "Inter-Regular.ttf",
+    ("Inter", True): "Inter-Bold.ttf",
 }
 
 _SVG_FONT_RE = re.compile(

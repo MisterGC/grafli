@@ -632,7 +632,8 @@ class StyleModeMixin:
         self._type_picker_original = {
             self._el_id(it): (
                 self._el_textsize(it), self._el_emphasis(it),
-                it.note.style if isinstance(it, NoteItem) else None)
+                it.note.style if isinstance(it, NoteItem) else None,
+                it.box.sans if isinstance(it, BoxItem) else None)
             for it in targets}
         size = self._el_textsize(targets[0])
         size = self._TYPE_SIZE_NORMALIZE.get(size, size)
@@ -646,6 +647,9 @@ class StyleModeMixin:
                                       if base in self._TYPE_EMPH else 0)
         notes = [it for it in targets if isinstance(it, NoteItem)]
         self._type_picker_font = notes[0].note.style if notes else ""
+        # A box's face is mono, or the proportional face with `!sans` (#205).
+        boxes = [it for it in targets if isinstance(it, BoxItem)]
+        self._type_picker_sans = boxes[0].box.sans if boxes else False
         first_emph = notes[0].note.emphasis if notes else ""
         self._type_picker_outline = "outline" in first_emph
         self._type_picker_shadow = "shadow" in first_emph
@@ -654,6 +658,10 @@ class StyleModeMixin:
 
     def _type_picker_has_note(self) -> bool:
         return any(isinstance(it, NoteItem)
+                   for it in self._type_picker_targets())
+
+    def _type_picker_has_box(self) -> bool:
+        return any(isinstance(it, BoxItem)
                    for it in self._type_picker_targets())
 
     def _compose_note_emphasis(self, base: str) -> str:
@@ -676,6 +684,7 @@ class StyleModeMixin:
                 it.set_text_mono(self._type_picker_font == "mono")
             else:
                 it.set_emphasis(emph)
+                it.set_sans(self._type_picker_sans)
 
     def _type_picker_move(self, dcol: int, drow: int):
         self._type_picker_emph_idx = max(
@@ -686,8 +695,12 @@ class StyleModeMixin:
         self.viewport().update()
 
     def _toggle_type_font(self):
-        # hand ("") <-> mono; only meaningful for notes.
-        self._type_picker_font = "mono" if self._type_picker_font == "" else ""
+        # Notes: hand ("") <-> mono; boxes: mono <-> sans.
+        if self._type_picker_has_note():
+            self._type_picker_font = ("mono" if self._type_picker_font == ""
+                                      else "")
+        if self._type_picker_has_box():
+            self._type_picker_sans = not self._type_picker_sans
         self._apply_type_picker_live()
         self.viewport().update()
 
@@ -736,6 +749,8 @@ class StyleModeMixin:
         it.set_emphasis(orig[1])
         if isinstance(it, NoteItem) and orig[2] is not None:
             it.set_text_mono(orig[2] == "mono")
+        if isinstance(it, BoxItem) and orig[3] is not None:
+            it.set_sans(orig[3])
 
     def _commit_type_picker(self):
         targets = self._type_picker_targets()
@@ -751,6 +766,7 @@ class StyleModeMixin:
                 it.set_text_mono(self._type_picker_font == "mono")
             else:
                 it.set_emphasis(emph)
+                it.set_sans(self._type_picker_sans)
         self.mark_dirty()
         self._close_type_picker()
 
@@ -778,13 +794,15 @@ class StyleModeMixin:
         anchor = self.mapFromScene(scene_rect).boundingRect()
 
         has_note = self._type_picker_has_note()
+        has_box = self._type_picker_has_box()
         rows, cols = len(self._TYPE_SIZES), len(self._TYPE_EMPH)
         cell_w, cell_h, rowlab_w, pad, label_h = 52, 38, 30, 10, 18
         grid_w = rowlab_w + cols * cell_w
         grid_h = rows * cell_h
         panel_w = grid_w + pad * 2
-        # Notes get a second line for the outline / shadow / font toggle hints.
-        panel_h = grid_h + pad * 2 + label_h + (label_h if has_note else 0)
+        # A second line for the toggle hints: the face for boxes and notes,
+        # outline / shadow for notes.
+        panel_h = grid_h + pad * 2 + label_h * 2
         margin = 14
         vw, vh = self.viewport().width(), self.viewport().height()
         px = anchor.right() + margin
@@ -837,21 +855,27 @@ class StyleModeMixin:
         el = self._TYPE_EMPH_LABELS[self._type_picker_emph_idx]
         status = f"{sl} · {el}"
         status_y = gy0 + grid_h + 4
+        faces = []
+        if has_box:
+            faces.append("sans" if self._type_picker_sans else "mono")
         if has_note:
             font = "mono" if self._type_picker_font == "mono" else "hand"
-            status += f" · {font}"
+            faces.append(font)
+        if faces:
+            status += " · " + "/".join(dict.fromkeys(faces))
+        if has_note:
             for name, on in (("outline", self._type_picker_outline),
                              ("shadow", self._type_picker_shadow)):
                 if on:
                     status += f" · {name}"
         painter.drawText(QRectF(px, status_y, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter, status)
-        if has_note:
-            painter.setPen(QPen(theme.overlay_ink(0.59)))
-            painter.setFont(QFont(FONT_FAMILY, 8))
-            painter.drawText(QRectF(px, status_y + label_h, panel_w, label_h),
-                             Qt.AlignmentFlag.AlignCenter,
-                             "⇥ font   o outline   s shadow")
+        painter.setPen(QPen(theme.overlay_ink(0.59)))
+        painter.setFont(QFont(FONT_FAMILY, 8))
+        painter.drawText(QRectF(px, status_y + label_h, panel_w, label_h),
+                         Qt.AlignmentFlag.AlignCenter,
+                         "⇥ font   o outline   s shadow" if has_note
+                         else "⇥ font")
         painter.restore()
 
     # ── Arrow mode (vim-like style) ──

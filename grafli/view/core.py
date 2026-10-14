@@ -326,9 +326,11 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         self._type_picker_size_idx: int = 1   # "" (medium)
         self._type_picker_emph_idx: int = 0
         self._type_picker_font: str = ""      # "" hand / "mono" — notes only
+        self._type_picker_sans: bool = False  # mono / `!sans` — boxes only
         self._type_picker_outline: bool = False   # display styles — notes only
         self._type_picker_shadow: bool = False
-        # id -> (textsize, emphasis, note_style|None); style restored for notes.
+        # id -> (textsize, emphasis, note_style|None, box_sans|None); the face
+        # is restored for notes and boxes.
         self._type_picker_original: dict[str, tuple] = {}
         self._mode_badge: QGraphicsTextItem | None = None
         self._mode_badge_bg: QGraphicsRectItem | None = None

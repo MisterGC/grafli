@@ -67,7 +67,9 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 - Connector routing — straight by default, `!spline` for a curve, `!ortho`
   for a right-angle stair that slides clear of boxes in its way. Anchors
   are derived from the layout rather than stored, so a board renders the
-  same in the app and in `grafli render`.
+  same in the app and in `grafli render`. `~from=right ~to=left` pins the
+  sides a connector leaves and enters by (`top` / `right` / `bottom` /
+  `left`), which also draws a U-turn without a helper box.
 - Code-mode notes — minimal pseudocode for review-oriented diagrams: a
   bold function signature on the first line, control/effect keywords
   (`if`, `for`, `call`, `emit`, …) in blue, contract keywords (`pre`,
@@ -144,7 +146,7 @@ return ok  @api/handler.py:42
 | Element | Syntax |
 |---------|--------|
 | Box   | `@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]` |
-| Arrow | `@ arrow <from> <op> <to> ["label"] [!style] [!routing] [~size]` |
+| Arrow | `@ arrow <from> <op> <to> ["label"] [!style] [!routing] [~size] [~from=<side>] [~to=<side>]` |
 | Note  | `@ note [<id>] <x>,<y> "<text>" [color] [~size] [!style] [>parent]` |
 
 Arrow operators: `->` right, `<-` left, `<->` both, `--` none.

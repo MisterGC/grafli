@@ -176,7 +176,7 @@ grafli render board.grafli out.png --theme dark
 | <kbd>Shift</kbd>+click | Add / remove a connector from the selection (format many at once) |
 | <kbd>e</kbd> | Edit arrow label |
 | <kbd>s</kbd> | Arrow style mode |
-| <kbd>s</kbd> then <kbd>e</kbd> | Connector appearance overlay — heads, line pattern, thickness, routing, colour (`j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels) |
+| <kbd>s</kbd> then <kbd>e</kbd> | Connector appearance overlay — heads, line pattern, thickness, routing, the side it **leaves from** and **enters at** (auto / top / right / bottom / left, `~from=` / `~to=`), colour (`j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels) |
 | <kbd>s</kbd> then <kbd>c</kbd> | Open the color grid — the same picker boxes and notes get |
 | <kbd>s</kbd> then <kbd>t</kbd> | Connector label-text overlay (size) |
 | <kbd>h</kbd> / <kbd>l</kbd> | Toggle arrowheads (in style mode) |

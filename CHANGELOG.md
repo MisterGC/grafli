@@ -195,6 +195,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fills the typed number. A board using either is written `#!grafli v4`;
   older builds open it read-only.
   ([#208](https://github.com/MisterGC/grafli/issues/208))
+- **Connectors can pin the sides they leave and enter.** Connectors picked
+  their sides from the geometry, so inputs could not be made to enter from
+  the left and a U-turn needed helper boxes. `~from=right ~to=left` (top /
+  right / bottom / left) pins them, for direct, spline and stair routing;
+  `~from=right ~to=right` draws a U-turn. Style mode <kbd>s</kbd>
+  <kbd>e</kbd> on a connector sets them: Leaves from and Enters at rows. A
+  board using it is written `#!grafli v4`; older builds open it read-only.
+  ([#209](https://github.com/MisterGC/grafli/issues/209))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

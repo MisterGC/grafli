@@ -487,7 +487,7 @@ class OverlaysMixin:
             ("Arrow", [
                 ("e", "Edit arrow label"),
                 ("s", "Enter arrow style mode"),
-                ("s then e", "Appearance: heads, line, thickness, routing, colour"),
+                ("s then e", "Appearance: heads, line, thickness, routing, sides, colour"),
                 ("s then c", "Color grid"),
                 ("s then t", "Label text size"),
                 ("h / l", "Toggle arrowheads"),

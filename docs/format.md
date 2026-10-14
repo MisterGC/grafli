@@ -18,7 +18,7 @@ its version. It is required.
 ```text
 @ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]
 @ note [<id>] <x>,<y> "<text>" [color] [~size] [~width=N] [!style] [>parent]
-@ arrow <from> <op> <to> ["label"] [color] [!pattern] [!thickness] [!routing] [~size]
+@ arrow <from> <op> <to> ["label"] [color] [!pattern] [!thickness] [!routing] [~size] [~from=<side>] [~to=<side>]
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [&attach]
 ```
 
@@ -130,6 +130,18 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   predictably instead of sending it off on a new path. A connector that still
   cuts across your layout is a layout decision, and `grafli diagnose` is the
   place to catch it.
+- `~from=<side>` / `~to=<side>` *(arrows)* — pin the side the connector
+  leaves its from element by and the side it enters its to element at:
+  `top`, `right`, `bottom` or `left`. A pinned end sits on the middle of its
+  side (spread along it like any other end when several share it), so inputs
+  can all enter from the left, and `~from=right ~to=right` draws a U-turn
+  without a helper box. Either token works alone; an unpinned end is still
+  picked from the geometry. Where an end faces away from the other, the
+  connector steps straight out of its side before it turns — for direct and
+  stair routing alike; a spline already leaves along the side. A pinned pair
+  `A->B` / `B->A` keeps two lines instead of merging. A board using either
+  token carries a `#!grafli v4` header. (Style mode → `e` on a connector:
+  **Leaves from** and **Enters at** rows, Auto / Top / Right / Bottom / Left.)
 - *(arrows)* a bare `%color` / `#hex` overrides the connector colour;
   `!dashed` / `!dotted` set the line pattern and `!thin` / `!thick` set the
   thickness (default width tracks the linked nodes). Select a connector (or

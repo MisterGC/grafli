@@ -109,7 +109,7 @@ detail lives in notes adjacent to it or in the box's own `&doc`.
 ## Arrow syntax
 
 ```
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [~size] [~kind=graph|annotation] [~id=<id>] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [~size] [~kind=graph|annotation] [~from=<side>] [~to=<side>] [~id=<id>] [# annotation]
 ```
 
 | Feature | Syntax | Effect |
@@ -128,6 +128,7 @@ detail lives in notes adjacent to it or in the box's own `&doc`.
 | Thickness | `!thick` | double-width line |
 | Text size | `~size` | as for boxes |
 | Connector kind | `~kind=graph` / `~kind=annotation` | override the endpoint default (see below) |
+| Pinned sides | `~from=right`, `~to=left` | the side the arrow leaves / enters by: `top`, `right`, `bottom`, `left` (see below); `#!grafli v4` |
 | Arrow id | `~id=<id>` | stable name for the arrow (see below) |
 | Annotation | `# text` | authoring metadata (indicator dot, not visible text) |
 
@@ -149,6 +150,16 @@ between a merged pair fans against the merged line.
 edges. `~kind=graph` promotes a note/image connector to a first-class
 graph edge — auto-flows and graph navigation then follow it (see
 `references/presenting.md`); `~kind=annotation` demotes the other way.
+
+**Pinned sides.** `~from=<side>` and `~to=<side>` fix the side an arrow
+leaves its source by and enters its target at (`top` / `right` /
+`bottom` / `left`), overriding the facing side the geometry would pick.
+Use them where the side carries meaning — every input enters from the
+left, a feedback arrow `~from=right ~to=right` U-turns back up a column —
+instead of adding waypoint boxes. A pinned end sits mid-side; an end that
+faces away steps out of its side before turning. Either token works on
+its own. A pinned `A->B` / `B->A` pair is not merged into one line. A
+file using either token carries a `#!grafli v4` header.
 
 **Arrow id.** `~id=<id>` names one arrow, so something else can point
 at it and two arrows between the same elements stay apart when a

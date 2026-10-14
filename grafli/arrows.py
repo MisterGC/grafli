@@ -260,6 +260,15 @@ def _arrowhead_polygon(tip: QPointF, angle: float,
     return QPolygonF([tip, p1, p2, tip])
 
 
+def _dot_polygon(centre: QPointF, radius: float, steps: int = 24) -> QPolygonF:
+    """A filled dot at a connector end (`!dot`, #210), as a polygon so it is
+    selected, recoloured and hit-tested like an arrowhead."""
+    return QPolygonF([
+        QPointF(centre.x() + radius * math.cos(2 * math.pi * i / steps),
+                centre.y() + radius * math.sin(2 * math.pi * i / steps))
+        for i in range(steps)])
+
+
 # ── Routing (#138) ─────────────────────────────────────────────────
 #
 # A routed connector leaves each endpoint *perpendicular to a box side*

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from grafli import theme
 from grafli.arrows import (
     _arrowhead_polygon,
+    _dot_polygon,
     _line_rect_clip,
     _rect_centre,
     ANCHOR_MIN_SEP,
@@ -644,6 +645,9 @@ class SelectionMixin:
                 # the reverse's pins or misapply the forward's.
                 and not (arrow.from_side or arrow.to_side
                          or reverse.from_side or reverse.to_side)
+                # One line draws one end shape; a dot-ended arrow and an
+                # arrowheaded one stay two lines (#210).
+                and arrow.head_shape == reverse.head_shape
                 and id(reverse) not in {id(self._board.arrows[j]) for j in merged}
             ):
                 # Merge: combine head flags from both arrows
@@ -810,6 +814,22 @@ class SelectionMixin:
 
             dx = end.x() - start.x()
             dy = end.y() - start.y()
+
+            # A dot-ended connector (`!dot`, #210) draws a filled dot centred
+            # on each end that would carry a head, wide enough to read past
+            # the line's own width.
+            if fwd.head_shape == "dot":
+                radius = max(head_size * 0.4, pen.widthF() * 1.1)
+                for tip, wanted in ((end, draw_head_to), (start, draw_head_from)):
+                    if not wanted:
+                        continue
+                    dot = QGraphicsPolygonItem(_dot_polygon(tip, radius))
+                    dot.setPen(QPen(arrow_color, 1))
+                    dot.setBrush(QBrush(arrow_color))
+                    dot.setData(0, fwd)
+                    self._scene.addItem(dot)
+                    self._arrow_items.append(dot)
+                draw_head_to = draw_head_from = False
 
             # Forward arrowhead (at to_id end)
             if draw_head_to:

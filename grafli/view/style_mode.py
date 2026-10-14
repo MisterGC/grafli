@@ -21,8 +21,9 @@ from grafli.constants import (
     FONT_FAMILY,
     resolve_textsize_px,
 )
-from grafli.format import emphasis_from_flags
-from grafli.iconset import EMPHASIS_NAMES, ICON_NAMES, has_icon, icon_pixmap
+from grafli.format import SOLID_NUMBER_PREFIX, emphasis_from_flags
+from grafli.iconset import (EMPHASIS_NAMES, ICON_NAMES, has_icon, icon_pixmap,
+                             number_badge)
 from grafli.items import BoxItem, ImageItem, NoteItem
 
 
@@ -376,7 +377,8 @@ class StyleModeMixin:
 
     _ICON_GRID_COLS = 6
     _ICON_ENTRIES = [""] + ICON_NAMES   # "" = clear/none
-    _icon_picker_digit = ""             # typed number badge ("", "1".."99")
+    _icon_picker_digit = ""             # typed number badge ("", "0".."99")
+    _icon_picker_solid = False          # f: the number badge is filled
     # Captioned category blocks: (header, first entry index, count). The
     # "none" cell leads the semantic block; emphasis symbols follow.
     _ICON_BLOCKS = (
@@ -421,7 +423,8 @@ class StyleModeMixin:
             self._el_id(it): (self._el_icon(it), self._el_placement(it))
             for it in targets}
         cur = self._el_icon(targets[0])
-        self._icon_picker_digit = cur if cur.isdigit() else ""
+        number = number_badge(cur)
+        self._icon_picker_digit, self._icon_picker_solid = number or ("", False)
         self._icon_picker_index = (self._ICON_ENTRIES.index(cur)
                                    if cur in self._ICON_ENTRIES else 0)
         self._icon_picker_placement = self._el_placement(targets[0])
@@ -430,8 +433,10 @@ class StyleModeMixin:
 
     def _icon_picker_name(self) -> str:
         """The live choice — a typed number badge wins over the grid cell."""
-        return self._icon_picker_digit or self._ICON_ENTRIES[
-            self._icon_picker_index]
+        if self._icon_picker_digit:
+            prefix = SOLID_NUMBER_PREFIX if self._icon_picker_solid else ""
+            return prefix + self._icon_picker_digit
+        return self._ICON_ENTRIES[self._icon_picker_index]
 
     def _apply_icon_picker_live(self):
         name = self._icon_picker_name()
@@ -467,11 +472,17 @@ class StyleModeMixin:
             self._commit_icon_picker()
         elif key == Qt.Key.Key_Tab:
             self._toggle_icon_placement()
-        elif Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
-            # number badge: 1-9 direct; a second digit press appends (12, 99…)
-            digit = chr(ord("1") + key - Qt.Key.Key_1)
+        elif Qt.Key.Key_0 <= key <= Qt.Key.Key_9:
+            # number badge: 0-9 direct; a second digit press appends (12, 99…)
+            digit = chr(ord("0") + key - Qt.Key.Key_0)
             cur = self._icon_picker_digit
-            self._icon_picker_digit = cur + digit if len(cur) == 1 else digit
+            self._icon_picker_digit = (str(int(cur + digit)) if len(cur) == 1
+                                       else digit)
+            self._apply_icon_picker_live()
+            self.viewport().update()
+        elif key == Qt.Key.Key_F:
+            # filled number badge on/off; applies to the typed number
+            self._icon_picker_solid = not self._icon_picker_solid
             self._apply_icon_picker_live()
             self.viewport().update()
         elif key == Qt.Key.Key_H:
@@ -524,7 +535,7 @@ class StyleModeMixin:
 
         cols = self._ICON_GRID_COLS
         rows = self._icon_grid_rows()
-        sw, gap, pad, label_h, head_h = 30, 6, 10, 18, 16
+        sw, gap, pad, label_h, head_h = 30, 6, 10, 34, 16
         grid_w = cols * sw + (cols - 1) * gap
         grid_h = (len(rows) * sw + (len(rows) - 1) * gap
                   + len(self._ICON_BLOCKS) * head_h)
@@ -588,11 +599,11 @@ class StyleModeMixin:
         painter.setFont(QFont(FONT_FAMILY, 9))
         name = self._icon_picker_name()
         if name:
-            shown = f"*{name}" if name.isdigit() else name
+            shown = f"*{name}" if number_badge(name) else name
             place = self._icon_picker_placement or "fill"
-            cur = f"{shown} · {place}   ⇥ placement · 1-9 number"
+            cur = f"{shown} · {place}\n⇥ placement · 0-9 number · f filled"
         else:
-            cur = "none   1-9 number badge"
+            cur = "none\n0-9 number · f filled"
         painter.drawText(QRectF(px, sy - gap + 2, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter, cur)
         painter.restore()

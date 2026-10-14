@@ -3,7 +3,7 @@
 Format spec:
   #!grafli v1                                      (file header, first line)
   # comment or title
-  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card] [!ink] [&url] [>parent]
+  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card] [!ink] [!sans] [&url] [>parent]
   @ arrow <from_id> -> <to_id> "<label>"           (forward)
   @ arrow <from_id> <- <to_id> "<label>"           (backward)
   @ arrow <from_id> <-> <to_id> "<label>"          (bidirectional)
@@ -50,7 +50,8 @@ relative path ending in ``.grafli``.
 A ``!card`` box keeps its node look while it holds children; a board using
 one is written as v4. So is a board with an ``!ink`` box or note: a box's
 label and icon take their ink from its fill and drop the light plate, a
-note's text takes its ``%color``.
+note's text takes its ``%color``. And a board with a ``!sans`` box, whose
+label is set in the bundled proportional face (Inter) instead of mono.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -113,6 +114,8 @@ class Box:
     emphasis: str = ""
     # `!ink`: label and icon ink follow the fill, without the light plate.
     ink: bool = False
+    # `!sans`: the label is set in the bundled proportional face, not mono.
+    sans: bool = False
 
 
 @dataclass
@@ -588,7 +591,7 @@ _RE_BOX = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
-    r'((?:\s+!(?:flat|card|ink|ratio|fit|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:flat|card|ink|sans|ratio|fit|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -690,7 +693,7 @@ _SIZE_TOKEN_RE = re.compile(r'(?<!\w)[\d.]+x[\d.]+(?!\w)')
 # (#145); tests cross-check them against the regex sources.
 BOX_FORM = ('@ box <id> "label" x,y wxh [%color|#rrggbb] '
             '[^topleft|^topcenter] [~size] '
-            '[!flat|!card|!ink|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
+            '[!flat|!card|!ink|!sans|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
             '[*icon] [&attach] [>parent]')
 NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
              '[~width=N] [!mono|!flat|!ink|!bold|!italic|!outline|!shadow ...] '
@@ -843,8 +846,8 @@ def parse(text: str) -> Board:
         m = _RE_BOX.match(stripped)
         if m:
             # The flags run tolerates legacy !ratio / !fit (now no-ops) so older
-            # files still load; only !flat / !card / !ink are honoured and
-            # re-serialized.
+            # files still load; only !flat / !card / !ink / !sans are honoured
+            # and re-serialized.
             flags = set(re.findall(r'!(\w+)', m.group(10) or ""))
             kind, url = split_attach(m.group(12) or "") if m.group(12) else ("", "")
             box = Box(
@@ -861,6 +864,7 @@ def parse(text: str) -> Board:
                        else "card" if "card" in flags else ""),
                 emphasis=emphasis_from_flags(flags),
                 ink="ink" in flags,
+                sans="sans" in flags,
                 icon=split_icon(m.group(11) or "")[1],
                 icon_placement=split_icon(m.group(11) or "")[0],
                 url=url,
@@ -1115,6 +1119,7 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "cross-board stops": (3, uses_cross_board_stops),
     "card boxes": (4, lambda b: any(x.style == "card" for x in b.boxes)),
     "label ink": (4, lambda b: any(x.ink for x in [*b.boxes, *b.notes])),
+    "sans boxes": (4, lambda b: any(x.sans for x in b.boxes)),
 }
 
 
@@ -1191,6 +1196,8 @@ def _serialize_box(box: Box) -> str:
         s += f" !{box.style}"
     if box.ink:
         s += " !ink"
+    if box.sans:
+        s += " !sans"
     s += emphasis_tokens(box.emphasis)
     if box.icon:
         s += f" *{icon_token(box)}"

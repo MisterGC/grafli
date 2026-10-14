@@ -197,3 +197,34 @@ def test_a_v3_build_reads_an_ink_board_as_newer(monkeypatch):
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
     assert supported_version() == 3
     assert is_newer(parse(INK))
+
+
+SANS = '#!grafli v4\n@ box b "Title" 0,0 200x80 %primary !sans\n'
+
+
+def test_sans_on_a_box_round_trips_and_writes_v4():
+    board = parse(SANS)
+    assert board.box_by_id("b").sans
+    assert required_version(board) == 4
+    assert serialize(board) == SANS
+
+
+def test_sans_writes_beside_the_other_flags():
+    text = ('#!grafli v4\n'
+            '@ box b "Title" 0,0 200x80 %primary !card !ink !sans !bold\n')
+    assert serialize(parse(text)) == text
+
+
+def test_sans_on_a_v1_box_lifts_the_board_to_v4():
+    board = parse('#!grafli v1\n@ box b "Title" 0,0 200x80\n')
+    assert required_version(board) == 1
+    board.boxes[0].sans = True
+    assert serialize(board).splitlines()[0] == "#!grafli v4"
+
+
+def test_a_v3_build_reads_a_sans_board_as_newer(monkeypatch):
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    assert supported_version() == 3
+    assert is_newer(parse(SANS))

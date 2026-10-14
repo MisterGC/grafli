@@ -991,8 +991,9 @@ class StyleModeMixin:
     # "Plate" is the ordinary node: a border, a solid fill, rounded corners.
     # "Flat" is what `!flat` has always meant — no border, translucent fill,
     # sharp corners — which is also the look a container gets for free. Pairing
-    # it with a top-left label is how a layer band is drawn (#144).
-    _BOX_BG_OPTIONS = (("Plate", ""), ("Flat", "flat"))
+    # it with a top-left label is how a layer band is drawn (#144). "Card" is
+    # `!card`: the plate kept while the box holds children (#203).
+    _BOX_BG_OPTIONS = (("Plate", ""), ("Flat", "flat"), ("Card", "card"))
     _BOX_LABEL_OPTIONS = (("Center", ""), ("Top left", "topleft"),
                           ("Top center", "topcenter"))
     _NOTE_BG_AXIS_OPTIONS = (("Plate", False), ("None", True))
@@ -1386,7 +1387,8 @@ class StyleModeMixin:
             return
         if kind in ("boxbg", "notebg"):
             # A miniature of the thing itself: plate keeps its border and
-            # rounded corners, flat drops both and washes the fill out.
+            # rounded corners, flat drops both and washes the fill out, card
+            # is a plate holding a child.
             body = cell.adjusted(3, 3, -3, -3)
             flat = bool(val) if kind == "notebg" else val == "flat"
             fill = QColor(theme.BOX_FILL)
@@ -1397,6 +1399,11 @@ class StyleModeMixin:
                 painter.setPen(QPen(ink, 1.4))
             painter.setBrush(QBrush(fill))
             painter.drawRoundedRect(body, 0 if flat else 4, 0 if flat else 4)
+            if kind == "boxbg" and val == "card":
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(theme.OVERLAY_BG))
+                painter.drawRoundedRect(body.adjusted(5, body.height() / 2,
+                                                      -5, -3), 1.5, 1.5)
             return
         if kind == "imgframe":
             # A tiny picture (circle sun + mountain line); the frame variant

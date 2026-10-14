@@ -286,3 +286,20 @@ def test_image_overlay_cancel_reverts_the_preview():
     view._elem_overlay_cycle(1)                 # Frame -> None
     view._cancel_element_overlay()
     assert view.board.image_by_id("i1").frame == "on"
+
+
+def test_box_background_reaches_card():
+    """`!card` (#203): the Background row's third option."""
+    view = _view('@ box a "A" 0,0 260x150\n@ note n 30,60 "body" >a\n')
+    view._box_items["a"].setSelected(True)
+    view._open_element_overlay()
+    assert [v for _, v in _axis(view, "Background")["options"]] == \
+        ["", "flat", "card"]
+    view._elem_overlay_row = _row_of(view, "Background")
+    view._elem_overlay_cycle(1)                 # Plate -> Flat
+    view._elem_overlay_cycle(1)                 # Flat -> Card
+    assert view._box_items["a"]._get_effective_anchor() == "topcenter"
+    view._commit_element_overlay()
+    assert view.board.box_by_id("a").style == "card"
+    out = serialize(view.board)
+    assert "!card" in out and out.startswith("#!grafli v4\n")

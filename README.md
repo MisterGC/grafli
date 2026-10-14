@@ -83,7 +83,7 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
   - **Subgraph focus** (<kbd>B</kbd>) — fade everything not reachable from
     the selection; cycle direction (incoming / outgoing / both) and
     depth (1-hop / unlimited).
-  - **Complexity heatmap** (<kbd>A</kbd>) — color nodes by connectivity
+  - **Connectivity heatmap** (<kbd>A</kbd>) — color boxes by graph arrows
     to find hot spots.
   - **Dim connectors** (<kbd>,</kbd>) / **dim notes**
     (<kbd>Shift</kbd>+<kbd>N</kbd>) — fade arrows or text-notes to 8%

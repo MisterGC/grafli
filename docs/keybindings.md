@@ -126,7 +126,7 @@ connector.
 |-----|--------|
 | <kbd>,</kbd> | Dim arrows |
 | <kbd>Shift</kbd>+<kbd>N</kbd> | Dim notes (and their connectors) |
-| <kbd>A</kbd> | Complexity heatmap |
+| <kbd>A</kbd> | Connectivity heatmap |
 | <kbd>B</kbd> | Subgraph focus (cycle direction: all → forward → backward) |
 | <kbd>Shift</kbd>+<kbd>B</kbd> | Toggle focus depth (full / 1-hop) |
 
@@ -242,7 +242,7 @@ the minimap reflects the same dimming so off-screen hits stay visible.
 | <kbd>Esc</kbd> | Clear the input and the filter |
 | <kbd>Backspace</kbd> | Edit the query |
 
-Search is mutually exclusive with focus / complexity / arrow-dim — opening
+Search is mutually exclusive with focus / connectivity / arrow-dim — opening
 one closes the others.
 
 ## Help

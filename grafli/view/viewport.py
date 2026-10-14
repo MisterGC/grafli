@@ -38,7 +38,7 @@ class ViewportMixin:
             self.viewport().update()
 
     def _toggle_complexity(self):
-        """Toggle the complexity-analysis heatmap overlay."""
+        """Toggle the connectivity heatmap overlay."""
         if self._complexity_active:
             self._clear_complexity_heatmap()
         else:

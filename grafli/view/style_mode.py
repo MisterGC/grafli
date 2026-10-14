@@ -14,7 +14,7 @@ from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen,
     QPolygonF,
 )
-from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
+from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem, QInputDialog
 from grafli import theme
 from grafli.constants import (
     COLOR_PALETTE,
@@ -162,6 +162,8 @@ class StyleModeMixin:
     # ── Colour-grid picker (style mode -> c) ──
 
     _COLOR_GRID_COLS = 5
+    # Set while the grid colours the selected boxes' status pills (s s).
+    _color_picker_status = False
 
     def _color_picker_boxes(self):
         return [it for it in self._scene.selectedItems()
@@ -184,6 +186,8 @@ class StyleModeMixin:
         to open the plate toggle instead, which now lives in ``s`` ``e`` (#144).
         """
         boxes = self._color_picker_boxes()
+        if self._color_picker_status:
+            return "status", [b for b in boxes if b.box.status]
         if boxes:
             return "box", boxes
         notes = self._color_picker_notes()
@@ -197,6 +201,8 @@ class StyleModeMixin:
     def _target_color(mode: str, target) -> str:
         if mode == "box":
             return target.box.color
+        if mode == "status":
+            return target.box.status_color
         if mode == "note":
             return target.note.color
         return target.color
@@ -205,12 +211,16 @@ class StyleModeMixin:
     def _set_target_color(mode: str, target, value: str):
         if mode == "arrow":
             target.color = value
+        elif mode == "status":
+            target.set_status(target.box.status, value)
         else:
             target.set_color(value)
 
-    def _open_color_picker(self):
+    def _open_color_picker(self, status: bool = False):
+        self._color_picker_status = status
         mode, targets = self._color_picker_targets()
         if not targets:
+            self._color_picker_status = False
             self.toast("Select a box, note, or connector", kind="warn")
             return
         self._color_picker_mode = mode
@@ -295,6 +305,7 @@ class StyleModeMixin:
 
     def _close_color_picker(self):
         self._color_picker_active = False
+        self._color_picker_status = False
         self._color_picker_original = {}
         self.viewport().update()
 
@@ -372,6 +383,40 @@ class StyleModeMixin:
                          Qt.AlignmentFlag.AlignCenter,
                          COLOR_PALETTE[self._color_picker_index][0])
         painter.restore()
+
+    # ── Status label (style mode -> s), boxes ──
+
+    def _status_dialog(self, current: str) -> tuple[str, bool]:
+        """Ask for the status text (a seam tests replace)."""
+        return QInputDialog.getText(
+            self, "Status label",
+            "Short status shown on the box's edge (empty clears):",
+            text=current)
+
+    @staticmethod
+    def _status_token(text: str) -> str:
+        """The typed text as one ``~status=`` token: spaces and colons
+        become dashes (a colon starts the colour)."""
+        return "-".join(text.replace(":", " ").split())
+
+    def _edit_status(self):
+        """Type the selected boxes' status label, then pick its colour in
+        the colour grid (Esc there keeps the colour it had)."""
+        boxes = self._color_picker_boxes()
+        if not boxes:
+            self.toast("Only boxes carry a status label", "warn")
+            return
+        raw, ok = self._status_dialog(boxes[0].box.status)
+        if not ok:
+            return
+        status = self._status_token(raw)
+        self._push_undo()
+        for item in boxes:
+            item.set_status(status, item.box.status_color)
+        self.mark_dirty()
+        if status:
+            self._open_color_picker(status=True)
+            self.toast("Status colour: hjkl pick, \u23ce apply, Esc keeps it")
 
     # ── Icon-grid picker (style mode -> i), boxes and notes ──
 

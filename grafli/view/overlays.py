@@ -435,6 +435,7 @@ class OverlaysMixin:
                 ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
                 ("  i", "Symbol grid (⇥ fill/lead/badge, 0-9 number, f filled)"),
                 ("  t", "Text grid: size × bold/italic (⇥ sans/mono/hand, o outline, s shadow)"),
+                ("  s", "Status label on a box (~status=): type it, then pick its colour"),
                 ("  j / k", "Nudge text size"),
                 ("  d", "Dimension mode (resize)"),
                 ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),

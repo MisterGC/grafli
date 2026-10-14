@@ -1646,6 +1646,11 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
                     self._open_icon_picker()
                     event.accept()
                     return
+                # s — the box's status label: its text, then its colour.
+                if event.key() == Qt.Key.Key_S and no_mod:
+                    self._edit_status()
+                    event.accept()
+                    return
                 if event.key() == Qt.Key.Key_T and no_mod:
                     self._open_type_picker()
                     event.accept()

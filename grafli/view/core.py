@@ -1370,6 +1370,9 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             elif event.key() == Qt.Key.Key_V and no_mod:
                 self._record_shortcut("gv → peek at the box's doc")
                 self._peek_doc()
+            elif event.key() == Qt.Key.Key_T and no_mod:
+                self._record_shortcut("gt → tours through the box")
+                self._tours_through_selection()
             elif event.key() == Qt.Key.Key_U and no_mod:
                 self._record_shortcut("gu → up a board")
                 window = self.window()

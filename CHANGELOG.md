@@ -87,6 +87,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stops from their own board. A board with one is written with a
   `#!grafli v3` header; tours on one board play and export as before.
   ([#165](https://github.com/MisterGC/grafli/issues/165))
+- **<kbd>g</kbd><kbd>t</kbd> lists the tours through the selected box.**
+  The picker shows each flow of the board with a stop that frames the box or
+  one of the boxes it sits in, with the first such stop; picking one plays
+  the tour from there. Without any, a toast says "no tour passes through"
+  the box's label.
+  ([#166](https://github.com/MisterGC/grafli/issues/166))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

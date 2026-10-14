@@ -289,6 +289,27 @@ def bookmark_target_rect(view, bookmark: Bookmark) -> QRectF:
     return QRectF()
 
 
+def tours_through(board, box_id: str) -> list[tuple[Flow, int]]:
+    """The flows of *board* that pass through box *box_id*, each with the
+    index of its first stop whose focus holds the box or one of its
+    containers. Only stops on the board itself count — a stop in another
+    board frames that board's elements."""
+    seen = set()
+    box = board.box_by_id(box_id)
+    while box is not None and box.id not in seen:
+        seen.add(box.id)
+        box = board.box_by_id(box.parent) if box.parent else None
+    tours = []
+    for flow in board.flows:
+        for index, step in enumerate(flow.steps):
+            target, bookmark_id = split_step_ref(step.ref)
+            bookmark = None if target else board.bookmark_by_id(bookmark_id)
+            if bookmark is not None and seen.intersection(bookmark.focus):
+                tours.append((flow, index))
+                break
+    return tours
+
+
 class FlowPlayer:
     """Steps a flow on the live canvas, manually or auto-played.
 
@@ -318,11 +339,11 @@ class FlowPlayer:
         return self.mode != "paused"
 
     # ── lifecycle ──────────────────────────────────────────────
-    def start(self) -> None:
+    def start(self, index: int = 0) -> None:
         if not self.flow.steps:
             self.stop()
             return
-        self.goto(0)
+        self.goto(index)
 
     def end(self) -> None:
         """Leave the tour on purpose (Esc): stop, and come back to the board

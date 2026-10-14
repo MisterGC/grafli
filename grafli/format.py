@@ -57,7 +57,9 @@ whose text is set in the bundled proportional face (Inter) instead of mono or
 handwriting. And a board with a ``!dashed`` or ``!dotted`` box, whose outline
 is drawn in that pattern. And a board with an ``!dot`` arrow, whose ends
 draw a dot where they would draw an arrowhead. And a board with a
-``~status=`` box, which carries a short text label on its bottom edge.
+``~status=`` box, which carries a short text label on its bottom edge. And
+a board with a ``^left`` container, which zoomed out stays a band with its
+children's colours and its title on the left.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -99,7 +101,8 @@ class Box:
     w: float
     h: float
     color: str = ""
-    anchor: str = ""      # "topleft", "topcenter", or "" (= center)
+    anchor: str = ""      # "topleft", "topcenter", "left" (top left, and a
+                          # zoomed-out band title), or "" (= center)
     textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
     style: str = ""       # "" (node), "flat", or "card" (node look with children)
     url: str = ""
@@ -627,7 +630,7 @@ _RE_BOX = re.compile(
     r'^@\s+box\s+(\S+)\s+"' + _QT + r'"\s+'
     r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+\^(topleft|topcenter))?'
+    r'(?:\s+\^(topleft|topcenter|left))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'((?:\s+!(?:flat|card|ink|sans|dashed|dotted|ratio|fit|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
@@ -733,7 +736,7 @@ _SIZE_TOKEN_RE = re.compile(r'(?<!\w)[\d.]+x[\d.]+(?!\w)')
 # regexes so the demotion messages can't drift from the grammar again
 # (#145); tests cross-check them against the regex sources.
 BOX_FORM = ('@ box <id> "label" x,y wxh [%color|#rrggbb] '
-            '[^topleft|^topcenter] [~size] '
+            '[^topleft|^topcenter|^left] [~size] '
             '[!flat|!card|!ink|!sans|!dashed|!dotted|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
             '[*icon] [&attach] [~status=<text>[:%color]] [>parent]')
 NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
@@ -1179,6 +1182,7 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
                                          for a in b.arrows)),
     "dot ends": (4, lambda b: any(a.head_shape for a in b.arrows)),
     "status labels": (4, lambda b: any(x.status for x in b.boxes)),
+    "left titles": (4, lambda b: any(x.anchor == "left" for x in b.boxes)),
 }
 
 

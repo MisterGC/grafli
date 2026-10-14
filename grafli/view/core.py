@@ -325,7 +325,7 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         self._type_picker_active: bool = False
         self._type_picker_size_idx: int = 1   # "" (medium)
         self._type_picker_emph_idx: int = 0
-        self._type_picker_font: str = ""      # "" hand / "mono" — notes only
+        self._type_picker_font: str = ""      # "" hand / "mono" / "sans" — notes
         self._type_picker_sans: bool = False  # mono / `!sans` — boxes only
         self._type_picker_outline: bool = False   # display styles — notes only
         self._type_picker_shadow: bool = False

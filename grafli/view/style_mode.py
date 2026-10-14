@@ -609,6 +609,8 @@ class StyleModeMixin:
                             "xxxxlarge": "4xl"}
     _TYPE_EMPH = ["", "bold", "italic", "bold italic"]
     _TYPE_EMPH_LABELS = ["regular", "bold", "italic", "bold italic"]
+    # A note's faces, in the order Tab cycles them: hand, mono, sans.
+    _NOTE_FACES = ["", "mono", "sans"]
 
     def _type_picker_targets(self):
         return [it for it in self._scene.selectedItems()
@@ -681,7 +683,7 @@ class StyleModeMixin:
             it.set_textsize(size)
             if isinstance(it, NoteItem):
                 it.set_emphasis(self._compose_note_emphasis(emph))
-                it.set_text_mono(self._type_picker_font == "mono")
+                it.set_face(self._type_picker_font)
             else:
                 it.set_emphasis(emph)
                 it.set_sans(self._type_picker_sans)
@@ -695,10 +697,11 @@ class StyleModeMixin:
         self.viewport().update()
 
     def _toggle_type_font(self):
-        # Notes: hand ("") <-> mono; boxes: mono <-> sans.
+        # Notes cycle hand ("") -> mono -> sans (#206); boxes: mono <-> sans.
         if self._type_picker_has_note():
-            self._type_picker_font = ("mono" if self._type_picker_font == ""
-                                      else "")
+            self._type_picker_font = self._NOTE_FACES[
+                (self._NOTE_FACES.index(self._type_picker_font) + 1)
+                % len(self._NOTE_FACES)]
         if self._type_picker_has_box():
             self._type_picker_sans = not self._type_picker_sans
         self._apply_type_picker_live()
@@ -748,7 +751,7 @@ class StyleModeMixin:
         it.set_textsize(orig[0])
         it.set_emphasis(orig[1])
         if isinstance(it, NoteItem) and orig[2] is not None:
-            it.set_text_mono(orig[2] == "mono")
+            it.set_face(orig[2])
         if isinstance(it, BoxItem) and orig[3] is not None:
             it.set_sans(orig[3])
 
@@ -763,7 +766,7 @@ class StyleModeMixin:
             it.set_textsize(size)
             if isinstance(it, NoteItem):
                 it.set_emphasis(self._compose_note_emphasis(emph))
-                it.set_text_mono(self._type_picker_font == "mono")
+                it.set_face(self._type_picker_font)
             else:
                 it.set_emphasis(emph)
                 it.set_sans(self._type_picker_sans)
@@ -859,8 +862,7 @@ class StyleModeMixin:
         if has_box:
             faces.append("sans" if self._type_picker_sans else "mono")
         if has_note:
-            font = "mono" if self._type_picker_font == "mono" else "hand"
-            faces.append(font)
+            faces.append(self._type_picker_font or "hand")
         if faces:
             status += " · " + "/".join(dict.fromkeys(faces))
         if has_note:

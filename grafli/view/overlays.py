@@ -434,7 +434,7 @@ class OverlaysMixin:
                 ("  e", "Appearance: plate/flat/card, label spot, label ink"),
                 ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
                 ("  i", "Symbol grid (⇥ fill/lead/badge, 1-9 number)"),
-                ("  t", "Text grid: size × bold/italic (⇥ font, o outline, s shadow)"),
+                ("  t", "Text grid: size × bold/italic (⇥ sans/mono/hand, o outline, s shadow)"),
                 ("  j / k", "Nudge text size"),
                 ("  d", "Dimension mode (resize)"),
                 ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),

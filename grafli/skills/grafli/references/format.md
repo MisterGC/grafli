@@ -7,7 +7,7 @@ element beyond it.
 ## Box syntax
 
 ```
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !bold !italic] [*icon] [&attach] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !bold !italic] [*icon] [&attach] [>parent]
 ```
 
 **Modifier order is enforced** — write them in exactly this sequence:
@@ -27,6 +27,7 @@ class as a misplaced triple-quote modifier.
 | `!flat` | `!flat` | no border, semi-transparent fill |
 | `!card` | `!card` | keep the node look (fill, border, centred title) while the box holds children; `#!grafli v4` |
 | `!ink` | `!ink` | label and fill/lead icon in the ink that reads on the fill, no light plate — for dark fills; `#!grafli v4` |
+| `!sans` | `!sans` | label and doc line in the bundled proportional face (Inter) instead of mono; `#!grafli v4` |
 | `!bold` / `!italic` | `!bold`, `!italic` | text emphasis, in the `!`-flag group (combine for headings/asides) |
 | `!outline` / `!shadow` | `!outline`, `!shadow` | **note** display lettering — hollow letters / drop-shadow depth, for sketchnote headers (layer with `~size` + `!bold`); render on notes, not boxes |
 | `!flat` (note) | `!flat` | drop the beige background plate — the note's text sits directly on the canvas (for a hand-lettered title/header) |

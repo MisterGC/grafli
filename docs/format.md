@@ -100,6 +100,10 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   note's `%color` instead of note blue. Without `!ink` a note's `%color`
   only tints its icon. A board using `!ink` carries a `#!grafli v4` header.
   (Style mode → `e`, Label ink row: plain / on fill.)
+- `!sans` — on a box, the label and its doc line are set in Inter, a
+  proportional face bundled with grafli, instead of the monospace face. Mono
+  stays the default. A board using `!sans` carries a `#!grafli v4` header.
+  (Style mode → `t`, <kbd>Tab</kbd> toggles mono / sans.)
   **Notes render in
   a handwritten face by default**; `!mono` (and `code:` notes) switch to the
   monospace face — handwriting for prose, monospace for code. (Style mode →

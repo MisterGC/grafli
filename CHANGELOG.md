@@ -165,6 +165,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <kbd>s</kbd> <kbd>e</kbd> sets it: Label ink row, plain / on fill. A
   board using it is written `#!grafli v4`; older builds open it read-only.
   ([#204](https://github.com/MisterGC/grafli/issues/204))
+- **`!sans`: a proportional face for a box.** Box labels were always
+  monospace, so size was the only hierarchy and every box read as code. An
+  `!sans` box sets its label and doc line in Inter, an OFL face now bundled
+  with grafli, on the canvas, in `grafli render` and in the exports; mono
+  stays the default. Style mode <kbd>s</kbd> <kbd>t</kbd>, then
+  <kbd>Tab</kbd> in the text grid toggles it. A board using it is written
+  `#!grafli v4`; older builds open it read-only.
+  ([#205](https://github.com/MisterGC/grafli/issues/205))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

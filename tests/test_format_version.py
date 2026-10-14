@@ -297,3 +297,39 @@ def test_a_v3_build_reads_an_outline_board_as_newer(monkeypatch):
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
     assert supported_version() == 3
     assert is_newer(parse(OUTLINES))
+
+
+MARKERS = ('#!grafli v4\n@ box s "Step" 0,0 80x80 *solid-3\n'
+           '@ box z "Start" 0,120 80x80 *lead:0\n'
+           '@ note n 0,240 "twelfth" *badge:solid-12\n')
+
+
+def test_filled_and_zero_markers_round_trip_and_write_v4():
+    board = parse(MARKERS)
+    assert board.box_by_id("s").icon == "solid-3"
+    assert (board.box_by_id("z").icon, board.box_by_id("z").icon_placement) \
+        == ("0", "lead")
+    assert (board.notes[0].icon, board.notes[0].icon_placement) \
+        == ("solid-12", "badge")
+    assert required_version(board) == 4
+    assert serialize(board) == MARKERS
+
+
+def test_number_markers_zero_strip():
+    board = parse('@ box a "A" 0,0 80x80 *solid-07\n'
+                  '@ box b "B" 0,120 80x80 *00\n')
+    assert [b.icon for b in board.boxes] == ["solid-7", "0"]
+
+
+def test_outlined_markers_one_to_ninety_nine_stay_v1():
+    board = parse('#!grafli v1\n@ box a "A" 0,0 80x80 *3\n'
+                  '@ box b "B" 0,120 80x80 *badge:99\n')
+    assert required_version(board) == 1
+
+
+def test_a_v3_build_reads_a_marker_board_as_newer(monkeypatch):
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    assert supported_version() == 3
+    assert is_newer(parse(MARKERS))

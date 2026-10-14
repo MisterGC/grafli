@@ -14,16 +14,16 @@
 @ box tours "Tours" 900,420 220x80 &doc:tours
 @ box peek "Box doc peek" 0,-100 200x80 &doc:peek
 @ box export "HTML export" 370,460 220x80 &doc:export
-@ note evidence 900,580 """
+@ note evidence 740,580 """
 code:
 split by the files that own each step
-  @../grafli/view/core.py:1748
-  @../grafli/format.py:451
-  @../grafli/view/resources.py:106
-  @../grafli/buffers.py:146
-  @../grafli/view/flows.py:82
-  @../grafli/view/boxdocs.py:177
-  @../grafli/htmlexport.py:128
+  @../grafli/view/core.py:1748 _open_resource
+  @../grafli/format.py:451 split_attach
+  @../grafli/view/resources.py:106 _open_attachment
+  @../grafli/buffers.py:146 push_frame
+  @../grafli/view/flows.py:82 play_flow
+  @../grafli/view/boxdocs.py:177 _peek_doc
+  @../grafli/htmlexport.py:128 reachable_boards
 """ ~small
 
 @ arrow keys -> open "call: _open_attachment" ~id=enter

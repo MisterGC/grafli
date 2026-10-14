@@ -96,21 +96,72 @@ def test_walk_from_the_overview_into_the_algorithm_and_back(tmp_path: Path):
     win.close()
 
 
-def _code_refs(board_path: Path) -> list[tuple[Path, int]]:
+REPO = EXAMPLES.parent
+_IDENT = re.compile(r"[A-Za-z_][\w.]*(?:\(\))?")
+_NOTE_REF = re.compile(r"@(\S+?):(\d+)(?:\s+(\S+))?")
+_DOC_REF = re.compile(r"`([\w./-]+\.py):(\d+)(?:-(\d+))?`")
+
+
+def _board_refs(board_path: Path) -> list[tuple[str, Path, int, int, str]]:
+    """(where, file, first line, last line, symbol) of every ``@path:line``
+    ref in the notes of a board. The symbol is the identifier written after
+    the ref on its line; none written is an empty symbol."""
     refs = []
     for note in parse(board_path.read_text(encoding="utf-8")).notes:
-        for m in re.finditer(r"@(\S+?):(\d+)", note.text):
-            refs.append((board_path.parent / m.group(1), int(m.group(2))))
+        for text in note.text.splitlines():
+            for m in _NOTE_REF.finditer(text):
+                line = int(m.group(2))
+                refs.append((f"{board_path.name} note {note.id}: {text.strip()}",
+                             board_path.parent / m.group(1), line, line,
+                             m.group(3) or ""))
     return refs
 
 
-def test_every_source_ref_points_at_a_line_of_a_file():
-    refs = [ref for board in BOARDS for ref in _code_refs(board)]
-    assert len(refs) >= 15
-    for path, line in refs:
-        assert path.is_file(), path
-        assert line <= len(path.read_text(encoding="utf-8").splitlines()), \
-            (path, line)
+def _doc_refs(doc_path: Path) -> list[tuple[str, Path, int, int, str]]:
+    """The same for the ```path.py:line``` refs in a box doc (repo-relative
+    paths, ``a-b`` ranges allowed). The symbol is the last backticked
+    identifier before the ref in its paragraph."""
+    refs = []
+    text = doc_path.read_text(encoding="utf-8")
+    for para in re.split(r"\n\s*\n", text):
+        for m in _DOC_REF.finditer(para):
+            symbol = ""
+            for t in re.finditer(r"`([^`]+)`", para[:m.start()]):
+                if _IDENT.fullmatch(t.group(1)):
+                    symbol = t.group(1)
+            first = int(m.group(2))
+            refs.append((f"{doc_path.name}: {m.group(0)}", REPO / m.group(1),
+                         first, int(m.group(3) or first), symbol))
+    return refs
+
+
+def _all_refs() -> list[tuple[str, Path, int, int, str]]:
+    refs = [r for board in BOARDS for r in _board_refs(board)]
+    for doc in sorted((EXAMPLES / "navigation-map-res").rglob("*.md")):
+        refs.extend(_doc_refs(doc))
+    return refs
+
+
+def test_every_source_ref_points_at_its_symbol():
+    """Each ref opens a line within two lines of the symbol its text names;
+    a ref whose text names none fails rather than passing unchecked."""
+    refs = _all_refs()
+    assert len(refs) >= 40, len(refs)
+    problems = []
+    for where, path, first, last, symbol in refs:
+        if len(symbol) < 4:
+            problems.append(f"{where}: no symbol of 4+ characters to check "
+                            "the ref against")
+            continue
+        if not path.is_file():
+            problems.append(f"{where}: {path} is not a file")
+            continue
+        lines = path.read_text(encoding="utf-8").splitlines()
+        window = "\n".join(lines[max(first - 3, 0):last + 2])
+        if symbol.removesuffix("()") not in window:
+            problems.append(f"{where}: {symbol} not within 2 lines of "
+                            f"{path.name}:{first}-{last}")
+    assert not problems, "\n".join(problems)
 
 
 def test_the_tour_crosses_all_three_levels_and_frames_arrows():

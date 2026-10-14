@@ -13,11 +13,11 @@
 @ note evidence 0,420 """
 code:
 split by the branches of the dispatch
-  @../../grafli/view/resources.py:106
-  @../../grafli/view/resources.py:116
-  @../../grafli/view/resources.py:121
-  @../../grafli/view/resources.py:221
-  @../../grafli/app.py:734
+  @../../grafli/view/resources.py:106 _open_attachment
+  @../../grafli/view/resources.py:116 doc_name
+  @../../grafli/view/resources.py:121 split_board_fragment
+  @../../grafli/view/resources.py:221 _open_url_string
+  @../../grafli/app.py:734 _enter_board
 """ ~small
 
 @ arrow dispatch -> doc "call: _open_md_zen"

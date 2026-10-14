@@ -22,10 +22,10 @@ _go_up()
 @ note source 0,400 """
 code:
 source
-  @../../../grafli/app.py:734
-  @../../../grafli/buffers.py:146
-  @../../../grafli/view/flows.py:58
-  @../../../grafli/app.py:787
+  @../../../grafli/app.py:734 _enter_board
+  @../../../grafli/buffers.py:146 push_frame
+  @../../../grafli/view/flows.py:58 frame_fragment
+  @../../../grafli/app.py:787 _go_up
 """ ~small
 @ box frame "BoardFrame" 700,0 220x80 &doc:frame
 @ box push "push_frame" 700,180 220x80 &doc:push

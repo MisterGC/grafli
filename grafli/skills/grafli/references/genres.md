@@ -166,7 +166,7 @@ non-obvious algorithm; number badges when steps are discussed by number.
 
 **Design** — *how it's built: modules, types, responsibilities.*
 Boxes name modules/types (identifier in the label, role beneath in a small
-note if needed); nesting = composition; arrows = dependency direction only;
+note or the box's own `&doc` if needed); nesting = composition; arrows = dependency direction only;
 if everything connects to everything you're at the wrong altitude — go up
 one level or split. When proposing a change, use the diff convention:
 unchanged `%muted`, modified one accent, new a second accent — and nothing

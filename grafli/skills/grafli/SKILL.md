@@ -11,7 +11,11 @@ description: >
   guided tours, exportable as slides), and on THINKING-BOARD requests —
   "help me think through X", "weigh the options", "map the unknowns",
   "should we do A or B" — where a human would go to a whiteboard: author
-  a board that structures the problem. Do NOT trigger on generic "review
+  a board that structures the problem. ALSO trigger on requests to
+  UNDERSTAND, LEARN, EXPLAIN or REVIEW a subject through a map — "map
+  this codebase so I can understand it", "help me learn X level by
+  level", "explain this system on a board" — and on `Q:` notes left on
+  such a map: build an explanation map with levels and tours. Do NOT trigger on generic "review
   this code", "explain this function", "summarize this module" requests
   unless the user also asks for a visual, a board, or a diagram. When
   unsure, ask the user a one-line clarifier before pulling this skill in.
@@ -210,7 +214,9 @@ in `references/genres.md` instead.)
    per level** — if the cast overflows that, plan the depth ladder now:
    group into containers, or push detail into notes / `&doc` docs /
    `&graph` sub-boards (see "The right altitude" in
-   `references/design.md`).
+   `references/design.md`). For a map someone reads to understand a
+   subject, every level also states its question and the evidence for
+   its split — see `references/explaining.md`.
 3. **Flow direction.** Pick **one** for the whole diagram —
    left-to-right, top-to-bottom, or center-out (see "Flow direction"
    under Layout strategy in `references/design.md` for which fits what).
@@ -244,8 +250,10 @@ in `references/genres.md` instead.)
    other multi-line detail, use a `code:` note; for prose with light
    structure (rationale, checklists, review notes), use an `md:`
    Markdown note — those are the right home for content too long for
-   a box label. Boxes are identifiers, notes are bodies (see the Box
-   section) — never inline multi-line detail into a box label.
+   a box label — or the box's own `&doc`, whose first sentence shows
+   on one line under the label and whose whole text `gv` peeks. Boxes
+   are identifiers; notes or the box's own `&doc` are bodies (see the
+   Box section) — never inline multi-line detail into a box label.
 8. **Re-read against the quality bar.** Pretend you're the user opening
    the file: the eye lands on the entry point, the board answers its one
    question, depth is on demand, no arrows crossing. If not, reposition
@@ -443,6 +451,14 @@ task needs them:
   auto-flows, narration craft, PDF/PPTX export (incl. corporate
   templates) and the `export --check` verify loop. Open when asked to
   explain, walk through, present, or build a deck from a board.
+* `references/explaining.md` — explanation maps of any subject (code
+  as one section): one question and the evidence for its split per
+  level, box docs and sub-boards for depth, one board per repo plus a
+  bench board linking in, relationship kinds on arrows, tours across
+  levels, the ask-on-the-map loop (answer a `Q:` with a level, a line or
+  a tour), overlay files with provenance, and marking a map stale. Open
+  when the user wants to understand, learn, explain or review a subject
+  on a map.
 * `references/thinking.md` — thinking boards: decision boards, tension
   maps, question landscapes, assumption/evidence boards, and the
   deliberate-incompleteness rules. Open when the user wants to *think

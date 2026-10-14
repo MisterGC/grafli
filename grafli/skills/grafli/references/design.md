@@ -274,8 +274,8 @@ Place notes deliberately:
 * **Note-to-element arrows** — when a note isn't directly adjacent
   to its target, use `@ arrow note_id -> box_id !dotted` to make
   the linkage explicit.
-* Keep notes short — if you need a paragraph, it belongs in
-  documentation, not on the diagram.
+* Keep notes short — if you need a paragraph, it belongs in a `&doc`
+  (the box's own, or a doc-bodied note), not in a note's text.
 
 ### Attachments (`&`)
 

@@ -414,3 +414,44 @@ def test_a_v3_build_reads_a_dot_board_as_newer(monkeypatch):
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
     assert supported_version() == 3
     assert is_newer(parse(DOTS))
+
+
+STATUS = ('#!grafli v4\n@ box api "API" 0,0 200x80 ~status=open\n'
+          '@ box db "Store" 0,120 200x80 %primary !card &doc:store '
+          '~status=designed:%rose >api\n'
+          '@ box ui "UI" 0,240 200x80 ~status=wip:#C53030\n')
+
+
+def test_status_labels_round_trip_and_write_v4():
+    board = parse(STATUS)
+    assert [(x.status, x.status_color) for x in board.boxes] == \
+        [("open", ""), ("designed", "%rose"), ("wip", "#C53030")]
+    assert board.box_by_id("db").parent == "api"
+    assert board.box_by_id("db").url == "store"
+    assert required_version(board) == 4
+    assert serialize(board) == STATUS
+
+
+def test_a_status_keeps_an_annotation_after_it():
+    board = parse('@ box b "B" 0,0 200x80 ~status=open # why\n')
+    assert (board.boxes[0].status, board.boxes[0].annotation) == ("open", "why")
+
+
+def test_a_box_without_a_status_stays_v1():
+    board = parse('#!grafli v1\n@ box b "Title" 0,0 200x80\n')
+    assert (board.boxes[0].status, board.boxes[0].status_color) == ("", "")
+    assert required_version(board) == 1
+
+
+def test_a_status_on_a_v1_box_lifts_the_board_to_v4():
+    board = parse('#!grafli v1\n@ box b "Title" 0,0 200x80\n')
+    board.boxes[0].status = "open"
+    assert serialize(board).splitlines()[0] == "#!grafli v4"
+
+
+def test_a_v3_build_reads_a_status_board_as_newer(monkeypatch):
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    assert supported_version() == 3
+    assert is_newer(parse(STATUS))

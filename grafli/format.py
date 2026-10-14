@@ -3,7 +3,7 @@
 Format spec:
   #!grafli v1                                      (file header, first line)
   # comment or title
-  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card] [!ink] [!sans] [!dashed|!dotted] [&url] [>parent]
+  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card] [!ink] [!sans] [!dashed|!dotted] [&url] [~status=<text>[:%color]] [>parent]
   @ arrow <from_id> -> <to_id> "<label>"           (forward)
   @ arrow <from_id> <- <to_id> "<label>"           (backward)
   @ arrow <from_id> <-> <to_id> "<label>"          (bidirectional)
@@ -56,7 +56,8 @@ note's text takes its ``%color``. And a board with a ``!sans`` box or note,
 whose text is set in the bundled proportional face (Inter) instead of mono or
 handwriting. And a board with a ``!dashed`` or ``!dotted`` box, whose outline
 is drawn in that pattern. And a board with an ``!dot`` arrow, whose ends
-draw a dot where they would draw an arrowhead.
+draw a dot where they would draw an arrowhead. And a board with a
+``~status=`` box, which carries a short text label on its bottom edge.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -123,6 +124,10 @@ class Box:
     sans: bool = False
     # Outline pattern: "dashed", "dotted", or "" (solid).
     border: str = ""
+    # `~status=<text>[:%color]`: a short label drawn on the box's bottom edge
+    # in every view. "" = none; ``status_color`` "" = the neutral pill.
+    status: str = ""
+    status_color: str = ""
 
 
 @dataclass
@@ -627,6 +632,7 @@ _RE_BOX = re.compile(
     r'((?:\s+!(?:flat|card|ink|sans|dashed|dotted|ratio|fit|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
+    r'(?:\s+~status=([^\s:]+)(?::(#[0-9A-Fa-f]{6}|%[a-z]+))?)?'
     r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
@@ -729,7 +735,7 @@ _SIZE_TOKEN_RE = re.compile(r'(?<!\w)[\d.]+x[\d.]+(?!\w)')
 BOX_FORM = ('@ box <id> "label" x,y wxh [%color|#rrggbb] '
             '[^topleft|^topcenter] [~size] '
             '[!flat|!card|!ink|!sans|!dashed|!dotted|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
-            '[*icon] [&attach] [>parent]')
+            '[*icon] [&attach] [~status=<text>[:%color]] [>parent]')
 NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
              '[~width=N] [!mono|!sans|!flat|!ink|!bold|!italic|!outline|!shadow ...] '
              '[*icon] [&attach] [>parent]')
@@ -908,8 +914,10 @@ def parse(text: str) -> Board:
                 icon_placement=split_icon(m.group(11) or "")[0],
                 url=url,
                 attach_kind=kind,
-                parent=m.group(13) or "",
-                annotation=(m.group(14) or "").replace("\\n", "\n"),
+                status=m.group(13) or "",
+                status_color=m.group(14) or "",
+                parent=m.group(15) or "",
+                annotation=(m.group(16) or "").replace("\\n", "\n"),
             )
             board.boxes.append(box)
             board._lines.append(("box", box))
@@ -1170,6 +1178,7 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "connector sides": (4, lambda b: any(a.from_side or a.to_side
                                          for a in b.arrows)),
     "dot ends": (4, lambda b: any(a.head_shape for a in b.arrows)),
+    "status labels": (4, lambda b: any(x.status for x in b.boxes)),
 }
 
 
@@ -1254,6 +1263,10 @@ def _serialize_box(box: Box) -> str:
     if box.icon:
         s += f" *{icon_token(box)}"
     s += _attach_token(box)
+    if box.status:
+        s += f" ~status={box.status}"
+        if box.status_color:
+            s += f":{box.status_color}"
     if box.parent:
         s += f" >{box.parent}"
     return s + _annotation_token(box)

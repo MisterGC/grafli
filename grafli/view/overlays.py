@@ -398,6 +398,7 @@ class OverlaysMixin:
                 ("gc", "Select first child"),
                 ("gd / Return", "Zoom into the box's sub-board"),
                 ("gu", "Back to the board you came from"),
+                ("gv", "Peek at the box's doc (Esc closes)"),
                 ("Tab / \u21e7Tab", "Cycle siblings (or search matches)"),
                 ("f / Ctrl+J", "Jump to any item (global)"),
                 ("Ctrl+O / Ctrl+I", "Nav history back / forward"),

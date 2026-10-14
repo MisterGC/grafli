@@ -400,6 +400,8 @@ class ComplexityMixin:
         # Sub-board miniatures follow the zoom on every tick; boxes the tiers
         # hide or reduce never show one.
         self._refresh_miniatures(scale, hidden | tiles | shells)
+        # Box doc lines likewise show only on boxes at the detailed level.
+        self._refresh_doc_lines(scale, hidden | tiles | shells, lod_on)
 
         state = (frozenset(collapsed), frozenset(shells), frozenset(clusters),
                  frozenset(hidden_notes), frozenset(note_shells),

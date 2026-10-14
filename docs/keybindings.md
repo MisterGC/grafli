@@ -193,6 +193,7 @@ grafli render board.grafli out.png --theme dark
 | <kbd>Ctrl</kbd>+<kbd>6</kbd> | Toggle last buffer |
 | <kbd>g</kbd><kbd>d</kbd> | Zoom into the selected box's sub-board (`&graph` or a `.grafli` link), like <kbd>Return</kbd> |
 | <kbd>g</kbd><kbd>u</kbd> | Back to the board you came from (through `&graph` or a `.grafli` link), as you left it |
+| <kbd>g</kbd><kbd>v</kbd> | Peek at the selected box's `&doc` in a read-only panel beside it; <kbd>Esc</kbd> closes it |
 | <kbd>Q</kbd> | Close buffer (no selection) |
 
 ## Bookmarks & flows

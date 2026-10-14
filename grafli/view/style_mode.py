@@ -978,13 +978,18 @@ class StyleModeMixin:
     _CONN_THICK_OPTIONS = (("Thin", "thin"), ("Normal", ""), ("Thick", "thick"))
     _CONN_ROUTING_OPTIONS = (("Direct", ""), ("Spline", "spline"),
                              ("Stair", "ortho"))
+    # The side a connector leaves or enters by: "Auto" picks it from the
+    # geometry, as every connector did before `~from=` / `~to=` (#209).
+    _CONN_SIDE_OPTIONS = (("Auto", ""), ("Top", "top"), ("Right", "right"),
+                          ("Bottom", "bottom"), ("Left", "left"))
     _CONN_SIZE_OPTIONS = (
         ("S", "small"), ("M", ""), ("L", "large"), ("XL", "xlarge"),
         ("2XL", "xxlarge"), ("3XL", "xxxlarge"), ("4XL", "4xl"),
     )
     # Fields snapshotted for undo/restore across the overlay's lifetime.
     _CONN_OVERLAY_FIELDS = ("head_from", "head_to", "style", "thickness",
-                            "routing", "color", "textsize")
+                            "routing", "from_side", "to_side", "color",
+                            "textsize")
 
     def _set_all_arrows(self, field: str, value):
         for a in self._selected_arrows:
@@ -1018,6 +1023,14 @@ class StyleModeMixin:
             {"label": "Routing", "kind": "routing", "options": list(self._CONN_ROUTING_OPTIONS),
              "get": lambda: primary.routing,
              "set": lambda v: self._set_all_arrows("routing", v)},
+            {"label": "Leaves from", "kind": "side",
+             "options": list(self._CONN_SIDE_OPTIONS),
+             "get": lambda: primary.from_side,
+             "set": lambda v: self._set_all_arrows("from_side", v)},
+            {"label": "Enters at", "kind": "side",
+             "options": list(self._CONN_SIDE_OPTIONS),
+             "get": lambda: primary.to_side,
+             "set": lambda v: self._set_all_arrows("to_side", v)},
             {"label": "Colour", "kind": "color", "options": list(COLOR_PALETTE),
              "get": lambda: primary.color,
              "set": lambda v: self._set_all_arrows("color", v)},
@@ -1341,7 +1354,7 @@ class StyleModeMixin:
         if kind == "size":
             return 26.0, 22.0, 4.0
         if kind in ("boxbg", "boxlabel", "notebg", "imgframe", "ink",
-                    "boxborder"):
+                    "boxborder", "side"):
             return 30.0, 22.0, 6.0   # miniature box previews
         return 44.0, 22.0, 6.0   # heads / line / thickness sample strips
 
@@ -1565,6 +1578,33 @@ class StyleModeMixin:
                 painter.drawPolygon(QPolygonF([
                     QPointF(x1, mid_y), QPointF(x1 + 1.7 * s, mid_y - s),
                     QPointF(x1 + 1.7 * s, mid_y + s)]))
+            return
+        if kind == "side":
+            # A small box with the connector stepping out of the side it
+            # picks; "Auto" leaves every side open, drawn faint.
+            body = cell.adjusted(8, 6, -8, -6)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(ink, 1.2))
+            painter.drawRect(body)
+            c = body.center()
+            stubs = {"top": (QPointF(c.x(), body.top()),
+                             QPointF(c.x(), cell.top() + 1)),
+                     "bottom": (QPointF(c.x(), body.bottom()),
+                                QPointF(c.x(), cell.bottom() - 1)),
+                     "left": (QPointF(body.left(), c.y()),
+                              QPointF(cell.left() + 1, c.y())),
+                     "right": (QPointF(body.right(), c.y()),
+                               QPointF(cell.right() - 1, c.y()))}
+            pen = QPen(ink, 2.2)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            if not val:
+                faint = QColor(ink)
+                faint.setAlphaF(0.35)
+                pen = QPen(faint, 1.2)
+            painter.setPen(pen)
+            for name, (a, b) in stubs.items():
+                if not val or name == val:
+                    painter.drawLine(a, b)
             return
         if kind == "routing":
             # Each cell draws the shape it picks — a routing is easier to

@@ -198,7 +198,8 @@ def test_connector_overlay_moved_to_e_unchanged():
     view._open_element_overlay("appearance")
     assert view._elem_overlay_target == "arrow"
     assert [a["label"] for a in view._elem_overlay_axes] == [
-        "Heads", "Line", "Thickness", "Routing", "Colour"]
+        "Heads", "Line", "Thickness", "Routing", "Leaves from", "Enters at",
+        "Colour"]
 
 
 def test_connector_colour_key_now_opens_the_palette():

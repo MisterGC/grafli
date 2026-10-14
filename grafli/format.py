@@ -3,7 +3,7 @@
 Format spec:
   #!grafli v1                                      (file header, first line)
   # comment or title
-  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card] [&url] [>parent]
+  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card] [!ink] [&url] [>parent]
   @ arrow <from_id> -> <to_id> "<label>"           (forward)
   @ arrow <from_id> <- <to_id> "<label>"           (backward)
   @ arrow <from_id> <-> <to_id> "<label>"          (bidirectional)
@@ -15,8 +15,8 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
   @ arrow <from_id> -> <to_id> "label" ~kind=graph (connector kind: graph / annotation; default derives from endpoints)
   @ arrow <from_id> -> <to_id> "label" ~id=<id>    (stable id, only when something references the arrow; v3)
-  @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&attach] [>parent]
-  @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono] [&attach] [>parent]
+  @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [!ink] [&attach] [>parent]
+  @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono] [!ink] [&attach] [>parent]
   @ note <id> <x>,<y> [...] &doc [>parent]         (doc-bodied: body = <stem>-res/<id>.md)
   @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [&attach]
 
@@ -48,7 +48,9 @@ arrows carry ``~id=<id>``, and one whose flow has a stop in another board:
 a step ``<board>#<bookmark>``, ``<board>`` being a vault sub-board name or a
 relative path ending in ``.grafli``.
 A ``!card`` box keeps its node look while it holds children; a board using
-one is written as v4.
+one is written as v4. So is a board with an ``!ink`` box or note: a box's
+label and icon take their ink from its fill and drop the light plate, a
+note's text takes its ``%color``.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -109,6 +111,8 @@ class Box:
     icon_placement: str = ""
     # Text emphasis layered on the size: "", "bold", "italic", or "bold italic".
     emphasis: str = ""
+    # `!ink`: label and icon ink follow the fill, without the light plate.
+    ink: bool = False
 
 
 @dataclass
@@ -175,6 +179,7 @@ class Note:
     icon: str = ""
     icon_placement: str = ""
     emphasis: str = ""   # see Box.emphasis
+    ink: bool = False    # `!ink`: the text takes the note's %color
 
 
 @dataclass
@@ -583,7 +588,7 @@ _RE_BOX = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
-    r'((?:\s+!(?:flat|card|ratio|fit|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:flat|card|ink|ratio|fit|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -611,7 +616,7 @@ _RE_NOTE = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'((?:\s+!(?:mono|flat|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:mono|flat|ink|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -629,7 +634,7 @@ _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'((?:\s+!(?:mono|flat|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:mono|flat|ink|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -685,10 +690,10 @@ _SIZE_TOKEN_RE = re.compile(r'(?<!\w)[\d.]+x[\d.]+(?!\w)')
 # (#145); tests cross-check them against the regex sources.
 BOX_FORM = ('@ box <id> "label" x,y wxh [%color|#rrggbb] '
             '[^topleft|^topcenter] [~size] '
-            '[!flat|!card|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
+            '[!flat|!card|!ink|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
             '[*icon] [&attach] [>parent]')
 NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
-             '[~width=N] [!mono|!flat|!bold|!italic|!outline|!shadow ...] '
+             '[~width=N] [!mono|!flat|!ink|!bold|!italic|!outline|!shadow ...] '
              '[*icon] [&attach] [>parent]')
 ARROW_FORM = ('@ arrow <from> ->|<-|<->|-- <to> ["label"] [@dx,dy] '
               '[%color|#rrggbb] '
@@ -838,7 +843,8 @@ def parse(text: str) -> Board:
         m = _RE_BOX.match(stripped)
         if m:
             # The flags run tolerates legacy !ratio / !fit (now no-ops) so older
-            # files still load; only !flat / !card are honoured and re-serialized.
+            # files still load; only !flat / !card / !ink are honoured and
+            # re-serialized.
             flags = set(re.findall(r'!(\w+)', m.group(10) or ""))
             kind, url = split_attach(m.group(12) or "") if m.group(12) else ("", "")
             box = Box(
@@ -854,6 +860,7 @@ def parse(text: str) -> Board:
                 style=("flat" if "flat" in flags
                        else "card" if "card" in flags else ""),
                 emphasis=emphasis_from_flags(flags),
+                ink="ink" in flags,
                 icon=split_icon(m.group(11) or "")[1],
                 icon_placement=split_icon(m.group(11) or "")[0],
                 url=url,
@@ -934,6 +941,7 @@ def parse(text: str) -> Board:
                     style="mono" if "mono" in blk_flags else "",
                     flat="flat" in blk_flags,
                     emphasis=emphasis_from_flags(blk_flags),
+                    ink="ink" in blk_flags,
                     icon=split_icon(sm.group(5) or "")[1],
                     icon_placement=split_icon(sm.group(5) or "")[0],
                     url=url,
@@ -979,6 +987,7 @@ def parse(text: str) -> Board:
                 style="mono" if "mono" in note_flags else "",
                 flat="flat" in note_flags,
                 emphasis=emphasis_from_flags(note_flags),
+                ink="ink" in note_flags,
                 icon=split_icon(m.group(9) or "")[1],
                 icon_placement=split_icon(m.group(9) or "")[0],
                 url=url,
@@ -1105,6 +1114,7 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "arrow ids": (3, lambda b: any(a.id for a in b.arrows)),
     "cross-board stops": (3, uses_cross_board_stops),
     "card boxes": (4, lambda b: any(x.style == "card" for x in b.boxes)),
+    "label ink": (4, lambda b: any(x.ink for x in [*b.boxes, *b.notes])),
 }
 
 
@@ -1179,6 +1189,8 @@ def _serialize_box(box: Box) -> str:
         s += f" ~{box.textsize}"
     if box.style:
         s += f" !{box.style}"
+    if box.ink:
+        s += " !ink"
     s += emphasis_tokens(box.emphasis)
     if box.icon:
         s += f" *{icon_token(box)}"
@@ -1235,6 +1247,8 @@ def _note_attrs(note: Note) -> str:
         s += " !flat"
     if note.style:
         s += f" !{note.style}"
+    if note.ink:
+        s += " !ink"
     s += emphasis_tokens(note.emphasis)
     if note.icon:
         s += f" *{icon_token(note)}"

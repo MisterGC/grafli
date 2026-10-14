@@ -157,10 +157,43 @@ def test_a_card_written_on_a_v1_board_lifts_it_to_v4():
 
 
 def test_a_v3_build_reads_a_card_board_as_newer(monkeypatch):
-    # A build from before `!card` registers no v4 feature, so it reads up to
+    # A build from before v4 registers no v4 feature, so it reads up to
     # v3 and the card board is newer than it.
     features = {k: v for k, v in fmt.VERSION_FEATURES.items()
-                if k != "card boxes"}
+                if v[0] < 4}
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
     assert supported_version() == 3
     assert is_newer(parse(CARD))
+
+
+INK = ('#!grafli v4\n@ box b "Dark" 0,0 200x80 %primary !ink\n'
+       '@ note n 0,120 "rose text" %rose !ink\n')
+
+
+def test_ink_on_a_box_and_a_note_round_trips_and_writes_v4():
+    board = parse(INK)
+    assert board.box_by_id("b").ink
+    assert board.notes[0].ink
+    assert required_version(board) == 4
+    assert serialize(board) == INK
+
+
+def test_ink_writes_beside_the_other_flags():
+    text = ('#!grafli v4\n@ box b "Dark" 0,0 200x80 %primary !flat !ink !bold\n'
+            '@ note n 0,120 "x" %rose !flat !mono !ink !italic\n')
+    assert serialize(parse(text)) == text
+
+
+def test_ink_on_a_v1_note_lifts_the_board_to_v4():
+    board = parse('#!grafli v1\n@ note n 0,0 "x" %rose\n')
+    assert required_version(board) == 1
+    board.notes[0].ink = True
+    assert serialize(board).splitlines()[0] == "#!grafli v4"
+
+
+def test_a_v3_build_reads_an_ink_board_as_newer(monkeypatch):
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    assert supported_version() == 3
+    assert is_newer(parse(INK))

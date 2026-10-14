@@ -97,7 +97,7 @@ def test_diagnose_fix_leaves_newer_board_untouched(tmp_path, capsys):
 def test_a_v3_build_opens_a_card_board_read_only(tmp_path, monkeypatch):
     from grafli import format as fmt
     features = {k: v for k, v in fmt.VERSION_FEATURES.items()
-                if k != "card boxes"}
+                if v[0] < 4}
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
     text = ('#!grafli v4\n@ box c "Card" 0,0 200x150 !card\n'
             '@ note n 20,60 "body" >c\n')
@@ -105,3 +105,17 @@ def test_a_v3_build_opens_a_card_board_read_only(tmp_path, monkeypatch):
     assert "read-only" in win._view._toast_text
     assert "v4" in win._view._toast_text
     assert "[read-only]" in win.windowTitle()
+
+
+def test_a_v3_build_opens_an_ink_board_read_only(tmp_path, monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = ('#!grafli v4\n@ box b "Dark" 0,0 200x80 %primary !ink\n'
+            '@ note n 0,120 "rose text" %rose !ink\n')
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "v4" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+    assert f.read_text() == text

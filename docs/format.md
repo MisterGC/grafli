@@ -88,7 +88,13 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   `~width=40` for a narrow caption, `~width=120` for a wide code listing).
   You can also drag the right edge of a selected note to set this
   interactively — the value persists on save.
-- `!style` — `flat`, `dashed`, plus arrow-specific styles. **Notes render in
+- `!style` — `flat`, `card`, `dashed`, plus arrow-specific styles. A box
+  that holds children draws as a flat container with a small top-left
+  heading; `!card` keeps its node look instead — fill, border, rounded
+  corners and a node-size label centred at the top — so a box with a body
+  note reads as a card. A board using `!card` carries a `#!grafli v4`
+  header. (Style mode → `e`, Background row: plate / flat / card.)
+  **Notes render in
   a handwritten face by default**; `!mono` (and `code:` notes) switch to the
   monospace face — handwriting for prose, monospace for code. (Style mode →
   `t` opens the text grid; `Tab` there toggles a note's font.)

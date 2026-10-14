@@ -227,7 +227,9 @@ in `references/genres.md` instead.)
    tier you want to show but have nothing to put in yet — has to ask
    for that look: `!flat ^topleft ~small`. Without it an empty band
    renders as a big rounded leaf node, which reads as a component
-   rather than a layer.
+   rather than a layer. The reverse — a **card**, a box that keeps its
+   fill, border and centred title around a body note it owns — asks for
+   `!card` (written `#!grafli v4`).
 5. **Place children inside containers**, sized and aligned to the
    grid (multiples of 50). Use the container margin model in
    `references/design.md`.
@@ -321,7 +323,7 @@ in `references/genres.md` instead.)
 
 ```
 # Comments and titles
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat !bold !italic] [*icon] [&attach] [>parent] [# annotation]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !bold !italic] [*icon] [&attach] [>parent] [# annotation]
 @ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [~size] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md

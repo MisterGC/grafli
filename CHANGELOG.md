@@ -147,6 +147,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paragraph. The skill's rule that boxes are identifiers now names the
   box's own `&doc` as a place for its explanation.
   ([#170](https://github.com/MisterGC/grafli/issues/170))
+- **`!card`: a box with children keeps its node look.** A box that holds a
+  note or box used to turn into a flat, square-cornered container with a
+  small top-left heading, so a card with a title and a body couldn't be
+  built. A `!card` box keeps its fill, border, rounded corners and a
+  node-size title, centred at the top, while it owns its children — on the
+  canvas, in `render` and in every export. Style mode <kbd>s</kbd>
+  <kbd>e</kbd> sets it: Background row, plate / flat / card. A board using
+  it is written `#!grafli v4`; older builds open it read-only.
+  ([#203](https://github.com/MisterGC/grafli/issues/203))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

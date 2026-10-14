@@ -54,6 +54,30 @@ class FlowsMixin:
         self.goto_rect(target, animate=animate)
         self.flash_anchor(target)
 
+    def frame_fragment(self, target_id: str) -> bool:
+        """Frame and select what a board link's ``#<id>`` names: a bookmark
+        first, else an element framed as a one-element bookmark would be.
+        False when the board has neither."""
+        if not self._board:
+            return False
+        from grafli.flows import bookmark_target_rect
+        bm = self._board.bookmark_by_id(target_id)
+        if bm is None or bookmark_target_rect(self, bm).isNull():
+            bm = Bookmark(id=target_id, label="", focus=[target_id])
+        rect = bookmark_target_rect(self, bm)
+        if rect.isNull():
+            return False
+        self._deselect_arrow()
+        self._scene.clearSelection()
+        for fid in bm.focus:
+            item = (self._box_items.get(fid) or self._note_items.get(fid)
+                    or self._image_items.get(fid))
+            if item is not None:
+                item.setSelected(True)
+        self.goto_rect(rect, animate=False)
+        self.flash_anchor(rect)
+        return True
+
     def play_flow(self, flow_id: str):
         """Enter modal playback for a flow, starting at its first stop."""
         if not self._board:

@@ -164,7 +164,9 @@ comprehensible as the canvas:
   carried a `&doc`/`&graph` attachment (removes now-orphaned vault docs;
   never automatic).
 * **You own the header.** When you add the first `@ bookmark`/`@ flow`
-  to a v1 file, bump the first line to `#!grafli v2` yourself.
+  to a v1 file, bump the first line to `#!grafli v2` yourself; the first
+  `#<id>` board link (`&graph:<name>#<id>`, `&link:<path>.grafli#<id>`)
+  makes it `#!grafli v3`.
 
 **Revising markdown prose — propose, don't overwrite.** When you rewrite a
 markdown doc or note body that a human will review (a `.md` doc body, or any
@@ -332,7 +334,11 @@ override that per image.
 point outside the board), `&doc:<name>` (a markdown document at
 `<stem>-res/<name>.md`), or `&graph:<name>` (a sub-board at
 `<stem>-res/<name>.grafli`). See "Attachments" in
-`references/design.md`.
+`references/design.md`. A board link may end in `#<id>` —
+`&graph:<name>#<id>`, `&link:<path>.grafli#<id>` — to open that board
+framed on the bookmark (else element) `<id>`, selected; such a file
+carries a `#!grafli v3` header. See "Board links into a bookmark or
+element" in `references/format.md`.
 
 `@ bookmark` / `@ flow` / `@ footer` build **guided tours and slide
 decks** — see `references/presenting.md`. A file that uses them carries

@@ -29,7 +29,7 @@ class as a misplaced triple-quote modifier.
 | `!outline` / `!shadow` | `!outline`, `!shadow` | **note** display lettering — hollow letters / drop-shadow depth, for sketchnote headers (layer with `~size` + `!bold`); render on notes, not boxes |
 | `!flat` (note) | `!flat` | drop the beige background plate — the note's text sits directly on the canvas (for a hand-lettered title/header) |
 | `*symbol` | `*lightbulb` (fill), `*lead:gear` (lead), `*badge:star` (badge), `*3` (number) | sketchnote symbol — fill: big symbol + caption; lead: small symbol left of the label; badge: compact top-right overlay; digits 1–99 render as circled number badges |
-| `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>` | typed attachment (see "Attachments") |
+| `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>[#<id>]` | typed attachment (see "Attachments"; `#<id>` see "Board links into a bookmark or element") |
 | `>parent` | `>parent_id` | nest inside parent box |
 
 ## Sketchnote symbols (`*name`, on boxes and notes)
@@ -199,7 +199,7 @@ regardless of how it was typed.
 |----------|--------|--------|
 | `~size` | `~small`…`~xxxlarge`, `~4xl`; aliases `~2xl`/`~3xl` | text size |
 | `~width=N` | integer, `N` chars per line | soft-wrap width (default 80) |
-| `&attach` | `&link:<url>`, `&doc[:<name>]`, `&graph:<name>` | typed attachment; `&doc` makes the note doc-bodied |
+| `&attach` | `&link:<url>`, `&doc[:<name>]`, `&graph:<name>[#<id>]` | typed attachment; `&doc` makes the note doc-bodied |
 | `>parent` | `>parent_id` | nest inside parent box |
 
 **Auto-wrap.** Plain-text and code-mode notes wrap at `~width` chars
@@ -540,6 +540,27 @@ so you must position them inside the parent's rect manually.
 
 The `!flat` style is recommended for container boxes — they recede
 visually so children stand out.
+
+## Board links into a bookmark or element (`#<id>`)
+
+A board link may end in `#<id>` to open the board framed on one place in
+it, with that place selected:
+
+```
+@ box combat "Combat" 0,0 160x60 &graph:combat#impact
+@ box spec "Spec" 0,100 160x60 &link:../schema/schema.grafli#request-path
+```
+
+`<id>` is looked up as a bookmark of the target board first (framed as
+the bookmark frames, its focus elements selected), then as a box, note or
+image id (framed with a bookmark's default padding). If the board has
+neither, it opens fitted and the app toasts `No element '<id>' in <file>`.
+<kbd>g</kbd><kbd>u</kbd> comes back as from any board link. Prefer a
+bookmark as the target: it is named for the reader and survives the
+target board's layout changing. A file using a `#<id>` board link carries
+a `#!grafli v3` header — bump it yourself when you add the first one.
+(`.md` links already honour `#anchor`; that is not a board link and needs
+no header change.)
 
 ## Bookmarks, flows, and board-global directives
 

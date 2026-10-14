@@ -39,6 +39,9 @@ layout edits. A flow is an ordered list of bookmark refs with optional
 auto-play dwell times. ``footer`` is a single board-global markdown branding
 line rendered at the bottom of every exported PDF slide. The v2 header is
 emitted only when such directives are present; pure-diagram files stay on v1.
+A board link with a ``#<id>`` fragment (``&graph:<name>#<id>``,
+``&link:<path>.grafli#<id>``) opens that board framed on the bookmark or
+element ``<id>``; a board using one is written as v3.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -443,6 +446,25 @@ def split_attach(raw: str) -> tuple[str, str]:
         if raw.startswith(kind + ":"):
             return kind, raw[len(kind) + 1:]
     return "", raw
+
+
+def split_board_fragment(target: str) -> tuple[str, str]:
+    """Split the ``#<id>`` off a board link: ``combat#blow`` → ("combat",
+    "blow"). The id names a bookmark or element the board opens framed on;
+    without one the fragment is ""."""
+    board, _, fragment = target.partition("#")
+    return board, fragment
+
+
+def uses_board_fragments(board: Board) -> bool:
+    """True if an attachment points into a board: ``&graph:<name>#<id>`` or
+    ``&link:<path>.grafli#<id>``."""
+    for el in (*board.boxes, *board.notes, *board.images, *board.arrows):
+        if el.attach_kind == "graph" and "#" in el.url:
+            return True
+        if el.attach_kind != "doc" and ".grafli#" in el.url:
+            return True
+    return False
 
 
 def doc_name(element) -> str:
@@ -1043,6 +1065,7 @@ def parse_file(path: str) -> Board:
 VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "tours": (2, lambda b: bool(b.bookmarks or b.flows or b.footer
                                 or b.title_bg)),
+    "board fragments": (3, uses_board_fragments),
 }
 
 

@@ -297,6 +297,10 @@ Every element can carry **one** typed attachment:
   id); on a box/image/arrow it opens in the editor.
 - `&graph:<name>` — a sub-board at `<stem>-res/<name>.grafli`; its own
   resources nest at `<stem>-res/<name>-res/`.
+- `&graph:<name>#<id>` / `&link:<path>.grafli#<id>` — open that board
+  framed on its bookmark (else element) `<id>`; the way to point from one
+  map into one place of another board (a `#!grafli v3` file, see
+  `references/format.md`).
 
 Content attachments live only in the `<stem>-res/` vault, so a board
 plus its vault is the complete, copyable unit. Legacy untyped `&url`

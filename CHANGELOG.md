@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <kbd>Ctrl</kbd>+<kbd>I</kbd> view history now belongs to each board, so it
   never jumps to places on a board you just left.
   ([#160](https://github.com/MisterGC/grafli/issues/160))
+- **Links can open a board at one bookmark or element.** `&graph:<name>#<id>`
+  and `&link:<path>.grafli#<id>` open the board framed on the bookmark
+  `<id>` — or, without one, the element `<id>` — with it selected, so a map
+  can point into one place of another board; <kbd>g</kbd><kbd>u</kbd> comes
+  back. A missing id opens the board fitted and says
+  "No element '<id>' in <file>". A board using such a link is written with a
+  `#!grafli v3` header.
+  ([#161](https://github.com/MisterGC/grafli/issues/161))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

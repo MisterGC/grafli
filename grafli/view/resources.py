@@ -119,10 +119,12 @@ class ResourcesMixin:
             self._open_md_zen(doc_path(Path(grafli_path), doc_name(el)))
             return
         if el.attach_kind == "graph":
+            from grafli.format import split_board_fragment
             from grafli.resources import graph_path
+            name, target_id = split_board_fragment(el.url)
             if hasattr(window, "_enter_board"):
-                window._enter_board(graph_path(Path(grafli_path), el.url),
-                                    self._crumb_label(el))
+                window._enter_board(graph_path(Path(grafli_path), name),
+                                    self._crumb_label(el), target_id)
             return
         if el.url:
             self._open_url_string(el.url, label=self._crumb_label(el))
@@ -218,7 +220,8 @@ class ResourcesMixin:
 
     def _open_url_string(self, url_str: str, label: str = ""):
         """Open a URL string, handling .md and .grafli files specially. A
-        .grafli opens as a board entered through *label* (`gu` comes back)."""
+        .grafli opens as a board entered through *label* (`gu` comes back),
+        framed on the bookmark or element its ``#<id>`` names."""
         resolved = self._resolve_url(url_str)
         if resolved.isLocalFile():
             local = resolved.toLocalFile()
@@ -230,7 +233,8 @@ class ResourcesMixin:
             if local.endswith(".grafli"):
                 window = self.window()
                 if hasattr(window, '_enter_board'):
-                    window._enter_board(Path(local), label)
+                    window._enter_board(Path(local), label,
+                                        resolved.fragment() or "")
                 return
         QDesktopServices.openUrl(resolved)
 

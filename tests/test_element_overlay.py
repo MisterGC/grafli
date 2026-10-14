@@ -349,3 +349,60 @@ def test_s_e_toggles_ink_on_a_note_and_cancel_reverts_it():
     assert view.board.notes[0].ink
     assert '"rose text" %rose !ink' in serialize(view.board)
 
+
+# ── Outline (#207) ─────────────────────────────────────────────────
+
+def test_s_e_sets_a_dashed_then_dotted_outline_on_a_box():
+    view = _view('@ box a "A" 0,0 160x60\n')
+    item = view._box_items["a"]
+    item.setSelected(True)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_E)
+    assert view._elem_overlay_active
+    assert _axis(view, "Outline")["options"] == \
+        [("Solid", ""), ("Dashed", "dashed"), ("Dotted", "dotted")]
+    _press(view, Qt.Key.Key_J, Qt.Key.Key_J, Qt.Key.Key_J)
+    assert view._elem_overlay_axes[view._elem_overlay_row]["label"] == \
+        "Outline"
+    _press(view, Qt.Key.Key_L)                  # Solid -> Dashed, previewed
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    _press(view, Qt.Key.Key_L)                  # -> Dotted
+    assert item.pen().style() == Qt.PenStyle.DotLine
+    _press(view, Qt.Key.Key_Return)
+    assert view.board.box_by_id("a").border == "dotted"
+    out = serialize(view.board)
+    assert '160x60 !dotted' in out and out.startswith("#!grafli v4\n")
+
+
+def test_outline_cancel_reverts_the_preview_and_commit_is_undoable():
+    view = _view('@ box a "A" 0,0 160x60\n')
+    item = view._box_items["a"]
+    item.setSelected(True)
+    view._open_element_overlay()
+    view._elem_overlay_row = _row_of(view, "Outline")
+    view._elem_overlay_cycle(1)                 # live preview -> Dashed
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    view._cancel_element_overlay()
+    assert item.box.border == ""
+    assert item.pen().style() == Qt.PenStyle.SolidLine
+    before = len(view._undo_stack)
+    view._open_element_overlay()
+    view._elem_overlay_row = _row_of(view, "Outline")
+    view._elem_overlay_cycle(1)
+    view._commit_element_overlay()
+    assert view.board.box_by_id("a").border == "dashed"
+    assert len(view._undo_stack) == before + 1
+    view._undo()
+    assert view.board.box_by_id("a").border == ""
+    assert serialize(view.board).startswith("#!grafli v1\n")
+
+
+def test_outline_applies_to_the_whole_selection():
+    view = _view('@ box a "A" 0,0 160x60\n@ box b "B" 0,100 160x60 !flat\n')
+    for key in ("a", "b"):
+        view._box_items[key].setSelected(True)
+    view._open_element_overlay()
+    view._elem_overlay_row = _row_of(view, "Outline")
+    view._elem_overlay_cycle(1)
+    view._commit_element_overlay()
+    assert [b.border for b in view.board.boxes] == ["dashed", "dashed"]
+    assert view._box_items["b"].pen().style() == Qt.PenStyle.DashLine

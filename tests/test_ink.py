@@ -166,3 +166,91 @@ def test_toggling_ink_on_a_note_switches_its_text_colour():
     assert item._parse_note()[2] == QColor(theme.resolve_color("%rose"))
     item.set_ink(False)
     assert item._parse_note()[2] == theme.NOTE_PEN_COLOR
+
+
+# ── !ink note text in the PDF and PPTX exports (#206) ───────────
+
+INK_TOUR = ('#!grafli v4\n'
+            '@ box a "A" 0,0 160x60\n'
+            '@ note n 0,100 "Rose ink text here" %rose !ink\n'
+            '@ bookmark bm "Overlay" @a,n\n'
+            '@ bookmark bt "Text" @n\n'
+            '@ flow tour "Tour" bm bt\n')
+
+
+def _pdf_pages(tmp_path, text: str, name: str) -> list[QImage]:
+    """The PDF export's content slides (the cover left out) as images."""
+    from PySide6.QtCore import QSize
+    from PySide6.QtPdf import QPdfDocument
+    from grafli.pdfexport import export_flow_to_pdf
+    board = parse(text)
+    out = tmp_path / f"{name}.pdf"
+    export_flow_to_pdf(_view(text), board.flow_by_id("tour"), out)
+    doc = QPdfDocument()
+    doc.load(str(out))
+    pages = [doc.render(i, QSize(1600, 900)) for i in range(doc.pageCount())]
+    doc.close()
+    return pages[1:]
+
+
+def test_an_ink_note_prints_its_text_in_its_colour_in_the_pdf(tmp_path):
+    rose = QColor(theme.resolve_color("%rose"))
+    overlay, text = _pdf_pages(tmp_path, INK_TOUR, "ink")
+    assert _count_near(overlay, rose, tol=12) > 20      # note over the diagram
+    assert _count_near(text, rose, tol=12) > 20         # text slide
+    plain = _pdf_pages(tmp_path, INK_TOUR.replace(" !ink", ""), "plain")
+    assert all(_count_near(p, rose, tol=12) == 0 for p in plain)
+
+
+def test_a_coloured_note_without_ink_prints_0_px_different_in_the_pdf(
+        tmp_path):
+    coloured = _pdf_pages(tmp_path, INK_TOUR.replace(" !ink", ""), "rose")
+    plain = _pdf_pages(tmp_path, INK_TOUR.replace(" %rose !ink", ""), "none")
+    assert [p.size() for p in coloured] == [p.size() for p in plain]
+    assert coloured == plain
+
+
+def _pptx_note_runs(tmp_path, text: str, name: str) -> list:
+    from pptx import Presentation
+    from grafli.pptxexport import export_flow_to_pptx
+    board = parse(text)
+    out = tmp_path / f"{name}.pptx"
+    export_flow_to_pptx(_view(text), board.flow_by_id("tour"), out)
+    return [r for slide in list(Presentation(out).slides)[1:]
+            for sh in slide.shapes if sh.has_text_frame
+            for p in sh.text_frame.paragraphs for r in p.runs
+            if "Rose ink" in r.text]
+
+
+def test_an_ink_note_prints_its_text_in_its_colour_in_the_pptx(tmp_path):
+    from pptx.dml.color import RGBColor
+    from pptx.enum.dml import MSO_COLOR_TYPE
+    rose = QColor(theme.resolve_color("%rose"))
+    runs = _pptx_note_runs(tmp_path, INK_TOUR, "ink")
+    assert len(runs) == 2                               # overlay + text slide
+    for run in runs:
+        assert run.font.color.type == MSO_COLOR_TYPE.RGB
+        assert run.font.color.rgb == RGBColor(rose.red(), rose.green(),
+                                              rose.blue())
+
+
+def test_a_note_without_ink_keeps_the_theme_text_colour_in_the_pptx(
+        tmp_path):
+    from pptx.enum.dml import MSO_COLOR_TYPE, MSO_THEME_COLOR
+    runs = _pptx_note_runs(tmp_path, INK_TOUR.replace(" !ink", ""), "plain")
+    assert len(runs) == 2
+    for run in runs:
+        assert run.font.color.type == MSO_COLOR_TYPE.SCHEME
+        assert run.font.color.theme_color == MSO_THEME_COLOR.TEXT_1
+        assert run.font.name == "+mn-lt"
+
+
+def test_only_a_plain_ink_note_takes_its_colour_in_the_exports():
+    from grafli.items import note_ink
+    for text in ('md:\n**bold**', 'T: a task', 'code: x = 1',
+                 'Ann: one\nBob: two'):
+        note = parse(f'#!grafli v4\n@ note n 0,0 """\n{text}\n""" %rose !ink\n'
+                     ).notes[0]
+        assert note_ink(note) is None, text
+    note = parse('#!grafli v4\n@ note n 0,0 "plain" %rose !ink\n').notes[0]
+    assert note_ink(note) == QColor(theme.resolve_color("%rose"))

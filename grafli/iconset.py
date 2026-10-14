@@ -7,8 +7,9 @@ Boxes and notes reference symbols by name via the ``*name`` sigil (see
 grafli.format). Tinting substitutes the sheet's canonical ink colour in the
 SVG source; one renderer is cached per tint.
 
-Number badges (``*1`` … ``*99``) are composed at paint time (circle + digit)
-— a static sheet can't carry every number. ``money`` and ``link`` predate the
+Number badges (``*0`` … ``*99``, filled: ``*solid-0`` … ``*solid-99``) are
+composed at paint time (circle + digit) — a static sheet can't carry every
+number. ``money`` and ``link`` predate the
 sheet and remain hand-drawn painters until it gains them.
 """
 
@@ -22,7 +23,7 @@ from PySide6.QtSvg import QSvgRenderer
 
 from grafli import theme
 from grafli.constants import NOTE_FONT_FAMILY
-from grafli.format import ICON_ALIASES
+from grafli.format import ICON_ALIASES, SOLID_NUMBER_PREFIX
 
 _SHEET = Path(__file__).parent / "assets" / "sketchnote_symbols.svg"
 # Canonical ink colour of the sheet; tinting substitutes this in the source.
@@ -51,13 +52,24 @@ _pixmap_cache: dict[tuple, QPixmap] = {}
 
 def resolve_icon(name: str) -> str:
     """Canonical name for ``name`` — alias-aware (``bulb`` → ``lightbulb``);
-    digit badges 1–99 pass through zero-stripped. "" if unknown."""
+    number badges 0–99, outlined or ``solid-``, pass through zero-stripped.
+    "" if unknown."""
     name = ICON_ALIASES.get(name, name)
     if name in _SHEET_NAMES or name in _LEGACY_PAINTERS:
         return name
-    if name.isdigit() and 1 <= int(name) <= 99:
-        return str(int(name))
+    solid = name.startswith(SOLID_NUMBER_PREFIX)
+    digits = name[len(SOLID_NUMBER_PREFIX):] if solid else name
+    if digits.isdigit() and int(digits) <= 99:
+        return (SOLID_NUMBER_PREFIX if solid else "") + str(int(digits))
     return ""
+
+
+def number_badge(name: str) -> tuple[str, bool] | None:
+    """(digits, filled) for a number badge name, None for any other name."""
+    name = resolve_icon(name)
+    if name.startswith(SOLID_NUMBER_PREFIX):
+        return name[len(SOLID_NUMBER_PREFIX):], True
+    return (name, False) if name.isdigit() else None
 
 
 def has_icon(name: str) -> bool:
@@ -106,8 +118,9 @@ def paint_icon(painter: QPainter, name: str, rect: QRectF,
         return
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    if name.isdigit():
-        _paint_number(painter, name, rect, color)
+    number = number_badge(name)
+    if number is not None:
+        _paint_number(painter, *number, rect, color)
     elif name in _LEGACY_PAINTERS:
         _paint_legacy(painter, name, rect, color)
     else:
@@ -174,7 +187,10 @@ def paint_badge(painter: QPainter, name: str, rect: QRectF,
 
 # ── number badges (composed: circle + digit) ──
 
-def _paint_number(p: QPainter, digits: str, rect: QRectF, color: QColor):
+def _paint_number(p: QPainter, digits: str, filled: bool, rect: QRectF,
+                  color: QColor):
+    """An outlined circle around the digits, or for ``filled`` a disc in
+    ``color`` with the digits knocked out in the ink that reads on it."""
     side = min(rect.width(), rect.height())
     stroke = max(1.2, side * 0.055)
     square = QRectF(rect.left() + (rect.width() - side) / 2,
@@ -183,8 +199,10 @@ def _paint_number(p: QPainter, digits: str, rect: QRectF, color: QColor):
     pen = QPen(color, stroke)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     p.setPen(pen)
-    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.setBrush(color if filled else Qt.BrushStyle.NoBrush)
     p.drawEllipse(square.adjusted(inset, inset, -inset, -inset))
+    if filled:
+        p.setPen(theme.ink_on(color))
     font = QFont(NOTE_FONT_FAMILY)
     font.setBold(True)
     font.setPixelSize(max(6, round(side * (0.52 if len(digits) == 1 else 0.42))))

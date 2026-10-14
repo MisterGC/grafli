@@ -73,7 +73,9 @@ def test_iconset_names_and_render():
     assert iconset.has_icon("lightbulb") and not iconset.has_icon("nope")
     assert iconset.has_icon("bulb")          # legacy alias
     assert iconset.has_icon("3") and iconset.has_icon("42")   # number badges
-    assert not iconset.has_icon("0") and not iconset.has_icon("100")
+    assert iconset.has_icon("0") and iconset.has_icon("solid-12")
+    assert not iconset.has_icon("100") and not iconset.has_icon("solid-100")
+    assert not iconset.has_icon("solid-")
     pm = iconset.icon_pixmap("bulb", QColor("#2F3437"), 64, 2.0)
     assert pm is not None and not pm.isNull()
     assert pm.devicePixelRatio() == 2.0

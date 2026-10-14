@@ -11,7 +11,7 @@ from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRectF
 from PySide6.QtGui import QBrush, QImage, QPainter
 from PySide6.QtSvg import QSvgGenerator
 from PySide6.QtWidgets import QApplication, QFileDialog, QGraphicsItem
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from grafli import theme
 from grafli.items import (
     BoxItem,
@@ -106,9 +106,16 @@ class ExportMixin:
             for item in badge_items:
                 item.setVisible(True)
 
+    def _export_extras_held(self):
+        """Hold miniatures and doc lines back for an export; a headless render
+        keeps them, as the canvas shows them."""
+        if self._headless_board is not None:
+            return nullcontext()
+        return self.miniatures_held()
+
     def _render_svg_bytes(self, padding: int = 20, region=None) -> QByteArray:
         """Render the current diagram (or selection) to SVG bytes."""
-        with self.miniatures_held(), \
+        with self._export_extras_held(), \
                 self._export_scene_context(padding=padding,
                                            region=region) as rect:
             buf = QByteArray()
@@ -133,7 +140,7 @@ class ExportMixin:
         self, scale: int = 2, padding: int = 20, region=None,
     ) -> QImage:
         """Render the current diagram (or selection) to a QImage."""
-        with self.miniatures_held(), \
+        with self._export_extras_held(), \
                 self._export_scene_context(padding=padding,
                                            region=region) as rect:
             size = rect.size().toSize()

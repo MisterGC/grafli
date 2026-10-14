@@ -4,7 +4,7 @@ A box with `&graph:<name>` shows a raster miniature of its sub-board once its
 body is large enough on screen. Entering stays an explicit key — Return or
 `gd` — and plays a zoom into the box that hands over to the sub-board fitted;
 `gu` plays it in reverse. Zooming alone never switches boards, and exports
-render without miniatures.
+render without miniatures; `grafli render` draws them as the canvas does.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ class LevelsMixin:
         or while this board has no file of its own."""
         if getattr(el, "attach_kind", "") != "graph" or not el.url:
             return None
-        here = getattr(self.window(), "_file_path", None)
+        here = self._board_file()
         if not here:
             return None
         from grafli.format import split_board_fragment
@@ -94,9 +94,11 @@ class LevelsMixin:
         """Give every `&graph` box whose body is large enough on screen its
         miniature, and take it from the rest. *skip* holds boxes the level of
         detail hides or reduces. Nothing shows while the view is not on screen
-        or an export holds miniatures back."""
+        or an export holds miniatures back; a headless render counts as on
+        screen."""
         shown_paths: set[str] = set()
-        active = (self.isVisible() and scale > 0
+        on_screen = self.isVisible() or self._headless_board is not None
+        active = (on_screen and scale > 0
                   and not getattr(self, "_miniatures_held", 0))
         for bid, item in self._box_items.items():
             pix = None
@@ -110,7 +112,8 @@ class LevelsMixin:
                     if pix is not None:
                         shown_paths.add(str(path.resolve()))
             item.set_miniature(pix)
-        self._watch_miniatures(shown_paths)
+        # A headless render is a snapshot: nothing to keep up to date.
+        self._watch_miniatures(shown_paths if self.isVisible() else set())
 
     def _watch_miniatures(self, paths: set[str]):
         """Poll the files of the miniatures on screen, so one updates as soon
@@ -247,7 +250,17 @@ class LevelsMixin:
         return self.isVisible() and ZOOM_MS > 0
 
     def _board_file(self):
-        return getattr(self.window(), "_file_path", None)
+        return (getattr(self.window(), "_file_path", None)
+                or self._headless_board)
+
+    def render_headless(self, board_file: Path | None) -> None:
+        """Render this never-shown view as the app shows its canvas: `&graph`
+        miniatures and `&doc` lines resolve against *board_file* and paint
+        into the render. Set it before loading that board; None turns it
+        off."""
+        self._headless_board = Path(board_file) if board_file else None
+        self._scene.setProperty("canvas_offscreen",
+                                self._headless_board is not None)
 
     def _track_level_transition(self):
         """Remember the running level zoom and the board it plays on, so a

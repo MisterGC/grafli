@@ -391,6 +391,10 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         self._present_detail: str | None = None
         self._present_focus_rect: QRectF | None = None
         self._present_emphasis: tuple[set[str], set[str]] | None = None
+        # The board file of a headless render (`grafli render`), None in the
+        # app: it stands in for the window's file, so `&graph` miniatures and
+        # `&doc` lines resolve and paint into the render as on the canvas.
+        self._headless_board: Path | None = None
         # Forward arrow (by id()) -> the reverse arrow merged into its line.
         self._merged_reverse: dict[int, Arrow] = {}
         # Flows-panel edit target: a captured bookmark is inserted after the

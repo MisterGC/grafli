@@ -1953,6 +1953,8 @@ def _cmd_render(argv: list[str]) -> int:
     board = parse(text)
     view = GrafliView()
     view.base_dir = str(args.input.resolve().parent)
+    # Draw `&graph` miniatures and `&doc` lines as the canvas shows them.
+    view.render_headless(args.input.resolve())
     view.load_board(board)
 
     region = None
@@ -1990,6 +1992,7 @@ def _cmd_render(argv: list[str]) -> int:
                 return 2
             board = parse(other.read_text(encoding="utf-8"))
             view.base_dir = str(other.parent)
+            view.render_headless(other)
             view.load_board(board)
         # Explicit CLI flags override the step's resolved settings.
         if detail is None:

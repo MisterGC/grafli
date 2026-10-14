@@ -1498,10 +1498,13 @@ class BoxItem(QGraphicsRectItem):
               and not (self._icons_above_label() and self._has_badge_icon())):
             self._paint_icon(painter)
         # Only on the canvas: exports and thumbnails render the scene without
-        # a widget and show the box as it is drawn without a miniature.
-        if self._miniature is not None and widget is not None:
+        # a widget and show the box as it is drawn without a miniature. A
+        # headless render draws the canvas offscreen and keeps them.
+        on_canvas = widget is not None or bool(
+            self.scene() and self.scene().property("canvas_offscreen"))
+        if self._miniature is not None and on_canvas:
             self._paint_miniature(painter)
-        if self._doc_line and widget is not None:
+        if self._doc_line and on_canvas:
             self._paint_doc_line(painter)
 
         if ((self.box.url or self.box.attach_kind == "doc")

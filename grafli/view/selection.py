@@ -595,6 +595,7 @@ class SelectionMixin:
         for item in self._arrow_items:
             self._scene.removeItem(item)
         self._arrow_items.clear()
+        self._merged_reverse.clear()
 
         if not self._board:
             return
@@ -624,6 +625,9 @@ class SelectionMixin:
             ):
                 # Merge: combine head flags from both arrows
                 merged.add(self._board.arrows.index(reverse))
+                # The merged line carries only the forward arrow; remember the
+                # reverse so emphasising it by id finds the line.
+                self._merged_reverse[id(arrow)] = reverse
                 render_list.append((
                     arrow.from_id, arrow.to_id,
                     arrow.head_to or reverse.head_from,
@@ -690,6 +694,11 @@ class SelectionMixin:
                 resolved = theme.resolve_color(fwd.color)
                 if resolved:
                     arrow_color = QColor(resolved)
+
+            # A path stop's arrow: the tour accent, twice as thick (heads too).
+            if self._arrow_emphasised(fwd):
+                arrow_color = QColor(theme.FLOWS_ACCENT)
+                arrow_width *= 2
 
             # Arrowheads grow with the line, but gently, so they stay tasteful.
             # Sized off the base width so an explicit thickness doesn't bloat them.
@@ -919,7 +928,8 @@ class SelectionMixin:
         if self._arrows_dimmed and not self._focus_active and not self._complexity_active:
             for gfx in self._arrow_items:
                 gfx.setOpacity(0.08)
-        if self._present_focus_rect is not None:
+        if (self._present_focus_rect is not None
+                or self._present_emphasis is not None):
             # Rebuilt arrow gfx start at full opacity — refresh the focus fade.
             self._apply_presentation_focus()
 

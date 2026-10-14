@@ -383,9 +383,14 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
         # headless render honouring one) is shown. _present_detail overrides
         # the global LoD toggle ("full" | "summary" | None = follow global);
         # _present_focus_rect, when set, dims every element not completely
-        # inside that scene rect ("complete" focus mode).
+        # inside that scene rect ("complete" focus mode). _present_emphasis,
+        # when set, is a stop's (arrow ids, kept element ids): those arrows
+        # draw in the tour accent, thicker, and all but the kept elements dim.
         self._present_detail: str | None = None
         self._present_focus_rect: QRectF | None = None
+        self._present_emphasis: tuple[set[str], set[str]] | None = None
+        # Forward arrow (by id()) -> the reverse arrow merged into its line.
+        self._merged_reverse: dict[int, Arrow] = {}
         # Flows-panel edit target: a captured bookmark is inserted after the
         # selected step of this flow (instead of just creating a loose one).
         self._active_flow: Flow | None = None

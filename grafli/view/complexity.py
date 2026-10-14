@@ -449,7 +449,8 @@ class ComplexityMixin:
             # Hidden endpoints re-route to their tile/hull; illegible labels
             # drop out and their lines redraw unbroken.
             self._redraw_arrows()
-        if self._present_focus_rect is not None:
+        if (self._present_focus_rect is not None
+                or self._present_emphasis is not None):
             # Tiles appearing / elements hiding change what counts as fully
             # framed — recompute the focus fade against the new composition.
             self._apply_presentation_focus()

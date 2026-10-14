@@ -45,6 +45,25 @@ author scoped steps directly; see the [format reference](format.md#bookmarks-and
 `grafli render <file> out.png --bookmark bm` renders a stop exactly as
 framed, honouring the scope.
 
+### Path stops: framing an arrow
+
+A runtime flow or a request path is a sequence of arrows, so a stop can be
+one. Give the arrow an id (`~id=<id>` on its line) and list that id in a
+bookmark's focus:
+
+```
+@ arrow client -> server "request" ~id=call
+@ bookmark b_call "The call" @call "The client sends the request."
+```
+
+The stop frames the arrow's two ends. While a tour shows it, the arrow draws
+in the tour accent, twice as thick, and everything but the arrow, its two
+ends and the bookmark's other focus elements dims. `grafli render <file>
+out.png --bookmark b_call` and the PDF/PPTX export render the stop the same
+way. A focus may mix
+arrows and elements (`@call,db`); an element id wins over an arrow carrying
+the same id.
+
 ### Text slides (clickable links)
 
 Select a **single text note** and capture it with **no description**, and that

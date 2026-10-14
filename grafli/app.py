@@ -1965,7 +1965,8 @@ def _cmd_render(argv: list[str]) -> int:
         if focus_mode is None:
             focus_mode = step_focus(flow, step) or None
     if bookmark_id:
-        from grafli.flows import bookmark_target_rect, isolate_focus
+        from grafli.flows import (bookmark_target_rect, emphasis_for,
+                                  isolate_focus)
         bm = board.bookmark_by_id(bookmark_id)
         if bm is None:
             ids = ", ".join(b.id for b in board.bookmarks) or "none"
@@ -1979,6 +1980,8 @@ def _cmd_render(argv: list[str]) -> int:
             return 2
         if bm.isolate and bm.focus:
             iso_ctx = isolate_focus(view, bm.focus)
+        # A bookmark framing arrows emphasises them, as its tour stop does.
+        view._set_presentation_emphasis(emphasis_for(board, bm))
     elif args.focus:
         wanted = [i.strip() for i in args.focus.split(",") if i.strip()]
         items = {**view._box_items, **view._note_items, **view._image_items}
@@ -2123,11 +2126,13 @@ def _cmd_export(argv: list[str]) -> int:
         return 2
 
     # Flow-integrity findings (cheap, no Qt needed): steps referencing a
-    # missing bookmark, bookmark focus ids that resolve to no element.
+    # missing bookmark, bookmark focus ids that resolve to no element (an
+    # arrow's ~id= counts: a path stop frames the arrow).
     element_ids = (
         {b.id for b in board.boxes}
         | {n.id for n in board.notes}
         | {im.id for im in board.images}
+        | {a.id for a in board.arrows if a.id}
     )
     board_path = args.input.resolve()
     dangling: list[str] = []

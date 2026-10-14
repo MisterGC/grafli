@@ -324,6 +324,65 @@ def test_bookmark_thumbnail_leaves_the_miniature_out(tmp_path: Path):
     win.close()
 
 
+
+def _headless(path: Path):
+    """A never-shown view set up as `grafli render` sets it up."""
+    from grafli.format import parse
+    from grafli.view import GrafliView
+    _app()
+    view = GrafliView()
+    view.base_dir = str(path.parent)
+    view.render_headless(path)
+    view.load_board(parse(path.read_text()))
+    return view
+
+
+def test_headless_render_shows_the_miniatures_the_app_shows(tmp_path: Path):
+    root, _ = _system(tmp_path)
+    win = _window(root)
+    view = _headless(root)
+    for scale in (0.3, 1.0, 2.0):
+        _zoom(win, scale)
+        view.setTransform(QTransform().scale(scale, scale))
+        view._refresh_lod()
+        shown = {bid for bid, item in win._view._box_items.items()
+                 if item._miniature is not None}
+        assert {bid for bid, item in view._box_items.items()
+                if item._miniature is not None} == shown
+    assert "combat" in shown   # at 2.0, the last zoom
+    # A snapshot keeps no file watch alive.
+    assert getattr(view, "_miniature_watcher", None) is None
+    win.close()
+
+
+def test_render_draws_the_miniature(tmp_path: Path):
+    from PySide6.QtGui import QImage
+    from grafli.app import _cmd_render
+    root, sub = _system(tmp_path)
+    with_mini = tmp_path / "with.png"
+    assert _cmd_render([str(root), str(with_mini)]) == 0
+    sub.unlink()
+    without = tmp_path / "without.png"
+    assert _cmd_render([str(root), str(without)]) == 0
+    assert QImage(str(with_mini)) != QImage(str(without))
+
+
+def test_render_lod_keeps_the_zoomed_out_look(tmp_path: Path):
+    # Fitted to the screen, this board is far too small for a miniature, so
+    # `--lod` renders it as it did before render drew miniatures at all.
+    from PySide6.QtGui import QImage
+    from grafli.app import _cmd_render
+    root, sub = _system(tmp_path)
+    root.write_text(root.read_text()
+                    + '@ box far "Far" 20000,20000 400x300\n')
+    zoomed_out = tmp_path / "lod.png"
+    assert _cmd_render([str(root), str(zoomed_out), "--lod"]) == 0
+    sub.unlink()
+    before = tmp_path / "before.png"
+    assert _cmd_render([str(root), str(before), "--lod"]) == 0
+    assert QImage(str(zoomed_out)) == QImage(str(before))
+
+
 # ── Entering ──
 
 

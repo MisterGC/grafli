@@ -189,6 +189,26 @@ def test_board_merge_arrows_keyed_by_endpoints():
     assert any(ar.from_id == "a" and ar.to_id == "b" for ar in merged.arrows)
 
 
+def test_board_merge_parallel_arrows_keyed_by_id():
+    # Two arrows between the same boxes: each side edits a different one.
+    boxes = '@ box a "A" 0,0 100x100\n@ box b "B" 200,0 100x100\n'
+    base = _board(boxes + '@ arrow a -> b "req" ~id=req\n'
+                          '@ arrow a -> b "ack" ~id=ack\n')
+    local = _board(boxes + '@ arrow a -> b "request" ~id=req\n'
+                           '@ arrow a -> b "ack" ~id=ack\n')
+    remote = _board(boxes + '@ arrow a -> b "req" ~id=req\n'
+                            '@ arrow a -> b "ack" !dashed ~id=ack\n')
+    merged, conflicts = merge_boards(base, local, remote)
+    assert not conflicts
+    by_id = {ar.id: ar for ar in merged.arrows}
+    assert len(merged.arrows) == 2
+    assert by_id["req"].label == "request"
+    assert by_id["ack"].style == "dashed"
+    out = serialize(merged)
+    assert '@ arrow a -> b "request" ~id=req' in out
+    assert '@ arrow a -> b "ack" !dashed ~id=ack' in out
+
+
 def test_board_merge_result_serializes_and_reparses():
     base = _board('@ box a "A" 0,0 100x100\n')
     local = _board('@ box a "A" 50,0 100x100\n@ note n1 0,200 "hi"\n')

@@ -99,7 +99,7 @@ your diagram is the graph; the detail lives in notes adjacent to it.
 ## Arrow syntax
 
 ```
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [~size] [~kind=graph|annotation] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [~size] [~kind=graph|annotation] [~id=<id>] [# annotation]
 ```
 
 | Feature | Syntax | Effect |
@@ -118,6 +118,7 @@ your diagram is the graph; the detail lives in notes adjacent to it.
 | Thickness | `!thick` | double-width line |
 | Text size | `~size` | as for boxes |
 | Connector kind | `~kind=graph` / `~kind=annotation` | override the endpoint default (see below) |
+| Arrow id | `~id=<id>` | stable name for the arrow (see below) |
 | Annotation | `# text` | authoring metadata (indicator dot, not visible text) |
 
 Arrows auto-route from box edge to box edge: an arrow runs
@@ -138,6 +139,13 @@ between a merged pair fans against the merged line.
 edges. `~kind=graph` promotes a note/image connector to a first-class
 graph edge — auto-flows and graph navigation then follow it (see
 `references/presenting.md`); `~kind=annotation` demotes the other way.
+
+**Arrow id.** `~id=<id>` names one arrow, so something else can point
+at it and two arrows between the same elements stay apart when a
+board is merged. Add it only to an arrow something references; a plain
+arrow carries no id. Keep it unique on the board. A file with an arrow
+id carries a `#!grafli v3` header — bump it yourself when you add the
+first one.
 
 ### Semantic edge labels
 

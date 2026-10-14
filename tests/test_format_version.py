@@ -101,3 +101,17 @@ def test_a_board_fragment_on_a_connector_writes_v3():
     text = ('#!grafli v1\n@ box a "A" 0,0 10x10\n@ box b "B" 50,0 10x10\n'
             '@ arrow a -> b &graph:combat#blow\n')
     assert serialize(parse(text)).splitlines()[0] == "#!grafli v3"
+
+
+def test_an_arrow_id_writes_v3():
+    text = ('#!grafli v1\n@ box a "A" 0,0 10x10\n@ box b "B" 50,0 10x10\n'
+            '@ arrow a -> b ~id=call\n')
+    out = serialize(parse(text))
+    assert out.splitlines()[0] == "#!grafli v3"
+    assert "@ arrow a -> b ~id=call" in out
+
+
+def test_arrows_without_ids_stay_v1():
+    text = ('#!grafli v1\n@ box a "A" 0,0 10x10\n@ box b "B" 50,0 10x10\n'
+            '@ arrow a -> b "call" ~kind=graph\n')
+    assert serialize(parse(text)) == text

@@ -65,6 +65,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <kbd>g</kbd><kbd>v</kbd> says so. Exports draw the box without the line,
   and a board without box docs looks as before.
   ([#163](https://github.com/MisterGC/grafli/issues/163))
+- **Arrows can carry a stable id.** An arrow line may end in `~id=<id>`
+  (before a `# annotation`), so that a bookmark, a tour stop or an overlay
+  can name one arrow. When a board on disk and the open board are merged,
+  an arrow with an id is matched by it, so edits to two arrows between the
+  same boxes no longer collide; an arrow without one is matched by its
+  endpoints as before. A board using an arrow id is written with a
+  `#!grafli v3` header; a board without one is written as before.
+  ([#164](https://github.com/MisterGC/grafli/issues/164))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

@@ -748,23 +748,33 @@ class BoxItem(QGraphicsRectItem):
         is_flat = self.box.style == "flat" or self._container_look()
         if hex_color:
             c = QColor(hex_color)
+            self.setPen(self._border_pen(c.darker(125), is_flat))
             if is_flat:
-                self.setPen(QPen(Qt.PenStyle.NoPen))
                 c.setAlphaF(0.7)
-            else:
-                self.setPen(QPen(c.darker(125), BOX_BORDER_WIDTH))
             self.setBrush(QBrush(c))
         else:
+            self.setPen(self._border_pen(QColor(theme.INK), is_flat))
             if is_flat:
-                self.setPen(QPen(Qt.PenStyle.NoPen))
                 fill = QColor(theme.SCENE_BG)
                 fill.setAlphaF(0.7)
                 self.setBrush(QBrush(fill))
             else:
-                self.setPen(QPen(QColor(theme.INK), BOX_BORDER_WIDTH))
                 self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         self._label.setDefaultTextColor(self._label_ink())
         self._label.update()
+
+    def _border_pen(self, color: QColor, is_flat: bool) -> QPen:
+        """The outline: solid on a plate, none on a flat box or container,
+        and in its pattern wherever ``!dashed`` / ``!dotted`` asks for one."""
+        if is_flat and not self.box.border:
+            return QPen(Qt.PenStyle.NoPen)
+        pen = QPen(color, BOX_BORDER_WIDTH)
+        if self.box.border == "dashed":
+            pen.setStyle(Qt.PenStyle.DashLine)
+        elif self.box.border == "dotted":
+            pen.setStyle(Qt.PenStyle.DotLine)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        return pen
 
     def _fill_color(self) -> QColor:
         """The colour the label and icons sit on: the fill, or the canvas

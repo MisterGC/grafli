@@ -974,6 +974,8 @@ class StyleModeMixin:
         ("← From", (True, False)),
         ("↔ Both", (True, True)),
     )
+    # What each headed end draws: an arrowhead, or a dot (`!dot`, #210).
+    _CONN_END_OPTIONS = (("Arrow", ""), ("Dot", "dot"))
     _CONN_LINE_OPTIONS = (("Solid", ""), ("Dashed", "dashed"), ("Dotted", "dotted"))
     _CONN_THICK_OPTIONS = (("Thin", "thin"), ("Normal", ""), ("Thick", "thick"))
     _CONN_ROUTING_OPTIONS = (("Direct", ""), ("Spline", "spline"),
@@ -987,9 +989,9 @@ class StyleModeMixin:
         ("2XL", "xxlarge"), ("3XL", "xxxlarge"), ("4XL", "4xl"),
     )
     # Fields snapshotted for undo/restore across the overlay's lifetime.
-    _CONN_OVERLAY_FIELDS = ("head_from", "head_to", "style", "thickness",
-                            "routing", "from_side", "to_side", "color",
-                            "textsize")
+    _CONN_OVERLAY_FIELDS = ("head_from", "head_to", "head_shape", "style",
+                            "thickness", "routing", "from_side", "to_side",
+                            "color", "textsize")
 
     def _set_all_arrows(self, field: str, value):
         for a in self._selected_arrows:
@@ -1014,6 +1016,10 @@ class StyleModeMixin:
             {"label": "Heads", "kind": "heads", "options": list(self._CONN_HEAD_OPTIONS),
              "get": lambda: (primary.head_from, primary.head_to),
              "set": set_heads},
+            {"label": "Ends", "kind": "endshape",
+             "options": list(self._CONN_END_OPTIONS),
+             "get": lambda: primary.head_shape,
+             "set": lambda v: self._set_all_arrows("head_shape", v)},
             {"label": "Line", "kind": "line", "options": list(self._CONN_LINE_OPTIONS),
              "get": lambda: primary.style,
              "set": lambda v: self._set_all_arrows("style", v)},
@@ -1578,6 +1584,20 @@ class StyleModeMixin:
                 painter.drawPolygon(QPolygonF([
                     QPointF(x1, mid_y), QPointF(x1 + 1.7 * s, mid_y - s),
                     QPointF(x1 + 1.7 * s, mid_y + s)]))
+            return
+        if kind == "endshape":
+            # A line ending in the shape the cell picks, at the "to" end.
+            painter.setPen(QPen(ink, 1.6))
+            painter.drawLine(QPointF(x1, mid_y), QPointF(x2, mid_y))
+            painter.setBrush(QBrush(ink))
+            painter.setPen(QPen(ink, 1))
+            s = 3.6
+            if val == "dot":
+                painter.drawEllipse(QPointF(x2 - s, mid_y), s, s)
+            else:
+                painter.drawPolygon(QPolygonF([
+                    QPointF(x2, mid_y), QPointF(x2 - 1.7 * s, mid_y - s),
+                    QPointF(x2 - 1.7 * s, mid_y + s)]))
             return
         if kind == "side":
             # A small box with the connector stepping out of the side it

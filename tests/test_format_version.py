@@ -377,3 +377,40 @@ def test_a_v3_build_reads_a_sides_board_as_newer(monkeypatch):
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
     assert supported_version() == 3
     assert is_newer(parse(SIDES))
+
+
+DOTS = ('#!grafli v4\n@ box a "A" 0,0 200x80\n@ box b "B" 0,200 200x80\n'
+        '@ arrow a <-> b "joins" !dotted !ortho !dot\n'
+        '@ arrow b -> a\n')
+
+
+def test_dot_ends_round_trip_and_write_v4():
+    board = parse(DOTS)
+    assert [a.head_shape for a in board.arrows] == ["dot", ""]
+    assert [(a.style, a.routing) for a in board.arrows] == \
+        [("dotted", "ortho"), ("", "")]
+    assert required_version(board) == 4
+    assert serialize(board) == DOTS
+
+
+def test_dot_is_read_in_any_flag_order():
+    board = parse('@ box a "A" 0,0 200x80\n@ box b "B" 0,200 200x80\n'
+                  '@ arrow a -> b !dot !thick !dashed\n')
+    a = board.arrows[0]
+    assert (a.head_shape, a.thickness, a.style) == ("dot", "thick", "dashed")
+
+
+def test_a_dot_on_a_v1_arrow_lifts_the_board_to_v4():
+    board = parse('#!grafli v1\n@ box a "A" 0,0 200x80\n'
+                  '@ box b "B" 0,200 200x80\n@ arrow a -> b\n')
+    assert required_version(board) == 1
+    board.arrows[0].head_shape = "dot"
+    assert serialize(board).splitlines()[0] == "#!grafli v4"
+
+
+def test_a_v3_build_reads_a_dot_board_as_newer(monkeypatch):
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    assert supported_version() == 3
+    assert is_newer(parse(DOTS))

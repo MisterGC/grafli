@@ -187,3 +187,17 @@ def test_a_v3_build_opens_a_connector_sides_board_read_only(tmp_path,
     assert "v4" in win._view._toast_text
     assert "[read-only]" in win.windowTitle()
     assert f.read_text() == text
+
+
+def test_a_v3_build_opens_a_dot_ends_board_read_only(tmp_path, monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = ('#!grafli v4\n@ box a "A" 0,0 200x80\n@ box b "B" 0,200 200x80\n'
+            '@ arrow a <-> b !dot\n')
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "v4" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+    assert f.read_text() == text

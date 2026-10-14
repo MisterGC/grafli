@@ -218,6 +218,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   then the colour grid picks its colour. A board using it is written
   `#!grafli v4`; older builds open it read-only.
   ([#211](https://github.com/MisterGC/grafli/issues/211))
+- **Zoomed out, a `^left` container stays a band.** A board of stacked
+  containers collapsed into grey tiles with centred titles, so it stopped
+  reading as a stack. `^left` places a container's title top left at full
+  zoom and, collapsed, keeps a strip of its children's colours with its
+  title on the left edge, in the app and in `grafli render --lod`. Style
+  mode <kbd>s</kbd> <kbd>e</kbd>'s Label row gains Left. A board using it
+  is written `#!grafli v4`; older builds open it read-only.
+  ([#212](https://github.com/MisterGC/grafli/issues/212))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

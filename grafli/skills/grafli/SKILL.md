@@ -227,7 +227,10 @@ in `references/genres.md` instead.)
    tier you want to show but have nothing to put in yet — has to ask
    for that look: `!flat ^topleft ~small`. Without it an empty band
    renders as a big rounded leaf node, which reads as a component
-   rather than a layer. The reverse — a **card**, a box that keeps its
+   rather than a layer. A stack of layer containers that must still
+   read as a stack zoomed out takes `^left` instead of `^topleft`
+   (written `#!grafli v4`): collapsed, each band keeps a strip of its
+   children's colours and its title on the left. The reverse — a **card**, a box that keeps its
    fill, border and centred title around a body note it owns — asks for
    `!card` (written `#!grafli v4`). A dark fill reads with `!ink`: the
    label and icon take a light ink on the fill itself, no plate; on a

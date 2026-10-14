@@ -78,9 +78,13 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   and [dark theme](keybindings.md#light-and-dark), so a board written by
   someone on light reads correctly on dark. Prefer them over hex, which is
   kept exactly as written and so only suits one theme.
-- `^anchor` — `topleft`, `top`, `topright`, `left`, `center`, `right`,
-  `bottomleft`, `bottom`, `bottomright`. Controls how a box's label is
-  placed.
+- `^anchor` — `topleft`, `topcenter` or `left`; without one a box's label
+  is centred, and a box with children takes `topleft`. Controls how a box's
+  label is placed. `left` places it top left like `topleft` and, zoomed out
+  (and in `grafli render --lod`), keeps a collapsed container a band: a strip
+  of its children's colours, each where its child sits, and its title on the
+  left edge instead of a grey tile with a centred title. A board using it
+  carries a `#!grafli v4` header. (Style mode → `e`: the Label row, Left.)
 - `~size` — `xsmall`, `small`, `medium`, `large`, `xlarge`.
 - `~width=N` — *(notes only)* override the wrap width in characters.
   Notes auto-wrap to 80 chars by default so long AI-generated lines stay

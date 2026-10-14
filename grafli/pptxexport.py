@@ -32,16 +32,18 @@ from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.oxml.ns import qn
+from pptx.dml.color import RGBColor
 from pptx.util import Pt
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRectF, Qt
 from PySide6.QtGui import QFont, QImage, QPainter, QTextDocument
 
-from grafli.constants import FONT_FAMILY, resolve_textsize_px
+from grafli.constants import FONT_FAMILY, SANS_FONT_FAMILY, resolve_textsize_px
 from grafli.flows import isolate_focus, render_thumbnail_art
+from grafli.items import note_ink
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
 from grafli.slideplan import (SlidePlan, build_slide_plan, live_overlays,
-                              playback_text_fit, slide_doc_lines,
-                              slide_presentation)
+                              note_text_face, playback_text_fit,
+                              slide_doc_lines, slide_presentation)
 
 # PowerPoint 16:9 canvas in points — same fixed geometry as the PDF exporter, so
 # the fractional layout math below mirrors pdfexport on a 960x540 pt page. When
@@ -508,6 +510,7 @@ def _build_text_hero(slide, hero: QRectF, plan: SlidePlan) -> bool:
     is_md = note_is_md(note)
     body = (md_hard_quote_breaks(note_md_body(note)) if is_md
             else note.text)
+    face = _note_face(note)
     fit = playback_text_fit(resolve_textsize_px(note.textsize, ""),
                             plan.text_rect, hero, _BODY_BAND[0], _BODY_MAX_PT)
     if fit is not None:
@@ -515,11 +518,12 @@ def _build_text_hero(slide, hero: QRectF, plan: SlidePlan) -> bool:
     else:
         rect = hero
         base = _fit_body_pt(body, is_md, hero.width() - _TF_MARGIN_W * 2,
-                            hero.height() - _TF_MARGIN_H * 2, _BODY_BAND)
+                            hero.height() - _TF_MARGIN_H * 2, _BODY_BAND,
+                            family=face or FONT_FAMILY)
     box = slide.shapes.add_textbox(Pt(rect.left()), Pt(rect.top()),
                                    Pt(rect.width()), Pt(rect.height()))
     _fill_text(box.text_frame, body, is_md=is_md, base_pt=base,
-               font_ref=_FONT_MINOR, color=MSO_THEME_COLOR.TEXT_1,
+               font_ref=face or _FONT_MINOR, color=_note_color(note),
                anchor=MSO_ANCHOR.MIDDLE, autosize=False)
     return False
 
@@ -553,9 +557,24 @@ def _build_note_overlay(slide, item, source: QRectF, fitted: QRectF,
         Pt(max(1.0, mapped.width() - pad * 2)),
         Pt(max(1.0, mapped.height() - pad * 2)))
     _fill_text(box.text_frame, body, is_md=is_md, base_pt=base_pt,
-               font_ref=_FONT_MINOR, color=MSO_THEME_COLOR.TEXT_1,
-               autosize=False)
+               font_ref=_note_face(note) or _FONT_MINOR,
+               color=_note_color(note), autosize=False)
     return base_pt < _READABLE_MIN_PT
+
+
+def _note_face(note) -> str:
+    """A ``!sans`` note's text names Inter on its runs (#206); "" keeps the
+    theme's minor font, which the grafli theme sets to mono."""
+    face = note_text_face(note)
+    return face if face != FONT_FAMILY else ""
+
+
+def _note_color(note):
+    """An ``!ink`` note's text in its colour as RGB (#206), else the theme's
+    text colour, so a theme swap restyles it."""
+    ink = note_ink(note)
+    return RGBColor(ink.red(), ink.green(), ink.blue()) if ink else \
+        MSO_THEME_COLOR.TEXT_1
 
 
 def _build_caption(slide, text: str, ctx: _Ctx, hero: QRectF,
@@ -632,7 +651,8 @@ def _fill_background(slide, theme_color) -> None:
 # ── text ─────────────────────────────────────────────────────────────────────
 
 def _fit_body_pt(body: str, is_md: bool, w_pt: float, h_pt: float,
-                 band, fill_floor: float = _FILL_FLOOR) -> float:
+                 band, fill_floor: float = _FILL_FLOOR,
+                 family: str = FONT_FAMILY) -> float:
     """Largest point size from ``band`` (min, ideal, max) at which ``body``,
     reflowed to ``w_pt``, fits ``h_pt`` — grown toward max until it fills
     ``fill_floor`` of the height, shrunk toward min on overflow. Same grow-to-
@@ -643,7 +663,7 @@ def _fit_body_pt(body: str, is_md: bool, w_pt: float, h_pt: float,
         doc.setMarkdown(body, QTextDocument.MarkdownFeature.MarkdownDialectGitHub)
     else:
         doc.setPlainText(body)
-    f = QFont(FONT_FAMILY)
+    f = QFont(family)
 
     def h_at(pt: float) -> float:
         f.setPointSizeF(pt)
@@ -678,7 +698,9 @@ def _fill_text(tf, body: str, *, is_md: bool, base_pt: float, font_ref: str,
     engine the canvas and PDF use — and translated into PowerPoint paragraphs and
     runs: bold/italic, inline code (monospace), links (real hyperlinks), headings
     (scaled + bold) and bullet/ordered lists (hand-prefixed markers, like the PDF
-    draws). Runs reference the theme font/colour so a theme swap restyles them.
+    draws). Runs reference the theme font/colour so a theme swap restyles them;
+    ``font_ref`` may name a face instead (Inter, for a ``!sans`` note) and
+    ``color`` be an ``RGBColor`` (an ``!ink`` note's colour).
     """
     from pptx.enum.text import PP_ALIGN
     tf.word_wrap = True
@@ -688,7 +710,7 @@ def _fill_text(tf, body: str, *, is_md: bool, base_pt: float, font_ref: str,
 
     doc = QTextDocument()
     doc.setDocumentMargin(0)
-    f = QFont(FONT_FAMILY)
+    f = QFont(font_ref if font_ref == SANS_FONT_FAMILY else FONT_FAMILY)
     f.setPointSizeF(base_pt)
     doc.setDefaultFont(f)
     if is_md:
@@ -752,6 +774,8 @@ def _add_run(para, text: str, size_pt: float, font_ref: str, color, *,
     if href:
         run.hyperlink.address = href
         font.color.theme_color = MSO_THEME_COLOR.HYPERLINK
+    elif isinstance(color, RGBColor):
+        font.color.rgb = color
     else:
         font.color.theme_color = color
 

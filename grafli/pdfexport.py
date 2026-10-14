@@ -39,6 +39,7 @@ from grafli.constants import (
     resolve_textsize_px,
 )
 from grafli.flows import isolate_focus, render_thumbnail_art
+from grafli.items import note_ink
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
 # Slide-typing/decision layer is shared with the PPTX exporter. ``_container_box``
 # and ``_slide_source`` are re-exported here for the existing pdfexport tests.
@@ -48,6 +49,7 @@ from grafli.slideplan import (  # noqa: F401
     _slide_source,
     build_slide_plan,
     live_overlays,
+    note_text_face,
     playback_text_fit,
     slide_doc_lines,
     slide_presentation,
@@ -353,8 +355,9 @@ def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
     text_rect = QRectF(mapped.left() + pad, mapped.top() + pad,
                        min(wrap_w, mapped.width() - pad), mapped.height() - pad * 2)
     _draw_markdown(painter, text_rect, body, markdown=is_md, band=_BODY_BAND,
-                   px_per_pt=px_per_pt, color=theme.INK, vcenter=False,
-                   fixed_px=fixed_px, clip=clip)
+                   px_per_pt=px_per_pt, color=note_ink(note) or theme.INK,
+                   vcenter=False, fixed_px=fixed_px, clip=clip,
+                   family=note_text_face(note))
     if len(body.strip()) <= _ANNOTATION_MAX_CHARS:
         return False   # a short annotation rides the picture (issue #123)
     return fixed_px < _READABLE_MIN_PT * px_per_pt
@@ -507,6 +510,8 @@ def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float,
     is_md = note_is_md(note)
     body = (md_hard_quote_breaks(note_md_body(note)) if is_md
             else note.text)
+    # A `!sans` note keeps its face and an `!ink` note its colour (#206).
+    color, family = note_ink(note) or theme.INK, note_text_face(note)
     fit = playback_text_fit(resolve_textsize_px(note.textsize, ""), text_rect,
                             hero, _BODY_BAND[0] * px_per_pt,
                             _BODY_MAX_PT * px_per_pt)
@@ -514,10 +519,11 @@ def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float,
         size_px, rect = fit
         return _draw_markdown(painter, rect, body, markdown=is_md,
                               band=_BODY_BAND, px_per_pt=px_per_pt,
-                              color=theme.INK, vcenter=True,
-                              fixed_px=max(1, round(size_px)))
+                              color=color, vcenter=True,
+                              fixed_px=max(1, round(size_px)), family=family)
     return _draw_markdown(painter, hero, body, markdown=is_md, band=_BODY_BAND,
-                          px_per_pt=px_per_pt, color=theme.INK, vcenter=True)
+                          px_per_pt=px_per_pt, color=color, vcenter=True,
+                          family=family)
 
 
 def render_text_slide_pixmap(note, w: int, h: int, text_rect=None):
@@ -544,7 +550,8 @@ def render_text_slide_pixmap(note, w: int, h: int, text_rect=None):
 def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
                    band, px_per_pt: float, color, vcenter: bool,
                    fill_floor: float = _FILL_FLOOR, fixed_px: int | None = None,
-                   clip: QRectF | None = None) -> bool:
+                   clip: QRectF | None = None,
+                   family: str = FONT_FAMILY) -> bool:
     """Render ``body`` as native, selectable, clickable PDF text in ``rect``.
 
     When ``markdown`` the body is parsed as GitHub-flavoured Markdown, else it
@@ -559,6 +566,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     band minimum (an overloaded slide). ``fixed_px`` forces an exact size and
     skips the fit (for scene-scale in-place overlays); ``clip`` overrides the
     paint clip so such an overlay can extend past its own mapped rect.
+    ``family`` is the body's face, mono unless a ``!sans`` note sets Inter.
 
     Unordered-list bullets are drawn by us as vector discs and Qt's own list
     markers suppressed: Qt's auto markers don't render reliably through the PDF
@@ -572,7 +580,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
 
     doc = QTextDocument()
     doc.setDocumentMargin(0)
-    font = QFont(FONT_FAMILY)
+    font = QFont(family)
     font.setPixelSize(max_px)
     doc.setDefaultFont(font)
     if is_md:
@@ -703,7 +711,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     lay.draw(painter, ctx)
 
     r = max(2.0, gutter * 0.16)
-    marker_font = QFont(FONT_FAMILY)
+    marker_font = QFont(family)
     marker_font.setPixelSize(size)
     for text_left, top, line_h, marker in drawn_markers:
         if marker is None:

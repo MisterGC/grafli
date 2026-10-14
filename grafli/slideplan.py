@@ -20,6 +20,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
 
+from grafli.constants import FONT_FAMILY, SANS_FONT_FAMILY
 from grafli.flows import (bookmark_target_rect, emphasis_for,
                           presentation_detail, presentation_emphasis,
                           presentation_focus, step_detail, step_focus,
@@ -237,6 +238,14 @@ def playback_text_fit(textsize: float, text_rect: QRectF | None,
     fitted = QRectF(hero.left() + (hero.width() - w) / 2,
                     hero.top() + (hero.height() - h) / 2, w, h)
     return min(size, hi), fitted
+
+
+def note_text_face(note) -> str:
+    """The face a note's native text goes out in on PDF and PPTX slides: Inter
+    for a ``!sans`` note (#206), else mono, as slides always set note text."""
+    from grafli.items import note_family
+    return (SANS_FONT_FAMILY if note_family(note) == SANS_FONT_FAMILY
+            else FONT_FAMILY)
 
 
 # ── slide-typing helpers (moved from pdfexport; re-exported there) ──────────

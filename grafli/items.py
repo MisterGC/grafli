@@ -314,6 +314,27 @@ def note_family(note) -> str:
     return SANS_FONT_FAMILY if note.style == "sans" else NOTE_FONT_FAMILY
 
 
+def note_ink(note) -> QColor | None:
+    """The ink an ``!ink`` note's text takes from its ``%color``, or None
+    where the text keeps its usual ink: no ``!ink`` or no colour, or a T:/Q:,
+    markdown, code or discussion note (#204)."""
+    hex_color = theme.resolve_color(note.color) if note.ink else ""
+    if (not hex_color or note_prefix(note.text) is not None
+            or note_is_md(note) or is_code_note(note.text)
+            or _is_discussion(note.text)):
+        return None
+    return QColor(hex_color)
+
+
+def _is_discussion(text: str) -> bool:
+    """Whether *text* is a discussion: it opens on a speaker and has two or
+    more distinct speakers (as ``NoteItem._parse_discussion`` reads it)."""
+    lines = text.split("\n")
+    if not _RE_SPEAKER.match(lines[0]):
+        return False
+    return len({m.group(1) for m in map(_RE_SPEAKER.match, lines) if m}) >= 2
+
+
 def _apply_emphasis(font: QFont, emphasis: str) -> QFont:
     """Layer bold/italic onto ``font`` from an element's ``emphasis`` string."""
     if "bold" in emphasis:

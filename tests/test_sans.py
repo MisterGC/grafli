@@ -1,6 +1,7 @@
-"""`!sans` (#205): a box's label (and its doc line) is set in the bundled
-proportional face, Inter, on the canvas, in `grafli render` and in the PDF
-export. Without `!sans` a box keeps grafli's mono face."""
+"""`!sans` (#205, #206): a box's label (and its doc line) and a note's text
+are set in the bundled proportional face, Inter, on the canvas, in `grafli
+render` and in the PDF, PPTX and HTML exports. Without `!sans` a box keeps
+grafli's mono face and a note its handwritten or mono one."""
 
 from __future__ import annotations
 
@@ -176,3 +177,123 @@ def test_render_draws_a_sans_note_differently_from_handwriting(tmp_path: Path):
     hand = _render(tmp_path, "hand", one.replace(" !sans", "")
                    .replace("v4", "v1"))
     assert sans != hand
+
+
+# ── !sans in the PDF, PPTX and HTML exports (#206) ──────────────
+
+NOTE_TOUR = ('#!grafli v4\n'
+             '@ box a "A" 0,0 160x60\n'
+             '@ note n 0,100 "Sans note text" !sans\n'
+             '@ bookmark bm "Overlay" @a,n\n'
+             '@ bookmark bt "Text" @n\n'
+             '@ flow tour "Tour" bm bt\n')
+
+
+def _pdf_bytes(tmp_path: Path, text: str, name: str) -> bytes:
+    from grafli.pdfexport import export_flow_to_pdf
+    board = parse(text)
+    out = tmp_path / f"{name}.pdf"
+    export_flow_to_pdf(_view(text), board.flow_by_id("tour"), out)
+    return out.read_bytes()
+
+
+def test_the_pdf_export_sets_a_sans_note_in_inter(tmp_path: Path):
+    assert b"Inter" in _pdf_bytes(tmp_path, NOTE_TOUR, "sans")
+    plain = NOTE_TOUR.replace(" !sans", "")
+    assert b"Inter" not in _pdf_bytes(tmp_path, plain, "plain")
+
+
+def test_the_pdf_export_draws_both_note_slides_in_inter(tmp_path: Path,
+                                                         monkeypatch):
+    from grafli import pdfexport
+    families: list[str] = []
+    original = pdfexport._draw_markdown
+
+    def spy(painter, rect, body, **kw):
+        if "Sans note" in body:
+            families.append(kw["family"])
+        return original(painter, rect, body, **kw)
+
+    monkeypatch.setattr(pdfexport, "_draw_markdown", spy)
+    _pdf_bytes(tmp_path, NOTE_TOUR, "sans")
+    assert families == [SANS_FONT_FAMILY, SANS_FONT_FAMILY]
+    families.clear()
+    _pdf_bytes(tmp_path, NOTE_TOUR.replace(" !sans", ""), "plain")
+    assert families == [FONT_FAMILY, FONT_FAMILY]       # as before
+
+
+def _pptx(tmp_path: Path, text: str, name: str, view=None):
+    from pptx import Presentation
+    from grafli.pptxexport import export_flow_to_pptx
+    board = parse(text)
+    out = tmp_path / f"{name}.pptx"
+    export_flow_to_pptx(view or _view(text), board.flow_by_id("tour"), out)
+    return Presentation(out)
+
+
+def _note_runs(prs) -> list:
+    return [r for slide in list(prs.slides)[1:]
+            for sh in slide.shapes if sh.has_text_frame
+            for p in sh.text_frame.paragraphs for r in p.runs
+            if "Sans note" in r.text]
+
+
+def test_the_pptx_export_sets_a_sans_note_in_inter(tmp_path: Path):
+    runs = _note_runs(_pptx(tmp_path, NOTE_TOUR, "sans"))
+    assert len(runs) == 2                               # overlay + text slide
+    assert {r.font.name for r in runs} == {SANS_FONT_FAMILY}
+    plain = _note_runs(_pptx(tmp_path, NOTE_TOUR.replace(" !sans", ""),
+                             "plain"))
+    assert {r.font.name for r in plain} == {"+mn-lt"}   # the theme font
+
+
+def test_the_pptx_export_draws_a_sans_box_in_inter(tmp_path: Path):
+    text = ('#!grafli v4\n@ box s "Sans title" 0,0 240x80 %primary !sans\n'
+            + TOUR)
+    view = _view(text)
+    fonts: list[str] = []
+    label = view._box_items["s"]._label
+    original = label.paint
+
+    def paint(painter, *args):
+        fonts.append(QFontInfo(label.font()).family())
+        original(painter, *args)
+
+    label.paint = paint
+    _pptx(tmp_path, text, "box", view=view)
+    assert fonts and set(fonts) == {SANS_FONT_FAMILY}
+
+
+def _html(tmp_path: Path, text: str, name: str) -> str:
+    from grafli.htmlexport import export_html
+    _app()
+    board = tmp_path / f"{name}.grafli"
+    board.write_text(text)
+    out = tmp_path / f"{name}.html"
+    export_html(board, out)
+    return out.read_text()
+
+
+def _embedded_families(page: str) -> set[str]:
+    import json
+    import re
+    m = re.search(r'id="grafli-fonts">(.*?)</script>', page, re.S)
+    return {f["family"] for f in json.loads(m.group(1).replace("<\\/", "</"))}
+
+
+def test_the_html_export_draws_a_sans_box_and_note_in_inter(tmp_path: Path):
+    page = _html(tmp_path, '#!grafli v4\n'
+                 '@ box s "Sans title" 0,0 240x80 !sans\n', "box")
+    assert 'font-family="Inter"' in page
+    assert _embedded_families(page) == {SANS_FONT_FAMILY}
+    page = _html(tmp_path, '#!grafli v4\n'
+                 '@ note n 0,0 "Sans note text" !sans\n', "note")
+    assert 'font-family="Inter"' in page
+    assert _embedded_families(page) == {SANS_FONT_FAMILY}
+
+
+def test_the_html_export_of_a_plain_board_carries_no_inter(tmp_path: Path):
+    page = _html(tmp_path, '#!grafli v1\n@ box m "Mono title" 0,0 240x80\n'
+                 '@ note n 0,120 "Hand note"\n', "plain")
+    assert 'font-family="Inter"' not in page
+    assert SANS_FONT_FAMILY not in _embedded_families(page)

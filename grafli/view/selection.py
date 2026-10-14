@@ -254,6 +254,7 @@ class SelectionMixin:
         })
 
     def load_board(self, board: Board):
+        self._cancel_level_transition()
         self._board = board
         self._lod = LodModel.from_board(board)
         self._lod_simplified = set()

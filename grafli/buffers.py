@@ -45,6 +45,8 @@ class BoardFrame:
     parent_view: ViewState
     child_path: Path
     label: str
+    # Id of the element entered through, so `gu` can zoom back out of it.
+    via_id: str = ""
 
 
 class BufferManager:

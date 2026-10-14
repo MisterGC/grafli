@@ -398,7 +398,10 @@ When using multiple arrow styles or color meanings, add a legend.
 If a single box's internal logic would need 5+ children to depict,
 link a sub-grafli with `&graph:<name>` instead of stuffing it into
 the parent diagram. The sub-board lives at `<stem>-res/<name>.grafli`,
-renders as its own canvas, and the viewer follows the link.
+renders as its own canvas, and the viewer follows the link. Once the box
+is large enough on screen it shows a miniature of the sub-board below its
+label — give a box you expect people to enter room for one (wider and
+taller than a plain node).
 
 ```
 @ box orders "Order Processing" 100,100 220x100 &graph:orders-flow

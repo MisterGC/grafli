@@ -54,9 +54,10 @@ depth.
 ## Go into a board and back out
 
 A box whose `&graph` sub-board or `.grafli` `&link` you open with
-<kbd>Return</kbd> takes you one board down. <kbd>g</kbd><kbd>u</kbd> takes you
-back up to the board you came from, exactly as you left it — same zoom, scroll
-and selection, no re-fit. While you are inside, the breadcrumb starts with the
+<kbd>Return</kbd> or <kbd>g</kbd><kbd>d</kbd> takes you one board down: the
+view zooms into the box and hands over to the board it opens.
+<kbd>g</kbd><kbd>u</kbd> zooms back out to the board you came from, exactly as
+you left it — same zoom, scroll and selection, no re-fit. While you are inside, the breadcrumb starts with the
 boards you came through, for example `System › Combat › impact()`. On a board
 you did not enter that way, <kbd>g</kbd><kbd>u</kbd> says "Already at the top".
 <kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd> walk the view
@@ -67,6 +68,13 @@ or `&link:../System.grafli#impact` opens the board framed on the bookmark
 `impact` — or, if there is no such bookmark, on the element `impact` — with it
 selected. If the board has neither, it opens fitted and says
 "No element 'impact' in combat.grafli".
+
+Once a box with a `&graph` sub-board is large enough on screen, it shows a
+miniature of that board below its label, so you can see what is inside before
+you go in. The miniature follows the sub-board file: change the file and the
+miniature updates. Zooming in on it never switches boards on its own — only
+<kbd>Return</kbd> or <kbd>g</kbd><kbd>d</kbd> does. Exports show the box
+without the miniature.
 
 To *build* that hierarchy, select one or more elements and press
 <kbd>Ctrl</kbd>+<kbd>G</kbd> — grafli wraps them in a new parent box sized to

@@ -176,11 +176,12 @@ def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-    if bookmark.isolate and bookmark.focus:
-        with isolate_focus(view, bookmark.focus):
+    with view.miniatures_held():
+        if bookmark.isolate and bookmark.focus:
+            with isolate_focus(view, bookmark.focus):
+                view._scene.render(p, QRectF(0, 0, iw, ih), rect)
+        else:
             view._scene.render(p, QRectF(0, 0, iw, ih), rect)
-    else:
-        view._scene.render(p, QRectF(0, 0, iw, ih), rect)
     p.end()
     return QPixmap.fromImage(img)
 

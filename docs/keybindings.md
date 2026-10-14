@@ -58,7 +58,7 @@ lands on the placeholder ready to type-replace.
 | <kbd>e</kbd> / Double-click | Edit what the element **is** — box label / note text inline; an image's file opens in its system app (e.g. Inkscape for `.svg`) |
 | <kbd>E</kbd> | Open [textli](https://mistergc.github.io/textli/) (the full-window Markdown editor) — edits a **note's own text**; for a box/image, opens (or creates) its attached markdown file |
 | <kbd>W</kbd> | Set URL on selected item |
-| <kbd>Return</kbd> | Open URL in browser |
+| <kbd>Return</kbd> | Open the attachment: a link in the browser, a sub-board by zooming into it |
 | <kbd>Enter</kbd> | Accept edit |
 | <kbd>y</kbd> / <kbd>p</kbd> | Yank / paste |
 | <kbd>u</kbd> / <kbd>⌘</kbd>+<kbd>Z</kbd> | Undo |
@@ -191,6 +191,7 @@ grafli render board.grafli out.png --theme dark
 |-----|--------|
 | <kbd>Ctrl</kbd>+<kbd>K</kbd> | Open / switch buffer |
 | <kbd>Ctrl</kbd>+<kbd>6</kbd> | Toggle last buffer |
+| <kbd>g</kbd><kbd>d</kbd> | Zoom into the selected box's sub-board (`&graph` or a `.grafli` link), like <kbd>Return</kbd> |
 | <kbd>g</kbd><kbd>u</kbd> | Back to the board you came from (through `&graph` or a `.grafli` link), as you left it |
 | <kbd>Q</kbd> | Close buffer (no selection) |
 

@@ -40,6 +40,12 @@ EXPAND_PX = 10.0
 CHILD_COLLAPSE_PX = 64.0
 CHILD_EXPAND_PX = 80.0
 
+# A `&graph` box shows its sub-board miniature once the body below its label
+# is this large on screen (shorter side, pixels), and drops it again only
+# below the lower bound — the same hysteresis the tiers use (D3).
+MINIATURE_SHOW_PX = 72.0
+MINIATURE_HIDE_PX = 56.0
+
 Rect = tuple[float, float, float, float]  # x, y, w, h
 
 
@@ -60,6 +66,12 @@ def should_collapse(label_px: float, was_collapsed: bool) -> bool:
 def should_collapse_container(child_px: float, was_collapsed: bool) -> bool:
     """Hysteretic container collapse, driven by on-screen child size."""
     return _hysteretic(child_px, CHILD_COLLAPSE_PX, CHILD_EXPAND_PX, was_collapsed)
+
+
+def should_show_miniature(body_px: float, was_shown: bool) -> bool:
+    """Hysteretic miniature visibility, driven by the on-screen body size."""
+    return not _hysteretic(body_px, MINIATURE_HIDE_PX, MINIATURE_SHOW_PX,
+                           not was_shown)
 
 
 @dataclass(frozen=True)

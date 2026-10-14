@@ -21,7 +21,7 @@ split by the files that own each step
   @../grafli/format.py:451 split_attach
   @../grafli/view/resources.py:106 _open_attachment
   @../grafli/buffers.py:146 push_frame
-  @../grafli/view/flows.py:82 play_flow
+  @../grafli/view/flows.py:89 play_flow
   @../grafli/view/boxdocs.py:177 _peek_doc
   @../grafli/htmlexport.py:128 reachable_boards
 """ ~small

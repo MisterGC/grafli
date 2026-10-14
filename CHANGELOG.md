@@ -173,6 +173,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <kbd>Tab</kbd> in the text grid toggles it. A board using it is written
   `#!grafli v4`; older builds open it read-only.
   ([#205](https://github.com/MisterGC/grafli/issues/205))
+- **`!sans` on notes.** A note's text was handwritten or monospace; an
+  `!sans` note sets it in Inter, on the canvas and in the PDF, PPTX and HTML
+  exports. <kbd>Tab</kbd> in the text grid now cycles a note through
+  handwritten, mono and sans. A PPTX slide names Inter on a `!sans` note's
+  text instead of the theme font.
+  ([#206](https://github.com/MisterGC/grafli/issues/206))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A
@@ -210,6 +216,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **An `!ink` note keeps its colour in the PDF and PPTX exports.** Slides
+  set note text as native text in board ink, so an `!ink` note lost its
+  `%color` there. Its text now prints in that colour; notes without `!ink`
+  export as before.
+  ([#206](https://github.com/MisterGC/grafli/issues/206))
 - **`grafli render` draws sub-board miniatures and box doc lines.** A
   headless render looked up the board's file on a window it never has, so
   a `&graph` box showed no miniature and a `&doc` box no first sentence.

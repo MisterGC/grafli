@@ -234,7 +234,7 @@ in `references/genres.md` instead.)
    note, `!ink` draws the text in its `%color` (both `#!grafli v4`).
    Box labels are monospace; `!sans` sets a box's label in a
    proportional face (Inter) — for an explanation map's titles
-   (`#!grafli v4`).
+   (`#!grafli v4`). On a note, `!sans` swaps the handwriting for Inter.
 5. **Place children inside containers**, sized and aligned to the
    grid (multiples of 50). Use the container margin model in
    `references/design.md`.

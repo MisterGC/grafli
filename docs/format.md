@@ -97,17 +97,20 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
 - `!ink` — on a box, the label and its fill or lead icon take the ink that
   reads on the box's fill (light on a dark fill, dark on a light one) and
   the light plate behind the label goes away; on a note, the text takes the
-  note's `%color` instead of note blue. Without `!ink` a note's `%color`
-  only tints its icon. A board using `!ink` carries a `#!grafli v4` header.
+  note's `%color` instead of note blue, on the canvas and in the PDF and
+  PPTX exports. Without `!ink` a note's `%color` only tints its icon. A board using `!ink` carries a `#!grafli v4` header.
   (Style mode → `e`, Label ink row: plain / on fill.)
 - `!sans` — on a box, the label and its doc line are set in Inter, a
-  proportional face bundled with grafli, instead of the monospace face. Mono
-  stays the default. A board using `!sans` carries a `#!grafli v4` header.
-  (Style mode → `t`, <kbd>Tab</kbd> toggles mono / sans.)
+  proportional face bundled with grafli, instead of the monospace face; on a
+  note, the text is set in Inter instead of handwriting (a `code:` note stays
+  monospace). Mono stays the default for boxes. The PDF, PPTX and HTML
+  exports carry the face too. A board using `!sans` carries a `#!grafli v4`
+  header. (Style mode → `t`, <kbd>Tab</kbd> toggles a box's mono / sans and
+  cycles a note's hand / mono / sans.)
   **Notes render in
   a handwritten face by default**; `!mono` (and `code:` notes) switch to the
   monospace face — handwriting for prose, monospace for code. (Style mode →
-  `t` opens the text grid; `Tab` there toggles a note's font.)
+  `t` opens the text grid; `Tab` there cycles a note's font.)
 - `!routing` *(arrows)* — how the connector travels between its ends:
   omitted for a **direct** line (the default), `!spline` for a curve, `!ortho`
   for a right-angle stair. Independent of `!pattern` and `!thickness`, so

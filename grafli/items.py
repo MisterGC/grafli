@@ -238,8 +238,10 @@ def _aggregate_ideal_px(w_screen: float, h_screen: float) -> float:
 
 
 def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
-                            ideal_px):
+                            ideal_px, left: bool = False):
     """Draw a centered '<label> / N nodes' caption for a collapsed tile or hull.
+    With *left* the caption sits on the left edge instead, left-aligned, as
+    a ``^left`` band's title (#212).
 
     The painter is already translated to the centre and counter-scaled
     (1 unit == 1 on-screen px). The headline wraps to the available width at the
@@ -259,8 +261,9 @@ def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
         head_font.setPixelSize(round(head_px))
         head_font.setBold(True)
         painter.setFont(head_font)
-        gap = head_px * 0.35
-        badge_px = max(6.0, head_px * 0.72)
+        # A band's strip already shows its children: no count line.
+        gap = 0.0 if left else head_px * 0.35
+        badge_px = 0.0 if left else max(6.0, head_px * 0.72)
         # Measure with QFontMetricsF, not painter.boundingRect: the latter
         # returns an empty rect under the translated/counter-scaled scene
         # painter (device-coordinate quirk). Font metrics are transform-free.
@@ -277,8 +280,8 @@ def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
     top = -total_h / 2
 
     badge_font = QFont(FONT_FAMILY)
-    badge_font.setPixelSize(round(badge_px))
-    text = f"{count} node" + ("" if count == 1 else "s")
+    badge_font.setPixelSize(max(1, round(badge_px)))
+    text = "" if left else f"{count} node" + ("" if count == 1 else "s")
     bfm = QFontMetricsF(badge_font)
     bw = bfm.horizontalAdvance(text)
 
@@ -288,6 +291,20 @@ def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
     plate_pad = head_px * 0.28
     plate = QRectF(-plate_w / 2, top - plate_pad,
                    plate_w, total_h + 2 * plate_pad)
+    head_rect = QRectF(-avail_w / 2, top, avail_w, head_h)
+    badge_rect = QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6)
+    badge_flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+    if left:
+        # The plate's left end a pad in from the tile's left edge, the
+        # headline and the count left-aligned inside it.
+        painter.translate(-w_screen / 2 + pad + plate_w / 2, 0.0)
+        inner = plate_w - head_px * 0.9
+        flags = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+                    | Qt.TextFlag.TextWordWrap)
+        head_rect = QRectF(-inner / 2, top, inner, head_h)
+        badge_rect = QRectF(-inner / 2, top + head_h + gap, inner,
+                            badge_px * 1.6)
+        badge_flags = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
     bg = QColor(theme.SURFACE)
     bg.setAlphaF(0.85)
     painter.setPen(Qt.PenStyle.NoPen)
@@ -297,13 +314,12 @@ def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
 
     painter.setFont(head_font)
     painter.setPen(QColor(theme.INK))
-    painter.drawText(QRectF(-avail_w / 2, top, avail_w, head_h), flags, label)
+    painter.drawText(head_rect, flags, label)
 
-    painter.setFont(badge_font)
-    painter.setPen(QColor(theme.INK))
-    painter.drawText(
-        QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6),
-        int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), text)
+    if text:
+        painter.setFont(badge_font)
+        painter.setPen(QColor(theme.INK))
+        painter.drawText(badge_rect, badge_flags, text)
 
 
 def note_family(note) -> str:
@@ -706,6 +722,7 @@ class BoxItem(QGraphicsRectItem):
         # count) tuple; paint() then draws a counter-scaled headline + count
         # badge in place of the hidden children, and the normal label is hidden.
         self._lod_tile: tuple[str, int] | None = None
+        self._lod_strip: tuple = ()   # a `^left` tile's children colours
         # A `&graph` box large enough on screen shows a raster miniature of its
         # sub-board below its label (D3); the view sets and clears it.
         self._miniature: QPixmap | None = None
@@ -935,7 +952,9 @@ class BoxItem(QGraphicsRectItem):
 
     def _get_effective_anchor(self) -> str:
         if self.box.anchor:
-            return self.box.anchor
+            # `^left` lays out like a top-left heading; it only differs
+            # zoomed out, where its tile stays a band (#212).
+            return "topleft" if self.box.anchor == "left" else self.box.anchor
         if self._miniature is not None:
             return "topcenter"   # the miniature takes the body below
         if self._view_has_children():
@@ -1608,17 +1627,24 @@ class BoxItem(QGraphicsRectItem):
                          self.box.status)
         painter.restore()
 
-    def set_lod_tile(self, summary) -> None:
-        """Set/clear collapsed-container tile rendering from a ContainerSummary."""
+    def set_lod_tile(self, summary, strip=()) -> None:
+        """Set/clear collapsed-container tile rendering from a ContainerSummary.
+
+        *strip* is a ``^left`` band's children colours, as ``(x0, x1, rgba)``
+        with x as fractions of the box width (#212)."""
         tile = (summary.label, summary.descendants) if summary else None
-        if tile == self._lod_tile:
+        strip = tuple(strip) if summary else ()
+        if tile == self._lod_tile and strip == self._lod_strip:
             return
+        self._lod_strip = strip
+        was = self._lod_tile
         self.prepareGeometryChange()   # boundingRect grows for the stack mark
         self._lod_tile = tile
         # The tile headline must read above neighbouring notes' LoD markers
         # (notes stack over boxes by insertion order); restore z on expand.
         if tile is not None:
-            self._z_before_tile = self.zValue()
+            if was is None:
+                self._z_before_tile = self.zValue()
             self.setZValue(5.0)
         else:
             self.setZValue(getattr(self, "_z_before_tile", 0.0))
@@ -1741,16 +1767,40 @@ class BoxItem(QGraphicsRectItem):
         scale = _view_scale(self)
         if scale <= 0:
             return
+        ideal = _aggregate_ideal_px(rect.width() * scale,
+                                    rect.height() * scale)
+        band = self.box.anchor == "left"
+        if band:
+            rect = self._paint_lod_strip(painter, self._lod_strip)
         w_screen = rect.width() * scale
         h_screen = rect.height() * scale
-        ideal = _aggregate_ideal_px(w_screen, h_screen)
 
         painter.save()
         painter.translate(rect.center())
         painter.scale(1.0 / scale, 1.0 / scale)   # 1 unit == 1 on-screen px
         _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
-                                ideal)
+                                ideal, left=band)
         painter.restore()
+
+    _STRIP_SHARE = 0.32   # of a band's height, along its bottom
+
+    def _paint_lod_strip(self, painter: QPainter, strip) -> QRectF:
+        """Paint a ``^left`` band's children colours as a strip along its
+        bottom, each where its child sits across the band, and return the
+        area above it, which takes the title (#212)."""
+        rect = self.rect()
+        inset = rect.height() * 0.08
+        strip_h = rect.height() * self._STRIP_SHARE
+        top = rect.bottom() - inset - strip_h
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        for x0, x1, rgba in strip:
+            painter.setBrush(QColor.fromRgba(rgba))
+            painter.drawRect(QRectF(rect.left() + x0 * rect.width(), top,
+                                    (x1 - x0) * rect.width(), strip_h))
+        painter.restore()
+        return QRectF(rect.left(), rect.top(), rect.width(),
+                      top - rect.top())
 
 
 class ClusterHullItem(QGraphicsPathItem):

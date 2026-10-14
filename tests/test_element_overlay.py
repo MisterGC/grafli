@@ -11,8 +11,10 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
+from grafli import theme
 from grafli.format import parse, serialize
 from grafli.view import GrafliView, Mode
 
@@ -304,3 +306,45 @@ def test_box_background_reaches_card():
     assert view.board.box_by_id("a").style == "card"
     out = serialize(view.board)
     assert "!card" in out and out.startswith("#!grafli v4\n")
+
+
+# ── Label ink (#204) ───────────────────────────────────────────────
+
+def _press(view, *keys):
+    from PySide6.QtTest import QTest
+    for key in keys:
+        QTest.keyClick(view, key)
+
+
+def test_s_e_toggles_ink_on_a_box():
+    view = _view('@ box a "A" 0,0 160x60 %primary\n')
+    item = view._box_items["a"]
+    item.setSelected(True)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_E)
+    assert view._elem_overlay_active
+    assert [v for _, v in _axis(view, "Label ink")["options"]] == [False, True]
+    _press(view, Qt.Key.Key_J, Qt.Key.Key_J)
+    assert view._elem_overlay_axes[view._elem_overlay_row]["label"] == \
+        "Label ink"
+    _press(view, Qt.Key.Key_L)                  # Plain -> On fill, previewed
+    assert item._label.defaultTextColor() != QColor(theme.INK)
+    _press(view, Qt.Key.Key_Return)
+    assert view.board.box_by_id("a").ink
+    out = serialize(view.board)
+    assert "%primary !ink" in out and out.startswith("#!grafli v4\n")
+
+
+def test_s_e_toggles_ink_on_a_note_and_cancel_reverts_it():
+    view = _view('@ note n 0,0 "rose text" %rose\n')
+    item = view._note_items["n"]
+    item.setSelected(True)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_E)
+    assert [a["label"] for a in view._elem_overlay_axes] == \
+        ["Background", "Label ink"]
+    _press(view, Qt.Key.Key_J, Qt.Key.Key_L)
+    assert item.note.ink                        # live preview
+    _press(view, Qt.Key.Key_Escape)
+    assert not view.board.notes[0].ink
+    _press(view, Qt.Key.Key_E, Qt.Key.Key_J, Qt.Key.Key_L, Qt.Key.Key_Return)
+    assert view.board.notes[0].ink
+    assert '"rose text" %rose !ink' in serialize(view.board)

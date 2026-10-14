@@ -445,7 +445,7 @@ class OverlaysMixin:
             ("Focus & Analysis", [
                 (",", "Dim arrows"),
                 ("\u21e7N", "Dim notes \u2014 concentrate on the graph"),
-                ("A", "Connectivity heatmap (graph arrows per box)"),
+                ("A", "Connectivity heatmap (graph arrows per box), then each overlay file"),
                 ("B", "Subgraph focus (cycle direction)"),
                 ("\u21e7B", "Toggle focus depth (full/1-hop)"),
             ]),

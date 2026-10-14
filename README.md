@@ -84,7 +84,8 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
     the selection; cycle direction (incoming / outgoing / both) and
     depth (1-hop / unlimited).
   - **Connectivity heatmap** (<kbd>A</kbd>) — color boxes by graph arrows
-    to find hot spots.
+    to find hot spots; further presses show the overlay files a script
+    wrote beside the board (test results, churn, …).
   - **Dim connectors** (<kbd>,</kbd>) / **dim notes**
     (<kbd>Shift</kbd>+<kbd>N</kbd>) — fade arrows or text-notes to 8%
     opacity to read the rest.

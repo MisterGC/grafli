@@ -364,6 +364,8 @@ class SelectionMixin:
         self._complexity_node_heat.clear()
         self._complexity_legend = None
         self._complexity_saved.clear()
+        self._complexity_reading = None
+        self._complexity_saved_notes.clear()
         self._note_highlight_active = False
         self._update_focus_status()
         self._update_complexity_status()

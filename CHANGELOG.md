@@ -100,6 +100,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PDF/PPTX export draw it the same way, and `grafli export --check` takes the
   arrow id as resolved.
   ([#167](https://github.com/MisterGC/grafli/issues/167))
+- **Overlay files colour a board with analysis data.** A script or agent
+  writes `<stem>-res/<name>.overlay.json` — a title, the producer, a
+  category or a value per element id, a note and code refs — and
+  <kbd>A</kbd> cycles off → Connectivity → each overlay file by name → off.
+  Elements without an entry draw hatched as "no data"; the legend card shows
+  the categories or scale, a **stale** line when the file's `source`
+  revision is not the repo's `HEAD`, and the selected element's note and
+  refs (a click opens a ref). Editing the file recolours the board live.
+  Nothing in the `.grafli` changes; a board without overlay files keeps the
+  plain Connectivity toggle.
+  ([#168](https://github.com/MisterGC/grafli/issues/168))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

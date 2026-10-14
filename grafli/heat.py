@@ -18,17 +18,40 @@ from grafli.format import Arrow, Board
 
 @dataclass
 class HeatLegend:
-    """What the legend above the minimap says about a reading."""
+    """What the legend above the minimap says about a reading.
+
+    ``categories`` (label, colour) replaces the low/high gradient when set;
+    ``producer`` and ``stale`` are extra lines an overlay file brings.
+    """
     title: str
     low: str = "Low"
     high: str = "High"
+    producer: str = ""
+    categories: list[tuple[str, str]] = field(default_factory=list)
+    stale: str = ""
+
+
+@dataclass
+class HeatDetail:
+    """What the legend says about one element while it is selected."""
+    reading: str = ""
+    note: str = ""
+    refs: list[str] = field(default_factory=list)
 
 
 @dataclass
 class HeatReading:
-    """Heat per element id, 0.0-1.0, and the legend for it."""
+    """Heat per element id, 0.0-1.0, and the legend for it.
+
+    ``colors`` pins an element's colour (``%token`` or hex) instead of a heat.
+    With ``no_data`` an element in neither map is drawn as having no data
+    rather than as cold. Keys may be box, note or arrow ids.
+    """
     values: dict[str, float] = field(default_factory=dict)
     legend: HeatLegend = field(default_factory=lambda: HeatLegend(""))
+    colors: dict[str, str] = field(default_factory=dict)
+    no_data: bool = False
+    details: dict[str, HeatDetail] = field(default_factory=dict)
 
 
 class HeatProvider(Protocol):

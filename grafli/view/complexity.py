@@ -22,6 +22,7 @@ from grafli.constants import (
     BOX_BORDER_WIDTH,
     FONT_FAMILY,
     HEATMAP_BORDER_DARKEN,
+    HEATMAP_CATEGORY_ALPHA,
     HEATMAP_COLD_ALPHA,
     HEATMAP_GLOW_BLUR,
     HEATMAP_GLOW_THRESHOLD,
@@ -29,6 +30,7 @@ from grafli.constants import (
     HEATMAP_LEGEND_H,
     HEATMAP_LEGEND_MARGIN,
     HEATMAP_LEGEND_W,
+    HEATMAP_NO_DATA_ALPHA,
     HEATMAP_NOTE_OPACITY,
     MINIMAP_MARGIN,
     MINIMAP_STATS_FONT_SIZE,
@@ -46,7 +48,8 @@ class ComplexityMixin:
 
     Expects the host class to have: _board, _box_items, _note_items,
     _arrow_items, _heat_provider, _complexity_active, _complexity_node_heat,
-    _complexity_legend, _complexity_saved, _minimap_visible, _minimap_rect,
+    _complexity_legend, _complexity_reading, _complexity_saved,
+    _complexity_saved_notes, _minimap_visible, _minimap_rect,
     viewport().
     """
 
@@ -75,11 +78,15 @@ class ComplexityMixin:
         """Color boxes/arrows by the provider's reading."""
         if not self._board:
             return
+        # A re-apply while painted (an arrow redraw, a presentation focus
+        # change) starts from the originals, never from the painted state.
+        self._restore_heat_items()
         reading = self._heat_provider.read(self._board)
         self._complexity_node_heat = reading.values
         self._complexity_legend = reading.legend
+        self._complexity_reading = reading
         heat = self._complexity_node_heat
-        if not heat:
+        if not heat and not reading.colors and not reading.no_data:
             return
 
         # Dark background
@@ -97,44 +104,50 @@ class ComplexityMixin:
                 item.graphicsEffect(),
             ))
 
+            if box_id in reading.colors:
+                self._paint_heat_box(item, self._reading_color(reading, box_id),
+                                     HEATMAP_CATEGORY_ALPHA, 1.0, glow=False)
+                continue
+            if reading.no_data and box_id not in heat:
+                self._paint_no_data_box(item)
+                continue
             h = heat.get(box_id, 0.0)
-            c = self._heat_to_color(h)
-
-            fill = QColor(c)
             alpha = HEATMAP_COLD_ALPHA + (HEATMAP_HOT_ALPHA - HEATMAP_COLD_ALPHA) * h
-            fill.setAlphaF(alpha)
-            item.setBrush(QBrush(fill))
-            item.setPen(QPen(c.darker(HEATMAP_BORDER_DARKEN), BOX_BORDER_WIDTH))
-
-            text_color = QColor(theme.HEATMAP_TEXT_COLOR)
-            text_alpha = 0.5 + 0.5 * h
-            text_color.setAlphaF(text_alpha)
-            item._label.setDefaultTextColor(text_color)
-
-            if h > HEATMAP_GLOW_THRESHOLD:
-                glow = QGraphicsDropShadowEffect()
-                glow.setColor(c)
-                glow.setBlurRadius(HEATMAP_GLOW_BLUR)
-                glow.setOffset(0, 0)
-                item.setGraphicsEffect(glow)
+            self._paint_heat_box(item, self._heat_to_color(h), alpha,
+                                 0.5 + 0.5 * h,
+                                 glow=h > HEATMAP_GLOW_THRESHOLD)
 
         self._complexity_saved = saved
 
-        # Dim notes
-        for item in self._note_items.values():
-            item.setOpacity(HEATMAP_NOTE_OPACITY)
+        # Dim notes; a note the reading covers stays and glows in its colour.
+        self._complexity_saved_notes = []
+        for note_id, item in self._note_items.items():
+            color = self._reading_color(reading, note_id)
+            if color is None:
+                item.setOpacity(HEATMAP_NOTE_OPACITY)
+                continue
+            self._complexity_saved_notes.append((item, item.graphicsEffect()))
+            glow = QGraphicsDropShadowEffect()
+            glow.setColor(color)
+            glow.setBlurRadius(HEATMAP_GLOW_BLUR)
+            glow.setOffset(0, 0)
+            item.setGraphicsEffect(glow)
 
-        # Color arrows by max endpoint heat (skip LabelItems)
+        # Color arrows by max endpoint heat (skip LabelItems); an arrow the
+        # reading names by id takes its own colour.
         for gfx in self._arrow_items:
             if isinstance(gfx, LabelItem):
                 continue
             arrow = gfx.data(0)
             if arrow is None:
                 continue
-            from_h = heat.get(arrow.from_id, 0.0)
-            to_h = heat.get(arrow.to_id, 0.0)
-            edge_heat = max(from_h, to_h)
-            edge_color = self._heat_to_color(edge_heat)
+            edge_color = self._reading_color(reading, arrow.id)
+            if edge_color is None and reading.no_data:
+                edge_color = self._no_data_color(HEATMAP_NO_DATA_ALPHA)
+            if edge_color is None:
+                from_h = heat.get(arrow.from_id, 0.0)
+                to_h = heat.get(arrow.to_id, 0.0)
+                edge_color = self._heat_to_color(max(from_h, to_h))
 
             if isinstance(gfx, (QGraphicsLineItem, ArrowLineItem)):
                 pen = QPen(gfx.pen())
@@ -147,29 +160,75 @@ class ComplexityMixin:
         self._update_complexity_status()
         self.viewport().update()
 
-    def _clear_complexity_heatmap(self):
-        """Restore original box/note/arrow appearance."""
-        self._complexity_active = False
+    def _reading_color(self, reading, elem_id: str) -> QColor | None:
+        """The colour a reading gives one element, or None when it gives none."""
+        if not elem_id:
+            return None
+        if elem_id in reading.colors:
+            return QColor(theme.resolve_color(reading.colors[elem_id])
+                          or theme.HEATMAP_TEXT_COLOR)
+        if elem_id in reading.values:
+            return self._heat_to_color(reading.values[elem_id])
+        return None
 
-        # Restore background
+    @staticmethod
+    def _no_data_color(alpha: float) -> QColor:
+        color = QColor(theme.HEATMAP_TEXT_COLOR)
+        color.setAlphaF(alpha)
+        return color
+
+    def _paint_heat_box(self, item, color: QColor, fill_alpha: float,
+                        text_alpha: float, glow: bool):
+        fill = QColor(color)
+        fill.setAlphaF(fill_alpha)
+        item.setBrush(QBrush(fill))
+        item.setPen(QPen(color.darker(HEATMAP_BORDER_DARKEN), BOX_BORDER_WIDTH))
+
+        text_color = QColor(theme.HEATMAP_TEXT_COLOR)
+        text_color.setAlphaF(text_alpha)
+        item._label.setDefaultTextColor(text_color)
+
+        if glow:
+            effect = QGraphicsDropShadowEffect()
+            effect.setColor(color)
+            effect.setBlurRadius(HEATMAP_GLOW_BLUR)
+            effect.setOffset(0, 0)
+            item.setGraphicsEffect(effect)
+
+    def _paint_no_data_box(self, item):
+        """No data: hatched and muted, so it reads apart from any colour."""
+        item.setBrush(QBrush(self._no_data_color(HEATMAP_NO_DATA_ALPHA),
+                             Qt.BrushStyle.BDiagPattern))
+        item.setPen(QPen(self._no_data_color(HEATMAP_NO_DATA_ALPHA),
+                         BOX_BORDER_WIDTH))
+        item._label.setDefaultTextColor(self._no_data_color(0.5))
+
+    def _restore_heat_items(self):
+        """Put back the background, boxes and notes the heatmap painted."""
         if hasattr(self, '_saved_bg_brush'):
             self._scene.setBackgroundBrush(self._saved_bg_brush)
             del self._saved_bg_brush
 
-        # Restore boxes
         for item, pen, brush, text_color, effect in self._complexity_saved:
             item.setPen(pen)
             item.setBrush(brush)
             item._label.setDefaultTextColor(text_color)
             item.setGraphicsEffect(effect)
-
         self._complexity_saved.clear()
-        self._complexity_node_heat.clear()
-        self._complexity_legend = None
 
-        # Restore notes
         for item in self._note_items.values():
             item.setOpacity(1.0)
+        for item, effect in self._complexity_saved_notes:
+            item.setGraphicsEffect(effect)
+        self._complexity_saved_notes.clear()
+
+    def _clear_complexity_heatmap(self):
+        """Restore original box/note/arrow appearance."""
+        self._complexity_active = False
+        self._restore_heat_items()
+        self._complexity_node_heat.clear()
+        self._complexity_legend = None
+        self._complexity_reading = None
 
         # Redraw arrows to restore original colors
         self._redraw_arrows()
@@ -191,6 +250,8 @@ class ComplexityMixin:
         """Horizontal gradient bar above minimap stats line."""
         if not self._complexity_active or not self._minimap_visible:
             return
+        if self._overlay_shown() is not None:
+            return   # an overlay file draws its own legend card
         if not self._board:
             return
 

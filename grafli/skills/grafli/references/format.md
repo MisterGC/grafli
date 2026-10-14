@@ -630,6 +630,44 @@ board with such a step carries a `#!grafli v3` header — bump it yourself.
   bottom of every exported content slide; `@ title-bg thumbnail-art`
   gives the export's title slide a faint thumbnail-collage backdrop.
 
+## Overlay files (`<stem>-res/<name>.overlay.json`)
+
+To colour a board with analysis data (tests, churn, review state, what a
+reader understood), write one JSON file per overlay into the vault — never
+into the `.grafli`. The user presses `A` to cycle off → Connectivity → each
+overlay file by name → off; the file is watched, so rewriting it recolours
+the open board.
+
+```json
+{
+  "title": "Tests",
+  "producer": "scripts/overlay_tests.py (pytest 8.3)",
+  "created": "2026-10-09T14:00:00Z",
+  "source": {"repo": "~/dev/shapes-and-stone", "revision": "a1b2c3d"},
+  "kind": "category",
+  "categories": [
+    {"id": "pass", "label": "Passing", "color": "%forest"},
+    {"id": "fail", "label": "Failing", "color": "%rose"},
+    {"id": "none", "label": "No tests", "color": "%subtle"}
+  ],
+  "entries": {
+    "impact": {"category": "fail", "note": "fight bench --answer drifts", "refs": ["@Game.qml:2233"]},
+    "camera": {"category": "pass"}
+  }
+}
+```
+
+* `kind` is `category` (with `categories`) or `value` (with
+  `"scale": {"min": 0, "max": 30, "low": "Low", "high": "High"}` and a
+  numeric `value` per entry).
+* `entries` keys are element ids: boxes, notes, and arrows that carry
+  `~id=`. Every `category` must be declared. An element without an entry
+  draws as **no data** — declare states like "unexamined" as categories.
+* Give `source` (repo + the revision you analysed) when the data comes from
+  a repo: the legend then says **stale** once the repo's `HEAD` moves on.
+  Relative `refs` resolve against that repo.
+* Keep `note` to a line or two; the legend shows three lines at most.
+
 ## Quoted-text escaping
 
 Single-line quoted slots (box/arrow/bookmark/flow labels, descriptions,

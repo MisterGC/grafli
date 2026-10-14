@@ -333,3 +333,47 @@ def test_a_v3_build_reads_a_marker_board_as_newer(monkeypatch):
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
     assert supported_version() == 3
     assert is_newer(parse(MARKERS))
+
+
+SIDES = ('#!grafli v4\n@ box a "A" 0,0 200x80\n@ box b "B" 0,200 200x80\n'
+         '@ arrow a -> b "back" !ortho ~kind=graph ~from=right ~to=right '
+         '~id=back\n'
+         '@ arrow b -> a ~to=bottom\n')
+
+
+def test_connector_sides_round_trip_and_write_v4():
+    board = parse(SIDES)
+    assert [(a.from_side, a.to_side) for a in board.arrows] == \
+        [("right", "right"), ("", "bottom")]
+    assert board.arrows[0].id == "back"
+    assert required_version(board) == 4
+    assert serialize(board) == SIDES
+
+
+def test_an_unpinned_arrow_stays_v1():
+    board = parse('#!grafli v1\n@ box a "A" 0,0 200x80\n'
+                  '@ box b "B" 0,200 200x80\n@ arrow a -> b !ortho\n')
+    assert (board.arrows[0].from_side, board.arrows[0].to_side) == ("", "")
+    assert required_version(board) == 1
+
+
+def test_a_side_on_a_v1_arrow_lifts_the_board_to_v4():
+    board = parse('#!grafli v1\n@ box a "A" 0,0 200x80\n'
+                  '@ box b "B" 0,200 200x80\n@ arrow a -> b\n')
+    board.arrows[0].from_side = "left"
+    assert serialize(board).splitlines()[0] == "#!grafli v4"
+
+
+def test_an_unknown_side_is_not_a_connector_side():
+    board = parse('@ box a "A" 0,0 200x80\n@ box b "B" 0,200 200x80\n'
+                  '@ arrow a -> b ~from=north\n')
+    assert board.arrows == []
+    assert board.parse_warnings
+
+
+def test_a_v3_build_reads_a_sides_board_as_newer(monkeypatch):
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    assert supported_version() == 3
+    assert is_newer(parse(SIDES))

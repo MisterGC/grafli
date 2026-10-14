@@ -39,17 +39,21 @@ layout edits. A flow is an ordered list of bookmark refs with optional
 auto-play dwell times. ``footer`` is a single board-global markdown branding
 line rendered at the bottom of every exported PDF slide. The v2 header is
 emitted only when such directives are present; pure-diagram files stay on v1.
+Each version's features are listed in ``VERSION_FEATURES``; a board whose
+header is newer than the newest listed version opens read-only.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from grafli.glyphs import ensure_text_presentation
 
 HEADER = "#!grafli v1"
 HEADER_V2 = "#!grafli v2"
+_RE_HEADER = re.compile(r'^#!grafli v(\d+)$')
 DEFAULT_BOOKMARK_PAD = 60   # scene px of breathing room around the anchor
 
 # Presentation settings a flow (as the default for its steps) or a single step
@@ -220,6 +224,9 @@ class FlowStep:
     # Per-step presentation overrides; "" = inherit the flow's value.
     detail: str = ""          # "", or one of DETAIL_VALUES
     focus: str = ""           # "", or one of FOCUS_VALUES
+    # Segments this build doesn't know (e.g. ``zoom=x`` from a newer grafli),
+    # verbatim and in order, written back after the known ones.
+    extra: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -236,6 +243,9 @@ class Flow:
     # GUI state (detail) / off (focus). A step's own value overrides these.
     detail: str = ""          # "", or one of DETAIL_VALUES
     focus: str = ""           # "", or one of FOCUS_VALUES
+    # ``~`` markers this build doesn't know, verbatim and in order, written
+    # back after the known ones.
+    extra: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -271,6 +281,10 @@ class Board:
     """True if the file carried a `#!grafli` header line. A file without one
     that also fails to parse most of its lines is probably not a board at all
     (e.g. a Markdown doc opened by mistake) rather than a broken board."""
+    version: int = field(default=0, repr=False)
+    """The N of the file's `#!grafli vN` header, 0 without one. Above
+    ``supported_version()`` the board holds syntax this build can't
+    represent, so it must not be written back (see ``is_newer``)."""
 
     def box_by_id(self, box_id: str) -> Box | None:
         for b in self.boxes:
@@ -659,17 +673,19 @@ def _diagnose_malformed_directive(stripped: str) -> str:
         return 'malformed @ image — expected ' + IMAGE_FORM + _ORDER_HINT
     return "malformed directive — kept as a comment"
 
-def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:
+def _parse_flow_rest(
+        rest: str) -> tuple[list[FlowStep], str, str, str, str, list[str]]:
     """Split a flow line's tail into
-    (steps, description, auto_start, detail, focus).
+    (steps, description, auto_start, detail, focus, extra markers).
 
     The tail is step tokens (``ref`` with optional ``:``-separated segments —
     a bare number is the dwell, ``detail=<v>`` / ``focus=<v>`` are per-step
     presentation overrides), optional ``~auto=<node_id>`` / ``~detail=<v>`` /
     ``~focus=<v>`` markers, and an optional quoted description. Bookmark ids
     never contain quotes, so the first ``"`` unambiguously starts the
-    description. Unknown segments and out-of-vocabulary values are ignored,
-    so older grafli builds' files (and future tokens) parse without loss.
+    description. Unknown segments, unknown ``~`` markers and
+    out-of-vocabulary values are kept verbatim (``FlowStep.extra`` /
+    ``Flow.extra``), so a newer build's tokens survive a save.
     """
     rest = rest.strip()
     description = ""
@@ -683,6 +699,7 @@ def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:
     auto_start = ""
     flow_detail = ""
     flow_focus = ""
+    flow_extra: list[str] = []
     for token in rest.split():
         if token.startswith("~auto="):
             auto_start = token[len("~auto="):]
@@ -691,11 +708,19 @@ def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:
             value = token[len("~detail="):]
             if value in DETAIL_VALUES:
                 flow_detail = value
+            else:
+                flow_extra.append(token)
             continue
         if token.startswith("~focus="):
             value = token[len("~focus="):]
             if value in FOCUS_VALUES:
                 flow_focus = value
+            else:
+                flow_extra.append(token)
+            continue
+        if token.startswith("~"):
+            # A marker from a newer build — never a bookmark ref.
+            flow_extra.append(token)
             continue
         parts = token.split(":")
         ref = parts[0]
@@ -704,6 +729,7 @@ def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:
         parsed_dwell: float | None = None
         step_detail = ""
         step_focus = ""
+        step_extra: list[str] = []
         for seg in parts[1:]:
             if not seg:
                 continue
@@ -713,14 +739,18 @@ def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:
                     step_detail = value
                 elif key == "focus" and value in FOCUS_VALUES:
                     step_focus = value
+                else:
+                    step_extra.append(seg)
                 continue
             try:
                 parsed_dwell = float(seg.rstrip("s"))
             except ValueError:
-                pass
+                step_extra.append(seg)
         steps.append(FlowStep(ref=ref, dwell=parsed_dwell,
-                              detail=step_detail, focus=step_focus))
-    return steps, description, auto_start, flow_detail, flow_focus
+                              detail=step_detail, focus=step_focus,
+                              extra=step_extra))
+    return (steps, description, auto_start, flow_detail, flow_focus,
+            flow_extra)
 
 
 def parse(text: str) -> Board:
@@ -737,9 +767,11 @@ def parse(text: str) -> Board:
             board._lines.append(("blank", None))
             continue
 
-        if stripped in (HEADER, HEADER_V2):
+        m = _RE_HEADER.match(stripped)
+        if m:
             board._lines.append(("header", stripped))
             board.had_header = True
+            board.version = int(m.group(1))
             continue
 
         if stripped.startswith("#"):
@@ -938,7 +970,7 @@ def parse(text: str) -> Board:
 
         m = _RE_FLOW.match(stripped)
         if m:
-            steps, description, auto_start, detail, focus = \
+            steps, description, auto_start, detail, focus, extra = \
                 _parse_flow_rest(m.group(3))
             flow = Flow(
                 id=m.group(1),
@@ -950,6 +982,7 @@ def parse(text: str) -> Board:
                 auto_start=auto_start,
                 detail=detail,
                 focus=focus,
+                extra=extra,
             )
             board.flows.append(flow)
             board._lines.append(("flow", flow))
@@ -1000,6 +1033,36 @@ def parse_file(path: str) -> Board:
         return parse(f.read())
 
 
+# ── Format versions ─────────────────────────────────────────────
+
+# The header version each format feature needs, keyed by feature name, with
+# the test whether a board uses it. A board is written with the highest
+# version among the features it uses (v1 when none); the highest registered
+# version is the newest header this build reads without losing data. New
+# syntax registers itself here.
+VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
+    "tours": (2, lambda b: bool(b.bookmarks or b.flows or b.footer
+                                or b.title_bg)),
+}
+
+
+def supported_version() -> int:
+    """The newest ``#!grafli vN`` this build can read and write back."""
+    return max([1, *(v for v, _ in VERSION_FEATURES.values())])
+
+
+def required_version(board: Board) -> int:
+    """The header version *board* must be written with."""
+    return max([1, *(v for v, uses in VERSION_FEATURES.values()
+                     if uses(board))])
+
+
+def is_newer(board: Board) -> bool:
+    """True if *board* was written by a newer grafli than this build — it
+    may hold syntax this build drops, so it opens read-only."""
+    return board.version > supported_version()
+
+
 # ── Serializer ──────────────────────────────────────────────────
 
 def _q(value: float) -> int:
@@ -1032,6 +1095,13 @@ def _attach_token(el, bare_doc_id: str | None = None) -> str:
     return f" &{el.url}" if el.url else ""
 
 
+def _annotation_token(el) -> str:
+    """The trailing ``# annotation`` of an element line, or ""."""
+    if not el.annotation:
+        return ""
+    return " # " + el.annotation.replace("\n", "\\n")
+
+
 def _serialize_box(box: Box) -> str:
     x = _q(box.x)
     y = _q(box.y)
@@ -1053,7 +1123,7 @@ def _serialize_box(box: Box) -> str:
     s += _attach_token(box)
     if box.parent:
         s += f" >{box.parent}"
-    return s
+    return s + _annotation_token(box)
 
 
 def _serialize_arrow(arrow: Arrow) -> str:
@@ -1085,7 +1155,7 @@ def _serialize_arrow(arrow: Arrow) -> str:
     base += _attach_token(arrow)
     if arrow.kind:
         base += f" ~kind={arrow.kind}"
-    return base
+    return base + _annotation_token(arrow)
 
 
 def _note_attrs(note: Note) -> str:
@@ -1107,7 +1177,7 @@ def _note_attrs(note: Note) -> str:
     s += _attach_token(note, bare_doc_id=note.id)
     if note.parent:
         s += f" >{note.parent}"
-    return s
+    return s + _annotation_token(note)
 
 
 def _serialize_note(note: Note, embed_doc_bodies: bool = False) -> str:
@@ -1144,7 +1214,7 @@ def _serialize_image(image: Image) -> str:
     if image.parent:
         s += f" >{image.parent}"
     s += _attach_token(image)
-    return s
+    return s + _annotation_token(image)
 
 
 def _serialize_bookmark(bm: Bookmark) -> str:
@@ -1177,12 +1247,16 @@ def _serialize_flow(flow: Flow) -> str:
             s += f":detail={step.detail}"
         if step.focus:
             s += f":focus={step.focus}"
+        for seg in step.extra:
+            s += f":{seg}"
     if flow.auto_start:
         s += f" ~auto={flow.auto_start}"
     if flow.detail:
         s += f" ~detail={flow.detail}"
     if flow.focus:
         s += f" ~focus={flow.focus}"
+    for marker in flow.extra:
+        s += f" {marker}"
     if flow.description:
         desc = escape_quoted(flow.description)
         s += f' "{desc}"'
@@ -1201,8 +1275,9 @@ def _serialize_title_bg(title_bg: str) -> str:
 def serialize(board: Board, *, embed_doc_bodies: bool = False) -> str:
     """Serialize a Board object back to .grafli format.
 
-    Emits the v2 header only when the board carries bookmarks or flows;
-    otherwise stays on v1 so existing files round-trip byte-stable.
+    Emits the header version the board's features need (see
+    ``VERSION_FEATURES``): v2 once it carries bookmarks or flows, v1 for a
+    pure diagram, so existing files round-trip byte-stable.
     If the board was parsed (has _lines), preserves original ordering.
     Otherwise, outputs comments, then boxes, arrows, notes.
 
@@ -1211,8 +1286,7 @@ def serialize(board: Board, *, embed_doc_bodies: bool = False) -> str:
     which must restore bodies without filesystem reads. Never written to
     disk.
     """
-    header = (HEADER_V2 if (board.bookmarks or board.flows or board.footer
-                            or board.title_bg) else HEADER)
+    header = f"#!grafli v{required_version(board)}"
     meta_lines = []
     if board.footer:
         meta_lines.append(_serialize_footer(board.footer))

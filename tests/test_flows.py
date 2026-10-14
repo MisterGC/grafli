@@ -76,30 +76,30 @@ def test_next_id_helpers():
 
 
 def test_parse_flow_rest_variants():
-    steps, desc, auto, detail, focus = _parse_flow_rest('a b:3 c:4s "hello world"')
+    steps, desc, auto, detail, focus, _ = _parse_flow_rest('a b:3 c:4s "hello world"')
     assert [(s.ref, s.dwell) for s in steps] == [("a", None), ("b", 3.0), ("c", 4.0)]
     assert desc == "hello world"
     assert auto == ""
     assert (detail, focus) == ("", "")
 
-    steps, desc, auto, detail, focus = _parse_flow_rest("only refs here")
+    steps, desc, auto, detail, focus, _ = _parse_flow_rest("only refs here")
     assert [s.ref for s in steps] == ["only", "refs", "here"]
     assert desc == ""
     assert auto == ""
 
-    steps, desc, auto, detail, focus = _parse_flow_rest('"just a description"')
+    steps, desc, auto, detail, focus, _ = _parse_flow_rest('"just a description"')
     assert steps == []
     assert desc == "just a description"
     assert auto == ""
 
-    steps, desc, auto, detail, focus = _parse_flow_rest('a b ~auto=box3 "desc"')
+    steps, desc, auto, detail, focus, _ = _parse_flow_rest('a b ~auto=box3 "desc"')
     assert [s.ref for s in steps] == ["a", "b"]
     assert auto == "box3"
     assert desc == "desc"
 
 
 def test_parse_flow_rest_detail_and_focus():
-    steps, desc, auto, detail, focus = _parse_flow_rest(
+    steps, desc, auto, detail, focus, _ = _parse_flow_rest(
         'a:3:detail=full b:focus=complete c:detail=summary:focus=none:6 '
         '~detail=summary ~focus=complete "d"')
     assert [(s.ref, s.dwell, s.detail, s.focus) for s in steps] == [
@@ -110,13 +110,16 @@ def test_parse_flow_rest_detail_and_focus():
     assert (detail, focus) == ("summary", "complete")
     assert desc == "d"
 
-    # Out-of-vocabulary values and unknown segments are ignored, not fatal.
-    steps, _, _, detail, focus = _parse_flow_rest(
+    # Out-of-vocabulary values and unknown segments aren't fatal, and they
+    # are kept verbatim for the save (#158).
+    steps, _, _, detail, focus, extra = _parse_flow_rest(
         'a:detail=xxl:wat=1 ~detail=huge ~focus=blur')
     assert [(s.ref, s.dwell, s.detail, s.focus) for s in steps] == [
         ("a", None, "", ""),
     ]
+    assert steps[0].extra == ["detail=xxl", "wat=1"]
     assert (detail, focus) == ("", "")
+    assert extra == ["~detail=huge", "~focus=blur"]
 
 
 def test_remove_bookmark_and_flow_update_lines():

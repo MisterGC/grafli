@@ -546,7 +546,9 @@ visually so children stand out.
 Full syntax; see `references/presenting.md` for how to compose them into
 tours and slide decks. A file using any of these carries a `#!grafli v2`
 header — when you add the first one to a v1 file, bump the header line
-yourself.
+yourself. Never lower a header: a grafli build opens a board whose header
+is newer than it knows read-only, and keeps flow tokens it does not know
+unchanged.
 
 ```
 @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] [~iso] ["<description>"]

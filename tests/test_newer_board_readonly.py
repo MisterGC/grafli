@@ -144,3 +144,16 @@ def test_a_v3_build_opens_a_sans_note_board_read_only(tmp_path, monkeypatch):
     assert "read-only" in win._view._toast_text
     assert "[read-only]" in win.windowTitle()
     assert f.read_text() == text
+
+
+def test_a_v3_build_opens_an_outline_board_read_only(tmp_path, monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = '#!grafli v4\n@ box b "Later" 0,0 200x80 !dashed\n'
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "v4" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+    assert f.read_text() == text

@@ -259,3 +259,41 @@ def test_a_v3_build_reads_a_sans_note_board_as_newer(monkeypatch):
                 if v[0] < 4}
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
     assert is_newer(parse(SANS_NOTE))
+
+
+OUTLINES = ('#!grafli v4\n@ box later "Later" 0,0 200x80 !dashed\n'
+            '@ box maybe "Maybe" 0,120 200x80 %accent !dotted\n')
+
+
+def test_dashed_and_dotted_boxes_round_trip_and_write_v4():
+    board = parse(OUTLINES)
+    assert board.box_by_id("later").border == "dashed"
+    assert board.box_by_id("maybe").border == "dotted"
+    assert required_version(board) == 4
+    assert serialize(board) == OUTLINES
+
+
+def test_an_outline_writes_beside_the_other_flags():
+    text = ('#!grafli v4\n'
+            '@ box b "Title" 0,0 200x80 %primary !card !ink !sans !dashed !bold\n')
+    assert serialize(parse(text)) == text
+
+
+def test_a_solid_box_stays_v1():
+    board = parse('#!grafli v1\n@ box b "Title" 0,0 200x80\n')
+    assert board.boxes[0].border == ""
+    assert required_version(board) == 1
+
+
+def test_an_outline_on_a_v1_box_lifts_the_board_to_v4():
+    board = parse('#!grafli v1\n@ box b "Title" 0,0 200x80\n')
+    board.boxes[0].border = "dotted"
+    assert serialize(board).splitlines()[0] == "#!grafli v4"
+
+
+def test_a_v3_build_reads_an_outline_board_as_newer(monkeypatch):
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    assert supported_version() == 3
+    assert is_newer(parse(OUTLINES))

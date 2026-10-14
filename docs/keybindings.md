@@ -47,7 +47,7 @@ lands on the placeholder ready to type-replace.
 | <kbd>g</kbd><kbd>c</kbd> | Select first child |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> | Cycle siblings (or search matches when search is open) |
 | <kbd>f</kbd> / <kbd>Ctrl</kbd>+<kbd>J</kbd> | Jump to any item (global) |
-| <kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd> | Nav history back / forward |
+| <kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd> | Nav history back / forward (per board) |
 | <kbd>Alt</kbd> (hold) | Graph nav: follow connectors |
 | <kbd>/</kbd> | Search dim-filter — see [Search](#search) below |
 
@@ -191,6 +191,7 @@ grafli render board.grafli out.png --theme dark
 |-----|--------|
 | <kbd>Ctrl</kbd>+<kbd>K</kbd> | Open / switch buffer |
 | <kbd>Ctrl</kbd>+<kbd>6</kbd> | Toggle last buffer |
+| <kbd>g</kbd><kbd>u</kbd> | Back to the board you came from (through `&graph` or a `.grafli` link), as you left it |
 | <kbd>Q</kbd> | Close buffer (no selection) |
 
 ## Bookmarks & flows

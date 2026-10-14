@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 from grafli import theme
 from grafli.constants import ARROW_LABEL_FONT_SIZES, FONT_FAMILY
-from grafli.format import Arrow
+from grafli.format import Arrow, Image, Note
 from grafli.items import BoxItem, ImageItem, LabelItem, NoteItem
 from grafli.md_note import note_is_md, toggle_task
 from pathlib import Path
@@ -120,11 +120,23 @@ class ResourcesMixin:
             return
         if el.attach_kind == "graph":
             from grafli.resources import graph_path
-            if hasattr(window, "_open_file"):
-                window._open_file(graph_path(Path(grafli_path), el.url))
+            if hasattr(window, "_enter_board"):
+                window._enter_board(graph_path(Path(grafli_path), el.url),
+                                    self._crumb_label(el))
             return
         if el.url:
-            self._open_url_string(el.url)
+            self._open_url_string(el.url, label=self._crumb_label(el))
+
+    @staticmethod
+    def _crumb_label(el) -> str:
+        """How an element you enter a board through reads in the breadcrumb."""
+        if isinstance(el, Arrow):
+            return el.label or f"{el.from_id} \u2192 {el.to_id}"
+        if isinstance(el, Note):
+            return (el.text.strip().splitlines() or [el.id])[0][:40]
+        if isinstance(el, Image):
+            return el.id
+        return el.label.replace("\n", " ") or el.id
 
     def _open_resource(self):
         """Open resource for the selected element, or show picker if none."""
@@ -204,8 +216,9 @@ class ResourcesMixin:
 
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
-    def _open_url_string(self, url_str: str):
-        """Open a URL string, handling .md and .grafli files specially."""
+    def _open_url_string(self, url_str: str, label: str = ""):
+        """Open a URL string, handling .md and .grafli files specially. A
+        .grafli opens as a board entered through *label* (`gu` comes back)."""
         resolved = self._resolve_url(url_str)
         if resolved.isLocalFile():
             local = resolved.toLocalFile()
@@ -216,8 +229,8 @@ class ResourcesMixin:
                 return
             if local.endswith(".grafli"):
                 window = self.window()
-                if hasattr(window, '_open_file'):
-                    window._open_file(Path(local))
+                if hasattr(window, '_enter_board'):
+                    window._enter_board(Path(local), label)
                 return
         QDesktopServices.openUrl(resolved)
 
@@ -308,7 +321,7 @@ class ResourcesMixin:
                     f"#!grafli v1\n# {label}\n", encoding="utf-8",
                 )
             self._set_element_attachment(item, "graph", element_id)
-            window._open_file(sub_path)
+            window._enter_board(sub_path, self._element_label(item))
         elif kind == "file":
             self._set_url()
 
@@ -340,7 +353,7 @@ class ResourcesMixin:
             arrow.attach_kind, arrow.url = "graph", aid
             self._redraw_arrows()
             self.mark_dirty()
-            window._open_file(sub_path)
+            window._enter_board(sub_path, self._crumb_label(arrow))
         elif kind == "file":
             self._set_url()
 

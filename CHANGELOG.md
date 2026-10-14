@@ -23,6 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first element lands. Painted view chrome only: it takes no clicks and
   never appears in renders or exports.
   ([#153](https://github.com/MisterGC/grafli/issues/153))
+- **<kbd>g</kbd><kbd>u</kbd> goes back to the board you came from, as you
+  left it.** Opening a board through a box's `&graph` sub-board or a
+  `.grafli` `&link` remembers where you were; <kbd>g</kbd><kbd>u</kbd>
+  returns there with the zoom, scroll and selection you left, instead of
+  re-fitting the parent the way re-opening it or <kbd>Ctrl</kbd>+<kbd>6</kbd>
+  would. On a board you did not enter that way it says "Already at the top".
+  The status-bar breadcrumb shows the labels you entered through
+  (`System › Combat › impact()`), and the <kbd>Ctrl</kbd>+<kbd>O</kbd> /
+  <kbd>Ctrl</kbd>+<kbd>I</kbd> view history now belongs to each board, so it
+  never jumps to places on a board you just left.
+  ([#160](https://github.com/MisterGC/grafli/issues/160))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

@@ -51,6 +51,17 @@ When boxes are nested, walk the tree directly instead of hunting visually:
 The status bar shows a breadcrumb of where you are, so you always know your
 depth.
 
+## Go into a board and back out
+
+A box whose `&graph` sub-board or `.grafli` `&link` you open with
+<kbd>Return</kbd> takes you one board down. <kbd>g</kbd><kbd>u</kbd> takes you
+back up to the board you came from, exactly as you left it — same zoom, scroll
+and selection, no re-fit. While you are inside, the breadcrumb starts with the
+boards you came through, for example `System › Combat › impact()`. On a board
+you did not enter that way, <kbd>g</kbd><kbd>u</kbd> says "Already at the top".
+<kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd> walk the view
+history of the board you are on only.
+
 To *build* that hierarchy, select one or more elements and press
 <kbd>Ctrl</kbd>+<kbd>G</kbd> — grafli wraps them in a new parent box sized to
 contain them, then opens its label editor so you can name the group. Inner

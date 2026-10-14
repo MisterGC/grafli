@@ -203,6 +203,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <kbd>e</kbd> on a connector sets them: Leaves from and Enters at rows. A
   board using it is written `#!grafli v4`; older builds open it read-only.
   ([#209](https://github.com/MisterGC/grafli/issues/209))
+- **Connectors can end in a dot.** Mapping diagrams join rows with
+  dot-ended lines; grafli connectors ended in an arrowhead or nothing.
+  `!dot` draws a filled dot on each end that would carry a head, so
+  `a <-> b !dot` has a dot at both ends and `a -> b !dot` at one. Style mode
+  <kbd>s</kbd> <kbd>e</kbd> on a connector sets it: the Ends row, Arrow or
+  Dot. A board using it is written `#!grafli v4`; older builds open it
+  read-only. ([#210](https://github.com/MisterGC/grafli/issues/210))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

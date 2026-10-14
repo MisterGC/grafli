@@ -109,7 +109,7 @@ detail lives in notes adjacent to it or in the box's own `&doc`.
 ## Arrow syntax
 
 ```
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [~size] [~kind=graph|annotation] [~from=<side>] [~to=<side>] [~id=<id>] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [!dot] [~size] [~kind=graph|annotation] [~from=<side>] [~to=<side>] [~id=<id>] [# annotation]
 ```
 
 | Feature | Syntax | Effect |
@@ -126,6 +126,7 @@ detail lives in notes adjacent to it or in the box's own `&doc`.
 | Thickness | (default) | width tracks the linked nodes' size |
 | Thickness | `!thin` | half-width line |
 | Thickness | `!thick` | double-width line |
+| Dot ends | `!dot` | each headed end draws a dot instead of an arrowhead; `#!grafli v4` |
 | Text size | `~size` | as for boxes |
 | Connector kind | `~kind=graph` / `~kind=annotation` | override the endpoint default (see below) |
 | Pinned sides | `~from=right`, `~to=left` | the side the arrow leaves / enters by: `top`, `right`, `bottom`, `left` (see below); `#!grafli v4` |
@@ -160,6 +161,12 @@ instead of adding waypoint boxes. A pinned end sits mid-side; an end that
 faces away steps out of its side before turning. Either token works on
 its own. A pinned `A->B` / `B->A` pair is not merged into one line. A
 file using either token carries a `#!grafli v4` header.
+
+**Dot ends.** `!dot` swaps every arrowhead of an arrow for a filled dot;
+the operator still picks the ends, so `a <-> b !dot` joins two rows with
+a dot on each, the usual look of a mapping between columns, and
+`a -> b !dot` marks only `b`. A file using it carries a `#!grafli v4`
+header.
 
 **Arrow id.** `~id=<id>` names one arrow, so something else can point
 at it and two arrows between the same elements stay apart when a

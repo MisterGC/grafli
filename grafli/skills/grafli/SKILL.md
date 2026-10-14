@@ -331,7 +331,7 @@ in `references/genres.md` instead.)
 ```
 # Comments and titles
 @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [>parent] [# annotation]
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [~size] [~from=<side>] [~to=<side>] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [!dot] [~size] [~from=<side>] [~to=<side>] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [# annotation]

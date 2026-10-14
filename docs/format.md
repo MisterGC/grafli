@@ -18,7 +18,7 @@ its version. It is required.
 ```text
 @ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]
 @ note [<id>] <x>,<y> "<text>" [color] [~size] [~width=N] [!style] [>parent]
-@ arrow <from> <op> <to> ["label"] [color] [!pattern] [!thickness] [!routing] [~size] [~from=<side>] [~to=<side>]
+@ arrow <from> <op> <to> ["label"] [color] [!pattern] [!thickness] [!routing] [!dot] [~size] [~from=<side>] [~to=<side>]
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [&attach]
 ```
 
@@ -142,11 +142,18 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   `A->B` / `B->A` keeps two lines instead of merging. A board using either
   token carries a `#!grafli v4` header. (Style mode → `e` on a connector:
   **Leaves from** and **Enters at** rows, Auto / Top / Right / Bottom / Left.)
+- `!dot` *(arrows)* — each end that carries a head draws a filled dot
+  centred on the element's edge instead of an arrowhead. The operator still
+  says which ends: `a <-> b !dot` has a dot at both ends, `a -> b !dot` at
+  `b` only, `a -- b !dot` none. Works with every line pattern, thickness and
+  routing. `A -> B !dot` and `B -> A` stay two lines instead of merging. A
+  board using it carries a `#!grafli v4` header. (Style mode → `e` on a
+  connector: **Ends** row, Arrow / Dot.)
 - *(arrows)* a bare `%color` / `#hex` overrides the connector colour;
   `!dashed` / `!dotted` set the line pattern and `!thin` / `!thick` set the
   thickness (default width tracks the linked nodes). Select a connector (or
-  shift+click several) and press `s` then `c` for a live overlay over all four
-  axes — heads, line, thickness, colour — or `s` then `t` for the label text;
+  shift+click several) and press `s` then `c` for a live overlay over its
+  axes — heads, ends, line, thickness, colour — or `s` then `t` for the label text;
   the picks apply to every selected connector at once.
 - `!bold` / `!italic` — *(boxes and notes)* text emphasis layered on the
   size, e.g. `~large !bold` for a heading. Combine freely (`!bold !italic`).

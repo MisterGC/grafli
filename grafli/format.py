@@ -14,6 +14,7 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" !thick      (thickness: thin / thick; default tracks node size)
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
   @ arrow <from_id> -> <to_id> "label" ~kind=graph (connector kind: graph / annotation; default derives from endpoints)
+  @ arrow <from_id> -> <to_id> "label" ~from=right ~to=left (pinned sides: top / right / bottom / left; default picks from geometry; v4)
   @ arrow <from_id> -> <to_id> "label" ~id=<id>    (stable id, only when something references the arrow; v3)
   @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono|!sans] [!ink] [&attach] [>parent]
   @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono|!sans] [!ink] [&attach] [>parent]
@@ -144,6 +145,11 @@ class Arrow:
     # Connector kind: "" derives from endpoints (a note endpoint ⇒ annotation,
     # box↔box ⇒ graph); "graph"/"annotation" override that default.
     kind: str = ""
+    # The side the connector leaves its from element by and enters its to
+    # element at: "top" / "right" / "bottom" / "left", or "" (= picked from
+    # geometry, as an unpinned connector always has been).
+    from_side: str = ""
+    to_side: str = ""
     # Optional stable id, written only when something references the arrow
     # (a bookmark, a tour stop, an overlay entry); "" for a plain arrow.
     id: str = ""
@@ -630,6 +636,8 @@ _RE_ARROW = re.compile(
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+~kind=(graph|annotation))?'
+    r'(?:\s+~from=(top|right|bottom|left))?'
+    r'(?:\s+~to=(top|right|bottom|left))?'
     r'(?:\s+~id=([^\s#]\S*))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
@@ -723,7 +731,9 @@ NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
 ARROW_FORM = ('@ arrow <from> ->|<-|<->|-- <to> ["label"] [@dx,dy] '
               '[%color|#rrggbb] '
               '[!dashed|!dotted|!thin|!thick|!spline|!ortho ...] '
-              '[~size] [&attach] [~kind=graph|annotation] [~id=<id>]')
+              '[~size] [&attach] [~kind=graph|annotation] '
+              '[~from=top|right|bottom|left] [~to=top|right|bottom|left] '
+              '[~id=<id>]')
 IMAGE_FORM = ('@ image <id> "path" x,y wxh [!frame|!noframe] '
               '[>parent] [&attach]')
 _ORDER_HINT = " — optional tokens must appear in this order"
@@ -928,8 +938,10 @@ def parse(text: str) -> Board:
                 url=url,
                 attach_kind=kind,
                 kind=m.group(11) or "",
-                id=m.group(12) or "",
-                annotation=(m.group(13) or "").replace("\\n", "\n"),
+                from_side=m.group(12) or "",
+                to_side=m.group(13) or "",
+                id=m.group(14) or "",
+                annotation=(m.group(15) or "").replace("\\n", "\n"),
             )
             board.arrows.append(arrow)
             board._lines.append(("arrow", arrow))
@@ -1147,6 +1159,8 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
                                 or any(n.style == "sans" for n in b.notes))),
     "box outlines": (4, lambda b: any(x.border for x in b.boxes)),
     "number markers": (4, uses_number_markers),
+    "connector sides": (4, lambda b: any(a.from_side or a.to_side
+                                         for a in b.arrows)),
 }
 
 
@@ -1265,6 +1279,10 @@ def _serialize_arrow(arrow: Arrow) -> str:
     base += _attach_token(arrow)
     if arrow.kind:
         base += f" ~kind={arrow.kind}"
+    if arrow.from_side:
+        base += f" ~from={arrow.from_side}"
+    if arrow.to_side:
+        base += f" ~to={arrow.to_side}"
     if arrow.id:
         base += f" ~id={arrow.id}"
     return base + _annotation_token(arrow)

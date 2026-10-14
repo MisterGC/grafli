@@ -1095,8 +1095,10 @@ class StyleModeMixin:
     # it with a top-left label is how a layer band is drawn (#144). "Card" is
     # `!card`: the plate kept while the box holds children (#203).
     _BOX_BG_OPTIONS = (("Plate", ""), ("Flat", "flat"), ("Card", "card"))
+    # "Left" is `^left`: top left here, and zoomed out a container stays a
+    # band with its children's colours and its title on the left (#212).
     _BOX_LABEL_OPTIONS = (("Center", ""), ("Top left", "topleft"),
-                          ("Top center", "topcenter"))
+                          ("Top center", "topcenter"), ("Left", "left"))
     _NOTE_BG_AXIS_OPTIONS = (("Plate", False), ("None", True))
     # "Plain" is the board ink (on a light plate on a coloured box, note blue
     # on a note); "On fill" is `!ink`: ink picked from the fill, or a note's
@@ -1589,7 +1591,20 @@ class StyleModeMixin:
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(body, 3, 3)
             bar_w = body.width() * 0.55
-            if val == "topleft":
+            if val == "left":
+                # A short title on the left over a strip of colours: the
+                # band it stays when zoomed out.
+                bar_w = body.width() * 0.35
+                bx, by = body.left() + 2.5, body.top() + 4
+                strip = QRectF(body.left() + 2.5, body.bottom() - 5,
+                               body.width() - 5, 2.5)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(ink))
+                for i in range(3):
+                    seg_w = (strip.width() - 4) / 3
+                    painter.drawRect(QRectF(strip.left() + i * (seg_w + 2),
+                                            strip.top(), seg_w, strip.height()))
+            elif val == "topleft":
                 bx, by = body.left() + 2.5, body.top() + 4
             elif val == "topcenter":
                 bx, by = body.center().x() - bar_w / 2, body.top() + 4

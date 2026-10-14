@@ -205,6 +205,13 @@ A flow `<step>` is a bookmark ref with optional `:`-separated segments, in
 any order: a bare number is the auto-play dwell in seconds, and
 `detail=<v>` / `focus=<v>` override the flow's presentation settings for
 just that stop — `bm_all:6:detail=summary` or `bm_api:focus=complete`.
+A bookmark ref `<board>#<bookmark>` names a
+[stop in another board](bookmarks-flows.md#stops-in-other-boards):
+`<board>` is the name of a sub-board of the flow's own board, or a path ending
+in `.grafli` relative to the flow's board file — needed for anything deeper
+than its own vault (`combat#lunge`,
+`System-res/combat-res/impact.grafli#hit`, `../engine.grafli#loop`); a board
+using one carries a `#!grafli v3` header.
 
 - `@<ids>` is the **semantic anchor** — the item ids the view frames. The
   pan/zoom is computed by fitting them, so the bookmark survives layout edits.

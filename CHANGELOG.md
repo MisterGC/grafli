@@ -73,6 +73,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   endpoints as before. A board using an arrow id is written with a
   `#!grafli v3` header; a board without one is written as before.
   ([#164](https://github.com/MisterGC/grafli/issues/164))
+- **A tour stop can lie in another board, and a tour you leave waits for
+  you.** A flow step `<board>#<bookmark>` — `<board>` the name of a
+  sub-board of the flow's own board, or a path ending in `.grafli` relative
+  to that board's file — is a stop in that board: playing
+  it enters the board the way a link does (the breadcrumb shows it, stepping
+  back climbs out again) and frames the bookmark with its caption. The flow
+  stays on the board it starts on, and <kbd>Esc</kbd> ends it back there.
+  During a tour, <kbd>g</kbd><kbd>d</kbd> or <kbd>Return</kbd> on a box with
+  a level leaves the tour to look around; the Flows tab shows where it is
+  paused, and <kbd>g</kbd><kbd>u</kbd> back resumes it at that stop. PDF and
+  PPTX export, `grafli export --check` and `grafli render --step` take such
+  stops from their own board. A board with one is written with a
+  `#!grafli v3` header; tours on one board play and export as before.
+  ([#165](https://github.com/MisterGC/grafli/issues/165))
 
 ### Changed
 - **Every keypress either acts or explains itself.** Roughly forty keys used

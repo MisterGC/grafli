@@ -217,6 +217,7 @@ During playback (in-app or presenting):
 | <kbd>←</kbd> | Previous stop |
 | <kbd>t</kbd> | Toggle smooth camera ↔ instant cuts |
 | <kbd>p</kbd> | Cycle paused → playing → playing (loop) |
+| <kbd>g</kbd><kbd>d</kbd> / <kbd>Return</kbd> | Leave the tour into the selected box's level; <kbd>g</kbd><kbd>u</kbd> back resumes it |
 | <kbd>Esc</kbd> | Exit playback |
 
 ## Mouse

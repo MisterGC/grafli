@@ -266,9 +266,10 @@ class SelectionMixin:
         self._lod_hulls = {}          # items live in the about-to-be-rebuilt scene
         self._lod_hull_member = {}
         self._lod_state = None
-        # A fresh board invalidates any in-flight flow recording/playback.
+        # A fresh board invalidates any in-flight flow recording/playback —
+        # unless the tour itself switched boards to show its next stop.
         self._recording_flow = None
-        if self._flow_player is not None:
+        if self._flow_player is not None and not self._flow_player.navigating:
             self._flow_player.stop()
         self._rebuild_scene()
         # Feed real note footprints to the model now the items exist, so a

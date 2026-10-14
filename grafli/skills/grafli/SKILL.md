@@ -166,7 +166,8 @@ comprehensible as the canvas:
 * **You own the header.** When you add the first `@ bookmark`/`@ flow`
   to a v1 file, bump the first line to `#!grafli v2` yourself; the first
   `#<id>` board link (`&graph:<name>#<id>`, `&link:<path>.grafli#<id>`)
-  or the first arrow `~id=<id>` makes it `#!grafli v3`.
+  or the first arrow `~id=<id>` or flow stop in another board
+  (`<board>#<bookmark>`) makes it `#!grafli v3`.
 
 **Revising markdown prose — propose, don't overwrite.** When you rewrite a
 markdown doc or note body that a human will review (a `.md` doc body, or any

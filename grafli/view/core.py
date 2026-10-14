@@ -1096,11 +1096,30 @@ class GrafliView(CommandsMixin, ComplexityMixin, MinimapMixin, StyleModeMixin,
             super().keyPressEvent(event)
             return
 
-        # Flow playback owns all input while active
+        # Flow playback owns all input while active, except the keys that
+        # leave it to look around: `gd` and Return enter a level (the tour
+        # waits in the board stack for `gu`), `gu` goes up.
         if self._flow_player is not None and self._flow_player.active:
-            self._flow_player.handle_key(event)
-            event.accept()
-            return
+            key = event.key()
+            plain = not (event.modifiers() & _SIGNIFICANT_MODS)
+            if self._g_pending and plain and key in (Qt.Key.Key_D,
+                                                     Qt.Key.Key_U):
+                pass  # the g-chord dispatch below handles it
+            elif plain and key == Qt.Key.Key_G:
+                self._g_pending = True
+                event.accept()
+                return
+            elif plain and key == Qt.Key.Key_Return:
+                el = self._selected_board_link()
+                if el is not None:
+                    self._open_attachment(el)
+                event.accept()
+                return
+            else:
+                self._g_pending = False
+                self._flow_player.handle_key(event)
+                event.accept()
+                return
 
         # Graph nav mode handling (Alt held)
         if self._graph_nav_active:

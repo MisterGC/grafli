@@ -469,6 +469,7 @@ class OverlaysMixin:
                 ("←", "Previous stop"),
                 ("t", "Toggle smooth / instant"),
                 ("p", "Cycle paused / playing / loop"),
+                ("gd / Return", "Leave the tour into a level; gu resumes it"),
                 ("F5", "Present flow fullscreen"),
                 ("Esc", "Exit playback / present"),
                 ("Caption", f"Shown in full, wrapped — keep it ≤ "

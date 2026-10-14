@@ -128,7 +128,9 @@ _FONT_MINOR = "+mn-lt"
 def export_flow_to_pptx(view, flow, out_path: str | Path,
                         theme: str = "grafli", template: str | Path | None = None,
                         title_layout: str | None = None,
-                        content_layout: str | None = None) -> tuple[int, list]:
+                        content_layout: str | None = None,
+                        board_path: str | Path | None = None
+                        ) -> tuple[int, list]:
     """Render ``flow`` to a .pptx at ``out_path``.
 
     Two modes:
@@ -145,6 +147,8 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
     Returns ``(slide_count, overloaded)`` — same contract as the PDF exporter —
     where ``overloaded`` lists ``(step_index, title)`` for slides whose in-place
     notes fall below the readable floor, so the caller can warn the author.
+    ``board_path`` is the flow's board file; stops in other boards resolve
+    from it.
     """
     board = view.board
     out_path = Path(out_path)
@@ -168,7 +172,8 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
         ctx = _Ctx(_DEFAULT_PAGE_W, _DEFAULT_PAGE_H, th, board.footer or "")
         tlayout = clayout = prs.slide_layouts[6]   # the built-in blank layout
 
-    plans = build_slide_plan(view, flow)
+    plans = build_slide_plan(view, flow,
+                             Path(board_path) if board_path else None)
 
     # Clear selection and suppress the paper background so rasterized regions are
     # transparent outside their items (they then blend onto the slide), restoring
@@ -184,7 +189,7 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
         _build_title_slide(prs.slides.add_slide(tlayout), view, board, flow, ctx)
         for plan in plans[1:]:
             slide = prs.slides.add_slide(clayout)
-            if _build_content_slide(slide, view, plan, ctx):
+            if _build_content_slide(slide, plan.view or view, plan, ctx):
                 overloaded.append((plan.index, plan.title))
     finally:
         view._scene.setBackgroundBrush(old_bg)

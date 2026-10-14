@@ -101,7 +101,9 @@ _READABLE_MIN_PT = 11.0
 _ANNOTATION_MAX_CHARS = 80
 
 
-def export_flow_to_pdf(view, flow, out_path: str | Path) -> tuple[int, list]:
+def export_flow_to_pdf(view, flow, out_path: str | Path,
+                       board_path: str | Path | None = None
+                       ) -> tuple[int, list]:
     """Render ``flow`` to a PDF at ``out_path``.
 
     Returns ``(slide_count, overloaded)`` where ``overloaded`` is a list of
@@ -110,7 +112,8 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> tuple[int, list]:
     caller surfaces it so the author can trim or split those steps.
 
     ``view`` is a GrafliView whose scene holds the rendered graph (used both
-    to resolve bookmark anchors and as the render source).
+    to resolve bookmark anchors and as the render source). ``board_path`` is
+    the flow's board file; stops in other boards resolve from it.
     """
     board = view.board
     out_path = Path(out_path)
@@ -141,13 +144,15 @@ def export_flow_to_pdf(view, flow, out_path: str | Path) -> tuple[int, list]:
     painter = QPainter(writer)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-    plans = build_slide_plan(view, flow)
+    plans = build_slide_plan(view, flow,
+                             Path(board_path) if board_path else None)
     try:
         # Title slide is the clean cover — no footer band there.
         _draw_title_slide(painter, page, view, board, flow)
         for plan in plans[1:]:
             writer.newPage()
-            if _draw_content_slide(painter, page, view, plan, footer):
+            if _draw_content_slide(painter, page, plan.view or view, plan,
+                                   footer):
                 overloaded.append((plan.index, plan.title))
             _draw_footer(painter, page, footer)
     finally:

@@ -31,6 +31,7 @@ values parse forever and are classified to a kind on load.
   @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
   @ flow <id> "<label>" <step> ... [~auto=<node_id>] [~detail=<v>] [~focus=<v>] ["<description>"]
     step: <bookmark_ref>[:<dwell>][:detail=<v>][:focus=<v>]  (segments in any order)
+    bookmark_ref: <bookmark_id> | <board>#<bookmark_id>  (stop in another board; v3)
   @ footer "<markdown>"                            (board-global PDF footer)
   @ title-bg <style>                               (title-slide background: thumbnail-art)
 
@@ -43,7 +44,9 @@ emitted only when such directives are present; pure-diagram files stay on v1.
 A board link with a ``#<id>`` fragment (``&graph:<name>#<id>``,
 ``&link:<path>.grafli#<id>``) opens that board framed on the bookmark or
 element ``<id>``; a board using one is written as v3. So is a board whose
-arrows carry ``~id=<id>``.
+arrows carry ``~id=<id>``, and one whose flow has a stop in another board:
+a step ``<board>#<bookmark>``, ``<board>`` being a vault sub-board name or a
+relative path ending in ``.grafli``.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -459,6 +462,20 @@ def split_board_fragment(target: str) -> tuple[str, str]:
     without one the fragment is ""."""
     board, _, fragment = target.partition("#")
     return board, fragment
+
+
+def split_step_ref(ref: str) -> tuple[str, str]:
+    """Split a flow step's ref into (board, bookmark id): ``combat#blow`` →
+    ("combat", "blow"); a stop on the flow's own board has board ""."""
+    if "#" not in ref:
+        return "", ref
+    board, _, bookmark = ref.partition("#")
+    return board, bookmark
+
+
+def uses_cross_board_stops(board: Board) -> bool:
+    """True if a flow has a stop in another board (``<board>#<bookmark>``)."""
+    return any("#" in step.ref for flow in board.flows for step in flow.steps)
 
 
 def uses_board_fragments(board: Board) -> bool:
@@ -1074,6 +1091,7 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
                                 or b.title_bg)),
     "board fragments": (3, uses_board_fragments),
     "arrow ids": (3, lambda b: any(a.id for a in b.arrows)),
+    "cross-board stops": (3, uses_cross_board_stops),
 }
 
 

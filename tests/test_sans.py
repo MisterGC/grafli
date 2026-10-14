@@ -136,3 +136,43 @@ def test_the_pdf_export_draws_a_sans_box_in_inter(tmp_path: Path):
     mono = _stop_raster(_view(plain_text), plain, tmp_path / "mono.pdf")
     assert sans.size() == mono.size()
     assert sans != mono
+
+
+NOTES = ('#!grafli v4\n'
+         '@ note s 0,0 "A sans note" !sans\n'
+         '@ note h 0,80 "A handwritten note"\n'
+         '@ note m 0,160 "A mono note" !mono\n')
+
+
+def test_a_sans_note_resolves_to_inter_beside_hand_and_mono():
+    from grafli.constants import NOTE_FONT_FAMILY
+    view = _view(NOTES)
+    faces = {k: QFontInfo(view._note_items[k]._note_font()).family()
+             for k in "shm"}
+    assert faces == {"s": SANS_FONT_FAMILY, "h": NOTE_FONT_FAMILY,
+                     "m": FONT_FAMILY}
+
+
+def test_a_sans_code_note_stays_mono():
+    view = _view('#!grafli v4\n@ note c 0,0 "code: def f(): pass" !sans\n')
+    assert view._note_items["c"]._note_font().family() == FONT_FAMILY
+
+
+def test_set_face_switches_a_note_to_sans_and_back():
+    from grafli.constants import NOTE_FONT_FAMILY
+    view = _view(NOTES)
+    item = view._note_items["h"]
+    item.set_face("sans")
+    assert item.note.style == "sans"
+    assert item._note_font().family() == SANS_FONT_FAMILY
+    item.set_face("")
+    assert item._note_font().family() == NOTE_FONT_FAMILY
+
+
+def test_render_draws_a_sans_note_differently_from_handwriting(tmp_path: Path):
+    _app()
+    one = '#!grafli v4\n@ note n 0,0 "A sans note" !sans\n'
+    sans = _render(tmp_path, "sans", one)
+    hand = _render(tmp_path, "hand", one.replace(" !sans", "")
+                   .replace("v4", "v1"))
+    assert sans != hand

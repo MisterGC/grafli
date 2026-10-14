@@ -121,7 +121,10 @@ class ExportMixin:
             gen.setTitle("Grafli Diagram")
             painter = QPainter(gen)
             painter.fillRect(rect, QBrush(theme.SCENE_BG))
-            self._scene.render(painter, QRectF(), rect)
+            # Paint onto the viewBox itself, so SVG coordinates are board
+            # coordinates; a null target would paint from (0, 0) and shift
+            # the board off a viewBox that does not start there.
+            self._scene.render(painter, rect, rect)
             painter.end()
             io.close()
         return buf

@@ -179,6 +179,32 @@ Click through to descend into it, edit, and come back — so a large system can
 be a shallow top-level map plus focused drill-downs instead of one giant
 canvas.
 
+## Share the map as one page
+
+`grafli export-html board.grafli board.html` (or **HTML** in the side panel's
+Export section) writes the board and every board reachable from it through
+`&graph` and `.grafli` `&link` into one HTML file. It needs no server and no
+internet: drawings, script, styles, fonts and images are all inside, so it
+opens from a mail attachment or a shared folder in any current browser. It
+prints its size and warns above 20 MB.
+
+Each board is drawn by grafli's own SVG export, so the page looks like the
+app. On the page:
+
+| Do | What happens |
+|----|--------------|
+| Drag, wheel, <kbd>+</kbd> / <kbd>-</kbd>, arrow keys | Pan and zoom; <kbd>Shift</kbd>+<kbd>Z</kbd> fits the board |
+| Click a box with a level, or select it and <kbd>Return</kbd> / <kbd>g</kbd><kbd>d</kbd> | Zoom into its board |
+| **↑ Back**, <kbd>Backspace</kbd> or <kbd>g</kbd><kbd>u</kbd> | Back up, to where you were; the breadcrumb jumps several levels |
+| Click a box with a doc, or <kbd>g</kbd><kbd>v</kbd> | Read the doc in a panel beside it; <kbd>Esc</kbd> closes it |
+| **Overlay** selector or <kbd>A</kbd> | Switch between no overlay and each overlay file, with its legend and the selected element's note |
+| <kbd>Return</kbd> on a box with a web link | Open the link in a new tab |
+
+The page is for reading: code refs (`@path:line`) show as plain text,
+because the people you send it to don't have the checkout, and there are no
+miniatures and no editing. A link to a board that does not exist is reported
+when exporting and left out. `--theme dark` exports the dark theme.
+
 ## When you want to *explain* the path
 
 Ad-hoc navigation is for working. When you want to capture a route through the

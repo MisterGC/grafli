@@ -270,6 +270,9 @@ class MainWindow(QMainWindow):
         if action_id == "export_flow_pptx":
             self._export_flow_pptx()
             return
+        if action_id == "export_html":
+            self._export_html()
+            return
         handler = actions.get(action_id)
         if handler:
             handler()
@@ -419,6 +422,35 @@ class MainWindow(QMainWindow):
         if overloaded:
             msg += f" · {len(overloaded)} overloaded — trim or split"
         self._view.toast(msg, "warn" if overloaded else "info")
+
+    def _export_html(self):
+        """Export this board and every board reachable from it as one
+        self-contained HTML page, in the theme on screen."""
+        from PySide6.QtWidgets import QFileDialog
+        if self._file_path is None:
+            self._view.toast("Save the board first to export it", "warn")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export HTML", str(self._file_path.with_suffix(".html")),
+            "HTML files (*.html);;All Files (*)",
+        )
+        if not path:
+            return
+        from grafli.htmlexport import SIZE_WARN_BYTES, export_html, format_size
+        try:
+            result = export_html(self._file_path, Path(path))
+        except Exception as exc:  # surface any render/IO failure
+            self._view.toast(f"HTML export failed: {exc}", "error")
+            return
+        boards = len(result.boards)
+        msg = (f"HTML exported · {format_size(result.size)} · {boards} "
+               f"board{'s' if boards != 1 else ''}")
+        if result.too_big:
+            msg += f" · above {format_size(SIZE_WARN_BYTES)}, heavy to send"
+        if result.warnings:
+            msg += f" · {len(result.warnings)} left out: {result.warnings[0]}"
+        self._view.toast(msg, "warn" if result.too_big or result.warnings
+                         else "info")
 
     def _pick_pptx_template(self):
         """Choose a .pptx template and the layouts to use for the title and
@@ -2253,6 +2285,48 @@ def _cmd_export(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_export_html(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="grafli export-html",
+        description="Export a board and every board reachable from it "
+                    "(&graph, .grafli &link) as one self-contained HTML page: "
+                    "levels to zoom into, box docs to peek at, overlays to "
+                    "switch. No server, no internet needed to view it.",
+    )
+    parser.add_argument("input", type=Path, help="Input .grafli file")
+    parser.add_argument("output", type=Path, help="Output .html file")
+    parser.add_argument(
+        "--theme", default="light", choices=("light", "dark"),
+        help="Colour theme of the page (default light)",
+    )
+    args = parser.parse_args(argv)
+    if not args.input.exists():
+        print(f"Input not found: {args.input}", file=sys.stderr)
+        return 2
+    if args.output.suffix.lower() not in (".html", ".htm"):
+        print(f"Unsupported output format: {args.output.suffix} "
+              f"(expected .html)", file=sys.stderr)
+        return 2
+
+    theme.set_theme(args.theme)
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    from grafli.htmlexport import SIZE_WARN_BYTES, export_html, format_size
+    result = export_html(args.input, args.output)
+    for msg in result.warnings:
+        print(f"Warning: {msg}", file=sys.stderr)
+    boards = len(result.boards)
+    print(f"Wrote {args.output} ({format_size(result.size)}, {boards} "
+          f"board{'s' if boards != 1 else ''})")
+    if result.too_big:
+        print(f"Warning: {args.output} is {format_size(result.size)}, above "
+              f"{format_size(SIZE_WARN_BYTES)} — heavy to send round; large "
+              f"images and many overlays add up", file=sys.stderr)
+    del app
+    return 0
+
+
 def _make_note_rect_provider():
     """Return a callable that computes a note's rendered scene rect.
 
@@ -2637,10 +2711,12 @@ def _resolve_launch_file(file_arg: str | None) -> Path:
 def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
     if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
-                                              "export", "vault", "inspect",
-                                              "fmt"):
+                                              "export", "export-html",
+                                              "vault", "inspect", "fmt"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
+        if sub == "export-html":
+            sys.exit(_cmd_export_html(rest))
         if sub == "skill":
             sys.exit(_cmd_skill(rest))
         if sub == "render":
@@ -2658,7 +2734,7 @@ def main():
     parser = argparse.ArgumentParser(
         prog="grafli",
         description="Grafli whiteboard. Subcommands: skill, render, diagnose, "
-                    "inspect, export, vault, fmt.",
+                    "inspect, export, export-html, vault, fmt.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

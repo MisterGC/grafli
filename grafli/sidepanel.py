@@ -321,6 +321,7 @@ class SidePanel(QWidget):
             ("export_svg",      "󰈔", "SVG",       "^E"),
             ("export_flow_pdf", "󰈦", "Flow PDF",  ""),
             ("export_flow_pptx", "󰈦", "Flow PPTX", ""),
+            ("export_html",     "\U000F031D", "HTML",      ""),
         ])
 
     def refresh_flows(self):

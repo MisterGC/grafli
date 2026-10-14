@@ -41,13 +41,13 @@ def _row_of(view, label: str) -> int:
 
 # ── Boxes: the attributes that had no key ──────────────────────────
 
-def test_box_overlay_offers_background_label_and_ink():
+def test_box_overlay_offers_background_label_ink_and_outline():
     view = _view('@ box a "A" 0,0 160x60\n')
     view._box_items["a"].setSelected(True)
     view._open_element_overlay()
     assert view._elem_overlay_target == "box"
     assert [a["label"] for a in view._elem_overlay_axes] == \
-        ["Background", "Label", "Label ink"]
+        ["Background", "Label", "Label ink", "Outline"]
 
 
 def test_box_background_reaches_flat():
@@ -348,3 +348,4 @@ def test_s_e_toggles_ink_on_a_note_and_cancel_reverts_it():
     _press(view, Qt.Key.Key_E, Qt.Key.Key_J, Qt.Key.Key_L, Qt.Key.Key_Return)
     assert view.board.notes[0].ink
     assert '"rose text" %rose !ink' in serialize(view.board)
+

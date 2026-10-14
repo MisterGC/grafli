@@ -1027,11 +1027,15 @@ class StyleModeMixin:
     # on a note); "On fill" is `!ink`: ink picked from the fill, or a note's
     # own %color (#204).
     _INK_OPTIONS = (("Plain", False), ("On fill", True))
+    # The outline's pattern: `!dashed` / `!dotted`, which also rings a flat
+    # box or a container that otherwise has no outline (#207).
+    _BOX_BORDER_OPTIONS = (("Solid", ""), ("Dashed", "dashed"),
+                           ("Dotted", "dotted"))
     # "Auto" follows the file type — raster framed, .svg frameless (#147).
     _IMAGE_FRAME_OPTIONS = (("Auto", ""), ("Frame", "on"), ("None", "off"))
 
     # Fields snapshotted per target so commit/cancel are exact.
-    _BOX_OVERLAY_FIELDS = ("style", "anchor", "ink")
+    _BOX_OVERLAY_FIELDS = ("style", "anchor", "ink", "border")
     _NOTE_OVERLAY_FIELDS = ("flat", "ink")
     _IMAGE_OVERLAY_FIELDS = ("frame",)
 
@@ -1067,6 +1071,10 @@ class StyleModeMixin:
              "options": list(self._INK_OPTIONS),
              "get": lambda: primary.ink,
              "set": lambda v: self._set_all_boxes("ink", v)},
+            {"label": "Outline", "kind": "boxborder",
+             "options": list(self._BOX_BORDER_OPTIONS),
+             "get": lambda: primary.border,
+             "set": lambda v: self._set_all_boxes("border", v)},
         ]
 
     def _note_axes(self) -> list:
@@ -1178,7 +1186,7 @@ class StyleModeMixin:
         """
         if self._elem_overlay_target == "box":
             for it in self._color_picker_boxes():
-                it._apply_color()          # border, fill and label ink
+                it._apply_color()          # border, its pattern, fill, label ink
                 it.refresh_auto_layout()   # label position follows ^anchor
                 it.update()
         elif self._elem_overlay_target == "note":
@@ -1321,7 +1329,8 @@ class StyleModeMixin:
             return 18.0, 18.0, 4.0
         if kind == "size":
             return 26.0, 22.0, 4.0
-        if kind in ("boxbg", "boxlabel", "notebg", "imgframe", "ink"):
+        if kind in ("boxbg", "boxlabel", "notebg", "imgframe", "ink",
+                    "boxborder"):
             return 30.0, 22.0, 6.0   # miniature box previews
         return 44.0, 22.0, 6.0   # heads / line / thickness sample strips
 
@@ -1447,6 +1456,19 @@ class StyleModeMixin:
                 painter.setBrush(QBrush(theme.OVERLAY_BG))
                 painter.drawRoundedRect(body.adjusted(5, body.height() / 2,
                                                       -5, -3), 1.5, 1.5)
+            return
+        if kind == "boxborder":
+            # A plate ringed in the pattern it picks.
+            body = cell.adjusted(3, 3, -3, -3)
+            pen = QPen(ink, 1.6)
+            if val == "dashed":
+                pen.setStyle(Qt.PenStyle.DashLine)
+            elif val == "dotted":
+                pen.setStyle(Qt.PenStyle.DotLine)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.setBrush(QBrush(theme.BOX_FILL))
+            painter.drawRoundedRect(body, 4, 4)
             return
         if kind == "ink":
             # A letter on a dark fill: on a light plate in the board ink

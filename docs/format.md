@@ -94,6 +94,12 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   corners and a node-size label centred at the top — so a box with a body
   note reads as a card. A board using `!card` carries a `#!grafli v4`
   header. (Style mode → `e`, Background row: plate / flat / card.)
+- `!ink` — on a box, the label and its fill or lead icon take the ink that
+  reads on the box's fill (light on a dark fill, dark on a light one) and
+  the light plate behind the label goes away; on a note, the text takes the
+  note's `%color` instead of note blue. Without `!ink` a note's `%color`
+  only tints its icon. A board using `!ink` carries a `#!grafli v4` header.
+  (Style mode → `e`, Label ink row: plain / on fill.)
   **Notes render in
   a handwritten face by default**; `!mono` (and `code:` notes) switch to the
   monospace face — handwriting for prose, monospace for code. (Style mode →

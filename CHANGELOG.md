@@ -156,6 +156,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <kbd>e</kbd> sets it: Background row, plate / flat / card. A board using
   it is written `#!grafli v4`; older builds open it read-only.
   ([#203](https://github.com/MisterGC/grafli/issues/203))
+- **`!ink`: label and icon ink follow a dark fill.** A coloured box's label
+  always sat on a light plate in dark ink, and a plain note's text was
+  always note blue while `%color` only tinted its icon. An `!ink` box drops
+  the plate and draws its label and its fill or lead icon in the ink that
+  reads on its fill; an `!ink` note draws its text in its `%color`.
+  Coloured notes without `!ink` keep their blue text. Style mode
+  <kbd>s</kbd> <kbd>e</kbd> sets it: Label ink row, plain / on fill. A
+  board using it is written `#!grafli v4`; older builds open it read-only.
+  ([#204](https://github.com/MisterGC/grafli/issues/204))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

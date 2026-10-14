@@ -431,7 +431,7 @@ class OverlaysMixin:
             ]),
             ("Style", [
                 ("s", "Style mode — same keys for box / note / connector:"),
-                ("  e", "Appearance: box plate/flat/card + label spot, note plate"),
+                ("  e", "Appearance: plate/flat/card, label spot, label ink"),
                 ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
                 ("  i", "Symbol grid (⇥ fill/lead/badge, 1-9 number)"),
                 ("  t", "Text grid: size × bold/italic (⇥ font, o outline, s shadow)"),

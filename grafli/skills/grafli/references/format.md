@@ -7,7 +7,7 @@ element beyond it.
 ## Box syntax
 
 ```
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat !bold !italic] [*icon] [&attach] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !bold !italic] [*icon] [&attach] [>parent]
 ```
 
 **Modifier order is enforced** — write them in exactly this sequence:
@@ -25,9 +25,12 @@ class as a misplaced triple-quote modifier.
 | `^anchor` | `^topleft`, `^topcenter` | label alignment (default: center) |
 | `~size` | named `~small`…`~xxxlarge`, `~4xl` (hero), short aliases `~2xl`/`~3xl`, or numeric `~16` | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |
+| `!card` | `!card` | keep the node look (fill, border, centred title) while the box holds children; `#!grafli v4` |
+| `!ink` | `!ink` | label and fill/lead icon in the ink that reads on the fill, no light plate — for dark fills; `#!grafli v4` |
 | `!bold` / `!italic` | `!bold`, `!italic` | text emphasis, in the `!`-flag group (combine for headings/asides) |
 | `!outline` / `!shadow` | `!outline`, `!shadow` | **note** display lettering — hollow letters / drop-shadow depth, for sketchnote headers (layer with `~size` + `!bold`); render on notes, not boxes |
 | `!flat` (note) | `!flat` | drop the beige background plate — the note's text sits directly on the canvas (for a hand-lettered title/header) |
+| `!ink` (note) | `!ink` | draw the note's text in its `%color` (without it, `%color` only tints the icon and the text stays blue); `#!grafli v4` |
 | `*symbol` | `*lightbulb` (fill), `*lead:gear` (lead), `*badge:star` (badge), `*3` (number) | sketchnote symbol — fill: big symbol + caption; lead: small symbol left of the label; badge: compact top-right overlay; digits 1–99 render as circled number badges |
 | `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>[#<id>]` | typed attachment (see "Attachments"; `#<id>` see "Board links into a bookmark or element") |
 | `>parent` | `>parent_id` | nest inside parent box |

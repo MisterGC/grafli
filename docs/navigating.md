@@ -81,7 +81,9 @@ label, once you are close enough to read it. To read the whole doc without
 leaving the board, select the box and press <kbd>g</kbd><kbd>v</kbd>: a
 read-only panel opens beside the box, scrollable when the doc is long, and
 <kbd>Esc</kbd> closes it. <kbd>E</kbd> opens the doc for editing. When the doc
-file changes, the line and an open panel follow.
+file changes, the line and an open panel follow. Renders and exports show the
+line too; a PDF or PPTX slide shows it only where the slide's frame keeps it
+large enough to read, as the canvas does at its zoom.
 
 To *build* that hierarchy, select one or more elements and press
 <kbd>Ctrl</kbd>+<kbd>G</kbd> — grafli wraps them in a new parent box sized to

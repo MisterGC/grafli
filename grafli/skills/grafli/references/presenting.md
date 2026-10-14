@@ -84,6 +84,10 @@ PDF/PPTX export, and `grafli render`.
 @ flow tour "Demo" bm_wide:6:detail=summary bm_svc:detail=full bm_api:focus=complete ~focus=none
 ```
 
+A `&doc` box's first sentence shows on a slide when the slide's frame keeps
+it legible (judged on the slide shown 1280 px wide, the canvas's floor);
+a wide opening stop drops it, a close stop on the box keeps it.
+
 ## Text slides
 
 A bookmark that anchors a **single note** and has **no description** exports

@@ -62,8 +62,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and <kbd>Esc</kbd> closes it. <kbd>E</kbd> still opens the doc in textli.
   Box docs are watched like note docs, so an edit to the file shows on the
   canvas and in an open panel within a second. On a box without a doc
-  <kbd>g</kbd><kbd>v</kbd> says so. Exports draw the box without the line,
-  and a board without box docs looks as before.
+  <kbd>g</kbd><kbd>v</kbd> says so. A board without box docs looks as
+  before.
   ([#163](https://github.com/MisterGC/grafli/issues/163))
 - **Arrows can carry a stable id.** An arrow line may end in `~id=<id>`
   (before a `# annotation`), so that a bookmark, a tour stop or an overlay
@@ -149,6 +149,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#170](https://github.com/MisterGC/grafli/issues/170))
 
 ### Changed
+- **A box's doc line shows in every export, not only on the canvas.** A
+  `&doc` box's first sentence now shows in the PDF and PPTX slides, the
+  HTML page and the SVG and PNG exports, as it does in `grafli render`. A
+  slide judges the line at its own scale, as the canvas does at its zoom:
+  a slide whose frame makes the line too small to read leaves it out.
+  Bookmark thumbnails still draw the box without it, and a board without
+  box docs exports as before.
+  ([#202](https://github.com/MisterGC/grafli/issues/202))
 - **Every keypress either acts or explains itself.** Roughly forty keys used
   to do nothing at all when the selection, the board or the clipboard didn't
   suit them — no message, no clue. They now either do the obvious thing
@@ -180,7 +188,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   headless render looked up the board's file on a window it never has, so
   a `&graph` box showed no miniature and a `&doc` box no first sentence.
   The render now shows both wherever the app shows them at that zoom;
-  `--lod` keeps its zoomed-out look, and the exports still leave them out.
+  `--lod` keeps its zoomed-out look, and the exports leave miniatures out.
   ([#190](https://github.com/MisterGC/grafli/issues/190))
 - **A container with a lead icon keeps its label and icon top-left.** A
   `*lead:` icon on a container — or on any box with `^topleft` or

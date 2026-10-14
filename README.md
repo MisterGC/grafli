@@ -96,7 +96,7 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 - Sub-graflis — link any node to a deeper diagram in its own file.
 - Share as one page — `grafli export-html` writes a board and every board
   reachable from it into a single offline HTML file: zoom into levels, peek
-  at docs, switch overlays in any browser.
+  at docs, switch overlays and play the tours in any browser.
 - Bookmarks & flows — save labeled viewpoints (semantic anchors, not pixel
   coords) and string them into guided tours: step through, auto-play, present
   fullscreen (<kbd>F5</kbd>), or export a slide PDF (`grafli export … --flow`).

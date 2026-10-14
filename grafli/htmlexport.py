@@ -1,13 +1,14 @@
 """Interactive HTML export: one self-contained page, the whole map (D17).
 
 ``export_html`` writes a board and every board reachable from it through
-``&graph`` and ``.grafli`` ``&link`` into one HTML file that needs no server
-and no internet. Each board is drawn by the app's own SVG export, once
-without an overlay and once per overlay file beside it, so the page looks
-exactly like the app. A JSON block beside the SVGs holds what the page needs
-to act — element rects and ids, attachments, bookmark rects, flows, box docs
-as HTML, overlay legends and notes — and the page's script places invisible
-click areas from those rects. No second renderer is written in JS.
+``&graph``, ``.grafli`` ``&link`` and tour stops in other boards into one
+HTML file that needs no server and no internet. Each board is drawn by the
+app's own SVG export, once without an overlay and once per overlay file
+beside it, so the page looks exactly like the app. A JSON block beside the
+SVGs holds what the page needs to act — element rects and ids, attachments,
+bookmark rects, box docs as HTML, overlay legends and notes, the tours with
+each stop's board and dwell — and the page's script places invisible click
+areas from those rects and plays the tours by moving its camera. No second renderer is written in JS.
 
 Code refs (``@path:line``) stay plain text: the people the page is sent to
 don't have the checkout. Miniatures and editing are left out.
@@ -27,8 +28,9 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QPainterPath, QTextDocument
 
 from grafli import theme
+from grafli.flows import DEFAULT_DWELL
 from grafli.format import Arrow, Board, Image, Note, doc_name, parse
-from grafli.format import split_board_fragment
+from grafli.format import split_board_fragment, split_step_ref
 
 # Above this the export still writes the page, and says it is heavy to send.
 SIZE_WARN_BYTES = 20 * 1024 * 1024
@@ -101,10 +103,32 @@ def _read_board(path: Path) -> Board:
     return board
 
 
+def _stop_board(board_path: Path, ref: str) -> Path | None:
+    """The other board a tour stop ``<board>#<bookmark>`` lies in, or None
+    for a stop on the flow's own board."""
+    from grafli.resources import board_target_path
+    target, _bookmark = split_step_ref(ref)
+    return board_target_path(board_path, target) if target else None
+
+
+def _board_refs(board_path: Path, board: Board):
+    """Each board *board* leads to — through a level, a link or a tour stop
+    in another board — as (path, what names it)."""
+    for el in _elements(board):
+        link = _board_link(board_path, el)
+        if link is not None:
+            yield link[0], f"'{el.id}' links to"
+    for flow in board.flows:
+        for step in flow.steps:
+            path = _stop_board(board_path, step.ref)
+            if path is not None:
+                yield path, f"the tour '{flow.id}' stops in"
+
+
 def reachable_boards(root: Path) -> tuple[list[Path], list[str]]:
-    """The root board and every board reachable from it, each once, in the
-    order they are first reached; plus a warning per link to a missing
-    board."""
+    """The root board and every board reachable from it — through levels,
+    links and tour stops — each once, in the order they are first reached;
+    plus a warning per reference to a missing board."""
     root = root.resolve()
     order = [root]
     seen = {root}
@@ -113,15 +137,12 @@ def reachable_boards(root: Path) -> tuple[list[Path], list[str]]:
     while i < len(order):
         here = order[i]
         i += 1
-        for el in _elements(_read_board(here)):
-            link = _board_link(here, el)
-            if link is None:
-                continue
-            target = link[0].resolve()
+        for path, what in _board_refs(here, _read_board(here)):
+            target = path.resolve()
             if target in seen:
                 continue
             if not target.is_file():
-                warnings.append(f"{here.name}: '{el.id}' links to "
+                warnings.append(f"{here.name}: {what} "
                                 f"{target.name}, which does not exist")
                 seen.add(target)
                 continue
@@ -290,9 +311,41 @@ class _Exporter:
                 paths.setdefault(id(arrow), []).append(d)
         return paths
 
+    def _arrow_marks(self) -> dict[int, list[list[float]]]:
+        """The rects of each arrow's heads and label, by the arrow object's
+        identity."""
+        from grafli.items import ArrowLineItem
+        marks: dict[int, list[list[float]]] = {}
+        for item in self.view._arrow_items:
+            arrow = item.data(0)
+            if (isinstance(arrow, Arrow) and item.isVisible()
+                    and not isinstance(item, ArrowLineItem)):
+                marks.setdefault(id(arrow), []).append(
+                    _rect(item.sceneBoundingRect()))
+        return marks
+
+    def _flows(self, path: Path, key: str, board: Board,
+               ids: dict[Path, str]) -> list[dict]:
+        """The board's flows, each stop with the board it lies in (None when
+        that board is missing), its dwell (None = the default) and its focus
+        ("complete" dims what its frame does not hold whole, as in the
+        app)."""
+        from grafli.flows import step_focus
+        flows = []
+        for f in board.flows:
+            steps = []
+            for s in f.steps:
+                _target, bookmark = split_step_ref(s.ref)
+                other = _stop_board(path, s.ref)
+                stop_board = key if other is None else ids.get(other.resolve())
+                steps.append({"board": stop_board, "bookmark": bookmark,
+                              "dwell": s.dwell, "focus": step_focus(f, s)})
+            flows.append({"id": f.id, "label": f.label, "steps": steps})
+        return flows
+
     def board(self, path: Path, key: str, ids: dict[Path, str],
               padding: int) -> dict:
-        from grafli.flows import bookmark_target_rect
+        from grafli.flows import bookmark_target_rect, emphasis_for
         from grafli.overlay_file import (OverlayProvider, load_overlay,
                                          overlay_paths)
         board = self._load(path)
@@ -309,6 +362,13 @@ class _Exporter:
                 elements.append(self._element(
                     path, key, el, item.sceneBoundingRect(), ids, kind))
         arrow_paths = self._arrow_paths()
+        # Every drawn arrow with its ends, lines, heads and label: a stop's
+        # dimming keeps an arrow whose ends it keeps.
+        arrow_marks = self._arrow_marks()
+        arrow_lines = [{"id": a.id, "ends": [a.from_id, a.to_id],
+                        "paths": arrow_paths[id(a)],
+                        "marks": arrow_marks.get(id(a), [])}
+                       for a in board.arrows if arrow_paths.get(id(a))]
         for arrow in board.arrows:
             if not (arrow.id or arrow.url or arrow.attach_kind == "doc"):
                 continue
@@ -327,8 +387,13 @@ class _Exporter:
             if not r.isNull():
                 bookmarks[bm.id] = {"rect": _rect(r), "label": bm.label,
                                     "description": bm.description}
-        flows = [{"id": f.id, "label": f.label,
-                  "steps": [s.ref for s in f.steps]} for f in board.flows]
+                # A path stop emphasises the arrows its focus names and keeps
+                # their ends and its other focus elements bright.
+                emphasis = emphasis_for(board, bm)
+                if emphasis is not None:
+                    bookmarks[bm.id]["arrows"] = sorted(emphasis[0])
+                    bookmarks[bm.id]["keep"] = sorted(emphasis[1])
+        flows = self._flows(path, key, board, ids)
 
         states = [{"name": "", "svg": f"{key}-0", "background": background}]
         for i, opath in enumerate(overlay_paths(path), start=1):
@@ -351,7 +416,7 @@ class _Exporter:
         return {"id": key, "title": path.stem, "file": path.name,
                 "bounds": _rect(rect), "states": states,
                 "elements": elements, "bookmarks": bookmarks,
-                "flows": flows}
+                "flows": flows, "lines": arrow_lines}
 
 
 def _fonts(svgs: list[tuple[str, str]], docs: bool) -> list[dict]:
@@ -406,18 +471,36 @@ def _page(title: str, data: dict, svgs: list[tuple[str, str]],
 <header id="bar">
   <button id="back" type="button" title="Back up a level (Backspace, g u)">&#8593; Back</button>
   <nav id="crumbs" aria-label="Board path"></nav>
+  <label id="tour-pick" hidden>Tour
+    <select id="tour"></select>
+  </label>
   <label id="overlay-pick" hidden>Overlay
     <select id="overlay"></select>
   </label>
 </header>
 <main id="stage-wrap">
   <svg id="stage" xmlns="http://www.w3.org/2000/svg">
+    <defs><mask id="veil-mask" maskUnits="userSpaceOnUse"></mask></defs>
     <g id="art"></g>
+    <rect id="veil" mask="url(#veil-mask)" style="display:none"></rect>
     <g id="hits"></g>
     <rect id="sel" style="display:none"></rect>
   </svg>
   <aside id="legend" hidden></aside>
   <aside id="peek" hidden><div id="peek-body"></div></aside>
+  <aside id="player" hidden aria-live="polite">
+    <div class="head"><span id="pl-flow"></span><span id="pl-count"></span></div>
+    <div id="pl-label"></div>
+    <div id="pl-desc"></div>
+    <div class="track"><div id="pl-bar"></div></div>
+    <div class="track dwell"><div id="pl-dwell"></div></div>
+    <div class="buttons">
+      <button id="pl-prev" type="button" title="Previous stop (&#8592;)">&#8249; Prev</button>
+      <button id="pl-play" type="button" title="Play or pause (p cycles play, loop, pause)">&#9654; Play</button>
+      <button id="pl-next" type="button" title="Next stop (Space, &#8594;)">Next &#8250;</button>
+      <button id="pl-close" type="button" title="Leave the tour (Esc)">&#10005;</button>
+    </div>
+  </aside>
   <div id="toast" hidden></div>
 </main>
 {templates}
@@ -445,7 +528,8 @@ def export_html(root: Path, out: Path, padding: int = 40) -> HtmlExport:
     finally:
         exporter.view.deleteLater()
     data = {"root": "b0", "boards": {b["id"]: b for b in boards},
-            "docs": exporter.docs, "theme": theme.name()}
+            "docs": exporter.docs, "theme": theme.name(),
+            "dwell": DEFAULT_DWELL}
     fonts = _fonts(exporter.svgs, bool(exporter.docs))
     page = _page(root.stem, data, exporter.svgs, fonts)
     out = Path(out)

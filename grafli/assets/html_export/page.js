@@ -1,7 +1,8 @@
 // The page grafli export-html writes: pan and zoom, levels you zoom into and
-// back out of, the doc peek and the overlay switch. Every board is the app's
-// own SVG in a <template>; this script only moves the camera (the viewBox),
-// swaps drawings and places click areas from the rects in #grafli-data.
+// back out of, the doc peek, the overlay switch and the tour player. Every
+// board is the app's own SVG in a <template>; this script only moves the
+// camera (the viewBox), swaps drawings and places click areas from the rects
+// in #grafli-data.
 (() => {
   "use strict";
   const DATA = JSON.parse(document.getElementById("grafli-data").textContent);
@@ -10,6 +11,7 @@
   const SVGNS = "http://www.w3.org/2000/svg";
   const stage = $("stage"), art = $("art"), hits = $("hits"), sel = $("sel");
   const LEVEL_MS = 450;
+  const STOP_MS = 700;       // the camera's glide between stops on one board
 
   let board = null;          // the board on screen
   let vb = null;             // its camera: {x, y, w, h} in board units
@@ -17,6 +19,7 @@
   let peeked = null;         // the element whose doc the peek shows
   let busy = false;          // a level zoom is playing
   const stack = [];          // frames to go back up to
+  let tour = null;           // the playing tour, see "Tours" below
   const overlayOf = {};      // board id → index into its states
 
   // ── Fonts: the bundled faces, gzipped, unpacked in the browser ──
@@ -76,13 +79,19 @@
               w, h: vb.h * f });
   }
 
-  // Glide the camera to *to*: centre linear, size geometric, eased.
+  // Glide the camera to *to*: centre linear, size geometric, eased. A newer
+  // glide, a new stop or a board switch cancels it, so its last frames never
+  // land on a board or stop that has replaced its target.
+  let glideId = 0;
+  function cancelGlide() { glideId++; }
+
   function glide(to, ms, done) {
-    const from = vb, t0 = performance.now();
+    const from = vb, t0 = performance.now(), id = ++glideId;
     const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
     const cx0 = from.x + from.w / 2, cy0 = from.y + from.h / 2;
     const cx1 = to.x + to.w / 2, cy1 = to.y + to.h / 2;
     function step(now) {
+      if (id !== glideId) return;
       const t = Math.min((now - t0) / ms, 1), k = ease(t);
       const w = from.w * Math.pow(to.w / from.w, k);
       const h = from.h * Math.pow(to.h / from.h, k);
@@ -96,12 +105,14 @@
   // ── Boards ──
 
   function showBoard(id) {
+    cancelGlide();
     board = DATA.boards[id];
     closePeek();
     select(null);
     drawState();
     buildHits();
     showOverlayPick();
+    showTourPick();
     showCrumbs();
   }
 
@@ -113,6 +124,7 @@
       (n) => document.importNode(n, true)));
     $("stage-wrap").style.background = state.background;
     showLegend();
+    showVeil();
   }
 
   function hitTitle(el) {
@@ -176,7 +188,8 @@
   function enter(el) {
     if (busy || !el || !el.level) return;
     const child = DATA.boards[el.level.board];
-    const frame = { board: board.id, view: vb, selected: el, via: el };
+    const frame = { board: board.id, view: vb, selected: el, via: el,
+                    label: el.label, tour: leaveTour() };
     busy = true;
     closePeek();
     glide(frameRect(elementBox(el), 0.02), LEVEL_MS, () => {
@@ -193,18 +206,29 @@
 
   function up() {
     if (busy) return;
+    if (tour) stopTour();
     if (!stack.length) { toast("Already at the top"); return; }
     const frame = stack.pop();
     showBoard(frame.board);
     select(frame.selected);
+    fade();
+    if (!frame.via) {
+      // A frame a tour stop pushed: no box to zoom back out of.
+      setView(frame.view);
+      if (frame.tour) resumeTour(frame.tour);
+      return;
+    }
     busy = true;
     setView(frameRect(elementBox(frame.via), 0.02));
-    fade();
-    glide(frame.view, LEVEL_MS, () => { busy = false; });
+    glide(frame.view, LEVEL_MS, () => {
+      busy = false;
+      if (frame.tour) resumeTour(frame.tour);
+    });
   }
 
   function upTo(depth) {
     if (busy || depth >= stack.length) return;
+    if (tour) stopTour();
     let frame;
     while (stack.length > depth) frame = stack.pop();
     showBoard(frame.board);
@@ -220,7 +244,7 @@
 
   function showCrumbs() {
     const nav = $("crumbs");
-    const labels = [DATA.boards[DATA.root].title, ...stack.map((f) => f.via.label)];
+    const labels = [DATA.boards[DATA.root].title, ...stack.map((f) => f.label)];
     const parts = [];
     labels.forEach((label, i) => {
       if (i) {
@@ -366,6 +390,288 @@
     card.hidden = false;
   }
 
+  // ── Tours ──
+  //
+  // A tour is a flow of its home board; a stop may lie in another board,
+  // which the player shows the way the app does: back along the stack when
+  // the tour came through it, else one frame down from here. Entering a
+  // level mid-tour parks the tour in that frame; going back up resumes it.
+
+  const MODES = ["paused", "playing", "loop"];
+  let tourTimer = 0;
+
+  function showTourPick() {
+    const pick = $("tour-pick"), select_ = $("tour");
+    const flows = board.flows.filter((f) => f.steps.length);
+    if (tour || !flows.length) { pick.hidden = true; return; }
+    const head = document.createElement("option");
+    head.value = ""; head.textContent = "Play a tour…";
+    const opts = flows.map((f) => {
+      const o = document.createElement("option");
+      o.value = f.id;
+      o.textContent = `${f.label || f.id} (${f.steps.length})`;
+      return o;
+    });
+    select_.replaceChildren(head, ...opts);
+    select_.value = "";
+    pick.hidden = false;
+  }
+
+  function playTour(flowId, index) {
+    const flow = board.flows.find((f) => f.id === flowId);
+    if (!flow || !flow.steps.length) return;
+    if (tour) stopTour();
+    tour = { home: board.id, flow, index: 0, mode: "paused", smooth: true };
+    $("tour-pick").hidden = true;
+    $("player").hidden = false;
+    gotoStop(index || 0, true);
+  }
+
+  // Leave the tour on purpose: stop, and come back to its home board.
+  function endTour() {
+    if (!tour) return;
+    const home = tour.home;
+    stopTour();
+    if (board.id !== home) {
+      // Back along the stack restores the view left there; a board the
+      // tour never came through is shown whole.
+      const frame = boardFor(home);
+      setView(frame ? frame.view : fitBoard());
+    }
+  }
+
+  function stopTour() {
+    clearTimeout(tourTimer);
+    tour = null;
+    $("player").hidden = true;
+    emphasise(null);
+    showVeil();
+    showTourPick();
+  }
+
+  // Entering a level mid-tour: the tour pauses and waits in the frame.
+  function leaveTour() {
+    if (!tour) return null;
+    const kept = { home: tour.home, flow: tour.flow, index: tour.index,
+                   mode: tour.mode, smooth: tour.smooth };
+    stopTour();
+    return kept;
+  }
+
+  // Pick a parked tour up at its stop, the camera where you left it.
+  function resumeTour(kept) {
+    tour = { ...kept };
+    $("tour-pick").hidden = true;
+    $("player").hidden = false;
+    gotoStop(kept.index, false);
+  }
+
+  // Show board *id* for a stop; the frame popped on the way back, if any.
+  function boardFor(id) {
+    if (board.id === id) return null;
+    const depth = stack.findIndex((f) => f.board === id);
+    let frame = null;
+    if (depth >= 0) {
+      while (stack.length > depth) frame = stack.pop();
+    } else {
+      stack.push({ board: board.id, view: vb, selected,
+                   label: DATA.boards[id].title });
+    }
+    showBoard(id);
+    if (frame) select(frame.selected);
+    fade();
+    return frame;
+  }
+
+  function stopTarget(step) {
+    const b = step.board ? DATA.boards[step.board] : null;
+    return { board: b, bookmark: b ? b.bookmarks[step.bookmark] : null };
+  }
+
+  function gotoStop(index, move) {
+    const steps = tour.flow.steps;
+    tour.index = Math.max(0, Math.min(index, steps.length - 1));
+    const step = steps[tour.index];
+    const { board: there, bookmark } = stopTarget(step);
+    clearTimeout(tourTimer);
+    cancelGlide();
+    closePeek();
+    if (there && there.id !== board.id) {
+      boardFor(there.id);
+      if (move) setView(bookmark ? frameRect(bookmark.rect, 0.04) : fitBoard());
+    } else if (bookmark && move) {
+      const to = frameRect(bookmark.rect, 0.04);
+      if (tour.smooth) glide(to, STOP_MS); else setView(to);
+    }
+    emphasise(there === board ? bookmark : null);
+    showVeil();
+    showPlayer(bookmark);
+    if (tour.mode !== "paused") schedule(step);
+  }
+
+  function schedule(step) {
+    const dwell = step.dwell != null ? step.dwell : DATA.dwell;
+    tour.dwellMs = dwell * 1000;
+    tourTimer = setTimeout(autoAdvance, tour.dwellMs);
+    const bar = $("pl-dwell");
+    bar.style.transition = "none";
+    bar.style.width = "0";
+    void bar.offsetWidth;
+    bar.style.transition = `width ${dwell}s linear`;
+    bar.style.width = "100%";
+  }
+
+  function autoAdvance() {
+    if (tour && tour.mode !== "paused") nextStop();
+  }
+
+  function nextStop() {
+    const last = tour.flow.steps.length - 1;
+    if (tour.index < last) gotoStop(tour.index + 1, true);
+    else if (tour.mode === "loop") gotoStop(0, true);
+    else if (tour.mode === "playing") {
+      // The end of the tour: stop advancing, stay on the last stop.
+      tour.mode = "paused";
+      clearTimeout(tourTimer);
+      showPlayer(stopTarget(tour.flow.steps[tour.index]).bookmark);
+    }
+  }
+
+  function prevStop() {
+    if (tour.index > 0) gotoStop(tour.index - 1, true);
+  }
+
+  function setMode(mode) {
+    tour.mode = mode;
+    clearTimeout(tourTimer);
+    if (mode !== "paused") schedule(tour.flow.steps[tour.index]);
+    showPlayer(stopTarget(tour.flow.steps[tour.index]).bookmark);
+  }
+
+  function cycleMode() {
+    setMode(MODES[(MODES.indexOf(tour.mode) + 1) % MODES.length]);
+  }
+
+  function togglePlay() {
+    setMode(tour.mode === "paused" ? "playing" : "paused");
+  }
+
+  // A path stop: its arrows in the accent colour.
+  function emphasise(bookmark) {
+    const ids = new Set(bookmark && bookmark.arrows ? bookmark.arrows : []);
+    for (const node of hits.querySelectorAll(".hit-arrow")) {
+      node.classList.toggle("tour", ids.has(node.dataset.id));
+    }
+  }
+
+  // What a stop keeps bright, as the app's presentation focus decides it:
+  // a path stop its arrows, their ends and its other focus elements; a stop
+  // with focus "complete" every element its frame holds whole, and each
+  // arrow between two of them. Null when nothing dims.
+  function stopKeeps() {
+    if (!tour) return null;
+    const step = tour.flow.steps[tour.index];
+    const { board: there, bookmark } = stopTarget(step);
+    if (!bookmark || there !== board) return null;
+    if (bookmark.arrows) {
+      const arrows = new Set(bookmark.arrows);
+      return { elements: new Set(bookmark.keep),
+               lines: board.lines.filter((l) => arrows.has(l.id)) };
+    }
+    if (step.focus !== "complete") return null;
+    const f = frameRect(bookmark.rect, 0);
+    const inside = (r) => r[0] >= f.x && r[1] >= f.y &&
+      r[0] + r[2] <= f.x + f.w && r[1] + r[3] <= f.y + f.h;
+    const elements = new Set(board.elements
+      .filter((e) => e.rect && inside(e.rect)).map((e) => e.id));
+    return { elements, lines: board.lines.filter(
+      (l) => elements.has(l.ends[0]) && elements.has(l.ends[1])) };
+  }
+
+  // Dimming without a second renderer: a veil in the canvas colour over the
+  // drawing, cut open over the kept elements' rects and arrows' lines, so
+  // the rest shows at the app's 0.08 blend.
+  function showVeil() {
+    const veil = $("veil"), mask = $("veil-mask");
+    const keeps = board ? stopKeeps() : null;
+    if (!keeps) { veil.style.display = "none"; mask.replaceChildren(); return; }
+    const [bx, by, bw, bh] = board.bounds;
+    const big = [bx - bw, by - bh, bw * 3, bh * 3];
+    const rect = (r, fill) => {
+      const n = document.createElementNS(SVGNS, "rect");
+      n.setAttribute("x", r[0]); n.setAttribute("y", r[1]);
+      n.setAttribute("width", r[2]); n.setAttribute("height", r[3]);
+      n.setAttribute("fill", fill);
+      return n;
+    };
+    const nodes = [rect(big, "white")];
+    for (const el of board.elements) {
+      if (el.rect && keeps.elements.has(el.id)) nodes.push(rect(el.rect, "black"));
+    }
+    for (const line of keeps.lines) {
+      for (const r of line.marks) nodes.push(rect(r, "black"));
+      for (const d of line.paths) {
+        const n = document.createElementNS(SVGNS, "path");
+        n.setAttribute("d", d);
+        n.setAttribute("fill", "none");
+        n.setAttribute("stroke", "black");
+        n.setAttribute("stroke-width", "14");
+        n.setAttribute("stroke-linecap", "round");
+        nodes.push(n);
+      }
+    }
+    mask.replaceChildren(...nodes);
+    // The mask's region defaults to a share of the viewport; it must cover
+    // the whole veil.
+    for (const [k, v] of Object.entries({ x: big[0], y: big[1], width: big[2], height: big[3] })) {
+      veil.setAttribute(k, v);
+      mask.setAttribute(k, v);
+    }
+    veil.setAttribute("fill", board.states[overlayOf[board.id] || 0].background);
+    veil.style.display = "";
+  }
+
+  function showPlayer(bookmark) {
+    const n = tour.flow.steps.length, i = tour.index;
+    $("pl-flow").textContent = tour.flow.label || tour.flow.id;
+    $("pl-count").textContent = `${i + 1} / ${n}` +
+      (tour.mode === "loop" ? " · loop" : "") +
+      (tour.smooth ? "" : " · instant");
+    $("pl-label").textContent = bookmark
+      ? bookmark.label || tour.flow.steps[i].bookmark : "(missing bookmark)";
+    $("pl-desc").textContent = bookmark ? bookmark.description : "";
+    $("pl-desc").hidden = !(bookmark && bookmark.description);
+    $("pl-bar").style.width = `${(i + 1) / n * 100}%`;
+    const playing = tour.mode !== "paused";
+    $("pl-play").textContent = playing ? "❚❚ Pause" : "▶ Play";
+    $("pl-play").setAttribute("aria-pressed", String(playing));
+    $("pl-prev").disabled = i === 0;
+    $("pl-next").disabled = i === n - 1 && tour.mode !== "loop";
+    if (!playing) {
+      const bar = $("pl-dwell");
+      bar.style.transition = "none";
+      bar.style.width = "0";
+    }
+  }
+
+  // The keys of the app's playback; everything else waits for the tour.
+  function tourKey(k) {
+    if (k === "Escape" || k === "q") endTour();
+    else if (k === " " || k === "ArrowRight" || k === "l" || k === "j") nextStop();
+    else if (k === "ArrowLeft" || k === "h" || k === "k") prevStop();
+    else if (k === "t") {
+      tour.smooth = !tour.smooth;
+      showPlayer(stopTarget(tour.flow.steps[tour.index]).bookmark);
+    }
+    else if (k === "p") cycleMode();
+    else if (k === "Enter") {
+      if (selected && selected.level) enter(selected);
+    }
+    else if (k === "Backspace") up();
+    else return false;
+    return true;
+  }
+
   // ── Toasts ──
 
   let toastTimer = 0;
@@ -418,6 +724,19 @@
   }, { passive: false });
 
   $("back").addEventListener("click", up);
+  $("tour").addEventListener("change", (e) => {
+    if (e.target.value) playTour(e.target.value, 0);
+    e.target.blur();
+  });
+  // Player buttons let go of the focus, so Space stays the tour's next key.
+  const playerButton = (id, act) => $(id).addEventListener("click", (e) => {
+    e.currentTarget.blur();
+    if (tour) act();
+  });
+  playerButton("pl-prev", prevStop);
+  playerButton("pl-next", nextStop);
+  playerButton("pl-play", togglePlay);
+  playerButton("pl-close", endTour);
   $("overlay").addEventListener("change", (e) => setOverlay(Number(e.target.value)));
 
   function centre() { return { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 }; }
@@ -437,6 +756,12 @@
       return;
     }
     if (busy) return;
+    if (tour) {
+      if (k === "g") { gPending = true; gTimer = setTimeout(() => { gPending = false; }, 1200); }
+      else if (!tourKey(k)) return;
+      e.preventDefault();
+      return;
+    }
     let handled = true;
     if (k === "g") { gPending = true; gTimer = setTimeout(() => { gPending = false; }, 1200); }
     else if (k === "Enter") {
@@ -491,6 +816,9 @@
     peek: () => (peeked ? peeked.id : null),
     overlay: () => overlayOf[board.id] || 0,
     view: () => ({ ...vb }), busy: () => busy,
+    tour: () => (tour ? { flow: tour.flow.id, index: tour.index,
+                          mode: tour.mode, dwellMs: tour.dwellMs || 0 } : null),
+    dimmed: () => $("veil").style.display !== "none",
   };
 
   loadFonts();

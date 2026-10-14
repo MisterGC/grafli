@@ -176,6 +176,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **A container with a lead icon keeps its label and icon top-left.** A
+  `*lead:` icon on a container — or on any box with `^topleft` or
+  `^topcenter` — put the icon and label at mid-height, across the children,
+  ignoring the anchor. Both now sit at the top, the icon centred on the
+  label's first line; boxes without a top anchor are unchanged.
+  ([#201](https://github.com/MisterGC/grafli/issues/201))
 - **The SVG export no longer shifts a board out of its picture.** A board
   whose content did not start at the origin was painted offset by its own
   top-left corner inside the SVG's viewBox, cropping it; `grafli render

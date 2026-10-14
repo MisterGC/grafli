@@ -39,12 +39,13 @@ def _row_of(view, label: str) -> int:
 
 # ── Boxes: the attributes that had no key ──────────────────────────
 
-def test_box_overlay_offers_background_and_label():
+def test_box_overlay_offers_background_label_and_ink():
     view = _view('@ box a "A" 0,0 160x60\n')
     view._box_items["a"].setSelected(True)
     view._open_element_overlay()
     assert view._elem_overlay_target == "box"
-    assert [a["label"] for a in view._elem_overlay_axes] == ["Background", "Label"]
+    assert [a["label"] for a in view._elem_overlay_axes] == \
+        ["Background", "Label", "Label ink"]
 
 
 def test_box_background_reaches_flat():

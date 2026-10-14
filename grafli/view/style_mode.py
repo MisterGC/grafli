@@ -997,12 +997,16 @@ class StyleModeMixin:
     _BOX_LABEL_OPTIONS = (("Center", ""), ("Top left", "topleft"),
                           ("Top center", "topcenter"))
     _NOTE_BG_AXIS_OPTIONS = (("Plate", False), ("None", True))
+    # "Plain" is the board ink (on a light plate on a coloured box, note blue
+    # on a note); "On fill" is `!ink`: ink picked from the fill, or a note's
+    # own %color (#204).
+    _INK_OPTIONS = (("Plain", False), ("On fill", True))
     # "Auto" follows the file type — raster framed, .svg frameless (#147).
     _IMAGE_FRAME_OPTIONS = (("Auto", ""), ("Frame", "on"), ("None", "off"))
 
     # Fields snapshotted per target so commit/cancel are exact.
-    _BOX_OVERLAY_FIELDS = ("style", "anchor")
-    _NOTE_OVERLAY_FIELDS = ("flat",)
+    _BOX_OVERLAY_FIELDS = ("style", "anchor", "ink")
+    _NOTE_OVERLAY_FIELDS = ("flat", "ink")
     _IMAGE_OVERLAY_FIELDS = ("frame",)
 
     def _set_all_boxes(self, field: str, value):
@@ -1033,6 +1037,10 @@ class StyleModeMixin:
              "enabled": self._label_axis_enabled(),
              "get": lambda: primary.anchor,
              "set": lambda v: self._set_all_boxes("anchor", v)},
+            {"label": "Label ink", "kind": "ink",
+             "options": list(self._INK_OPTIONS),
+             "get": lambda: primary.ink,
+             "set": lambda v: self._set_all_boxes("ink", v)},
         ]
 
     def _note_axes(self) -> list:
@@ -1042,11 +1050,19 @@ class StyleModeMixin:
             for it in self._color_picker_notes():
                 it.note.flat = v
 
+        def set_ink(v):
+            for it in self._color_picker_notes():
+                it.note.ink = v
+
         return [
             {"label": "Background", "kind": "notebg",
              "options": list(self._NOTE_BG_AXIS_OPTIONS),
              "get": lambda: primary.flat,
              "set": set_flat},
+            {"label": "Label ink", "kind": "ink",
+             "options": list(self._INK_OPTIONS),
+             "get": lambda: primary.ink,
+             "set": set_ink},
         ]
 
     def _image_axes(self) -> list:
@@ -1136,11 +1152,12 @@ class StyleModeMixin:
         """
         if self._elem_overlay_target == "box":
             for it in self._color_picker_boxes():
-                it._apply_color()          # border and fill follow !flat
+                it._apply_color()          # border, fill and label ink
                 it.refresh_auto_layout()   # label position follows ^anchor
                 it.update()
         elif self._elem_overlay_target == "note":
             for it in self._color_picker_notes():
+                it.set_ink(it.note.ink)
                 it.set_flat(it.note.flat)
         elif self._elem_overlay_target == "image":
             for it in self._selected_image_items():
@@ -1278,7 +1295,7 @@ class StyleModeMixin:
             return 18.0, 18.0, 4.0
         if kind == "size":
             return 26.0, 22.0, 4.0
-        if kind in ("boxbg", "boxlabel", "notebg", "imgframe"):
+        if kind in ("boxbg", "boxlabel", "notebg", "imgframe", "ink"):
             return 30.0, 22.0, 6.0   # miniature box previews
         return 44.0, 22.0, 6.0   # heads / line / thickness sample strips
 
@@ -1404,6 +1421,24 @@ class StyleModeMixin:
                 painter.setBrush(QBrush(theme.OVERLAY_BG))
                 painter.drawRoundedRect(body.adjusted(5, body.height() / 2,
                                                       -5, -3), 1.5, 1.5)
+            return
+        if kind == "ink":
+            # A letter on a dark fill: on a light plate in the board ink
+            # ("Plain"), or straight on the fill in the ink it picks.
+            body = cell.adjusted(3, 3, -3, -3)
+            fill = QColor(theme.resolve_color("%primary"))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(fill))
+            painter.drawRoundedRect(body, 4, 4)
+            letter = theme.ink_on(fill) if val else QColor(theme.INK)
+            if not val:
+                plate = QColor(theme.SURFACE)
+                plate.setAlphaF(0.6)
+                painter.setBrush(QBrush(plate))
+                painter.drawRoundedRect(body.adjusted(5, 3, -5, -3), 2, 2)
+            painter.setPen(QPen(letter))
+            painter.setFont(QFont(FONT_FAMILY, 10))
+            painter.drawText(body, Qt.AlignmentFlag.AlignCenter, "A")
             return
         if kind == "imgframe":
             # A tiny picture (circle sun + mountain line); the frame variant

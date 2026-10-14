@@ -306,6 +306,14 @@ def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
         int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop), text)
 
 
+def note_family(note) -> str:
+    """A note's face: handwritten (Patrick Hand) by default, mono for
+    ``!mono`` and code notes, the bundled sans (Inter) for ``!sans``."""
+    if note.style == "mono" or is_code_note(note.text):
+        return FONT_FAMILY
+    return SANS_FONT_FAMILY if note.style == "sans" else NOTE_FONT_FAMILY
+
+
 def _apply_emphasis(font: QFont, emphasis: str) -> QFont:
     """Layer bold/italic onto ``font`` from an element's ``emphasis`` string."""
     if "bold" in emphasis:
@@ -3096,18 +3104,19 @@ class NoteItem(QGraphicsSimpleTextItem):
         self.update()
 
     def _note_font(self) -> QFont:
-        # Freeform notes are handwritten (Patrick Hand); code notes and notes
-        # explicitly set to !mono use the monospace face.
-        mono = self.note.style == "mono" or self._is_code_note()
-        family = FONT_FAMILY if mono else NOTE_FONT_FAMILY
         return _apply_emphasis(
-            QFont(family, resolve_textsize_px(self.note.textsize, "")),
+            QFont(note_family(self.note),
+                  resolve_textsize_px(self.note.textsize, "")),
             self.note.emphasis)
 
     def set_text_mono(self, mono: bool):
         """Switch a note between the monospace and handwritten face."""
+        self.set_face("mono" if mono else "")
+
+    def set_face(self, face: str):
+        """Set the note's face: "" handwritten, "mono" or "sans"."""
         self.prepareGeometryChange()
-        self.note.style = "mono" if mono else ""
+        self.note.style = face
         self._brect_cache = None
         self.update()
 

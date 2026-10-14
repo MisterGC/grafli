@@ -228,3 +228,34 @@ def test_a_v3_build_reads_a_sans_board_as_newer(monkeypatch):
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
     assert supported_version() == 3
     assert is_newer(parse(SANS))
+
+
+SANS_NOTE = '#!grafli v4\n@ note n 0,0 "A sans note" %rose !sans\n'
+
+
+def test_sans_on_a_note_round_trips_and_writes_v4():
+    board = parse(SANS_NOTE)
+    assert board.notes[0].style == "sans"
+    assert required_version(board) == 4
+    assert serialize(board) == SANS_NOTE
+
+
+def test_sans_on_a_block_note_round_trips():
+    text = ('#!grafli v4\n@ note n 0,0 """\nTwo\nlines\n""" !flat !sans !ink\n')
+    board = parse(text)
+    assert board.notes[0].style == "sans"
+    assert serialize(board) == text
+
+
+def test_mono_and_handwritten_notes_stay_below_v4():
+    board = parse('#!grafli v1\n@ note n 0,0 "Mono" !mono\n'
+                  '@ note h 0,50 "Hand"\n')
+    assert [n.style for n in board.notes] == ["mono", ""]
+    assert required_version(board) == 1
+
+
+def test_a_v3_build_reads_a_sans_note_board_as_newer(monkeypatch):
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    assert is_newer(parse(SANS_NOTE))

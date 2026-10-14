@@ -15,8 +15,8 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
   @ arrow <from_id> -> <to_id> "label" ~kind=graph (connector kind: graph / annotation; default derives from endpoints)
   @ arrow <from_id> -> <to_id> "label" ~id=<id>    (stable id, only when something references the arrow; v3)
-  @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [!ink] [&attach] [>parent]
-  @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono] [!ink] [&attach] [>parent]
+  @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono|!sans] [!ink] [&attach] [>parent]
+  @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono|!sans] [!ink] [&attach] [>parent]
   @ note <id> <x>,<y> [...] &doc [>parent]         (doc-bodied: body = <stem>-res/<id>.md)
   @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [&attach]
 
@@ -50,8 +50,9 @@ relative path ending in ``.grafli``.
 A ``!card`` box keeps its node look while it holds children; a board using
 one is written as v4. So is a board with an ``!ink`` box or note: a box's
 label and icon take their ink from its fill and drop the light plate, a
-note's text takes its ``%color``. And a board with a ``!sans`` box, whose
-label is set in the bundled proportional face (Inter) instead of mono.
+note's text takes its ``%color``. And a board with a ``!sans`` box or note,
+whose text is set in the bundled proportional face (Inter) instead of mono or
+handwriting.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -157,7 +158,7 @@ class Note:
     text: str
     color: str = ""
     textsize: str = ""
-    style: str = ""       # "" (handwritten) or "mono"
+    style: str = ""       # "" (handwritten), "mono" or "sans"
     flat: bool = False    # True = no background plate; text sits on the canvas
     url: str = ""
     # See Box.attach_kind. On a note, kind "doc" means the note is
@@ -568,6 +569,11 @@ def emphasis_tokens(emphasis: str) -> str:
     return "".join(f" !{k}" for k in _EMPHASIS_ORDER if k in parts)
 
 
+def note_face(flags) -> str:
+    """A note's face from its flags: "" (handwritten), "mono" or "sans"."""
+    return "mono" if "mono" in flags else "sans" if "sans" in flags else ""
+
+
 # ── Regex patterns ──────────────────────────────────────────────
 
 # Quoted text slots accept `\"` as an escaped quote (and `\n` stays the
@@ -619,7 +625,7 @@ _RE_NOTE = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'((?:\s+!(?:mono|flat|ink|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:mono|sans|flat|ink|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -637,7 +643,7 @@ _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'((?:\s+!(?:mono|flat|ink|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:mono|sans|flat|ink|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -696,7 +702,7 @@ BOX_FORM = ('@ box <id> "label" x,y wxh [%color|#rrggbb] '
             '[!flat|!card|!ink|!sans|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
             '[*icon] [&attach] [>parent]')
 NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
-             '[~width=N] [!mono|!flat|!ink|!bold|!italic|!outline|!shadow ...] '
+             '[~width=N] [!mono|!sans|!flat|!ink|!bold|!italic|!outline|!shadow ...] '
              '[*icon] [&attach] [>parent]')
 ARROW_FORM = ('@ arrow <from> ->|<-|<->|-- <to> ["label"] [@dx,dy] '
               '[%color|#rrggbb] '
@@ -942,7 +948,7 @@ def parse(text: str) -> Board:
                     wrap_chars=int(sm.group(3)) if sm.group(3)
                                                 else DEFAULT_NOTE_WRAP_CHARS,
                     wrap_chars_explicit=bool(sm.group(3)),
-                    style="mono" if "mono" in blk_flags else "",
+                    style=note_face(blk_flags),
                     flat="flat" in blk_flags,
                     emphasis=emphasis_from_flags(blk_flags),
                     ink="ink" in blk_flags,
@@ -988,7 +994,7 @@ def parse(text: str) -> Board:
                 wrap_chars=int(m.group(7)) if m.group(7)
                                             else DEFAULT_NOTE_WRAP_CHARS,
                 wrap_chars_explicit=bool(m.group(7)),
-                style="mono" if "mono" in note_flags else "",
+                style=note_face(note_flags),
                 flat="flat" in note_flags,
                 emphasis=emphasis_from_flags(note_flags),
                 ink="ink" in note_flags,
@@ -1119,7 +1125,8 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "cross-board stops": (3, uses_cross_board_stops),
     "card boxes": (4, lambda b: any(x.style == "card" for x in b.boxes)),
     "label ink": (4, lambda b: any(x.ink for x in [*b.boxes, *b.notes])),
-    "sans boxes": (4, lambda b: any(x.sans for x in b.boxes)),
+    "sans face": (4, lambda b: (any(x.sans for x in b.boxes)
+                                or any(n.style == "sans" for n in b.notes))),
 }
 
 

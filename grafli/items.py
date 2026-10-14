@@ -25,6 +25,7 @@ from grafli.constants import (
     DEFAULT_BOX_W,
     FONT_FAMILY,
     NOTE_FONT_FAMILY,
+    SANS_FONT_FAMILY,
     HANDLE_SIZE,
     MIN_BOX_SIZE,
     resolve_textsize_px,
@@ -774,6 +775,14 @@ class BoxItem(QGraphicsRectItem):
         self._position_label()
         self.update()
 
+    def set_sans(self, sans: bool):
+        """Switch the label between mono and the proportional face."""
+        self.box.sans = sans
+        self._label.setFont(self._box_font())
+        self._auto_grow()
+        self._position_label()
+        self.update()
+
     def _lead_icon_side(self) -> float:
         """Small leading-icon size, scaled to the box's text."""
         px = resolve_textsize_px(self.box.textsize,
@@ -903,7 +912,13 @@ class BoxItem(QGraphicsRectItem):
         # other node.
         px = resolve_textsize_px(self.box.textsize,
                                  "small" if self._has_container_label() else "")
-        return _apply_emphasis(QFont(FONT_FAMILY, px), self.box.emphasis)
+        return _apply_emphasis(QFont(self._box_family(), px),
+                               self.box.emphasis)
+
+    def _box_family(self) -> str:
+        """Mono, grafli's default face, or with ``!sans`` the bundled
+        proportional face."""
+        return SANS_FONT_FAMILY if self.box.sans else FONT_FAMILY
 
     def _position_label(self):
         self._label.setTextWidth(self._label_width_for(self.box.w))
@@ -1436,7 +1451,7 @@ class BoxItem(QGraphicsRectItem):
     def _doc_line_font(self) -> QFont:
         """The doc line's face: the label's, a step smaller and in italics."""
         px = resolve_textsize_px(self.box.textsize, "")
-        font = QFont(FONT_FAMILY, max(8, round(px * 0.8)))
+        font = QFont(self._box_family(), max(8, round(px * 0.8)))
         font.setItalic(True)
         return font
 

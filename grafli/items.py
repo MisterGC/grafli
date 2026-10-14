@@ -802,6 +802,13 @@ class BoxItem(QGraphicsRectItem):
         self._position_label()
         self.update()
 
+    def set_status(self, status: str, color: str = ""):
+        """Set or clear (``""``) the ``~status=`` label and its colour."""
+        self.prepareGeometryChange()   # the pill hangs below the box
+        self.box.status = status
+        self.box.status_color = color if status else ""
+        self.update()
+
     def set_ink(self, ink: bool):
         self.box.ink = ink
         self._apply_color()
@@ -1142,6 +1149,10 @@ class BoxItem(QGraphicsRectItem):
 
     def boundingRect(self):
         r = super().boundingRect()
+        if self.box.status:
+            # The status pill straddles the bottom edge (and may be wider
+            # than a narrow box).
+            r = r.united(self.status_rect().adjusted(-1, -1, 1, 1))
         m = 6 if self.isSelected() else 0
         if self._lod_tile is not None:
             # The "stacked edges" mark peeks up and to the right of the tile.
@@ -1553,6 +1564,50 @@ class BoxItem(QGraphicsRectItem):
         painter.drawText(rect, int(align | Qt.AlignmentFlag.AlignTop), text)
         painter.restore()
 
+    # ── Status label (`~status=`) ──
+
+    _STATUS_INSET = 10.0   # pill's right end, in from the box's right edge
+    _STATUS_PAD = 6.0      # text to the pill's ends
+
+    def _status_font(self) -> QFont:
+        """The status label's face: the label's, a few steps smaller."""
+        px = resolve_textsize_px(self.box.textsize, "")
+        return QFont(self._box_family(), max(8, round(px * 0.7)))
+
+    def status_rect(self) -> QRectF:
+        """The status pill in item coordinates: right-aligned on the bottom
+        edge and straddling it, so it reads as a tag on the box. Empty
+        without a ``~status=``."""
+        if not self.box.status:
+            return QRectF()
+        fm = QFontMetricsF(self._status_font())
+        w = fm.horizontalAdvance(self.box.status) + 2 * self._STATUS_PAD
+        h = fm.height() + 4.0
+        r = self.rect()
+        return QRectF(r.right() - self._STATUS_INSET - w,
+                      r.bottom() - h / 2, w, h)
+
+    def _status_fill(self) -> QColor:
+        """The pill's fill: its ``:%color``, or the surface colour."""
+        hex_color = theme.resolve_color(self.box.status_color)
+        return QColor(hex_color) if hex_color else QColor(theme.SURFACE)
+
+    def _paint_status(self, painter: QPainter):
+        rect = self.status_rect()
+        fill = self._status_fill()
+        coloured = bool(theme.resolve_color(self.box.status_color))
+        painter.save()
+        painter.setPen(QPen(fill.darker(125) if coloured
+                            else QColor(theme.INK), 1.0))
+        painter.setBrush(QBrush(fill))
+        radius = rect.height() / 2
+        painter.drawRoundedRect(rect, radius, radius)
+        painter.setFont(self._status_font())
+        painter.setPen(theme.ink_on(fill) if coloured else QColor(theme.INK))
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter),
+                         self.box.status)
+        painter.restore()
+
     def set_lod_tile(self, summary) -> None:
         """Set/clear collapsed-container tile rendering from a ContainerSummary."""
         tile = (summary.label, summary.descendants) if summary else None
@@ -1616,6 +1671,9 @@ class BoxItem(QGraphicsRectItem):
             sel_color.setAlphaF(0.85)
             painter.setPen(QPen(sel_color, 4, Qt.PenStyle.SolidLine))
             painter.drawRoundedRect(sel_rect, radius, radius)
+        # Over the selection ring, which would otherwise cross the pill.
+        if self.box.status:
+            self._paint_status(painter)
 
     def _paint_lod_shell_bars(self, painter: QPainter):
         """LoD shell: when its label is too small to read, a leaf box keeps its

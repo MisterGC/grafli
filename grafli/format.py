@@ -528,11 +528,24 @@ ICON_PLACEMENTS = ("lead", "badge")
 ICON_ALIASES = {"bulb": "lightbulb", "doc": "document"}
 
 
+# A filled number marker: ``*solid-<n>`` is ``*<n>`` drawn as a filled disc.
+SOLID_NUMBER_PREFIX = "solid-"
+
+
 def _canonical_icon(name: str) -> str:
     name = ICON_ALIASES.get(name, name)
-    if name.isdigit() and int(name) > 0:
-        return str(int(name))   # zero-strip number badges: *03 → *3
+    solid = name.startswith(SOLID_NUMBER_PREFIX)
+    digits = name[len(SOLID_NUMBER_PREFIX):] if solid else name
+    if digits.isdigit():
+        # zero-strip number markers: *03 → *3, *solid-07 → *solid-7, *00 → *0
+        return (SOLID_NUMBER_PREFIX if solid else "") + str(int(digits))
     return name
+
+
+def uses_number_markers(board: Board) -> bool:
+    """True if a box or note carries a filled number marker or ``*0``."""
+    return any(el.icon == "0" or el.icon.startswith(SOLID_NUMBER_PREFIX)
+               for el in (*board.boxes, *board.notes))
 
 
 def split_icon(raw: str) -> tuple[str, str]:
@@ -1133,6 +1146,7 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "sans face": (4, lambda b: (any(x.sans for x in b.boxes)
                                 or any(n.style == "sans" for n in b.notes))),
     "box outlines": (4, lambda b: any(x.border for x in b.boxes)),
+    "number markers": (4, uses_number_markers),
 }
 
 

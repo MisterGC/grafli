@@ -1504,7 +1504,8 @@ class BoxItem(QGraphicsRectItem):
             self.scene() and self.scene().property("canvas_offscreen"))
         if self._miniature is not None and on_canvas:
             self._paint_miniature(painter)
-        if self._doc_line and on_canvas:
+        # The view decides where a doc line shows, exports included.
+        if self._doc_line:
             self._paint_doc_line(painter)
 
         if ((self.box.url or self.box.attach_kind == "doc")

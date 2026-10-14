@@ -183,7 +183,7 @@ def test_missing_doc_shows_no_doc_line(tmp_path: Path):
     win.close()
 
 
-def test_exports_draw_the_box_without_its_doc_line(tmp_path: Path):
+def test_thumbnails_draw_the_box_without_its_doc_line(tmp_path: Path):
     root, _ = _system(tmp_path)
     win = _window(root)
     _zoom(win, 1.0)
@@ -191,6 +191,8 @@ def test_exports_draw_the_box_without_its_doc_line(tmp_path: Path):
     item = view._box_items["combat"]
     shown_pos = item._label.pos()
     with view.miniatures_held():
+        assert item._doc_line
+    with view.doc_lines_held():
         assert item._doc_line == ""
         view._refresh_lod()
         assert item._doc_line == ""

@@ -1,7 +1,9 @@
 """Box docs for GrafliView (mixin): the one-line doc and the peek (D2).
 
 A box with `&doc:<name>` shows its doc's first sentence, cut to one line,
-below its label — only at the detailed zoom level, and only on the canvas.
+below its label — only at the detailed zoom level. Exports draw it too: SVG,
+PNG and HTML as the canvas shows it, a slide as legible at its own scale;
+thumbnails leave it out.
 `gv` opens a view-only panel anchored to the box with the whole doc,
 rendered like a Markdown note and bounded like the 12-line note cap; it
 moves nothing and `Esc` closes it. Box docs are read from the vault, and
@@ -10,6 +12,7 @@ the window's docs watcher reloads the board when one changes.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 
 from PySide6.QtCore import QRect, Qt
@@ -142,15 +145,19 @@ class BoxDocsMixin:
         """Give every `&doc` box at the detailed level its doc line, and take
         it from the rest. *skip* holds boxes the level of detail hides or
         reduces; with the level of detail on, the line itself must be
-        legible on screen. Nothing shows while exports hold it back."""
-        if scale is None:
+        legible on screen, or on the slide being exported. Nothing shows
+        while thumbnails hold it back."""
+        slide_scale = getattr(self, "_doc_line_scale", None)
+        if slide_scale is not None:
+            scale = slide_scale
+        elif scale is None:
             scale = self._current_zoom()
         if skip is None:
             skip = self._lod_skip_set()
         if lod_on is None:
             lod_on = (self._lod_enabled if self._present_detail is None
                       else self._present_detail == "summary")
-        held = getattr(self, "_miniatures_held", 0)
+        held = getattr(self, "_doc_lines_held", 0)
         for bid, item in self._box_items.items():
             line = ""
             if (not held and bid not in skip
@@ -160,11 +167,50 @@ class BoxDocsMixin:
                     line = doc_first_sentence(body)
                 if line and not item.doc_line_fits():
                     line = ""
+                # A slide is drawn once: no hysteresis from the canvas.
+                was_hidden = (slide_scale is None and not item._doc_line)
                 if line and lod_on and should_collapse(
-                        item.doc_line_px() * scale, not item._doc_line):
+                        item.doc_line_px() * scale, was_hidden):
                     line = ""
             item.set_doc_line(line)
         self._place_doc_peek()
+
+    @contextmanager
+    def doc_lines_held(self):
+        """Render the scene without box doc lines for the duration —
+        thumbnails show a `&doc` box as it is drawn without one."""
+        lines = {bid: item._doc_line for bid, item in self._box_items.items()
+                 if item._doc_line}
+        self._doc_lines_held = getattr(self, "_doc_lines_held", 0) + 1
+        for bid in lines:
+            self._box_items[bid].set_doc_line("")
+        try:
+            yield
+        finally:
+            self._doc_lines_held -= 1
+            if not self._doc_lines_held:
+                for bid, line in lines.items():
+                    item = self._box_items.get(bid)
+                    if item is not None and item.scene() is not None:
+                        item.set_doc_line(line)
+
+    @contextmanager
+    def doc_lines_at(self, scale: float):
+        """Show the doc lines legible at *scale* screen pixels per scene
+        pixel for the duration, instead of at the canvas zoom — a slide
+        export draws its frame at its own scale."""
+        lines = {bid: item._doc_line for bid, item in self._box_items.items()}
+        prev = getattr(self, "_doc_line_scale", None)
+        self._doc_line_scale = scale
+        self._refresh_doc_lines()
+        try:
+            yield
+        finally:
+            self._doc_line_scale = prev
+            for bid, line in lines.items():
+                item = self._box_items.get(bid)
+                if item is not None and item.scene() is not None:
+                    item.set_doc_line(line)
 
     # ── The peek ──
 

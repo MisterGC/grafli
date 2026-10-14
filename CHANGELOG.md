@@ -187,6 +187,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Outline row, solid / dashed / dotted. A board using it is written
   `#!grafli v4`; older builds open it read-only.
   ([#207](https://github.com/MisterGC/grafli/issues/207))
+- **Filled number markers, and `0`.** Number markers were outlined circles
+  for 1–99 only. `*solid-3`, `*badge:solid-12` draw the number knocked out
+  of a filled disc, and `*0` is a step zero, on the canvas, in
+  `grafli render` and in every export. In the symbol grid
+  <kbd>s</kbd> <kbd>i</kbd>, <kbd>0</kbd> types a zero and <kbd>f</kbd>
+  fills the typed number. A board using either is written `#!grafli v4`;
+  older builds open it read-only.
+  ([#208](https://github.com/MisterGC/grafli/issues/208))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

@@ -33,7 +33,7 @@ class as a misplaced triple-quote modifier.
 | `!outline` / `!shadow` | `!outline`, `!shadow` | **note** display lettering — hollow letters / drop-shadow depth, for sketchnote headers (layer with `~size` + `!bold`); render on notes, not boxes |
 | `!flat` (note) | `!flat` | drop the beige background plate — the note's text sits directly on the canvas (for a hand-lettered title/header) |
 | `!ink` (note) | `!ink` | draw the note's text in its `%color` (without it, `%color` only tints the icon and the text stays blue); `#!grafli v4` |
-| `*symbol` | `*lightbulb` (fill), `*lead:gear` (lead), `*badge:star` (badge), `*3` (number) | sketchnote symbol — fill: big symbol + caption; lead: small symbol left of the label; badge: compact top-right overlay; digits 1–99 render as circled number badges |
+| `*symbol` | `*lightbulb` (fill), `*lead:gear` (lead), `*badge:star` (badge), `*3` (number) | sketchnote symbol — fill: big symbol + caption; lead: small symbol left of the label; badge: compact top-right overlay; digits 1–99 render as circled number badges; `*0` and filled `*solid-<n>` (0–99) are `#!grafli v4` |
 | `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>[#<id>]` | typed attachment (see "Attachments"; `#<id>` see "Board links into a bookmark or element") |
 | `>parent` | `>parent_id` | nest inside parent box |
 
@@ -82,7 +82,10 @@ stays primary — for labeled items (`*lead:database` → a "Postgres" node).
 `*badge:name` overlays a *compact* symbol in the top-right corner and leaves
 the label/text layout untouched — the emphasis layer (`*badge:flame` on the
 hot topic, `*badge:2` as step two of a sequence). Number badges accept any
-placement (`*3` fill, `*lead:3`, `*badge:3`). Legacy `bulb`/`doc` parse as
+placement (`*3` fill, `*lead:3`, `*badge:3`). `*solid-3` fills the disc and
+knocks the digit out — for the numbered path the reader follows, outlined
+numbers for side notes; `*0` numbers a step zero. Both need `#!grafli v4`.
+Legacy `bulb`/`doc` parse as
 aliases of `lightbulb`/`document` and normalize on save.
 
 Container behavior: when a box has children, its anchor auto-switches

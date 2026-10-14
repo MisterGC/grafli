@@ -76,7 +76,7 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
   and concepts, 10 emphasis marks) drawn from one hand-editable SVG sheet:
   `*lightbulb` fills a node, `*lead:lock` sits beside the label,
   `*badge:flame` overlays a corner, and `*badge:3` numbers a sequence
-  (1–99). Picked visually via style mode → <kbd>i</kbd>.
+  (0–99; `*solid-3` fills the disc). Picked visually via style mode → <kbd>i</kbd>.
 - Tasks (`T:` / `TODO:`), questions (`Q:` / `QUESTION:`, both
   case-insensitive), and threaded discussions inside notes.
 - Find and focus — combine these at will:

@@ -147,6 +147,9 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   overlay in the top-right corner, the label keeps its normal layout — for
   emphasis marks on existing nodes). Digits are *number badges*: `*3`,
   `*badge:7` (1–99) render as a circled number for sequences and rankings.
+  `*solid-3`, `*badge:solid-12` draw the number knocked out of a filled
+  disc, for the path a reader follows first; `*0` is a step zero. A board
+  using `*0` or `*solid-<n>` (0–99) carries a `#!grafli v4` header.
   The symbols live in `grafli/assets/sketchnote_symbols.svg` — one editable
   sheet, rendered vector-crisp at any zoom.
   *Semantic* names (what a thing is): `person`, `robot`, `gear`, `database`,
@@ -157,7 +160,7 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   `exclamation`, `brain`, `lightning`, `repeat`, `exercise`, `performance`.
   Legacy `bulb`/`doc` still parse as aliases of `lightbulb`/`document`.
   (Style mode → `i` opens the symbol grid; `Tab` cycles fill → lead → badge;
-  `1`–`9` types a number badge.)
+  `0`–`9` types a number badge, `f` makes it filled.)
 - `>parent` — nest this element inside the box with the given ID.
 
 > **When to reach for symbols and emphasis.** They shine when you're

@@ -7,12 +7,12 @@ element beyond it.
 ## Box syntax
 
 ```
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent]
 ```
 
 **Modifier order is enforced** — write them in exactly this sequence:
 `%color` → `^anchor` → `~size` → `!`-flags → `*icon` → `&attach` →
-`>parent` → `# annotation`. The `!`-flags (`!flat` / `!bold` / `!italic`)
+`~status=` → `>parent` → `# annotation`. The `!`-flags (`!flat` / `!bold` / `!italic`)
 are one group and may appear in any order *among themselves*, but the
 whole group must sit **after `~size` and before `*icon`**. Putting a flag
 out of place (e.g. `*lead:gear !bold`) makes the line fail to parse and
@@ -35,6 +35,7 @@ class as a misplaced triple-quote modifier.
 | `!ink` (note) | `!ink` | draw the note's text in its `%color` (without it, `%color` only tints the icon and the text stays blue); `#!grafli v4` |
 | `*symbol` | `*lightbulb` (fill), `*lead:gear` (lead), `*badge:star` (badge), `*3` (number) | sketchnote symbol — fill: big symbol + caption; lead: small symbol left of the label; badge: compact top-right overlay; digits 1–99 render as circled number badges; `*0` and filled `*solid-<n>` (0–99) are `#!grafli v4` |
 | `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>[#<id>]` | typed attachment (see "Attachments"; `#<id>` see "Board links into a bookmark or element") |
+| `~status=` | `~status=open`, `~status=designed:%rose` | a short status label as a pill on the box's bottom edge, in every view; one word (no spaces or colons), `:%color` / `:#RRGGBB` colours it; `#!grafli v4` |
 | `>parent` | `>parent_id` | nest inside parent box |
 
 ## Sketchnote symbols (`*name`, on boxes and notes)

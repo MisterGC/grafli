@@ -16,7 +16,7 @@ its version. It is required.
 ## Element types
 
 ```text
-@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [&attach] [~status=<text>[:color]] [>parent]
 @ note [<id>] <x>,<y> "<text>" [color] [~size] [~width=N] [!style] [>parent]
 @ arrow <from> <op> <to> ["label"] [color] [!pattern] [!thickness] [!routing] [!dot] [~size] [~from=<side>] [~to=<side>]
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [&attach]
@@ -100,6 +100,16 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   `grafli render` and every export draw it. A board using either carries a
   `#!grafli v4` header. (Style mode → `e`, Outline row: solid / dashed /
   dotted.)
+- `~status=<text>[:color]` — on a box, a short status label (`open`,
+  `designed`, `in-review`) drawn as a pill on the box's bottom edge,
+  right-aligned, on the canvas, in `grafli render` and in every export. The
+  text is one word (no spaces or colons); `:%rose` or `:#C53030` colours the
+  pill and its ink follows the fill, without one it sits on the surface
+  colour. It goes after `&attach` and before `>parent`. Unlike an overlay
+  category it shows without `A`; `*badge:` stays an icon placement. A board
+  using it carries a `#!grafli v4` header. (Style mode → `s`: type the
+  text — spaces become dashes, empty clears it — then pick its colour in the
+  colour grid.)
 - `!ink` — on a box, the label and its fill or lead icon take the ink that
   reads on the box's fill (light on a dark fill, dark on a light one) and
   the light plate behind the label goes away; on a note, the text takes the

@@ -115,6 +115,7 @@ connector.
 | <kbd>c</kbd> | Open the color grid — <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> to pick (live preview), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
 | <kbd>i</kbd> | Open the symbol grid (sketchnote vocabulary, semantic + emphasis blocks) — same keys; <kbd>Tab</kbd> cycles placement (fill → lead → badge); <kbd>0</kbd>–<kbd>9</kbd> types a number badge (a second press appends: 1,2 → 12), <kbd>f</kbd> toggles it filled (`*solid-12`). Fill: big symbol + caption. Lead: small symbol beside the label. Badge: compact top-right corner overlay |
 | <kbd>t</kbd> | Open the text grid — rows = sizes, columns = Regular / Bold / Italic / Bold+Italic; <kbd>hjkl</kbd> to move (live preview), <kbd>Tab</kbd> changes the font — a note cycles handwritten → monospace → sans, a box toggles monospace ↔ sans (`!sans`), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
+| <kbd>s</kbd> | Box status label (`~status=`) — type a short status (spaces become dashes, empty clears it), <kbd>Enter</kbd>; then the color grid picks the pill's colour (<kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd>, <kbd>Enter</kbd> applies, <kbd>Esc</kbd> keeps its colour). The pill sits on the box's bottom edge in every view |
 | <kbd>j</kbd> / <kbd>k</kbd> | Cycle text size (quick nudge) |
 | <kbd>d</kbd> then <kbd>r</kbd> | Snap selected box(es) to the **slide aspect ratio** — a reusable export frame (re-apply after edits; works on a multi-selection) |
 | <kbd>Shift</kbd>+<kbd>G</kbd> | Snap to grid |

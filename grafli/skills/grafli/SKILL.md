@@ -237,6 +237,9 @@ in `references/genres.md` instead.)
    (`#!grafli v4`). On a note, `!sans` swaps the handwriting for Inter.
    Something later or optional gets a `!dashed` or `!dotted` outline
    (`#!grafli v4`); on a flat box or a container it adds the outline.
+   A resting status (`open`, `designed`) is `~status=open` or
+   `~status=designed:%rose`, a pill on the box's bottom edge that shows in
+   every view (`#!grafli v4`); keep overlays for what is toggled with `A`.
 5. **Place children inside containers**, sized and aligned to the
    grid (multiples of 50). Use the container margin model in
    `references/design.md`.
@@ -330,7 +333,7 @@ in `references/genres.md` instead.)
 
 ```
 # Comments and titles
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [>parent] [# annotation]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent] [# annotation]
 @ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [!dot] [~size] [~from=<side>] [~to=<side>] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md

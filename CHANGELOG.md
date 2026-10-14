@@ -210,6 +210,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <kbd>s</kbd> <kbd>e</kbd> on a connector sets it: the Ends row, Arrow or
   Dot. A board using it is written `#!grafli v4`; older builds open it
   read-only. ([#210](https://github.com/MisterGC/grafli/issues/210))
+- **A box can carry a status label in every view.** A status such as
+  "designed" or "open" only existed as an overlay category, invisible until
+  <kbd>A</kbd>. `~status=open` (or `~status=open:%rose`) draws a small pill
+  on the box's bottom edge on the canvas, in `grafli render` and in the
+  exports. Style mode <kbd>s</kbd> <kbd>s</kbd> on a box types its text,
+  then the colour grid picks its colour. A board using it is written
+  `#!grafli v4`; older builds open it read-only.
+  ([#211](https://github.com/MisterGC/grafli/issues/211))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

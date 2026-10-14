@@ -146,7 +146,7 @@ return ok  @api/handler.py:42
 
 | Element | Syntax |
 |---------|--------|
-| Box   | `@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]` |
+| Box   | `@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [~status=<text>[:color]] [>parent]` |
 | Arrow | `@ arrow <from> <op> <to> ["label"] [!style] [!routing] [!dot] [~size] [~from=<side>] [~to=<side>]` |
 | Note  | `@ note [<id>] <x>,<y> "<text>" [color] [~size] [!style] [>parent]` |
 

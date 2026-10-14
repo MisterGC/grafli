@@ -695,9 +695,24 @@ class BoxItem(QGraphicsRectItem):
         self._resize_corner = -1
         self._resize_origin = QPointF()
 
+    def _container_look(self) -> bool:
+        """True when this box draws as a container: it holds children and
+        isn't a ``!card``, which keeps its node look around them."""
+        return self._is_parent and self.box.style != "card"
+
+    def _view_has_children(self) -> bool:
+        view = _get_view(self)
+        return bool(view and hasattr(view, '_has_children')
+                    and view._has_children(self.box.id))
+
+    def _has_container_label(self) -> bool:
+        """True when the label takes the container heading defaults (small,
+        top left): the box holds children and isn't a ``!card``."""
+        return self.box.style != "card" and self._view_has_children()
+
     def _apply_color(self):
         hex_color = theme.resolve_color(self.box.color)
-        is_flat = self.box.style == "flat" or self._is_parent
+        is_flat = self.box.style == "flat" or self._container_look()
         if hex_color:
             c = QColor(hex_color)
             if is_flat:
@@ -738,9 +753,8 @@ class BoxItem(QGraphicsRectItem):
 
     def _lead_icon_side(self) -> float:
         """Small leading-icon size, scaled to the box's text."""
-        is_parent = self._is_parent
         px = resolve_textsize_px(self.box.textsize,
-                                 "small" if is_parent else "")
+                                 "small" if self._container_look() else "")
         return max(14.0, min(px * 1.7, self.box.h - 8))
 
     def _lead_icon_w(self) -> float:
@@ -827,8 +841,11 @@ class BoxItem(QGraphicsRectItem):
                            QRectF(ix, iy, side, side), color)
 
     def set_style(self, style: str):
+        was_card = self.box.style == "card"
         self.box.style = style
         self._apply_color()
+        if was_card or style == "card":
+            self.refresh_auto_layout()   # a card's label keeps node defaults
         self.update()
 
     def _update_url_indicator(self):
@@ -842,27 +859,26 @@ class BoxItem(QGraphicsRectItem):
             return self.box.anchor
         if self._miniature is not None:
             return "topcenter"   # the miniature takes the body below
-        view = _get_view(self)
-        if view and hasattr(view, '_has_children') and view._has_children(self.box.id):
-            return "topleft"
+        if self._view_has_children():
+            # A `!card` keeps a node's centring, at the top clear of the
+            # children; any other parent takes the container heading.
+            return "topcenter" if self.box.style == "card" else "topleft"
         return ""
 
     def _get_effective_textsize(self) -> str:
         if self.box.textsize:
             return self.box.textsize
-        view = _get_view(self)
-        if view and hasattr(view, '_has_children') and view._has_children(self.box.id):
+        if self._has_container_label():
             return "small"
         return ""
 
     def _box_font(self) -> QFont:
-        view = _get_view(self)
-        is_parent = bool(view and hasattr(view, '_has_children')
-                         and view._has_children(self.box.id))
-        # Unset size: a parent defaults to the small header, a normal node to
-        # medium. An explicit size (numeric or named) is always honoured — so
-        # a parent can be set to the same size as any other node.
-        px = resolve_textsize_px(self.box.textsize, "small" if is_parent else "")
+        # Unset size: a parent defaults to the small header, a normal node
+        # (and a `!card` parent) to medium. An explicit size (numeric or named)
+        # is always honoured — so a parent can be set to the same size as any
+        # other node.
+        px = resolve_textsize_px(self.box.textsize,
+                                 "small" if self._has_container_label() else "")
         return _apply_emphasis(QFont(FONT_FAMILY, px), self.box.emphasis)
 
     def _position_label(self):
@@ -1487,7 +1503,8 @@ class BoxItem(QGraphicsRectItem):
             self._paint_lod_stack(painter)   # offset edges behind the fill
         painter.setPen(self.pen())
         painter.setBrush(self.brush())
-        radius = 0 if self.box.style == "flat" or self._is_parent else BOX_RADIUS
+        radius = (0 if self.box.style == "flat" or self._container_look()
+                  else BOX_RADIUS)
         painter.drawRoundedRect(self.rect(), radius, radius)
 
         if self._lod_tile is not None:

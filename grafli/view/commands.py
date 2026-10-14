@@ -451,9 +451,9 @@ class CommandsMixin:
         new_textsize = None
         for item in targets:
             if isinstance(item, BoxItem):
-                is_parent = self._has_children(item.box.id)
                 cur_px = resolve_textsize_px(
-                    item.box.textsize, "small" if is_parent else "")
+                    item.box.textsize,
+                    "small" if item._has_container_label() else "")
                 new = str(step_textsize_px(cur_px, direction))
                 item.set_textsize(new)
                 new_textsize = new

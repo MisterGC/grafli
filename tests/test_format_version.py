@@ -32,11 +32,11 @@ def test_newer_header_is_not_a_comment():
     assert not board.parse_warnings
 
 
-def test_build_reads_up_to_v3_today():
-    assert supported_version() == 3
-    assert not is_newer(parse('#!grafli v3\n'))
+def test_build_reads_up_to_v4_today():
+    assert supported_version() == 4
+    assert not is_newer(parse('#!grafli v4\n'))
     assert not is_newer(parse('# no header\n'))
-    assert is_newer(parse('#!grafli v4\n'))
+    assert is_newer(parse('#!grafli v5\n'))
 
 
 def test_newer_header_is_not_duplicated_on_save():
@@ -137,3 +137,30 @@ def test_a_step_ref_splits_into_board_and_bookmark():
     assert fmt.split_step_ref("bm1") == ("", "bm1")
     assert fmt.split_step_ref("combat#blow") == ("combat", "blow")
     assert fmt.split_step_ref("../x.grafli#hit") == ("../x.grafli", "hit")
+
+
+CARD = ('#!grafli v4\n@ box c "Card" 0,0 200x150 !card\n'
+        '@ note n 20,60 "body" >c\n')
+
+
+def test_a_card_box_round_trips_and_writes_v4():
+    board = parse(CARD)
+    assert board.box_by_id("c").style == "card"
+    assert required_version(board) == 4
+    assert serialize(board) == CARD
+
+
+def test_a_card_written_on_a_v1_board_lifts_it_to_v4():
+    board = parse('#!grafli v1\n@ box c "Card" 0,0 200x150\n')
+    board.box_by_id("c").style = "card"
+    assert serialize(board).splitlines()[0] == "#!grafli v4"
+
+
+def test_a_v3_build_reads_a_card_board_as_newer(monkeypatch):
+    # A build from before `!card` registers no v4 feature, so it reads up to
+    # v3 and the card board is newer than it.
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if k != "card boxes"}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    assert supported_version() == 3
+    assert is_newer(parse(CARD))

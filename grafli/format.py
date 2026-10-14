@@ -3,7 +3,7 @@
 Format spec:
   #!grafli v1                                      (file header, first line)
   # comment or title
-  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat] [&url] [>parent]
+  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card] [&url] [>parent]
   @ arrow <from_id> -> <to_id> "<label>"           (forward)
   @ arrow <from_id> <- <to_id> "<label>"           (backward)
   @ arrow <from_id> <-> <to_id> "<label>"          (bidirectional)
@@ -47,6 +47,8 @@ element ``<id>``; a board using one is written as v3. So is a board whose
 arrows carry ``~id=<id>``, and one whose flow has a stop in another board:
 a step ``<board>#<bookmark>``, ``<board>`` being a vault sub-board name or a
 relative path ending in ``.grafli``.
+A ``!card`` box keeps its node look while it holds children; a board using
+one is written as v4.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -90,7 +92,7 @@ class Box:
     color: str = ""
     anchor: str = ""      # "topleft", "topcenter", or "" (= center)
     textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
-    style: str = ""       # "" (node) or "flat"
+    style: str = ""       # "" (node), "flat", or "card" (node look with children)
     url: str = ""
     # Attachment kind for ``url``: "link" (opens externally — the only kind
     # that may point outside the board), "doc" (markdown document in the
@@ -581,7 +583,7 @@ _RE_BOX = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
-    r'((?:\s+!(?:flat|ratio|fit|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:flat|card|ratio|fit|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -683,7 +685,7 @@ _SIZE_TOKEN_RE = re.compile(r'(?<!\w)[\d.]+x[\d.]+(?!\w)')
 # (#145); tests cross-check them against the regex sources.
 BOX_FORM = ('@ box <id> "label" x,y wxh [%color|#rrggbb] '
             '[^topleft|^topcenter] [~size] '
-            '[!flat|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
+            '[!flat|!card|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
             '[*icon] [&attach] [>parent]')
 NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
              '[~width=N] [!mono|!flat|!bold|!italic|!outline|!shadow ...] '
@@ -836,7 +838,7 @@ def parse(text: str) -> Board:
         m = _RE_BOX.match(stripped)
         if m:
             # The flags run tolerates legacy !ratio / !fit (now no-ops) so older
-            # files still load; only !flat is honoured and re-serialized.
+            # files still load; only !flat / !card are honoured and re-serialized.
             flags = set(re.findall(r'!(\w+)', m.group(10) or ""))
             kind, url = split_attach(m.group(12) or "") if m.group(12) else ("", "")
             box = Box(
@@ -849,7 +851,8 @@ def parse(text: str) -> Board:
                 color=m.group(7) or "",
                 anchor=m.group(8) or "",
                 textsize=m.group(9) or "",
-                style="flat" if "flat" in flags else "",
+                style=("flat" if "flat" in flags
+                       else "card" if "card" in flags else ""),
                 emphasis=emphasis_from_flags(flags),
                 icon=split_icon(m.group(11) or "")[1],
                 icon_placement=split_icon(m.group(11) or "")[0],
@@ -1101,6 +1104,7 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "board fragments": (3, uses_board_fragments),
     "arrow ids": (3, lambda b: any(a.id for a in b.arrows)),
     "cross-board stops": (3, uses_cross_board_stops),
+    "card boxes": (4, lambda b: any(x.style == "card" for x in b.boxes)),
 }
 
 

@@ -335,3 +335,66 @@ def test_picker_none_cell_clears_icon():
     view._apply_icon_picker_live()
     view._commit_icon_picker()
     assert view.board.box_by_id("a").icon == ""
+
+
+# ── filled number markers and 0 (#208) ──────────────────────────
+
+def _press(view, *keys):
+    from PySide6.QtTest import QTest
+    for key in keys:
+        QTest.keyClick(view, key)
+
+
+def test_s_i_zero_key_sets_a_zero_marker():
+    from PySide6.QtCore import Qt
+    view = _view('@ box a "A" 0,0 140x70\n')
+    view._box_items["a"].setSelected(True)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_I)
+    assert view._icon_picker_active
+    _press(view, Qt.Key.Key_0)
+    assert view._box_items["a"].box.icon == "0"
+    _press(view, Qt.Key.Key_Return)
+    assert view.board.box_by_id("a").icon == "0"
+    assert serialize(view.board).startswith("#!grafli v4\n")
+
+
+def test_s_i_f_fills_the_typed_number_with_preview_and_undo():
+    from PySide6.QtCore import Qt
+    view = _view('@ box a "A" 0,0 140x70\n')
+    item = view._box_items["a"]
+    item.setSelected(True)
+    before = len(view._undo_stack)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_I, Qt.Key.Key_1, Qt.Key.Key_2)
+    assert item.box.icon == "12"
+    _press(view, Qt.Key.Key_F)                   # live preview: filled
+    assert item.box.icon == "solid-12"
+    _press(view, Qt.Key.Key_Return)
+    assert view.board.box_by_id("a").icon == "solid-12"
+    out = serialize(view.board)
+    assert "140x70 *solid-12" in out and out.startswith("#!grafli v4\n")
+    assert len(view._undo_stack) == before + 1
+    view._undo()
+    assert view.board.box_by_id("a").icon == ""
+    assert serialize(view.board).startswith("#!grafli v1\n")
+
+
+def test_s_i_opens_on_a_filled_marker_and_f_unfills_it():
+    from PySide6.QtCore import Qt
+    view = _view('@ note n 0,0 "third" *badge:solid-3\n')
+    view._note_items["n"].setSelected(True)
+    view._open_icon_picker()
+    assert (view._icon_picker_digit, view._icon_picker_solid) == ("3", True)
+    _press(view, Qt.Key.Key_F)
+    assert view._note_items["n"].note.icon == "3"
+    _press(view, Qt.Key.Key_Escape)              # cancel restores the fill
+    assert view._note_items["n"].note.icon == "solid-3"
+    assert view._note_items["n"].note.icon_placement == "badge"
+
+
+def test_s_i_a_leading_zero_reads_as_the_next_digit():
+    from PySide6.QtCore import Qt
+    view = _view('@ box a "A" 0,0 140x70\n')
+    view._box_items["a"].setSelected(True)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_I, Qt.Key.Key_0, Qt.Key.Key_7)
+    assert view._box_items["a"].box.icon == "7"
+    view._cancel_icon_picker()

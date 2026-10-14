@@ -179,6 +179,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handwritten, mono and sans. A PPTX slide names Inter on a `!sans` note's
   text instead of the theme font.
   ([#206](https://github.com/MisterGC/grafli/issues/206))
+- **`!dashed` and `!dotted` box outlines.** Connectors had line patterns,
+  boxes had none, so "later" or "optional" could not be drawn. A `!dashed`
+  or `!dotted` box draws its outline in that pattern, on the canvas, in
+  `grafli render` and in every export; a flat box or a container gets an
+  outline in the pattern. Style mode <kbd>s</kbd> <kbd>e</kbd> sets it:
+  Outline row, solid / dashed / dotted. A board using it is written
+  `#!grafli v4`; older builds open it read-only.
+  ([#207](https://github.com/MisterGC/grafli/issues/207))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

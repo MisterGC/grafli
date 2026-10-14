@@ -235,6 +235,8 @@ in `references/genres.md` instead.)
    Box labels are monospace; `!sans` sets a box's label in a
    proportional face (Inter) — for an explanation map's titles
    (`#!grafli v4`). On a note, `!sans` swaps the handwriting for Inter.
+   Something later or optional gets a `!dashed` or `!dotted` outline
+   (`#!grafli v4`); on a flat box or a container it adds the outline.
 5. **Place children inside containers**, sized and aligned to the
    grid (multiples of 50). Use the container margin model in
    `references/design.md`.
@@ -328,7 +330,7 @@ in `references/genres.md` instead.)
 
 ```
 # Comments and titles
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !bold !italic] [*icon] [&attach] [>parent] [# annotation]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [>parent] [# annotation]
 @ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [~size] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md

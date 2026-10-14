@@ -94,6 +94,12 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   corners and a node-size label centred at the top — so a box with a body
   note reads as a card. A board using `!card` carries a `#!grafli v4`
   header. (Style mode → `e`, Background row: plate / flat / card.)
+- `!dashed` / `!dotted` — on a box, the outline is drawn dashed or dotted
+  instead of solid, for something later or optional; a flat box or a
+  container, which has no outline, gets one in that pattern. The canvas,
+  `grafli render` and every export draw it. A board using either carries a
+  `#!grafli v4` header. (Style mode → `e`, Outline row: solid / dashed /
+  dotted.)
 - `!ink` — on a box, the label and its fill or lead icon take the ink that
   reads on the box's fill (light on a dark fill, dark on a light one) and
   the light plate behind the label goes away; on a note, the text takes the

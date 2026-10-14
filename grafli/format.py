@@ -15,6 +15,7 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
   @ arrow <from_id> -> <to_id> "label" ~kind=graph (connector kind: graph / annotation; default derives from endpoints)
   @ arrow <from_id> -> <to_id> "label" ~from=right ~to=left (pinned sides: top / right / bottom / left; default picks from geometry; v4)
+  @ arrow <from_id> <-> <to_id> "label" !dot       (each end with a head ends in a dot instead; v4)
   @ arrow <from_id> -> <to_id> "label" ~id=<id>    (stable id, only when something references the arrow; v3)
   @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono|!sans] [!ink] [&attach] [>parent]
   @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono|!sans] [!ink] [&attach] [>parent]
@@ -54,7 +55,8 @@ label and icon take their ink from its fill and drop the light plate, a
 note's text takes its ``%color``. And a board with a ``!sans`` box or note,
 whose text is set in the bundled proportional face (Inter) instead of mono or
 handwriting. And a board with a ``!dashed`` or ``!dotted`` box, whose outline
-is drawn in that pattern.
+is drawn in that pattern. And a board with an ``!dot`` arrow, whose ends
+draw a dot where they would draw an arrowhead.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -140,6 +142,9 @@ class Arrow:
     textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
     head_from: bool = False  # arrowhead at from_id end
     head_to: bool = True     # arrowhead at to_id end
+    # What an end with a head draws: "" (an arrowhead) or "dot" (`!dot`, a
+    # filled dot). Which ends carry one is still head_from / head_to.
+    head_shape: str = ""
     url: str = ""
     attach_kind: str = ""    # see Box.attach_kind
     # Connector kind: "" derives from endpoints (a note endpoint ⇒ annotation,
@@ -632,7 +637,7 @@ _RE_ARROW = re.compile(
     r'(?:\s+"' + _QT + r'")?'
     r'(?:\s+@(-?[\d.]+),(-?[\d.]+))?'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'          # color override
-    r'((?:\s+!(?:dashed|dotted|thin|thick|spline|ortho))*)'  # pattern, thickness, routing
+    r'((?:\s+!(?:dashed|dotted|thin|thick|spline|ortho|dot))*)'  # pattern, thickness, routing, head shape
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+~kind=(graph|annotation))?'
@@ -730,7 +735,7 @@ NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
              '[*icon] [&attach] [>parent]')
 ARROW_FORM = ('@ arrow <from> ->|<-|<->|-- <to> ["label"] [@dx,dy] '
               '[%color|#rrggbb] '
-              '[!dashed|!dotted|!thin|!thick|!spline|!ortho ...] '
+              '[!dashed|!dotted|!thin|!thick|!spline|!ortho|!dot ...] '
               '[~size] [&attach] [~kind=graph|annotation] '
               '[~from=top|right|bottom|left] [~to=top|right|bottom|left] '
               '[~id=<id>]')
@@ -915,13 +920,15 @@ def parse(text: str) -> Board:
             op = m.group(2)
             kind, url = split_attach(m.group(10) or "") if m.group(10) else ("", "")
             flags = m.group(8).split() if m.group(8) else []
-            # A run of "!dashed"/"!dotted"/"!thin"/"!thick"/"!spline"/"!ortho"
-            # flags in any order, one per axis: thickness, line pattern, and
-            # routing are independent, so "!dashed !ortho" is a dashed stair.
+            # A run of "!dashed"/"!dotted"/"!thin"/"!thick"/"!spline"/"!ortho"/
+            # "!dot" flags in any order, one per axis: thickness, line pattern,
+            # routing and head shape are independent, so "!dashed !ortho" is a
+            # dashed stair.
             # Legacy files carrying a bare "!thick" migrate to thickness here.
             style = next((f[1:] for f in flags if f in ("!dashed", "!dotted")), "")
             thickness = next((f[1:] for f in flags if f in ("!thin", "!thick")), "")
             routing = next((f[1:] for f in flags if f in ("!spline", "!ortho")), "")
+            head_shape = "dot" if "!dot" in flags else ""
             arrow = Arrow(
                 from_id=m.group(1),
                 to_id=m.group(3),
@@ -935,6 +942,7 @@ def parse(text: str) -> Board:
                 textsize=m.group(9) or "",
                 head_from=op in ("<->", "<-"),
                 head_to=op in ("<->", "->"),
+                head_shape=head_shape,
                 url=url,
                 attach_kind=kind,
                 kind=m.group(11) or "",
@@ -1161,6 +1169,7 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "number markers": (4, uses_number_markers),
     "connector sides": (4, lambda b: any(a.from_side or a.to_side
                                          for a in b.arrows)),
+    "dot ends": (4, lambda b: any(a.head_shape for a in b.arrows)),
 }
 
 
@@ -1274,6 +1283,8 @@ def _serialize_arrow(arrow: Arrow) -> str:
         base += f" !{arrow.thickness}"
     if arrow.routing:
         base += f" !{arrow.routing}"
+    if arrow.head_shape:
+        base += f" !{arrow.head_shape}"
     if arrow.textsize:
         base += f" ~{arrow.textsize}"
     base += _attach_token(arrow)

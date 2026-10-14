@@ -617,7 +617,10 @@ class BoxLabelItem(QGraphicsTextItem):
         # nothing, so the contrast plate doesn't linger as an empty strip.
         if not self._box_item.box.label:
             return
-        if theme.resolve_color(self._box_item.box.color):
+        # An `!ink` box draws its label in ink picked from the fill instead,
+        # so it needs no plate.
+        box = self._box_item.box
+        if theme.resolve_color(box.color) and not box.ink:
             bg_rect = self._plate_rect()
             bg = QColor(theme.SURFACE)
             bg.setAlphaF(0.6)
@@ -730,7 +733,22 @@ class BoxItem(QGraphicsRectItem):
             else:
                 self.setPen(QPen(QColor(theme.INK), BOX_BORDER_WIDTH))
                 self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self._label.setDefaultTextColor(QColor(theme.INK))
+        self._label.setDefaultTextColor(self._label_ink())
+        self._label.update()
+
+    def _fill_color(self) -> QColor:
+        """The colour the label and icons sit on: the fill, or the canvas
+        where the box has none."""
+        if self.brush().style() == Qt.BrushStyle.NoBrush:
+            return QColor(theme.SCENE_BG)
+        return self.brush().color()
+
+    def _label_ink(self) -> QColor:
+        """Label and icon ink: the board ink on its light plate, or with
+        ``!ink`` the ink that reads on the fill itself."""
+        if self.box.ink:
+            return theme.ink_on(self._fill_color())
+        return QColor(theme.INK)
 
     def set_color(self, color: str):
         self.box.color = color
@@ -742,6 +760,11 @@ class BoxItem(QGraphicsRectItem):
         self.box.icon_placement = placement
         self._auto_grow()
         self._position_label()
+        self.update()
+
+    def set_ink(self, ink: bool):
+        self.box.ink = ink
+        self._apply_color()
         self.update()
 
     def set_emphasis(self, emphasis: str):
@@ -817,15 +840,16 @@ class BoxItem(QGraphicsRectItem):
         ``badge``: a compact overlay in the top-right corner; the label keeps
         its normal layout."""
         w, h = self.box.w, self.box.h
-        color = QColor(theme.INK)
         if self.box.icon_placement == "badge":
             side = self._badge_icon_side()
             # The attachment glyph owns the very corner — step aside for it.
             dx = 20.0 if self.box.url else 0.0
+            # The badge sits on its own paper disc: board ink reads there.
             iconset.paint_badge(painter, self.box.icon,
                                 QRectF(w - side - 8.0 - dx, 8.0, side, side),
-                                color)
+                                QColor(theme.INK))
             return
+        color = self._label_ink()
         if self.box.icon_placement == "lead":
             iconset.paint_icon(painter, self.box.icon,
                                self._lead_layout()[0], color)
@@ -1463,9 +1487,7 @@ class BoxItem(QGraphicsRectItem):
         font = self._doc_line_font()
         text = QFontMetricsF(font).elidedText(
             self._doc_line, Qt.TextElideMode.ElideRight, rect.width())
-        ink = theme.ink_on(self.brush().color()
-                           if self.brush().style() != Qt.BrushStyle.NoBrush
-                           else QColor(theme.SCENE_BG))
+        ink = theme.ink_on(self._fill_color())
         ink.setAlphaF(0.7)
         align = (Qt.AlignmentFlag.AlignLeft
                  if self._get_effective_anchor() == "topleft"
@@ -1985,6 +2007,10 @@ class NoteItem(QGraphicsSimpleTextItem):
         self._brect_cache = None
         self.update()
 
+    def set_ink(self, ink: bool):
+        self.note.ink = ink
+        self.update()
+
     def set_flat(self, flat: bool):
         """Toggle the background plate — flat notes draw text on the canvas."""
         self.note.flat = flat
@@ -2157,7 +2183,12 @@ class NoteItem(QGraphicsSimpleTextItem):
         """Extract badge prefix, body text, and accent color."""
         p = note_prefix(self.note.text)
         if p is None:
-            return "", self.note.text, theme.NOTE_PEN_COLOR
+            # `!ink` draws a plain note's text in its %color; otherwise a
+            # %color only tints the icon and the text stays note blue.
+            hex_color = (theme.resolve_color(self.note.color)
+                         if self.note.ink else "")
+            return "", self.note.text, (QColor(hex_color) if hex_color
+                                        else theme.NOTE_PEN_COLOR)
         badge, body = p
         accent = theme.NOTE_TASK_COLOR if badge == "T:" else theme.NOTE_QUESTION_COLOR
         return badge, body, accent

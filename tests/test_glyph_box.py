@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFontMetricsF
 from PySide6.QtWidgets import QApplication, QGraphicsTextItem
 
 from grafli import iconset
@@ -187,6 +187,52 @@ def test_picker_applies_to_note_too():
     chosen = iconset.ICON_NAMES[0]
     view._commit_icon_picker()
     assert view.board.notes[0].icon == chosen
+
+
+_CONTAINER = (
+    '@ box group "Group" 0,0 400x300 !flat{icon}\n'
+    '@ box child "Child" 40,120 200x80 >group\n'
+)
+
+
+def _label_rect(it):
+    """The label's rect in item coordinates."""
+    return it._label.mapRectToItem(it, it._label.boundingRect())
+
+
+def test_container_label_stays_top_left_without_lead_icon():
+    it = _view(_CONTAINER.format(icon=""))._box_items["group"]
+    assert it._get_effective_anchor() == "topleft"
+    assert _label_rect(it).topLeft().toTuple() == (8.0, 8.0)
+
+
+def test_container_lead_icon_and_label_stay_top_left():
+    it = _view(_CONTAINER.format(icon=" *lead:gear"))._box_items["group"]
+    icon, _ = it._lead_layout()
+    label = _label_rect(it)
+    # The icon sits in the top-left corner, not at mid-height.
+    assert icon.left() == 8.0
+    assert icon.top() >= 8.0 and icon.bottom() < it.box.h / 2
+    assert (icon.width(), icon.height()) == (it._lead_icon_w(),
+                                             it._lead_icon_side())
+    # The label starts right of the icon gutter and stays at the top.
+    assert label.left() == 8.0 + icon.width() + 8.0
+    assert label.top() >= 8.0 and label.bottom() < it.box.h / 2
+    # The icon centres on the label's first line, and one of them touches
+    # the 8 px top inset.
+    margin = it._label.document().documentMargin()
+    line_h = QFontMetricsF(it._label.font()).height()
+    assert abs(icon.center().y() - (label.top() + margin + line_h / 2)) < 0.01
+    assert min(icon.top(), label.top()) == 8.0
+
+
+def test_leaf_lead_icon_and_label_stay_centred():
+    # Without a top anchor the lead icon and label still centre at mid-height.
+    it = _view('@ box a "Auth" 0,0 200x120 *lead:lock\n')._box_items["a"]
+    icon, _ = it._lead_layout()
+    label = _label_rect(it)
+    assert icon.top() == (it.box.h - icon.height()) / 2
+    assert label.top() == (it.box.h - label.height()) / 2
 
 
 def test_lead_box_label_reserves_icon_gutter():

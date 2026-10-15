@@ -161,6 +161,90 @@ resting scheme is a convention of explanation maps, not of every board.
 A board that uses a palette name is written `#!grafli v4`; the app writes
 the header itself when you save.
 
+## Slide-grade boards — a claim, three weights, a path
+
+A board where every box has the same size, colour and weight reads as a
+wall: the reader cannot tell what the board says or where to start. A
+level reads like a good slide when it states its point, makes one or two
+parts loud and the rest quiet, and shows the order to read it in. Each
+move below is an opt-in modifier on a box, note or arrow; a board that
+uses none of them looks as before. Every modifier here is written
+`#!grafli v4` — the app writes the header when you save.
+
+* **A claim headline per board.** Above the level's question note, put
+  one sentence that states what the level shows — a claim the reader can
+  check against the board ("One parse feeds every view"), not a topic
+  ("Parser"). It is the largest text on the board, in the proportional
+  face, without a plate: `@ note claim … "<claim>" ~xlarge !sans !bold
+  !flat`. On the top board the problem note is the headline (see "The top
+  board" above).
+  GUI: <kbd>t</kbd>, click, type the claim; <kbd>s</kbd> <kbd>t</kbd>,
+  pick a large row and the Bold column, <kbd>Tab</kbd> to sans,
+  <kbd>Enter</kbd>; <kbd>s</kbd> <kbd>e</kbd>, Background → flat.
+* **Three visual weights.** Give every element one of three weights and
+  keep to them on every level:
+  * *Emphasis* — the one or two parts the claim is about. A loud theme
+    token the palette leaves free (`%primary`, `%accent`) with `!ink`, so
+    the label sits in a light ink straight on the dark fill, and `!sans`
+    for the title: `%primary !ink !sans`.
+  * *Normal* — the parts of the split, in their layer's palette colour
+    (see "A resting colour per layer").
+  * *Muted* — context the reader needs to place things but should not
+    dwell on: no fill, `~small`. A part that is later or optional also
+    gets `!dashed` (or `!dotted`) so its outline says so.
+
+  GUI: emphasis — <kbd>s</kbd> <kbd>c</kbd>, pick the token,
+  <kbd>Enter</kbd>; <kbd>s</kbd> <kbd>e</kbd>, Label ink → on fill;
+  <kbd>s</kbd> <kbd>t</kbd>, <kbd>Tab</kbd> to sans. Muted —
+  <kbd>s</kbd> <kbd>t</kbd>, a small row; <kbd>s</kbd> <kbd>e</kbd>,
+  Outline → dashed.
+* **Quiet evidence.** The evidence for the split (`code:` note, refs)
+  stays on the board but out of the way: `~small`, at the bottom or the
+  edge, never between the parts. Arrows that only point at evidence or
+  context stay quiet too — `%muted !thin`, or the muted annotation look a
+  note connector gets by itself.
+  GUI: <kbd>s</kbd> <kbd>t</kbd>, a small row; on a connector
+  <kbd>s</kbd> <kbd>e</kbd>, Thickness → thin, and <kbd>s</kbd>
+  <kbd>c</kbd> for `%muted`.
+* **Numbered paths.** When the claim is about an order, number the parts
+  along it with filled numbers before the label: `*lead:solid-1`,
+  `*lead:solid-2`, … The reader follows 1, 2, 3 before reading anything
+  else. Outlined numbers (`*lead:3`) are for side remarks, `*lead:solid-0`
+  for a step zero. Give the path a tour whose stops go in the same order,
+  so the numbers and the tour tell the same story.
+  GUI: <kbd>s</kbd> <kbd>i</kbd>, <kbd>Tab</kbd> to lead, type the digit,
+  <kbd>f</kbd> fills it, <kbd>Enter</kbd>.
+* **Category bars with matching connectors.** When the parts a step leads
+  to fall into kinds (in the app / outside it, read / write), put a thin
+  bar over each kind's column — a box about 36 high, the column's width,
+  in the kind's palette entry, its label in ink on the fill: `%export !ink
+  !sans`. Every connector into that kind takes the same entry, so the
+  colour carries the kind from the bar to the arrow. Pin the sides when a
+  column reads left to right (`~from=right ~to=left`), and use dot ends
+  (`!dot`) for a "feeds each of these" fan-out.
+  GUI: <kbd>n</kbd>, click, name the bar, resize it to the column;
+  <kbd>s</kbd> <kbd>c</kbd>, the palette entry; <kbd>s</kbd>
+  <kbd>e</kbd>, Label ink → on fill. Select the connectors
+  (<kbd>Shift</kbd>+click), <kbd>s</kbd> <kbd>c</kbd> the same entry;
+  <kbd>s</kbd> <kbd>e</kbd>, Ends → dot, Leaves from → right, Enters at →
+  left.
+* **Status labels.** A part's resting state — `live`, `draft`,
+  `deprecated` — is a one-word pill on the box's bottom edge:
+  `~status=live`, coloured with `~status=draft:%rose`. It shows in every
+  view and export, with no overlay on. Use one small vocabulary per map;
+  states that need analysis data (coverage, findings) stay overlays.
+  GUI: <kbd>s</kbd> <kbd>s</kbd>, type the word, <kbd>Enter</kbd>, then
+  the colour grid colours the pill (<kbd>Esc</kbd> keeps it uncoloured).
+* **Cards.** A part shown with its inner parts — a data structure and
+  its fields — stays a node with `!card`: it keeps its fill, border and
+  title at the top centre while it holds children, where a plain box with
+  children turns into a flat container. Use a container for a layer, a
+  card for a part.
+  GUI: <kbd>s</kbd> <kbd>e</kbd>, Background → card.
+
+Keep it to one emphasis, one path and one set of category bars per
+board; a board that uses every move at once is a wall again.
+
 ## A map across repos — one board per repo, a bench board linking in
 
 When the subject spans several repos (a game and its engine, a client and
@@ -284,6 +368,10 @@ A map of code is true at one revision. Record it:
 * Arrows name their relationship kind, with one vocabulary across levels.
 * Every part box rests in its layer's palette colour, label and doc line
   at the top; the palette's labels name the layers.
+* Every board states its claim in a headline; one or two parts carry
+  the emphasis, context is muted, evidence is small and at the edge.
+* An order the claim is about is numbered along its path and has a tour
+  in the same order.
 * Every question the reader will have that is about order has a tour.
 * Every `Q:` note is answered with a level, a line or a tour.
 * Overlays carry `producer`, `created` and `source`.
@@ -359,6 +447,67 @@ left; one box, `API`, is followed through every layer and the board says
 it is an example; how parsing, items, the board stack and rendering work
 is a level down (`&graph`), what a part is a doc away (`&doc`). Zoomed out
 (`grafli render --lod map.grafli out.png`) the board is four named bands.
+
+## Example — a slide-grade level
+
+The `Parser` box of the top board above, one level down. It uses the
+same `map-res/palette.json`; `map-res/parser.grafli`:
+
+```
+#!grafli v4
+# One parse feeds every view — the Parser level of the map of grafli
+# source: ~/dev/grafli @ a1b2c3d
+
+@ note claim 0,-200 "One parse feeds every view: the canvas and every export draw the same Board" ~xlarge !sans !bold !flat
+@ note question 0,-140 "How does a line of text become what every view draws?" ~small
+
+@ box file ".grafli file" 0,0 180x90 %format ^topcenter *lead:solid-1 &doc:file
+@ box parse "parse()" 320,0 180x90 %format ^topcenter *lead:solid-2 &doc:parse
+@ box writer "serialize()" 320,170 180x70 ~small &doc:writer
+@ box board "Board" 640,-40 260x260 %primary !card !ink !sans *lead:solid-3
+@ box boxes "Boxes" 670,30 200x40 !flat >board
+@ box notes "Notes" 670,90 200x40 !flat >board
+@ box arrows "Arrows" 670,150 200x40 !flat >board
+
+@ box app "In the app" 1020,-40 240x36 %canvas !ink !sans
+@ box canvas "Canvas" 1020,10 240x80 %canvas ^topcenter *lead:solid-4 &doc:canvas ~status=live
+@ box out "Outside the app" 1020,130 240x36 %export !ink !sans
+@ box render "render" 1020,180 240x60 %export ^topcenter &doc:render ~status=snapshot
+@ box slides "PDF / PPTX" 1020,260 240x60 %export ^topcenter &doc:slides ~status=snapshot
+@ box html "HTML page" 1020,340 240x60 %export ^topcenter &doc:html ~status=snapshot
+
+@ arrow file -> parse "data: text" ~id=read
+@ arrow parse -> board "data: Board" ~id=build
+@ arrow board -> canvas %canvas !dot ~from=right ~to=left ~id=draw
+@ arrow board -> render %export !dot ~from=right ~to=left
+@ arrow board -> slides %export !dot ~from=right ~to=left
+@ arrow board -> html %export !dot ~from=right ~to=left
+@ arrow board -> writer %muted !thin
+@ arrow writer -> file %muted !thin
+
+@ note evidence 0,460 """
+code:
+split by where the Board is made and read
+  @grafli/format.py:915
+  @grafli/format.py:1505
+  @grafli/view/selection.py:263
+  @grafli/app.py:1915
+  @grafli/app.py:2202
+""" ~small
+
+@ bookmark b_read "The file" @read "The board is one plain-text file; parse() reads it line by line."
+@ bookmark b_build "One Board" @build "parse() builds one Board: its boxes, notes and arrows."
+@ bookmark b_draw "Drawn" @draw "The canvas draws that Board; render and the exports read the same one."
+@ flow parse_path "From text to the canvas" b_read b_build b_draw
+```
+
+The headline states the claim, the question note sits under it. `Board`
+is the one emphasis — a `!card`, so it stays a node while it shows its
+inner parts — and the numbers 1–4 walk the path the tour plays arrow by arrow. The two
+category bars head their columns, and each connector into a column takes
+the bar's colour. `serialize()` is muted context, the evidence note is
+small at the bottom edge, and the status pills say which view follows
+the file live. `grafli diagnose --strict` passes on it.
 
 ## Example — a mechanism, one level down
 

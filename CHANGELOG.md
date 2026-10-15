@@ -284,6 +284,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#171](https://github.com/MisterGC/grafli/issues/171))
 
 ### Changed
+- **A map's tour exports as slides.** The skill's
+  `references/presenting.md` teaches framing each stop with a bookmark
+  instead of sizing containers, the legibility arithmetic (a default note
+  stays at 11 pt or more in a frame up to about 1,060 × 500 px) and a
+  claim headline per stop, with an example tour of grafli's pipeline that
+  passes `export --check`.
+  ([#221](https://github.com/MisterGC/grafli/issues/221))
 - **Explanation maps read like slides.** The skill's
   `references/explaining.md` teaches a claim headline per board, three
   visual weights (emphasis / normal / muted), quiet evidence, numbered

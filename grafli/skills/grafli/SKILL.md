@@ -468,7 +468,8 @@ task needs them:
   expert checklist is your self-review before shipping.
 * `references/presenting.md` — flows, slide composition, and export:
   bookmarks (incl. `~iso` scoping), text slides, container-as-slide,
-  auto-flows, narration craft, PDF/PPTX export (incl. corporate
+  slides from a map (frame with a bookmark, the legibility arithmetic, a
+  headline per stop), auto-flows, narration craft, PDF/PPTX export (incl. corporate
   templates) and the `export --check` verify loop. Open when asked to
   explain, walk through, present, or build a deck from a board.
 * `references/explaining.md` — explanation maps of any subject (code

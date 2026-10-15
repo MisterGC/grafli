@@ -197,8 +197,8 @@ A map of code is true at one revision. Record it:
 * Every question the reader will have that is about order has a tour.
 * Every `Q:` note is answered with a level, a line or a tour.
 * Overlays carry `producer`, `created` and `source`.
-* `grafli diagnose` passes on every board, `grafli export --check` on
-  every board with flows, and `grafli render --lod` reads true zoomed out.
+* `grafli diagnose` passes on every board, `grafli export --check
+  --all-flows` on every board with flows, and `grafli render --lod` reads true zoomed out.
 * To share the map with someone without grafli,
   `grafli export-html <board>.grafli <out>.html` writes every reachable
   board, its docs, overlays and tours into one offline page.

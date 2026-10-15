@@ -277,6 +277,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#188](https://github.com/MisterGC/grafli/issues/188))
 
 ### Changed
+- **`grafli export --check` says what overloads a slide.** An
+  `[overloaded]` finding names each note under the 11 pt legibility floor,
+  its size in pt at that slide's frame and the floor — e.g.
+  `note 'evidence' at 2.2 pt (floor 11 pt)` — instead of only the slide
+  number; `--json` lists them under the slide's `elements`, and the export
+  warning and the app's export toast name them too. `--check --all-flows`
+  checks every flow of a board in one run (`--json` then emits one report
+  per flow). ([#193](https://github.com/MisterGC/grafli/issues/193))
 - **`grafli diagnose` fails a board whose links or code refs lead nowhere.**
   A `&graph` sub-board or `&link:<path>.grafli` that does not exist, or whose
   `#<id>` is no bookmark, element or connector in it, is an error

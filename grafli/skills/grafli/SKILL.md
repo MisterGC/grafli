@@ -325,8 +325,8 @@ in `references/genres.md` instead.)
     only for boards that must be spotless), so you can loop on
     "re-run until `diagnose` exits 0" without parsing output.
     (For flows/decks there is a matching check:
-    `grafli export <file> --check` — see
-    `references/presenting.md`.)
+    `grafli export <file> --check --all-flows`, which names the note
+    that makes a slide overloaded — see `references/presenting.md`.)
 11. **Format before committing.** `grafli fmt <file>.grafli` rewrites
     the board in the canonical serialized form — integer coordinates,
     canonical token order and spacing — exactly what the app's own save

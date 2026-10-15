@@ -219,13 +219,18 @@ grafli export deck.grafli tour.pptx --flow tour \
 
 ## Verify — the deck has a check loop too
 
-* `grafli export <file> --check [--flow <id>] [--json]` dry-runs the export
-  and reports: slide count, **overloaded slides** (text that can't fit at
-  the legible floor — an overloaded slide is hard for an audience anyway),
-  **over-long captions** (a description past the 280-char budget),
-  **dangling refs** (a flow step naming a missing bookmark, a bookmark
-  anchoring a deleted id), and missing vault docs. Exit 1 means fix and
-  re-check.
+* `grafli export <file> --check [--flow <id> | --all-flows] [--json]`
+  dry-runs the export and reports: slide count, **overloaded slides** (text
+  that can't fit at the legible floor — an overloaded slide is hard for an
+  audience anyway), **over-long captions** (a description past the 280-char
+  budget), **dangling refs** (a flow step naming a missing bookmark, a
+  bookmark anchoring a deleted id), and missing vault docs. Exit 1 means fix
+  and re-check. An overloaded slide names each note under the floor with
+  its size at that slide's frame —
+  `[overloaded] slide #2 Overview: note 'evidence' at 2.2 pt (floor 11 pt)`
+  — so fix that note: give it its own stop, frame it tighter, or trim it.
+  `--all-flows` checks every tour of the board in one run (`--json` then
+  emits a list, one report per flow).
 * `grafli render <file> stop.png --step <flow>:<n>` renders step *n*
   (1-based) exactly as playback shows it — framing plus the step's resolved
   `detail`/`focus`. `--bookmark <id>` renders a bare bookmark (honouring

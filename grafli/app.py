@@ -2134,6 +2134,66 @@ def _cmd_render(argv: list[str]) -> int:
     return 0
 
 
+def _flow_findings(board_path: Path, board: Board,
+                   flow) -> tuple[list[str], list[dict]]:
+    """The flow-integrity findings of *flow* (cheap, no Qt needed):
+    ``(dangling, overlong)`` — steps referencing a missing bookmark and
+    bookmark focus ids that resolve to no element (an arrow's ~id= counts:
+    a path stop frames the arrow), and over-long captions."""
+    element_ids = (
+        {b.id for b in board.boxes}
+        | {n.id for n in board.notes}
+        | {im.id for im in board.images}
+        | {a.id for a in board.arrows if a.id}
+    )
+    dangling: list[str] = []
+    for step in flow.steps:
+        if _step_bookmark(board_path, board, step.ref) is None:
+            dangling.append(
+                f"flow '{flow.id}' step references missing bookmark "
+                f"'{step.ref}'"
+            )
+    for bm in board.bookmarks:
+        for fid in bm.focus:
+            if fid not in element_ids:
+                dangling.append(
+                    f"bookmark '{bm.id}' anchors missing element '{fid}'"
+                )
+
+    # Over-long captions: playback and slides show the full description
+    # wrapped, so a caption past the budget stops being a caption.
+    from grafli.format import MAX_DESCRIPTION_CHARS
+    overlong: list[dict] = []
+    for bm_id in dict.fromkeys(step.ref for step in flow.steps):
+        bm = _step_bookmark(board_path, board, bm_id)
+        if bm is not None and len(bm.description) > MAX_DESCRIPTION_CHARS:
+            overlong.append({"bookmark": bm.id,
+                             "chars": len(bm.description),
+                             "max": MAX_DESCRIPTION_CHARS})
+    return dangling, overlong
+
+
+def _print_check_report(report: dict) -> None:
+    """One flow's ``export --check`` report as text findings."""
+    print(f"flow '{report['flow']}': {report['slides']} slides")
+    for entry in report["overloaded"]:
+        print(f"[overloaded] slide #{entry['slide']} "
+              f"{entry['label']}".rstrip() + ": "
+              + "; ".join(describe_overload(f) for f in entry["elements"])
+              + " — trim the text or split the slide")
+    for entry in report["overlong"]:
+        print(f"[overlong-caption] bookmark '{entry['bookmark']}' — "
+              f"{entry['chars']} chars (max {entry['max']}); "
+              f"shorten it or split the stop")
+    for msg in report["dangling"]:
+        print(f"[dangling] {msg}")
+    for name in report["missing_docs"]:
+        print(f"[missing-doc] vault doc {name}.md")
+    if not (report["overloaded"] or report["overlong"] or report["dangling"]
+            or report["missing_docs"]):
+        print("No findings.")
+
+
 def _cmd_export(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="grafli export",
@@ -2223,48 +2283,16 @@ def _cmd_export(argv: list[str]) -> int:
             ids = ", ".join(f.id for f in board.flows)
             print(f"Flow '{args.flow}' not found. Available: {ids}", file=sys.stderr)
             return 2
+        flows = [flow]
     elif len(board.flows) == 1:
-        flow = board.flows[0]
+        flows = [board.flows[0]]
     else:
         ids = ", ".join(f.id for f in board.flows)
         print(f"Multiple flows — pass --flow <id>. Available: {ids}",
               file=sys.stderr)
         return 2
 
-    # Flow-integrity findings (cheap, no Qt needed): steps referencing a
-    # missing bookmark, bookmark focus ids that resolve to no element (an
-    # arrow's ~id= counts: a path stop frames the arrow).
-    element_ids = (
-        {b.id for b in board.boxes}
-        | {n.id for n in board.notes}
-        | {im.id for im in board.images}
-        | {a.id for a in board.arrows if a.id}
-    )
     board_path = args.input.resolve()
-    dangling: list[str] = []
-    for step in flow.steps:
-        if _step_bookmark(board_path, board, step.ref) is None:
-            dangling.append(
-                f"flow '{flow.id}' step references missing bookmark "
-                f"'{step.ref}'"
-            )
-    for bm in board.bookmarks:
-        for fid in bm.focus:
-            if fid not in element_ids:
-                dangling.append(
-                    f"bookmark '{bm.id}' anchors missing element '{fid}'"
-                )
-
-    # Over-long captions: playback and slides show the full description
-    # wrapped, so a caption past the budget stops being a caption.
-    from grafli.format import MAX_DESCRIPTION_CHARS
-    overlong: list[dict] = []
-    for bm_id in dict.fromkeys(step.ref for step in flow.steps):
-        bm = _step_bookmark(board_path, board, bm_id)
-        if bm is not None and len(bm.description) > MAX_DESCRIPTION_CHARS:
-            overlong.append({"bookmark": bm.id,
-                             "chars": len(bm.description),
-                             "max": MAX_DESCRIPTION_CHARS})
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
@@ -2288,61 +2316,52 @@ def _cmd_export(argv: list[str]) -> int:
         # layout), written to a scratch file that is removed afterwards.
         import json as _json
         import tempfile
-        with tempfile.NamedTemporaryFile(
-            suffix=suffix, delete=False,
-        ) as tmp:
-            tmp_path = Path(tmp.name)
-        try:
-            if suffix == ".pptx":
-                from grafli.pptxexport import export_flow_to_pptx
-                slides, overloaded = export_flow_to_pptx(
-                    view, flow, tmp_path, theme=args.theme,
-                    template=args.template,
-                    title_layout=args.title_layout,
-                    content_layout=args.content_layout,
-                    board_path=board_path)
-            else:
-                from grafli.pdfexport import export_flow_to_pdf
-                slides, overloaded = export_flow_to_pdf(view, flow, tmp_path,
-                                                        board_path)
-        finally:
-            tmp_path.unlink(missing_ok=True)
-        report = {
-            "flow": flow.id,
-            "slides": slides,
-            "overloaded": [
-                {"slide": i + 1, "label": lbl, "elements": findings}
-                for i, lbl, findings in overloaded
-            ],
-            "overlong": overlong,
-            "dangling": dangling,
-            "missing_docs": list(missing),
-        }
-        clean = not (overloaded or overlong or dangling or missing)
+        reports = []
+        for flow in flows:
+            dangling, overlong = _flow_findings(board_path, board, flow)
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+            try:
+                if suffix == ".pptx":
+                    from grafli.pptxexport import export_flow_to_pptx
+                    slides, overloaded = export_flow_to_pptx(
+                        view, flow, tmp_path, theme=args.theme,
+                        template=args.template,
+                        title_layout=args.title_layout,
+                        content_layout=args.content_layout,
+                        board_path=board_path)
+                else:
+                    from grafli.pdfexport import export_flow_to_pdf
+                    slides, overloaded = export_flow_to_pdf(
+                        view, flow, tmp_path, board_path)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+            reports.append({
+                "flow": flow.id,
+                "slides": slides,
+                "overloaded": [
+                    {"slide": i + 1, "label": lbl, "elements": findings}
+                    for i, lbl, findings in overloaded
+                ],
+                "overlong": overlong,
+                "dangling": dangling,
+                "missing_docs": list(missing),
+            })
+        clean = not any(r["overloaded"] or r["overlong"] or r["dangling"]
+                        or r["missing_docs"] for r in reports)
         if args.json:
-            print(_json.dumps(report, indent=2))
+            print(_json.dumps(reports[0], indent=2))
         else:
-            print(f"flow '{flow.id}': {slides} slides")
-            for entry in report["overloaded"]:
-                print(f"[overloaded] slide #{entry['slide']} "
-                      f"{entry['label']}".rstrip() + ": "
-                      + "; ".join(describe_overload(f)
-                                  for f in entry["elements"])
-                      + " — trim the text or split the slide")
-            for entry in overlong:
-                print(f"[overlong-caption] bookmark '{entry['bookmark']}' — "
-                      f"{entry['chars']} chars (max {entry['max']}); "
-                      f"shorten it or split the stop")
-            for msg in dangling:
-                print(f"[dangling] {msg}")
-            for name in missing:
-                print(f"[missing-doc] vault doc {name}.md")
-            if clean:
-                print("No findings.")
+            for report in reports:
+                _print_check_report(report)
         del view
         del app
         return 0 if clean else 1
 
+    flow = flows[0]
+    dangling, overlong = _flow_findings(board_path, board, flow)
     for msg in dangling:
         print(f"Warning: {msg}", file=sys.stderr)
     for entry in overlong:

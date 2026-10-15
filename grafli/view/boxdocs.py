@@ -132,10 +132,9 @@ class BoxDocsMixin:
 
     @staticmethod
     def _may_show_doc_line(item: BoxItem) -> bool:
-        """A box draws its doc line only where its body is free: not as a
-        container, and not with a fill icon (its label is a caption)."""
-        if item._is_parent:
-            return False
+        """A box draws its doc line below its label, containers and
+        `!card` parents included, but not with a fill icon (its label is a
+        caption)."""
         icon = item.box.icon
         return not (icon and iconset.has_icon(icon)
                     and item.box.icon_placement == "")

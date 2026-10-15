@@ -291,7 +291,9 @@ in `references/genres.md` instead.)
     misplaced modifier silently removes the element; always fix these
     first), children outside parents, sibling overlaps, cramped
     containers, likely-truncated labels, arrow labels crowding endpoints
-    or hiding arrowheads, missing `@path` / image refs, overlay files
+    or hiding arrowheads, missing images, `&graph` / `.grafli` `&link`
+    targets and `#<id>`s that do not exist and `@path:line` refs whose
+    file or line does not exist (both errors), overlay files
     that don't parse or name ids not on the board. Each finding
     carries a `fixable` flag and a `severity`:
 
@@ -299,7 +301,7 @@ in `references/genres.md` instead.)
       always fix.
     * `fixable: true` — usually a real geometry mistake. Try to fix.
     * `fixable: false` — heuristic or possibly-intentional (a
-      placeholder reference, an artistic crowding choice).
+      missing image placeholder, an artistic crowding choice).
       Acknowledge once and move on.
 
     **Let the tool do the mechanical part.** `grafli diagnose <file>

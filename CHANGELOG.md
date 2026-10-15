@@ -277,6 +277,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#188](https://github.com/MisterGC/grafli/issues/188))
 
 ### Changed
+- **`grafli diagnose` fails a board whose links or code refs lead nowhere.**
+  A `&graph` sub-board or `&link:<path>.grafli` that does not exist, or whose
+  `#<id>` is no bookmark, element or connector in it, is an error
+  (`dangling-board-link`). So is a `code:` note's `@path:line` whose file
+  does not exist or has no such line (`dangling-code-ref`); it used to be an
+  info, and a line was never checked. Refs resolve as a click in the app
+  opens them — `~` expanded, a relative path from the `# source:` repo, else
+  the board's folder — so `~` paths no longer give false findings, and only
+  refs the app makes clickable are checked. The example boards' code refs
+  now point into a small stub tree, `examples/code/`.
+  ([#218](https://github.com/MisterGC/grafli/issues/218))
 - **A sub-board's miniature fills the whole box.** It used to sit small
   below the label; now it is fitted to the box edge to edge, and the label
   and the sub-board icon ride on a band across the top of the box, in the

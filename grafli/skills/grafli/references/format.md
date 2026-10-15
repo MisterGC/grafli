@@ -315,6 +315,9 @@ folder), else against the board's folder — in the app and in
 matches the full one), `grafli diagnose` warns `stale-source` and the app
 shows the same notice when the board opens; a `HEAD` git cannot read is an
 info finding.
+`~` in a ref or in the `# source:` repo is your home folder. `grafli diagnose`
+reports a ref whose file does not exist, or whose line is past the file's
+end, as an error (`dangling-code-ref`).
 
 #### Style guidance — the most important thing
 
@@ -600,7 +603,9 @@ it, with that place selected:
 `<id>` is looked up as a bookmark of the target board first (framed as
 the bookmark frames, its focus elements selected), then as a box, note or
 image id (framed with a bookmark's default padding). If the board has
-neither, it opens fitted and the app toasts `No element '<id>' in <file>`.
+neither, it opens fitted and the app toasts `No element '<id>' in <file>`;
+`grafli diagnose` reports that, and a link to a board that does not exist,
+as an error (`dangling-board-link`).
 <kbd>g</kbd><kbd>u</kbd> comes back as from any board link. Prefer a
 bookmark as the target: it is named for the reader and survives the
 target board's layout changing. A file using a `#<id>` board link carries

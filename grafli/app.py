@@ -2457,8 +2457,9 @@ def _cmd_diagnose(argv: list[str]) -> int:
         description=(
             "Run static layout diagnostics on a .grafli file. "
             "Surfaces children outside parents, sibling overlaps, cramped "
-            "containers, likely-truncated labels, missing linked resources, "
-            "unknown colours and the map's palette.json."
+            "containers, likely-truncated labels, missing images, board "
+            "links and code refs that lead nowhere, unknown colours and the "
+            "map's palette.json."
         ),
         epilog=(
             "Exit codes: 0 no gated findings, 1 errors present "

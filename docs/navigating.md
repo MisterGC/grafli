@@ -67,7 +67,9 @@ A link can point at one place in the board it opens: `&graph:combat#impact`
 or `&link:../System.grafli#impact` opens the board framed on the bookmark
 `impact` — or, if there is no such bookmark, on the element `impact` — with it
 selected. If the board has neither, it opens fitted and says
-"No element 'impact' in combat.grafli".
+"No element 'impact' in combat.grafli". `grafli diagnose` reports such a link,
+and a link to a board that does not exist, as an error
+(`dangling-board-link`).
 
 Once a box with a `&graph` sub-board is large enough on screen, it shows a
 miniature of that board filling the box, so you can see what is inside before

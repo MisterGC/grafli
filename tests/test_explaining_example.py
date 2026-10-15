@@ -70,3 +70,61 @@ def test_zoomed_out_the_example_is_a_stack_of_named_layers(tmp_path: Path):
     assert len({(b.x, b.w) for b in layers}) == 1
     assert [b.y for b in layers] == sorted(b.y for b in layers)
     assert all(a.y + a.h <= b.y for a, b in zip(layers, layers[1:]))
+
+
+# The slide-grade level (#220): the `Parser` sub-board of the map above.
+SLIDE_GRADE = "## Slide-grade boards — a claim, three weights, a path"
+
+
+def _write_level(tmp_path: Path) -> Path:
+    """The slide-grade example as `map-res/parser.grafli`, inside the map
+    whose palette it uses, with stubs behind its `&doc`s."""
+    _write(tmp_path)
+    text = EXPLAINING.read_text()
+    section = text.split("## Example — a slide-grade level", 1)[1]
+    section = section.split("\n## ", 1)[0]
+    (board,) = re.findall(r"```\n(.*?)```", section, re.S)
+    board = re.sub(r"^# source: .*$", f"# source: {REPO}", board, flags=re.M)
+    res = tmp_path / "map-res" / "parser-res"
+    res.mkdir()
+    for name in re.findall(r"&doc:(\w+)", board):
+        (res / f"{name}.md").write_text("Stub.\n")
+    path = tmp_path / "map-res" / "parser.grafli"
+    path.write_text(board)
+    return path
+
+
+def test_the_slide_grade_example_passes_diagnose_strict(tmp_path: Path):
+    assert _cmd_diagnose([str(_write_level(tmp_path)), "--strict"]) == 0
+
+
+def test_the_slide_grade_example_uses_each_technique(tmp_path: Path):
+    board = parse(_write_level(tmp_path).read_text())
+    boxes = {b.id: b for b in board.boxes}
+    claim = next(n for n in board.notes if n.id == "claim")
+    assert claim.style == "sans" and claim.flat
+    # One emphasis: a card in a loud token with ink on its fill.
+    assert [b.id for b in board.boxes if b.color == "%primary"] == ["board"]
+    assert boxes["board"].style == "card" and boxes["board"].ink
+    # A numbered path, filled numbers before the label, in order.
+    path = [b for b in board.boxes if b.icon.startswith("solid-")]
+    assert [b.icon for b in path] == [f"solid-{n}" for n in range(1, 5)]
+    assert {b.icon_placement for b in path} == {"lead"}
+    # Category bars: every connector into a column takes its bar's colour.
+    bars = {"app": ["canvas"], "out": ["render", "slides", "html"]}
+    for bar, members in bars.items():
+        assert boxes[bar].ink
+        for member in members:
+            (arrow,) = [a for a in board.arrows if a.to_id == member]
+            assert arrow.color == boxes[bar].color == boxes[member].color
+            assert (arrow.from_side, arrow.to_side) == ("right", "left")
+    assert all(boxes[m].status for ms in bars.values() for m in ms)
+
+
+def test_every_slide_grade_technique_names_its_gui_path():
+    section = EXPLAINING.read_text().split(SLIDE_GRADE, 1)[1]
+    section = section.split("\n## ", 1)[0]
+    techniques = section.split("\n* **")[1:]
+    assert len(techniques) == 7
+    for technique in techniques:
+        assert "GUI:" in technique, technique.split("**", 1)[0]

@@ -70,8 +70,9 @@ selected. If the board has neither, it opens fitted and says
 "No element 'impact' in combat.grafli".
 
 Once a box with a `&graph` sub-board is large enough on screen, it shows a
-miniature of that board below its label, so you can see what is inside before
-you go in. The miniature follows the sub-board file: change the file and the
+miniature of that board filling the box, so you can see what is inside before
+you go in. The label and the sub-board icon sit on a band across the top of
+the box, in the box's own fill, so they stay readable over the miniature. The miniature follows the sub-board file: change the file and the
 miniature updates. Zooming in on it never switches boards on its own — only
 <kbd>Return</kbd> or <kbd>g</kbd><kbd>d</kbd> does. Exports show the box
 without the miniature.

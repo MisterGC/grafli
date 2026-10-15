@@ -246,6 +246,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#214](https://github.com/MisterGC/grafli/issues/214))
 
 ### Changed
+- **A sub-board's miniature fills the whole box.** It used to sit small
+  below the label; now it is fitted to the box edge to edge, and the label
+  and the sub-board icon ride on a band across the top of the box, in the
+  box's own fill, so they stay readable over it. Exports still leave the
+  miniature out, and a board without sub-boards renders as before.
+  ([#198](https://github.com/MisterGC/grafli/issues/198))
 - **A box's doc line shows in every export, not only on the canvas.** A
   `&doc` box's first sentence now shows in the PDF and PPTX slides, the
   HTML page and the SVG and PNG exports, as it does in `grafli render`. A

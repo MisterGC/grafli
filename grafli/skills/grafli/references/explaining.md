@@ -46,8 +46,8 @@ Then per part:
 * **A deeper level when relationships matter.** When a part has inner
   parts that relate to each other — more than a list could say — give it
   `&graph:<name>` and build the sub-board `<stem>-res/<name>.grafli` as the
-  next level, with its own question. The box then shows a miniature of the
-  sub-board once it is large enough on screen; size such a box wider and
+  next level, with its own question. The box then fills with a miniature of
+  the sub-board once it is large enough on screen, the label on a band on top; size such a box wider and
   taller than a plain node so the miniature has room. <kbd>g</kbd><kbd>d</kbd>
   (or <kbd>Return</kbd>) zooms into it, <kbd>g</kbd><kbd>u</kbd> comes back
   as the reader left, and the status bar shows the path of labels entered

@@ -58,7 +58,10 @@ grafli render grafli/examples/presentation-demo.grafli /tmp/stop.png --step show
 ## Explanation map demo
 
 `examples/navigation-map.grafli` is a map you read level by level: grafli's
-own path from <kbd>Return</kbd> on a box to the board behind it. Select
+own path from <kbd>Return</kbd> on a box to the board behind it. Its boxes
+rest in one colour per layer of grafli — format, canvas, app shell, exports —
+from `navigation-map-res/palette.json`, the same on every level;
+<kbd>Shift</kbd>+<kbd>M</kbd> shows the legend. Select
 **Open dispatch** and press <kbd>g</kbd><kbd>d</kbd> to zoom into its level,
 again on **_enter_board** to reach the algorithm and its source refs, and
 <kbd>g</kbd><kbd>u</kbd> to come back out. <kbd>g</kbd><kbd>v</kbd> peeks at a

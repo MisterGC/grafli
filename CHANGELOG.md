@@ -284,6 +284,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#171](https://github.com/MisterGC/grafli/issues/171))
 
 ### Changed
+- **Explanation maps rest in one colour per layer.** The skill's
+  `references/explaining.md` teaches a resting scheme: one map palette
+  entry per layer of the subject, the same on every board, part boxes
+  filled with their layer's colour (or, inside a layer container, `!flat`
+  so the container shows through lighter), label and doc line as one block
+  at the top (`^topcenter`), with the GUI path for each step. Overlays draw
+  over it; plain boards keep outlines. `examples/navigation-map.grafli`
+  now colours its three levels by layer.
+  ([#197](https://github.com/MisterGC/grafli/issues/197))
 - **`grafli export --check` says what overloads a slide.** An
   `[overloaded]` finding names each note under the 11 pt legibility floor,
   its size in pt at that slide's frame and the floor — e.g.

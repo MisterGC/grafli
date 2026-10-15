@@ -474,7 +474,8 @@ task needs them:
 * `references/explaining.md` — explanation maps of any subject (code
   as one section): one question and the evidence for its split per
   level, box docs and sub-boards for depth, one board per repo plus a
-  bench board linking in, relationship kinds on arrows, tours across
+  bench board linking in, relationship kinds on arrows, a resting
+  colour per layer (filled boxes from the map's palette), tours across
   levels, the ask-on-the-map loop (answer a `Q:` with a level, a line or
   a tour), overlay files with provenance, and marking a map stale. Open
   when the user wants to understand, learn, explain or review a subject

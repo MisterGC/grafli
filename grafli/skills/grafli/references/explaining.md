@@ -76,6 +76,51 @@ across all levels of a map:
 A level whose arrows all say `uses` explains nothing; name the call, the
 signal, the data.
 
+## A resting colour per layer — readable before any overlay is on
+
+A map whose boxes are all outlines reads as nothing until the reader
+presses <kbd>A</kbd>. Give the map a **resting scheme**: one colour per
+layer of the subject (for code: the format, the canvas, the app shell, the
+exports — whatever the subject's own layers are), the same colour on every
+board of the map. Overlays are drawn over it while on and the map returns
+to it when they are off. Outline stays the default for plain boards; the
+resting scheme is a convention of explanation maps, not of every board.
+
+* **Name the layers once, in the map's palette.** Write
+  `<stem>-res/palette.json` beside the top board, one entry per layer,
+  its `label` the layer's name — the legend shows it
+  (see "Map palette" in `references/format.md`). Every board of the map
+  resolves `%name` against it, so the colours stay the same on every level.
+  Pick quiet theme tokens (`%highlight`, `%soft`, `%rose`, `%muted`,
+  `%base`): they follow light and dark, the label stays readable on them,
+  and the loud tokens (`%primary`, `%accent`) stay free for emphasis.
+  3–5 layers; a sixth colour is a missing level.
+  GUI: the palette is a data file with no in-app editor, like an overlay
+  file; the app watches it and recolours the open board when it changes.
+* **Fill each part box with its layer.** A box on the canvas takes its
+  layer's entry: `%canvas`. A box that sits in a layer container
+  (`>parent`) gets the lighter tint of the container's colour instead: the
+  container carries the layer (`%canvas ^left !flat`), the box inside is
+  `!flat` with no colour of its own, and the container's colour shows
+  through it lighter. A box that is not a part — a link back to the map,
+  a pointer out — stays an outline.
+  GUI: select the layer's boxes, <kbd>s</kbd> <kbd>c</kbd>, pick the entry
+  below the theme colours, <kbd>Enter</kbd>. For the container form:
+  <kbd>s</kbd> <kbd>e</kbd> on the container, Background → flat and
+  Label → left; on its boxes, <kbd>s</kbd> <kbd>e</kbd>, Background → flat,
+  and leave their colour unset.
+* **Label and doc line as one block near the top.** `^topcenter` puts the
+  label at the top of the box with the `&doc` first sentence right under
+  it, so a filled box is found at a glance and reads as part of its layer;
+  centred text in empty space doesn't.
+  GUI: <kbd>s</kbd> <kbd>e</kbd>, Label → top-center, <kbd>Enter</kbd>.
+* **Show the key.** <kbd>Shift</kbd>+<kbd>M</kbd> (or *Legend* in the side
+  panel) shows the layers the board uses; `grafli render --legend` and
+  `grafli export --legend` draw it into a picture or a deck.
+
+A board that uses a palette name is written `#!grafli v4`; the app writes
+the header itself when you save.
+
 ## A map across repos — one board per repo, a bench board linking in
 
 When the subject spans several repos (a game and its engine, a client and
@@ -194,6 +239,8 @@ A map of code is true at one revision. Record it:
 * No level has more than about nine parts; every label is one line.
 * Every box doc opens with one sentence that says what the part is.
 * Arrows name their relationship kind, with one vocabulary across levels.
+* Every part box rests in its layer's palette colour, label and doc line
+  at the top; the palette's labels name the layers.
 * Every question the reader will have that is about order has a tour.
 * Every `Q:` note is answered with a level, a line or a tour.
 * Overlays carry `producer`, `created` and `source`.
@@ -205,16 +252,30 @@ A map of code is true at one revision. Record it:
 
 ## Example — the top level of a code map
 
+`fight-res/palette.json`:
+
+```json
+{
+  "entries": {
+    "actors": {"color": "%soft", "label": "Actors"},
+    "rules": {"color": "%highlight", "label": "Game rules"},
+    "view": {"color": "%rose", "label": "Presentation"}
+  }
+}
 ```
-#!grafli v3
+
+`fight.grafli`:
+
+```
+#!grafli v4
 # How does a blow reach the camera? — Shapes & Stone fight path
 # source: ~/dev/gamedev/shapes-and-stone @ a1b2c3d
 
 @ note question 0,-120 "How does a blow reach the camera?" ~small
-@ box enemy "Enemy lunge" 0,0 200x80 &doc:enemy
-@ box player "Player.takeDamage" 380,0 220x80 &doc:player
-@ box impact "impact()" 800,0 260x160 &graph:impact
-@ box camera "Camera" 1240,0 200x80 &doc:camera
+@ box enemy "Enemy lunge" 0,0 200x80 %actors ^topcenter &doc:enemy
+@ box player "Player.takeDamage" 380,0 220x80 %actors ^topcenter &doc:player
+@ box impact "impact()" 800,0 260x160 %rules ^topcenter &graph:impact
+@ box camera "Camera" 1240,0 200x80 %view ^topcenter &doc:camera
 @ note evidence 380,240 """
 code:
 split by the files that own each step
@@ -235,8 +296,9 @@ split by the files that own each step
 
 Each `&doc` file starts with the one sentence the canvas shows; `impact`
 gets a level because its three effects relate; the evidence note backs the
-split; the tour walks the call chain as arrow stops.
+split; the tour walks the call chain as arrow stops; each box rests in its
+layer's colour, and the `impact` sub-board uses the same palette entries.
 
 A complete map in three levels — box docs, deep links, a tour across the
-levels and a generated overlay — ships as `examples/navigation-map.grafli`
-in the grafli repository.
+levels, a resting colour per layer and a generated overlay — ships as
+`examples/navigation-map.grafli` in the grafli repository.

@@ -30,7 +30,7 @@ split by the function each export starts from
   @grafli/app.py:1915 _cmd_render
   @grafli/slideplan.py:74 build_slide_plan
   @grafli/pdfexport.py:115 export_flow_to_pdf
-  @grafli/pptxexport.py:135 export_flow_to_pptx
+  @grafli/pptxexport.py:140 export_flow_to_pptx
   @grafli/htmlexport.py:503 export_html
 """ ~small
 

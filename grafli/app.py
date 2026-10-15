@@ -731,8 +731,17 @@ class MainWindow(QMainWindow):
                 "Missing vault doc"
                 + ("s" if len(missing) > 1 else "")
                 + ": " + ", ".join(f"{m}.md" for m in missing), "warn")
+        self._warn_stale_source(path, board)
         # Last, so a newer board's read-only notice is the toast that shows.
         self._warn_parse_issues(board)
+
+    def _warn_stale_source(self, path: Path, board):
+        """Say so when the board's ``# source:`` repo has moved on from the
+        revision its refs were read at — the notice `grafli diagnose` gives."""
+        from grafli.revision import refs_stale_line
+        line = refs_stale_line(board, path.resolve().parent)
+        if line:
+            self._view.toast(f"⚠ {line[0].upper()}{line[1:]}", "warn")
 
     def _enter_board(self, path: Path, label: str, target_id: str = "",
                      via=None):

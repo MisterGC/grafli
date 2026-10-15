@@ -494,6 +494,26 @@ def check_missing_resource(
     return diags
 
 
+def check_stale_source(
+    board: Board, base_dir: Path | None
+) -> list[Diagnostic]:
+    """A ``# source: <repo> @ <rev>`` comment whose repo's ``HEAD`` has moved
+    on: the board's ``@path:line`` refs may open the wrong lines or files
+    that are gone. A warning; a ``HEAD`` git cannot read is info."""
+    from grafli.revision import UNREADABLE, refs_stale_line
+    if base_dir is None:
+        return []
+    line = refs_stale_line(board, Path(base_dir))
+    if not line:
+        return []
+    return [Diagnostic(
+        code="stale-source",
+        severity=INFO if line.startswith(UNREADABLE) else WARNING,
+        message=line,
+        fixable=False,
+    )]
+
+
 def check_unknown_icon(board: Board) -> list[Diagnostic]:
     """A ``*name`` symbol the iconset doesn't know fails silently at paint
     time — surface the typo, and the nearest real symbol, here."""
@@ -661,6 +681,7 @@ def run_all(
         board, arrow_label_size=arrow_label_size, note_rect=note_rect,
     ))
     diags.extend(check_missing_resource(board, base_dir))
+    diags.extend(check_stale_source(board, base_dir))
     diags.sort(key=lambda d: (_SEVERITY_ORDER.get(d.severity, 99), d.code, d.item_ids))
     return diags
 

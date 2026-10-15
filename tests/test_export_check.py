@@ -119,8 +119,7 @@ def test_export_toast_names_the_first_note():
                "reason": "below-floor"}
     assert _overload_toast([]) == ""
     assert _overload_toast([(1, "Overview", [finding])]) == (
-        " · 1 overloaded — trim or split: "
-        "#2 note 'evidence' at 2.2 pt (floor 11 pt)")
+        " · 1 overloaded: #2 'evidence' 2.2 pt < 11 pt")
 
 
 def test_all_flows_checks_every_flow_in_one_run(tmp_path: Path, capsys):

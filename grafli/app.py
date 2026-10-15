@@ -1474,12 +1474,17 @@ def _newer_board_reason(board: Board) -> str:
 
 def _overload_toast(overloaded: list) -> str:
     """The export toast's tail for overloaded slides: how many, and what
-    makes the first one overloaded, so the author knows where to look."""
+    makes the first one overloaded, so the author knows where to look —
+    terse, as the toast is one line across the canvas."""
     if not overloaded:
         return ""
     index, _label, findings = overloaded[0]
-    return (f" · {len(overloaded)} overloaded — trim or split: "
-            f"#{index + 1} {describe_overload(findings[0])}")
+    first = findings[0]
+    what = (f"overflows at {first['pt']:g} pt"
+            if first["reason"] == "overflow"
+            else f"{first['pt']:g} pt < {first['floor']:g} pt")
+    return (f" · {len(overloaded)} overloaded: "
+            f"#{index + 1} '{first['element']}' {what}")
 
 
 def _step_bookmark(board_path: Path, board: Board, ref: str):

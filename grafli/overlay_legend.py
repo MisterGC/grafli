@@ -11,7 +11,15 @@ them as pixels, an export scales the painter.
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QImage,
+    QLinearGradient,
+    QPainter,
+    QPen,
+)
 
 from grafli import theme
 from grafli.constants import FONT_FAMILY
@@ -183,3 +191,27 @@ def draw_swatch(painter: QPainter, x: float, y: float, brush: QBrush):
     painter.setPen(QPen(theme.overlay_ink(0.4), 1))
     painter.setBrush(brush)
     painter.drawRoundedRect(QRectF(x, y, SWATCH, SWATCH), 2, 2)
+
+
+def measure_card(reading, width: float = CARD_W) -> tuple[list, float]:
+    """The export card of *reading* laid out *width* card units wide: its
+    rows and its height. No element is selected in an export."""
+    img = QImage(1, 1, QImage.Format.Format_ARGB32)
+    painter = QPainter(img)
+    try:
+        return layout_card(painter, legend_rows(reading), width,
+                           export_fonts())
+    finally:
+        painter.end()
+
+
+def draw_export_card(painter: QPainter, at: QPointF, scale: float, reading,
+                     laid: list, height: float,
+                     width: float = CARD_W) -> None:
+    """Paint the measured card with its top-left corner at *at*, each card
+    unit *scale* device units."""
+    painter.save()
+    painter.translate(at)
+    painter.scale(scale, scale)
+    paint_card(painter, QRectF(0, 0, width, height), laid, reading.legend)
+    painter.restore()

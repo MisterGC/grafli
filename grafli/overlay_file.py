@@ -71,6 +71,17 @@ def overlay_name(path: Path) -> str:
     return path.name[:-len(SUFFIX)]
 
 
+def overlay_named(grafli_path: Path, name: str) -> Path:
+    """The board's overlay file called *name* (``<name>.overlay.json``);
+    ValueError naming the overlays the board has when it has none such."""
+    for path in overlay_paths(grafli_path):
+        if overlay_name(path) == name:
+            return path
+    names = ", ".join(overlay_name(p) for p in overlay_paths(grafli_path))
+    raise ValueError(f"no overlay '{name}' for {grafli_path.name} "
+                     f"(available: {names or 'none'})")
+
+
 def _str(data: dict, key: str, where: str) -> str:
     value = data.get(key, "")
     if not isinstance(value, str):

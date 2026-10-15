@@ -21,6 +21,7 @@ from grafli.items import BoxItem, NoteItem
 from grafli.overlay_file import (
     OverlayProvider,
     load_overlay,
+    overlay_named,
     overlay_paths,
 )
 from grafli.overlay_legend import (
@@ -113,6 +114,14 @@ class OverlayFilesMixin:
         self._watch_overlay_file(path)
         self.toast(f"Overlay: {provider.overlay.title}")
         return True
+
+    def show_overlay(self, name: str) -> None:
+        """Show the board's overlay file *name* outside the ``A`` cycle, for a
+        render or an export; ValueError when the board has no such file or
+        it does not parse."""
+        path = overlay_named(Path(self._board_file()), name)
+        self._show_heat(OverlayProvider(load_overlay(path), path.parent.parent,
+                                        path))
 
     # ── Live reload ──
 

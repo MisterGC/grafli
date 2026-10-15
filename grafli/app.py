@@ -1950,6 +1950,12 @@ def _cmd_render(argv: list[str]) -> int:
         help="Draw the legend of the map's palette (the palette.json entries "
              "the board uses) below the board",
     )
+    parser.add_argument(
+        "--overlay", default=None, metavar="NAME",
+        help="Colour the board by its overlay file <stem>-res/NAME.overlay."
+             "json, as A shows it in the app, with the overlay's legend "
+             "below the board",
+    )
     args = parser.parse_args(argv)
 
     theme.set_theme(args.theme)
@@ -2031,6 +2037,12 @@ def _cmd_render(argv: list[str]) -> int:
             detail = step_detail(flow, step) or None
         if focus_mode is None:
             focus_mode = step_focus(flow, step) or None
+    if args.overlay:
+        try:
+            view.show_overlay(args.overlay)
+        except ValueError as e:
+            print(f"--overlay: {e}", file=sys.stderr)
+            return 2
     if bookmark_id:
         from grafli.flows import (bookmark_target_rect, emphasis_for,
                                   isolate_focus)

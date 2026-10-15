@@ -638,7 +638,8 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     # font size, so the fit loop below (which only changes the default font)
     # would shrink the prose but leave code rendered at the huge import size.
     # Clear that explicit size so code inherits the default like everything
-    # else, keeping only its fixed-pitch family.
+    # else. Their family is the generic "monospace", which headless resolves
+    # to a serif system face, so set the bundled mono face instead (#219).
     norm = QTextCursor(doc)
     code_ranges = []
     blk = doc.begin()
@@ -647,8 +648,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
         while not it.atEnd():
             frag = it.fragment()
             cf = frag.charFormat()
-            if (frag.isValid() and cf.fontFixedPitch()
-                    and cf.hasProperty(QTextFormat.Property.FontPixelSize)):
+            if frag.isValid() and cf.fontFixedPitch():
                 code_ranges.append((frag.position(), frag.length(), cf))
             it += 1
         blk = blk.next()
@@ -656,6 +656,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
         m = QTextCharFormat(cf)
         m.clearProperty(QTextFormat.Property.FontPixelSize)
         m.clearProperty(QTextFormat.Property.FontPointSize)
+        m.setFontFamilies([FONT_FAMILY])
         norm.setPosition(pos)
         norm.setPosition(pos + length, QTextCursor.MoveMode.KeepAnchor)
         norm.setCharFormat(m)

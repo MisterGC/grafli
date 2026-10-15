@@ -2411,7 +2411,8 @@ def _cmd_diagnose(argv: list[str]) -> int:
         description=(
             "Run static layout diagnostics on a .grafli file. "
             "Surfaces children outside parents, sibling overlaps, cramped "
-            "containers, likely-truncated labels, and missing linked resources."
+            "containers, likely-truncated labels, missing linked resources, "
+            "unknown colours and the map's palette.json."
         ),
         epilog=(
             "Exit codes: 0 no gated findings, 1 errors present "
@@ -2456,6 +2457,7 @@ def _cmd_diagnose(argv: list[str]) -> int:
             args.input.resolve().parent,
             note_rect=note_rect,
             arrow_label_size=arrow_label_size,
+            grafli_path=args.input,
         )
         # Vault integrity: referenced docs whose file is gone (error — a
         # doc-bodied note would render blank) and unreferenced docs (info —

@@ -306,3 +306,54 @@ def test_a_v3_build_reads_a_palette_board_as_newer(monkeypatch):
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
     assert supported_version() == 3
     assert is_newer(parse(ROOT))
+
+
+# ── diagnose ──────────────────────────────────────────────────────
+
+def _diagnose(path: Path) -> tuple[int, list[dict]]:
+    import contextlib
+    import io
+    from grafli.app import _cmd_diagnose
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = _cmd_diagnose([str(path), "--json"])
+    return code, json.loads(out.getvalue())
+
+
+def test_diagnose_knows_the_palette_names(tmp_path: Path):
+    root, detail = _map(tmp_path)
+    for board in (root, detail):
+        code, findings = _diagnose(board)
+        assert code == 0
+        assert [f for f in findings if f["code"] == "unknown-color"] == []
+
+
+def test_diagnose_flags_a_name_outside_the_palette(tmp_path: Path):
+    root, _ = _map(tmp_path)
+    root.write_text(ROOT.replace("%storage", "%storag"))
+    code, findings = _diagnose(root)
+    unknown = [f for f in findings if f["code"] == "unknown-color"]
+    assert len(unknown) == 1
+    assert "did you mean %storage?" in unknown[0]["message"]
+
+
+def test_diagnose_reports_a_name_that_shadows_a_theme_token(tmp_path: Path):
+    root, _ = _map(tmp_path)
+    (tmp_path / "map-res" / "palette.json").write_text(_palette({
+        "storage": {"color": HOT}, "teal": {"color": COLD}}))
+    code, findings = _diagnose(root)
+    assert code == 1
+    shadow = [f for f in findings if f["code"] == "palette-shadows-token"]
+    assert len(shadow) == 1
+    assert shadow[0]["severity"] == "error"
+    assert shadow[0]["item_ids"] == ["teal"]
+    assert "%teal shadows the theme token %teal" in shadow[0]["message"]
+
+
+def test_diagnose_warns_about_a_palette_it_cannot_read(tmp_path: Path):
+    root, _ = _map(tmp_path)
+    (tmp_path / "map-res" / "palette.json").write_text("{ nope")
+    code, findings = _diagnose(root)
+    bad = [f for f in findings if f["code"] == "bad-palette"]
+    assert len(bad) == 1 and bad[0]["severity"] == "warning"
+    assert bad[0]["message"].startswith("map-res/palette.json: not JSON")

@@ -531,17 +531,18 @@ _COLOR_NAME_HINTS = {
 
 
 def check_unknown_color(board: Board) -> list[Diagnostic]:
-    """A ``%token`` color the palette doesn't define resolves to the
-    default fill with no other trace — the miscolor is invisible until you
-    look at the render. Surface the typo, and the nearest real token, here."""
+    """A ``%token`` color neither the theme nor the map's palette
+    (``board.palette_names``) defines resolves to the default fill with no
+    other trace — the miscolor is invisible until you look at the render.
+    Surface the typo, and the nearest real token or palette name, here."""
     diags: list[Diagnostic] = []
-    valid = list(theme.COLOR_TOKENS.keys())
+    valid = [*theme.COLOR_TOKENS.keys(), *sorted(board.palette_names)]
 
     def _check(color: str, iid: str) -> None:
         if not color.startswith("%"):
             return  # empty or #hex — nothing to validate
         token = color[1:]
-        if token in theme.COLOR_TOKENS:
+        if token in theme.COLOR_TOKENS or token in board.palette_names:
             return
         suggestion = _COLOR_NAME_HINTS.get(token)
         if suggestion is None:
@@ -571,14 +572,40 @@ def check_unknown_color(board: Board) -> list[Diagnostic]:
     return diags
 
 
+def check_palette(grafli_path: Path | None) -> list[Diagnostic]:
+    """The map's ``palette.json``: an entry that shadows a theme token is an
+    error (the token wins, so the entry can never colour anything); a file or
+    entry grafli cannot read is a warning (the entry is left out)."""
+    from grafli.map_palette import palette_path, read_palette
+    path = palette_path(grafli_path) if grafli_path is not None else None
+    diags: list[Diagnostic] = []
+    for problem in read_palette(path)[1]:
+        if problem.shadows:
+            outcome = " — the theme token wins; rename the entry"
+        elif problem.name:
+            outcome = " — the entry is ignored"
+        else:
+            outcome = ""
+        diags.append(Diagnostic(
+            code="palette-shadows-token" if problem.shadows else "bad-palette",
+            severity=ERROR if problem.shadows else WARNING,
+            message=f"{path.parent.name}/{path.name}: {problem.message}{outcome}",
+            item_ids=[problem.name] if problem.name else [],
+            fixable=False,
+        ))
+    return diags
+
+
 def run_all(
     board: Board,
     base_dir: Path | None = None,
     note_rect: NoteRectFn | None = None,
     arrow_label_size: ArrowLabelSizeFn | None = None,
+    grafli_path: Path | None = None,
 ) -> list[Diagnostic]:
     diags: list[Diagnostic] = []
     diags.extend(check_parse_errors(board))
+    diags.extend(check_palette(grafli_path))
     diags.extend(check_unknown_icon(board))
     diags.extend(check_unknown_color(board))
     diags.extend(check_child_outside_parent(board, note_rect=note_rect))

@@ -64,6 +64,11 @@ def _share(img: QImage, color: QColor) -> float:
     return hits / (img.width() * img.height())
 
 
+def _distance(a: QColor, b: QColor) -> int:
+    return (abs(a.red() - b.red()) + abs(a.green() - b.green())
+            + abs(a.blue() - b.blue()))
+
+
 # ── Where the pill sits ───────────────────────────────────────────
 
 def test_the_pill_straddles_the_bottom_edge_right_aligned():
@@ -110,9 +115,16 @@ def test_the_pill_ink_follows_its_fill():
     other = QColor(theme.INK_ON_LIGHT_FILL
                    if ink == QColor(theme.INK_ON_DARK_FILL)
                    else theme.INK_ON_DARK_FILL)
+    # The text's colour is the interior pixel furthest from the fill (glyph
+    # cores reach the ink; antialiased edges only blend towards it), so the
+    # check holds whatever face and size the platform draws the text in.
     pixels = _pill_pixels(view, "db")
-    assert _share(pixels, ink) > 0.005
-    assert _share(pixels, ink) > 4 * _share(pixels, other)
+    text = max((pixels.pixelColor(x, y)
+                for y in range(3, pixels.height() - 3)
+                for x in range(8, pixels.width() - 8)),
+               key=lambda p: _distance(p, fill))
+    assert _distance(text, fill) > 100
+    assert _distance(text, ink) < _distance(text, other)
 
 
 # ── Render and export ─────────────────────────────────────────────

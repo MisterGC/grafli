@@ -1945,6 +1945,11 @@ def _cmd_render(argv: list[str]) -> int:
              "does not follow the app's theme setting, so a given file and "
              "flags always render the same image",
     )
+    parser.add_argument(
+        "--legend", action="store_true",
+        help="Draw the legend of the map's palette (the palette.json entries "
+             "the board uses) below the board",
+    )
     args = parser.parse_args(argv)
 
     theme.set_theme(args.theme)
@@ -1982,6 +1987,7 @@ def _cmd_render(argv: list[str]) -> int:
     # Draw `&graph` miniatures and `&doc` lines as the canvas shows them.
     view.render_headless(args.input.resolve())
     view.load_board(board)
+    view._legend_visible = args.legend
 
     region = None
     iso_ctx = nullcontext()

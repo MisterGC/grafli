@@ -13,6 +13,7 @@ from PySide6.QtSvg import QSvgGenerator
 from PySide6.QtWidgets import QApplication, QFileDialog, QGraphicsItem
 from contextlib import contextmanager, nullcontext
 from grafli import theme
+from grafli.legend import draw_legend, legend_height
 from grafli.items import (
     BoxItem,
     BoxLabelItem,
@@ -113,25 +114,48 @@ class ExportMixin:
             return nullcontext()
         return self.miniatures_held()
 
+    def _legend_band(self, rect: QRectF, padding: int):
+        """Where the map palette's legend goes below the exported *rect*,
+        in board units, with its entries and text size; None while the
+        legend is off or the board uses no palette entry."""
+        if not self._legend_visible:
+            return None
+        entries = self.legend_entries()
+        if not entries:
+            return None
+        px = max(14.0, rect.width() / 90)
+        inset = max(float(padding), px)
+        width = max(px * 4, rect.width() - 2 * inset)
+        height = legend_height(entries, px, width)
+        band = QRectF(rect.left(), rect.bottom(), rect.width(),
+                      height + px * 0.8)
+        return band, QRectF(rect.left() + inset, rect.bottom(), width,
+                            height), entries, px
+
     def _render_svg_bytes(self, padding: int = 20, region=None) -> QByteArray:
-        """Render the current diagram (or selection) to SVG bytes."""
+        """Render the current diagram (or selection) to SVG bytes, the
+        palette's legend below it while the legend is on."""
         with self._export_extras_held(), \
                 self._export_scene_context(padding=padding,
                                            region=region) as rect:
+            legend = self._legend_band(rect, padding)
+            page = rect.united(legend[0]) if legend else rect
             buf = QByteArray()
             io = QBuffer(buf)
             io.open(QIODevice.OpenModeFlag.WriteOnly)
             gen = QSvgGenerator()
             gen.setOutputDevice(io)
-            gen.setSize(rect.size().toSize())
-            gen.setViewBox(rect)
+            gen.setSize(page.size().toSize())
+            gen.setViewBox(page)
             gen.setTitle("Grafli Diagram")
             painter = QPainter(gen)
-            painter.fillRect(rect, QBrush(theme.SCENE_BG))
+            painter.fillRect(page, QBrush(theme.SCENE_BG))
             # Paint onto the viewBox itself, so SVG coordinates are board
             # coordinates; a null target would paint from (0, 0) and shift
             # the board off a viewBox that does not start there.
             self._scene.render(painter, rect, rect)
+            if legend:
+                draw_legend(painter, legend[1], legend[2], legend[3])
             painter.end()
             io.close()
         return buf
@@ -139,11 +163,13 @@ class ExportMixin:
     def _render_png_image(
         self, scale: int = 2, padding: int = 20, region=None,
     ) -> QImage:
-        """Render the current diagram (or selection) to a QImage."""
+        """Render the current diagram (or selection) to a QImage, the
+        palette's legend below it while the legend is on."""
         with self._export_extras_held(), \
                 self._export_scene_context(padding=padding,
                                            region=region) as rect:
-            size = rect.size().toSize()
+            legend = self._legend_band(rect, padding)
+            size = (rect.united(legend[0]) if legend else rect).size().toSize()
             image = QImage(
                 size.width() * scale,
                 size.height() * scale,
@@ -157,11 +183,17 @@ class ExportMixin:
             # Always render against an explicit pixel target. Setting DPR
             # before render() with a null target makes Qt drop most of the
             # scene for certain aspect ratios (wide-and-short pipelines).
+            board_h = (rect.height() * scale if legend
+                       else float(image.height()))
             self._scene.render(
                 painter,
-                QRectF(0, 0, image.width(), image.height()),
+                QRectF(0, 0, image.width(), board_h),
                 rect,
             )
+            if legend:
+                painter.scale(scale, scale)
+                painter.translate(-rect.left(), -rect.top())
+                draw_legend(painter, legend[1], legend[2], legend[3])
             painter.end()
             image.setDevicePixelRatio(scale)
         return image

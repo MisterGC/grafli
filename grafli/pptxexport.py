@@ -724,7 +724,7 @@ def _fill_text(tf, body: str, *, is_md: bool, base_pt: float, font_ref: str,
 
     Markdown (when ``is_md``) is parsed once via ``QTextDocument`` — the same
     engine the canvas and PDF use — and translated into PowerPoint paragraphs and
-    runs: bold/italic, inline code (monospace), links (real hyperlinks), headings
+    runs: bold/italic, inline code (the bundled mono face), links (real hyperlinks), headings
     (scaled + bold) and bullet/ordered lists (hand-prefixed markers, like the PDF
     draws). Runs reference the theme font/colour so a theme swap restyles them;
     ``font_ref`` may name a face instead (Inter, for a ``!sans`` note) and
@@ -798,7 +798,9 @@ def _add_run(para, text: str, size_pt: float, font_ref: str, color, *,
     font.size = Pt(max(1.0, size_pt))
     font.bold = bold
     font.italic = italic
-    font.name = "Consolas" if code else font_ref
+    # Inline code names the bundled mono face, as a ``!sans`` run names
+    # Inter; the font is named, not embedded (#219).
+    font.name = FONT_FAMILY if code else font_ref
     if href:
         run.hyperlink.address = href
         font.color.theme_color = MSO_THEME_COLOR.HYPERLINK

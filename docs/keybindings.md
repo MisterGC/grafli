@@ -227,7 +227,7 @@ During playback (in-app or presenting):
 
 | Action | Effect |
 |--------|--------|
-| Click `@path:line` in a code-mode note | Open the file at that line in the configured editor; a relative path starts at the repo of the board's `# source:` comment, else the board's folder |
+| Click `@path:line` in a code-mode note | Open the file at that line in the configured editor; a relative path starts at the repo of the board's `# source:` comment, else the board's folder. Opening a board whose `# source: <repo> @ <rev>` names a revision that repo's `HEAD` moved on from shows a stale notice |
 | <kbd>Shift</kbd>+click | Toggle selection (on empty space or a node's body) |
 | Drag a **corner handle** | **Scale** the selection — size *and* font, around its bounding box; keeps the aspect ratio. A preview frame shows where it lands and it commits on release. Hold <kbd>Shift</kbd> for a free (non-uniform) scale |
 | Drag an **edge handle** | Stretch that single axis (modifier-agnostic) |

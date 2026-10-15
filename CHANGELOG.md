@@ -267,6 +267,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   there, and `grafli diagnose` looks for it there. Renders and exports draw
   the ref as written. Boards without the comment resolve as before.
   ([#217](https://github.com/MisterGC/grafli/issues/217))
+- **A board says when its source repo moved on.** A map's `@path:line` refs
+  are true at the revision they were read at; once the repo moved on they
+  opened wrong lines or missing files without a word. When the board's
+  `# source: <repo> @ <rev>` names a revision the repo's `HEAD` is not at,
+  `grafli diagnose` warns (`stale-source`: "refs read at a1b2c3d, repo is at
+  …") and the app shows the same notice when the board opens. A comment
+  without `@ <rev>` is not checked.
+  ([#188](https://github.com/MisterGC/grafli/issues/188))
 
 ### Changed
 - **A sub-board's miniature fills the whole box.** It used to sit small

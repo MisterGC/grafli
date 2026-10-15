@@ -177,6 +177,9 @@ A map of code is true at one revision. Record it:
   (`# source: ~/dev/shapes-and-stone @ a1b2c3d`) and in each overlay's
   `source`. The board's refs then resolve against that repo, so write them
   from its root (`@src/Player.qml:88`), never with `../` prefixes.
+* `grafli diagnose` warns `stale-source` when the repo's `HEAD` is no longer
+  the board's revision, and the app says so when the board opens — that is
+  the cue to re-check the map.
 * **After the subject changes**, re-check the parts the change touches.
   Update what you verified and the revision; for the parts you could not
   re-check, write a freshness overlay (categories such as `current`,

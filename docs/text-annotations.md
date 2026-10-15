@@ -78,7 +78,10 @@ Plain assignments need no keyword: `out = []` is unambiguous.
 A relative `@path` resolves against the repo of the board's
 `# source: <repo> @ <rev>` comment (a relative repo taken from the board's
 folder), else against the board's folder — in the app and in
-`grafli diagnose`.
+`grafli diagnose`. When `<rev>` is not that repo's `HEAD` (a short hash
+matches the full one), `grafli diagnose` warns `stale-source` and the app
+shows the same notice when the board opens; a `HEAD` git cannot read is an
+info finding.
 
 ### Style
 

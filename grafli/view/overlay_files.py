@@ -17,6 +17,7 @@ from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QPainter
 
 from grafli.constants import MINIMAP_MARGIN
+from grafli.format import ref_root
 from grafli.items import BoxItem, NoteItem
 from grafli.overlay_file import (
     OverlayProvider,
@@ -216,13 +217,15 @@ class OverlayFilesMixin:
                 return True
         return False
 
-    @staticmethod
-    def _overlay_ref(provider: OverlayProvider, ref: str) -> str:
+    def _overlay_ref(self, provider: OverlayProvider, ref: str) -> str:
         """``ref`` with a relative path taken from the overlay's source repo
-        (or the board's directory when it names none)."""
+        (or, when it names none, the board's ``# source:`` repo or
+        directory)."""
         target = ref[1:] if ref.startswith("@") else ref
         m = re.match(r"^(.+?)(:\d+)?$", target)
         path = Path(m.group(1)).expanduser()
         if not path.is_absolute():
-            path = provider.ref_base() / path
+            board_root = (ref_root(self._board, provider.base_dir)
+                          if self._board is not None else None)
+            path = provider.ref_base(board_root) / path
         return f"@{path}{m.group(2) or ''}"

@@ -230,10 +230,12 @@ class OverlayProvider:
     def analysable(self, board: Board) -> bool:
         return True
 
-    def ref_base(self) -> Path:
+    def ref_base(self, board_root: Path | None = None) -> Path:
         """Where an entry's relative ``@ref`` points into: the source repo
-        when the file names one, else the board's directory."""
-        return repo_path(self.overlay, self.base_dir) or self.base_dir
+        when the file names one, else *board_root* (where the board's own
+        refs point) or the board's directory."""
+        return (repo_path(self.overlay, self.base_dir) or board_root
+                or self.base_dir)
 
     def read(self, board: Board) -> HeatReading:
         ov = self.overlay

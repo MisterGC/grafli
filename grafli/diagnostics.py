@@ -24,7 +24,7 @@ from grafli.constants import (
     BOX_FONT_SIZES,
     LAYOUT_PADDING,
 )
-from grafli.format import Arrow, Board, Box, Image, Note
+from grafli.format import Arrow, Board, Box, Image, Note, ref_root
 from grafli.iconset import ICON_NAMES, has_icon
 
 
@@ -453,7 +453,10 @@ _REF_RE = re.compile(r"@([^\s@]+\.[A-Za-z0-9]+)(?::[^\s]+)?")
 def check_missing_resource(
     board: Board, base_dir: Path | None
 ) -> list[Diagnostic]:
-    """Check `Image.image_path` and `@path[:anchor]` refs in text content."""
+    """Check `Image.image_path` and `@path[:anchor]` refs in text content.
+
+    Images resolve against the board's directory, refs against its
+    ``# source:`` repo when it names one (``ref_root``)."""
     diags: list[Diagnostic] = []
     if base_dir is None:
         return diags
@@ -476,10 +479,11 @@ def check_missing_resource(
         sources.append((n.id, n.text or ""))
     for a in board.arrows:
         sources.append((f"{a.from_id}->{a.to_id}", a.label or ""))
+    root = ref_root(board, base)
     for iid, text in sources:
         for m in _REF_RE.finditer(text):
             ref_path = m.group(1)
-            if not (base / ref_path).exists():
+            if not (root / ref_path).exists():
                 diags.append(Diagnostic(
                     code="missing-resource",
                     severity=INFO,

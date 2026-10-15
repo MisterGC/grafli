@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 )
 from grafli import theme
 from grafli.constants import ARROW_LABEL_FONT_SIZES, FONT_FAMILY
-from grafli.format import Arrow, Image, Note
+from grafli.format import Arrow, Image, Note, ref_root
 from grafli.items import BoxItem, ImageItem, LabelItem, NoteItem
 from grafli.md_note import note_is_md, toggle_task
 from pathlib import Path
@@ -175,7 +175,8 @@ class ResourcesMixin:
 
         Resolution order: configured editor command from QSettings,
         then auto-detected ``code``/``cursor``/``subl``, finally OS open.
-        Relative paths are resolved against the .grafli file's directory.
+        Relative paths are resolved against the board's ``# source:`` repo,
+        else the .grafli file's directory.
         """
         target = ref[1:] if ref.startswith("@") else ref
         line_no: int | None = None
@@ -188,7 +189,10 @@ class ResourcesMixin:
         if not path.is_absolute():
             window = self.window()
             if hasattr(window, "_file_path") and window._file_path:
-                path = Path(window._file_path).parent / path
+                base = Path(window._file_path).parent
+                if self._board is not None:
+                    base = ref_root(self._board, base)
+                path = base / path
         path = path.resolve()
 
         cmd_template = QSettings("Grafli", "Grafli").value(

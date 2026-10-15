@@ -71,6 +71,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from grafli.glyphs import ensure_text_presentation
 
@@ -520,6 +521,30 @@ def split_step_ref(ref: str) -> tuple[str, str]:
         return "", ref
     board, _, bookmark = ref.partition("#")
     return board, bookmark
+
+
+_SOURCE_RE = re.compile(r"^#\s*source:\s*(.+?)(?:\s+@\s+(\S+))?\s*$")
+
+
+def board_source(board: Board) -> tuple[str, str] | None:
+    """The repo and revision a ``# source: <repo> @ <rev>`` comment names,
+    the revision "" when the comment gives none; None without the comment."""
+    for comment in board.comments:
+        m = _SOURCE_RE.match(comment)
+        if m:
+            return m.group(1), m.group(2) or ""
+    return None
+
+
+def ref_root(board: Board, base_dir: Path) -> Path:
+    """Where a relative ``@path:line`` code ref points into: the repo of the
+    board's ``# source:`` comment (a relative one taken from *base_dir*), else
+    *base_dir*, the board's directory."""
+    source = board_source(board)
+    if source is None:
+        return base_dir
+    repo = Path(source[0]).expanduser()
+    return repo if repo.is_absolute() else base_dir / repo
 
 
 def uses_cross_board_stops(board: Board) -> bool:

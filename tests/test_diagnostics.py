@@ -9,6 +9,7 @@ from grafli.diagnostics import (
     check_arrow_label_covers_head,
     check_arrow_label_crowded,
     check_child_outside_parent,
+    check_code_refs,
     check_cramped_container,
     check_label_truncated,
     check_missing_resource,
@@ -145,23 +146,24 @@ def test_existing_image_is_clean(tmp_path):
 
 
 def test_at_path_ref_flagged_when_missing(tmp_path):
-    n = Note(id="n", x=0, y=0, text="see @docs/missing.md:42 for details")
-    diags = check_missing_resource(_make_board(notes=[n]), tmp_path)
-    assert any(d.code == "missing-resource" and "n" in d.item_ids for d in diags)
+    n = Note(id="n", x=0, y=0, text="code:\nsee @docs/missing.md:42 for details")
+    diags = check_code_refs(_make_board(notes=[n]), tmp_path)
+    assert [(d.code, d.severity, d.item_ids) for d in diags] == [
+        ("dangling-code-ref", "error", ["n"])]
 
 
 def test_at_path_ref_clean_when_exists(tmp_path):
     target = tmp_path / "docs"
     target.mkdir()
     (target / "guide.md").write_text("hello")
-    n = Note(id="n", x=0, y=0, text="see @docs/guide.md:42")
-    diags = check_missing_resource(_make_board(notes=[n]), tmp_path)
+    n = Note(id="n", x=0, y=0, text="code:\nsee @docs/guide.md:1")
+    diags = check_code_refs(_make_board(notes=[n]), tmp_path)
     assert diags == []
 
 
 def test_resource_check_is_noop_without_base_dir():
-    n = Note(id="n", x=0, y=0, text="see @does/not/matter.md")
-    assert check_missing_resource(_make_board(notes=[n]), None) == []
+    n = Note(id="n", x=0, y=0, text="code:\nsee @does/not/matter.md")
+    assert check_code_refs(_make_board(notes=[n]), None) == []
 
 
 # ── run_all ────────────────────────────────────────────────────

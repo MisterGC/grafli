@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
-from grafli.diagnostics import check_missing_resource
+from grafli.diagnostics import check_code_refs
 from grafli.format import board_source, parse, ref_root
 from grafli.view import GrafliView
 
@@ -61,25 +61,24 @@ def test_ref_root_takes_the_repo_from_the_board_directory(tmp_path):
 
 def test_diagnose_finds_a_ref_in_the_source_repo(tmp_path):
     board = _tree(tmp_path)
-    diags = check_missing_resource(parse(board.read_text()), tmp_path)
-    assert [d for d in diags if d.code == "missing-resource"] == []
+    assert check_code_refs(parse(board.read_text()), tmp_path) == []
 
 
 def test_diagnose_reports_a_ref_missing_from_the_source_repo(tmp_path):
     board = _tree(tmp_path, _SOURCED.replace("src/x.py", "src/y.py"))
-    diags = check_missing_resource(parse(board.read_text()), tmp_path)
+    diags = check_code_refs(parse(board.read_text()), tmp_path)
     assert [d.message for d in diags] == [
-        "'n' references 'src/y.py' which does not exist"]
+        f"'n' refs @src/y.py:3: {tmp_path}/repo/src/y.py does not exist"]
 
 
 def test_diagnose_without_the_comment_resolves_against_the_board(tmp_path):
     board = _tree(tmp_path, _PLAIN)
-    diags = check_missing_resource(parse(board.read_text()), tmp_path)
+    diags = check_code_refs(parse(board.read_text()), tmp_path)
     assert [d.message for d in diags] == [
-        "'n' references 'src/x.py' which does not exist"]
+        f"'n' refs @src/x.py:3: {tmp_path}/src/x.py does not exist"]
     (tmp_path / "src").mkdir()
-    (tmp_path / "src" / "x.py").write_text("")
-    assert check_missing_resource(parse(board.read_text()), tmp_path) == []
+    (tmp_path / "src" / "x.py").write_text("a\nb\nc\n")
+    assert check_code_refs(parse(board.read_text()), tmp_path) == []
 
 
 def test_diagnose_cli_passes_a_sourced_board(tmp_path, capsys):
@@ -87,7 +86,7 @@ def test_diagnose_cli_passes_a_sourced_board(tmp_path, capsys):
     board = _tree(tmp_path)
     assert _cmd_diagnose([str(board), "--json"]) == 0
     codes = [d["code"] for d in json.loads(capsys.readouterr().out)]
-    assert "missing-resource" not in codes
+    assert "dangling-code-ref" not in codes
 
 
 # ── the app ────────────────────────────────────────────────────────

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import difflib
 import math
-import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
@@ -24,7 +23,9 @@ from grafli.constants import (
     BOX_FONT_SIZES,
     LAYOUT_PADDING,
 )
-from grafli.format import Arrow, Board, Box, Image, Note, ref_root
+from grafli.format import (
+    Arrow, Board, Box, Image, Note, parse, resolve_code_ref,
+)
 from grafli.iconset import ICON_NAMES, has_icon
 
 
@@ -444,19 +445,10 @@ def check_arrow_label_covers_head(
     return diags
 
 
-# Captures `@<path>:<anything>` where path looks like a file (has an
-# extension). Trailing `:line` / `:anchor` is consumed to keep matching
-# tight, but the anchor itself is not validated.
-_REF_RE = re.compile(r"@([^\s@]+\.[A-Za-z0-9]+)(?::[^\s]+)?")
-
-
 def check_missing_resource(
     board: Board, base_dir: Path | None
 ) -> list[Diagnostic]:
-    """Check `Image.image_path` and `@path[:anchor]` refs in text content.
-
-    Images resolve against the board's directory, refs against its
-    ``# source:`` repo when it names one (``ref_root``)."""
+    """Check `Image.image_path` against the board's directory."""
     diags: list[Diagnostic] = []
     if base_dir is None:
         return diags
@@ -472,25 +464,89 @@ def check_missing_resource(
                 item_ids=[im.id],
                 fixable=False,
             ))
-    sources: list[tuple[str, str]] = []
-    for b in board.boxes:
-        sources.append((b.id, b.label or ""))
+    return diags
+
+
+def _line_count(path: Path) -> int:
+    data = path.read_bytes()
+    return data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+
+
+def check_code_refs(board: Board, base_dir: Path | None) -> list[Diagnostic]:
+    """The ``@path[:line]`` refs a code-mode note shows as clickable, resolved
+    as a click opens them (``~`` expanded, a relative path from the
+    ``# source:`` repo, else the board's folder): a file that does not exist,
+    or a line past its end, is an error — the ref opens nothing or the wrong
+    place."""
+    from grafli.code_note import code_refs
+    if base_dir is None:
+        return []
+    diags: list[Diagnostic] = []
     for n in board.notes:
-        sources.append((n.id, n.text or ""))
-    for a in board.arrows:
-        sources.append((f"{a.from_id}->{a.to_id}", a.label or ""))
-    root = ref_root(board, base)
-    for iid, text in sources:
-        for m in _REF_RE.finditer(text):
-            ref_path = m.group(1)
-            if not (root / ref_path).exists():
-                diags.append(Diagnostic(
-                    code="missing-resource",
-                    severity=INFO,
-                    message=f"{iid!r} references {ref_path!r} which does not exist",
-                    item_ids=[iid],
-                    fixable=False,
-                ))
+        for ref in code_refs(n.text or ""):
+            path, line = resolve_code_ref(board, Path(base_dir), ref)
+            if not path.exists():
+                problem = f"{path} does not exist"
+            elif line is not None and path.is_file() \
+                    and not 1 <= line <= (count := _line_count(path)):
+                problem = f"{path.name} has {count} lines, no line {line}"
+            else:
+                continue
+            diags.append(Diagnostic(
+                code="dangling-code-ref",
+                severity=ERROR,
+                message=f"{n.id!r} refs {ref}: {problem}",
+                item_ids=[n.id],
+                fixable=True,
+            ))
+    return diags
+
+
+def _board_ids(path: Path) -> set[str]:
+    """The ids a link's ``#<id>`` can name in the board at *path*: its
+    bookmarks, elements and connector ids."""
+    other = parse(path.read_text(encoding="utf-8"))
+    return {*(bm.id for bm in other.bookmarks),
+            *(el.id for el in (*other.boxes, *other.notes, *other.images)),
+            *(a.id for a in other.arrows if a.id)}
+
+
+def check_board_links(board: Board,
+                      grafli_path: Path | None) -> list[Diagnostic]:
+    """``&graph:<name>[#<id>]`` and ``&link:<path>.grafli[#<id>]`` resolved as
+    the app opens them: a board that does not exist, or an ``#<id>`` that is
+    no bookmark, element or connector in it, is an error — the link opens
+    nothing or lands on the whole board."""
+    from grafli.resources import board_link
+    if grafli_path is None:
+        return []
+    grafli_path = Path(grafli_path).resolve()
+    diags: list[Diagnostic] = []
+    ids: dict[Path, set[str]] = {}
+    for el in (*board.boxes, *board.notes, *board.images, *board.arrows):
+        link = board_link(grafli_path, el)
+        if link is None:
+            continue
+        path, target = link
+        iid = (el.id if not isinstance(el, Arrow)
+               else el.id or f"{el.from_id}->{el.to_id}")
+        if not path.is_file():
+            problem = f"{path} does not exist"
+        else:
+            if path not in ids:
+                ids[path] = _board_ids(path)
+            if not target or target in ids[path]:
+                continue
+            problem = (f"{path.name} has no bookmark, element or "
+                       f"connector {target!r}")
+        kind = "&graph" if el.attach_kind == "graph" else "&link"
+        diags.append(Diagnostic(
+            code="dangling-board-link",
+            severity=ERROR,
+            message=f"{iid!r} {kind}:{el.url}: {problem}",
+            item_ids=[iid],
+            fixable=True,
+        ))
     return diags
 
 
@@ -681,6 +737,8 @@ def run_all(
         board, arrow_label_size=arrow_label_size, note_rect=note_rect,
     ))
     diags.extend(check_missing_resource(board, base_dir))
+    diags.extend(check_code_refs(board, base_dir))
+    diags.extend(check_board_links(board, grafli_path))
     diags.extend(check_stale_source(board, base_dir))
     diags.sort(key=lambda d: (_SEVERITY_ORDER.get(d.severity, 99), d.code, d.item_ids))
     return diags

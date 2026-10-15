@@ -4,7 +4,7 @@ The legend lists the entries of the map's palette (``grafli.map_palette``)
 that the board colours something with, in the palette file's order. One
 layout serves every surface: a card on the canvas (``Shift+M``), a band
 below the board in ``render --legend`` and the SVG/PNG exports, and a band at
-the bottom of a PDF diagram slide. A board that uses no palette entry has no
+the bottom of a PDF or PPTX diagram slide. A board that uses no palette entry has no
 legend, so nothing changes on it.
 """
 
@@ -54,6 +54,14 @@ def _chips(entries: list, px: float, width: float
         placed.append((x, y, entry))
         x += chip_w + spacing
     return placed, (y + line_h if placed else 0.0)
+
+
+def legend_chips(entries: list, px: float, width: float
+                 ) -> tuple[list[tuple[float, float, object]], float]:
+    """Each entry's chip offset (its swatch's left, its row's top) in rows no
+    wider than *width* at text size *px*, and the height of all rows; for a
+    surface that draws the chips itself (the PPTX export)."""
+    return _chips(entries, px, width)
 
 
 def legend_height(entries: list, px: float, width: float) -> float:

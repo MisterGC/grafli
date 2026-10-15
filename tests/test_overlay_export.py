@@ -134,3 +134,93 @@ def test_the_app_svg_export_carries_the_shown_overlay(tmp_path):
     assert b"Test results" in bytes(view._render_svg_bytes())
     view._clear_complexity_heatmap()
     assert b"Test results" not in bytes(view._render_svg_bytes())
+
+
+# ── the PDF/PPTX exports ────────────────────────────────────────────
+
+_FLOW_BOARD = _BOARD + """\
+@ note n 0,200 "a remark"
+@ bookmark all "All of it" @a,b,c,n "Where the tests stand."
+@ flow review "Review" all
+"""
+
+
+def _pdf_text(path: Path) -> str:
+    from PySide6.QtPdf import QPdfDocument
+    doc = QPdfDocument()
+    doc.load(str(path))
+    text = "\n".join(doc.getAllText(i).text() for i in range(doc.pageCount()))
+    doc.close()
+    return text
+
+
+def _export(board: Path, out: Path, *flags: str) -> int:
+    from grafli.app import _cmd_export
+    return _cmd_export([str(board), str(out), *flags])
+
+
+def test_a_pdf_exported_from_the_app_with_an_overlay_on_shows_it(
+        tmp_path, monkeypatch):
+    QApplication.instance() or QApplication([])
+    from PySide6.QtWidgets import QFileDialog
+    from grafli.app import MainWindow
+    board = _map(tmp_path, _FLOW_BOARD, tests=TESTS)
+    w = MainWindow(str(board))
+    monkeypatch.setattr(w._view, "toast", lambda *a, **k: None)
+    outs = iter([tmp_path / "plain.pdf", tmp_path / "shown.pdf"])
+    monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(next(outs)), "")))
+    w._export_flow_pdf()
+    w._view.show_overlay("tests")
+    w._export_flow_pdf()
+    plain = _pdf_text(tmp_path / "plain.pdf")
+    shown = _pdf_text(tmp_path / "shown.pdf")
+    for text in ("Test results", "Passing", "Failing", "no data"):
+        assert text not in plain
+        assert text in shown
+    # The export leaves the overlay on the canvas as it found it.
+    assert w._view._overlay_shown() is not None
+    assert (w._view._scene.backgroundBrush().color().name()
+            == theme.HEATMAP_BG.name())
+
+
+def test_export_overlay_carries_it_into_the_pdf(tmp_path):
+    board = _map(tmp_path, _FLOW_BOARD, tests=TESTS)
+    assert _export(board, tmp_path / "plain.pdf") == 0
+    assert _export(board, tmp_path / "shown.pdf", "--overlay", "tests") == 0
+    assert "Test results" not in _pdf_text(tmp_path / "plain.pdf")
+    assert "Test results" in _pdf_text(tmp_path / "shown.pdf")
+
+
+def test_export_overlay_adds_the_legend_card_to_each_pptx_diagram_slide(
+        tmp_path):
+    from pptx import Presentation
+    board = _map(tmp_path, _FLOW_BOARD, tests=TESTS)
+    assert _export(board, tmp_path / "plain.pptx") == 0
+    assert _export(board, tmp_path / "shown.pptx", "--overlay", "tests") == 0
+
+    def pictures(path):
+        return [sum(1 for s in slide.shapes if s.shape_type == 13)
+                for slide in Presentation(str(path)).slides]
+
+    plain, shown = pictures(tmp_path / "plain.pptx"), pictures(
+        tmp_path / "shown.pptx")
+    assert shown[0] == plain[0]                  # the cover has no diagram
+    assert shown[1] == plain[1] + 1              # the card beside it
+
+
+def test_export_overlay_names_the_available_ones_when_unknown(tmp_path,
+                                                               capsys):
+    board = _map(tmp_path, _FLOW_BOARD, tests=TESTS)
+    assert _export(board, tmp_path / "x.pdf", "--overlay", "churn") == 2
+    assert "available: tests" in capsys.readouterr().err
+    assert not (tmp_path / "x.pdf").exists()
+
+
+def test_a_shown_overlay_keeps_the_notes_in_the_slide_raster(tmp_path):
+    from grafli.slideplan import build_slide_plan, live_overlays
+    view = _view_of(_map(tmp_path, _FLOW_BOARD, tests=TESTS))
+    plan = build_slide_plan(view, view._board.flow_by_id("review"))[1]
+    assert [it.note.id for it in live_overlays(view, plan)] == ["n"]
+    view.show_overlay("tests")
+    assert live_overlays(view, plan) == []

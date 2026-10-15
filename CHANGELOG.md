@@ -284,6 +284,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#171](https://github.com/MisterGC/grafli/issues/171))
 
 ### Changed
+- **Explanation maps open with the problem and its layers.** The skill's
+  `references/explaining.md` says the top board of a map states the
+  problem, the shape of the answer and the layers of the problem, drawn
+  as stacked full-width containers (`%layer ^left`) that zoomed out stay a
+  stack of named bands. One concrete case is shown on every layer and
+  marked as an example, not the scope; mechanisms go one level down. A
+  layered example of grafli's own architecture shows it.
+  ([#199](https://github.com/MisterGC/grafli/issues/199))
 - **Explanation maps rest in one colour per layer.** The skill's
   `references/explaining.md` teaches a resting scheme: one map palette
   entry per layer of the subject, the same on every board, part boxes

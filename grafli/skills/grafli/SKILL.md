@@ -472,7 +472,8 @@ task needs them:
   templates) and the `export --check` verify loop. Open when asked to
   explain, walk through, present, or build a deck from a board.
 * `references/explaining.md` — explanation maps of any subject (code
-  as one section): one question and the evidence for its split per
+  as one section): a top board that opens with the problem and its
+  layers as a stack, one question and the evidence for its split per
   level, box docs and sub-boards for depth, one board per repo plus a
   bench board linking in, relationship kinds on arrows, a resting
   colour per layer (filled boxes from the map's palette), tours across

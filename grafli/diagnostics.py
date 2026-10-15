@@ -596,6 +596,43 @@ def check_palette(grafli_path: Path | None) -> list[Diagnostic]:
     return diags
 
 
+def check_overlays(board: Board, grafli_path: Path | None) -> list[Diagnostic]:
+    """The board's overlay files: one grafli cannot parse is left out of the
+    ``A`` cycle and the exports; an entry whose id is no box, note or
+    connector on the board colours nothing. Both are warnings."""
+    from grafli.overlay_file import load_overlay, overlay_paths
+    if grafli_path is None:
+        return []
+    ids = [*(b.id for b in board.boxes), *(n.id for n in board.notes),
+           *(a.id for a in board.arrows if a.id)]
+    known = set(ids)
+    diags: list[Diagnostic] = []
+    for path in overlay_paths(Path(grafli_path)):
+        where = f"{path.parent.name}/{path.name}"
+        try:
+            overlay = load_overlay(path)
+        except ValueError as e:
+            diags.append(Diagnostic(
+                code="bad-overlay", severity=WARNING,
+                message=f"{where}: {e} — the overlay is not shown",
+                fixable=False,
+            ))
+            continue
+        for elem_id in overlay.entries:
+            if elem_id in known:
+                continue
+            near = difflib.get_close_matches(elem_id, ids, n=1)
+            hint = f" — did you mean {near[0]!r}?" if near else ""
+            diags.append(Diagnostic(
+                code="overlay-unknown-id", severity=WARNING,
+                message=(f"{where}: entry {elem_id!r} is no box, note or "
+                         f"connector on the board{hint}"),
+                item_ids=[elem_id],
+                fixable=False,
+            ))
+    return diags
+
+
 def run_all(
     board: Board,
     base_dir: Path | None = None,
@@ -606,6 +643,7 @@ def run_all(
     diags: list[Diagnostic] = []
     diags.extend(check_parse_errors(board))
     diags.extend(check_palette(grafli_path))
+    diags.extend(check_overlays(board, grafli_path))
     diags.extend(check_unknown_icon(board))
     diags.extend(check_unknown_color(board))
     diags.extend(check_child_outside_parent(board, note_rect=note_rect))

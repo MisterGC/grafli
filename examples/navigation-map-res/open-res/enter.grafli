@@ -1,4 +1,4 @@
-#!grafli v3
+#!grafli v4
 # How does entering a board keep the way back?
 # Level 3 of navigation-map.grafli: the algorithm, its parts, and the
 # source refs (click a ref in the code note to open it in your editor).
@@ -27,10 +27,10 @@ source
   @grafli/view/flows.py:58 frame_fragment
   @grafli/app.py:796 _go_up
 """ ~small
-@ box frame "BoardFrame" 700,0 220x80 &doc:frame
-@ box push "push_frame" 700,180 220x80 &doc:push
-@ box fragment "frame_fragment" 1120,180 220x80 &doc:fragment
-@ box goup "_go_up" 700,360 220x80 &doc:goup
+@ box frame "BoardFrame" 700,0 220x80 %shell ^topcenter &doc:frame
+@ box push "push_frame" 700,180 220x80 %shell ^topcenter &doc:push
+@ box fragment "frame_fragment" 1120,180 220x80 %canvas ^topcenter &doc:fragment
+@ box goup "_go_up" 700,360 220x80 %shell ^topcenter &doc:goup
 @ box map "Back to the map" 1120,360 220x80 &link:../../navigation-map.grafli#stack
 
 @ arrow algo -> frame "data: BoardFrame"

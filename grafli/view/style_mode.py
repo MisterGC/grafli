@@ -165,6 +165,16 @@ class StyleModeMixin:
     # Set while the grid colours the selected boxes' status pills (s s).
     _color_picker_status = False
 
+    def _color_choices(self) -> list[tuple[str, str]]:
+        """The grid's ``(label, value)`` cells: the theme's tokens, then the
+        map palette's entries (``map_palette``) on rows of their own."""
+        choices = list(COLOR_PALETTE)
+        if self._map_palette:
+            cols = self._COLOR_GRID_COLS
+            choices += [("", None)] * (-len(choices) % cols)
+            choices += [(e.label, f"%{e.name}") for e in self._map_palette]
+        return choices
+
     def _color_picker_boxes(self):
         return [it for it in self._scene.selectedItems()
                 if isinstance(it, BoxItem)]
@@ -226,7 +236,7 @@ class StyleModeMixin:
         self._color_picker_mode = mode
         self._color_picker_original = {id(t): self._target_color(mode, t)
                                        for t in targets}
-        values = [v for _, v in COLOR_PALETTE]
+        values = [v for _, v in self._color_choices()]
         cur = self._target_color(mode, targets[0])
         self._color_picker_index = values.index(cur) if cur in values else 0
         self._color_picker_active = True
@@ -235,7 +245,7 @@ class StyleModeMixin:
     def _apply_color_picker_live(self):
         """Preview the highlighted choice on the selection (no undo/dirty)."""
         mode, targets = self._color_picker_targets()
-        value = COLOR_PALETTE[self._color_picker_index][1]
+        value = self._color_choices()[self._color_picker_index][1]
         for t in targets:
             self._set_target_color(mode, t, value)
         if mode == "arrow":
@@ -245,13 +255,16 @@ class StyleModeMixin:
 
     def _color_picker_move(self, dcol: int, drow: int):
         cols = self._COLOR_GRID_COLS
-        n = len(COLOR_PALETTE)
+        choices = self._color_choices()
+        n = len(choices)
         rows = (n + cols - 1) // cols
         col = self._color_picker_index % cols
         row = self._color_picker_index // cols
         col = max(0, min(cols - 1, col + dcol))
         row = max(0, min(rows - 1, row + drow))
         idx = min(row * cols + col, n - 1)
+        while choices[idx][1] is None:   # a gap before the palette rows
+            idx -= 1
         if idx != self._color_picker_index:
             self._color_picker_index = idx
             self._apply_color_picker_live()
@@ -274,7 +287,7 @@ class StyleModeMixin:
 
     def _commit_color_picker(self):
         mode, targets = self._color_picker_targets()
-        value = COLOR_PALETTE[self._color_picker_index][1]
+        value = self._color_choices()[self._color_picker_index][1]
         # Restore the pre-picker colours so the undo snapshot captures the
         # original state, then apply the chosen colour as one undoable step.
         for t in targets:
@@ -333,7 +346,8 @@ class StyleModeMixin:
         anchor = self.mapFromScene(scene_rect).boundingRect()
 
         cols = self._COLOR_GRID_COLS
-        rows = (len(COLOR_PALETTE) + cols - 1) // cols
+        choices = self._color_choices()
+        rows = (len(choices) + cols - 1) // cols
         sw, gap, pad, label_h = 26, 6, 10, 18
         grid_w = cols * sw + (cols - 1) * gap
         grid_h = rows * sw + (rows - 1) * gap
@@ -359,7 +373,9 @@ class StyleModeMixin:
 
         gx0, gy0 = px + pad, py + pad
         cyan = QColor(0, 209, 224)
-        for i, (_name, value) in enumerate(COLOR_PALETTE):
+        for i, (_name, value) in enumerate(choices):
+            if value is None:
+                continue
             sx = gx0 + (i % cols) * (sw + gap)
             sy = gy0 + (i // cols) * (sw + gap)
             cell = QRectF(sx, sy, sw, sw)
@@ -381,7 +397,7 @@ class StyleModeMixin:
         painter.setFont(QFont(FONT_FAMILY, 9))
         painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter,
-                         COLOR_PALETTE[self._color_picker_index][0])
+                         choices[self._color_picker_index][0])
         painter.restore()
 
     # ── Status label (style mode -> s), boxes ──

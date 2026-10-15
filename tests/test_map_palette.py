@@ -357,3 +357,75 @@ def test_diagnose_warns_about_a_palette_it_cannot_read(tmp_path: Path):
     bad = [f for f in findings if f["code"] == "bad-palette"]
     assert len(bad) == 1 and bad[0]["severity"] == "warning"
     assert bad[0]["message"].startswith("map-res/palette.json: not JSON")
+
+
+# ── Style mode `s` `c` ─────────────────────────────────────────────
+
+def _picker(tmp_path: Path, box_id: str = "items") -> GrafliView:
+    root, _ = _map(tmp_path, HOT)
+    vault = tmp_path / "map-res"
+    (vault / "palette.json").write_text(_palette({
+        "storage": {"color": HOT, "label": "Persistence"},
+        "ui": {"color": "%plum", "label": "Interface"}}))
+    view = _view_of(root)
+    view.resize(900, 600)
+    view._box_items[box_id].setSelected(True)
+    return view
+
+
+def test_the_colour_grid_lists_the_palette_entries(tmp_path: Path):
+    from grafli.constants import COLOR_PALETTE
+    view = _picker(tmp_path)
+    choices = view._color_choices()
+    assert choices[:len(COLOR_PALETTE)] == list(COLOR_PALETTE)
+    assert choices[len(COLOR_PALETTE):] == [
+        ("Persistence", "%storage"), ("Interface", "%ui")]
+
+
+def test_the_grid_without_a_palette_is_the_theme_tokens(tmp_path: Path):
+    from grafli.constants import COLOR_PALETTE
+    board = tmp_path / "plain.grafli"
+    board.write_text(ROOT)
+    assert _view_of(board)._color_choices() == list(COLOR_PALETTE)
+
+
+def test_the_grid_opens_on_a_box_palette_entry(tmp_path: Path):
+    view = _picker(tmp_path, "view")
+    view._open_color_picker()
+    assert view._color_choices()[view._color_picker_index][1] == "%storage"
+
+
+def test_picking_a_palette_entry_colours_the_box_and_writes_v4(tmp_path: Path):
+    view = _picker(tmp_path)
+    view._open_color_picker()
+    for _ in range(4):
+        view._color_picker_move(0, 1)            # j past the theme rows
+    view._color_picker_move(1, 0)                # l -> the second entry
+    assert view._color_choices()[view._color_picker_index][1] == "%ui"
+    view._commit_color_picker()
+    assert view._board.box_by_id("items").color == "%ui"
+    assert _fill(view, "items") == QColor(theme.resolve_color("%plum"))
+    assert serialize(view._board).splitlines()[0] == "#!grafli v4"
+
+
+def test_the_grid_skips_the_gap_before_the_palette_rows(tmp_path: Path,
+                                                         monkeypatch):
+    from grafli.constants import COLOR_PALETTE
+    from grafli.view import style_mode
+    monkeypatch.setattr(style_mode, "COLOR_PALETTE", COLOR_PALETTE[:13])
+    view = _picker(tmp_path)
+    choices = view._color_choices()
+    assert choices[13:15] == [("", None), ("", None)]
+    view._open_color_picker()
+    view._color_picker_move(4, 0)                # l to the row's end
+    view._color_picker_move(0, 2)                # j onto the last token row
+    assert view._color_picker_index == 12
+    view._color_picker_move(0, 1)
+    assert choices[view._color_picker_index][1] == "%ui"
+
+
+def test_the_help_sheet_names_the_palette_in_the_grid():
+    import inspect
+    from grafli.view.overlays import OverlaysMixin
+    source = inspect.getsource(OverlaysMixin._show_cheatsheet)
+    assert '("  c", "Color grid, then the map palette\'s %names' in source

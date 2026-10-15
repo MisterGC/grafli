@@ -432,7 +432,7 @@ class OverlaysMixin:
             ("Style", [
                 ("s", "Style mode — same keys for box / note / connector:"),
                 ("  e", "Appearance: plate/flat/card, label spot (left: a band zoomed out), label ink, outline"),
-                ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
+                ("  c", "Color grid, then the map palette's %names (hjkl pick, live, ⏎ apply)"),
                 ("  i", "Symbol grid (⇥ fill/lead/badge, 0-9 number, f filled)"),
                 ("  t", "Text grid: size × bold/italic (⇥ sans/mono/hand, o outline, s shadow)"),
                 ("  s", "Status label on a box (~status=): type it, then pick its colour"),

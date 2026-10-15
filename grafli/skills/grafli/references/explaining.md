@@ -13,6 +13,46 @@ A map is built only from what every board has: boxes, arrows, notes, `&doc`
 makes it an explanation map is how you split the subject and what you put
 on each level.
 
+## The top board — the problem and its layers, not internals
+
+The top board is where the reader decides whether they follow you. Open
+it with what they came with, not with what an implementer asks ("what is
+generated, what is written once" is a question for a level further down).
+The top board shows three things, in this order:
+
+1. **The problem** — one sentence: what the subject is for, the need it
+   answers. A plain note at the top, the largest text on the board.
+2. **The shape of the answer** — one sentence: how the subject answers it,
+   in the words of its layers ("one plain-text file, a canvas that draws
+   it, exports that carry it out"). A `~small` note under the problem.
+3. **The layers of the problem** — drawn as **stacked full-width
+   containers**, one per layer, the way people recognise a layer diagram:
+   the same width, one under the other, the layer's name on the left, its
+   colour from the map's palette (`%name ^left`, see "A resting colour per
+   layer" below). Each layer holds its few parts as `!flat` boxes. Zoomed
+   out, `^left` keeps each container a band with its name on the left, so
+   the board still reads as a stack of named layers.
+
+* **One concrete case on every layer.** Pick one small, real instance of
+  the subject and say in one `~small` note per layer what it is on that
+  layer — the same case all the way down the stack. The general concept
+  stays the subject; the case makes it graspable.
+* **Say it is an example, not the scope.** A note under the answer names
+  the case and says so ("Example, not the scope: …"), so the reader does
+  not take the map for a map of that one case.
+* **Mechanisms go one level down.** How a part works — its algorithm, its
+  data, what is generated from what — lives in the part's `&graph`
+  sub-board or `&doc`, never on the top board.
+
+The problem note is the top board's question note (see the next section):
+the top board's question is "what is this for, and what is it made of?".
+
+GUI: select a layer's parts, <kbd>Ctrl</kbd>+<kbd>G</kbd> wraps them in a
+new container; on the container <kbd>s</kbd> <kbd>e</kbd>, Label → left,
+<kbd>s</kbd> <kbd>c</kbd> the layer's palette entry, and resize it to the
+width of the other layers; on its parts <kbd>s</kbd> <kbd>e</kbd>,
+Background → flat. A single box dragged onto a layer nests in it.
+
 ## The level — one question, one split, its evidence
 
 Every board of the map is a **level**. Before you place anything, write
@@ -235,6 +275,9 @@ A map of code is true at one revision. Record it:
 
 ## Checklist before handing over a map
 
+* The top board states the problem, the shape of the answer and the
+  layers as stacked full-width containers; its one example case says it
+  is an example; mechanisms are a level down.
 * Every level has its question note and evidence for its split.
 * No level has more than about nine parts; every label is one line.
 * Every box doc opens with one sentence that says what the part is.
@@ -250,7 +293,74 @@ A map of code is true at one revision. Record it:
   `grafli export-html <board>.grafli <out>.html` writes every reachable
   board, its docs, overlays and tours into one offline page.
 
-## Example — the top level of a code map
+## Example — the top board of a code map
+
+The subject is grafli itself. `map-res/palette.json`:
+
+```json
+{
+  "entries": {
+    "export": {"color": "%muted", "label": "Exports"},
+    "shell": {"color": "%rose", "label": "App shell"},
+    "canvas": {"color": "%soft", "label": "Canvas"},
+    "format": {"color": "%highlight", "label": "Format"}
+  }
+}
+```
+
+`map.grafli`:
+
+```
+#!grafli v4
+# What is grafli for, and what is it made of? — top board of a map of grafli
+# source: ~/dev/grafli @ a1b2c3d
+
+@ note problem 0,-260 "Problem: a diagram that an agent and a person both edit, and that still reads like a whiteboard"
+@ note answer 0,-200 "Answer: one plain-text file, a canvas that draws and edits it, exports that carry it out" ~small
+@ note case 0,-140 "Example, not the scope: one box, API, followed through every layer" ~small
+
+@ box export "Exports" 0,-60 1140x180 %export ^left
+@ box render "Render" 30,0 240x90 ^topcenter !flat &graph:render >export
+@ box slides "PDF / PPTX" 300,0 240x90 ^topcenter !flat &graph:slides >export
+@ box html "HTML page" 570,0 240x90 ^topcenter !flat &doc:html >export
+@ note case_export 850,15 "API is a box on a slide" ~small >export
+
+@ box shell "App shell" 0,140 1140x180 %shell ^left
+@ box window "Window" 30,200 240x90 ^topcenter !flat &doc:window >shell
+@ box stack "Board stack" 300,200 240x90 ^topcenter !flat &graph:stack >shell
+@ box autosave "Autosave" 570,200 240x90 ^topcenter !flat &doc:autosave >shell
+@ note case_shell 850,215 "Moving API is saved to the file" ~small >shell
+
+@ box canvas "Canvas" 0,340 1140x180 %canvas ^left
+@ box items "Items" 30,400 240x90 ^topcenter !flat &graph:items >canvas
+@ box edit "Edit modes" 300,400 240x90 ^topcenter !flat &doc:edit >canvas
+@ box lod "Zoom levels" 570,400 240x90 ^topcenter !flat &doc:lod >canvas
+@ note case_canvas 850,415 "API is drawn and dragged" ~small >canvas
+
+@ box format "Format" 0,540 1140x180 %format ^left
+@ box parser "Parser" 30,600 240x90 ^topcenter !flat &graph:parser >format
+@ box writer "Writer" 300,600 240x90 ^topcenter !flat &doc:writer >format
+@ box vault "Resource vault" 570,600 240x90 ^topcenter !flat &doc:vault >format
+@ note case_format 850,615 "API is one line: @ box api …" ~small >format
+
+@ note evidence 0,760 """
+code:
+split by the modules that own each layer
+  @grafli/format.py
+  @grafli/view/
+  @grafli/app.py
+  @grafli/pdfexport.py
+""" ~small
+```
+
+The problem and the shape of the answer come first; the four layers are
+stacked full-width containers in their palette colours, the name on the
+left; one box, `API`, is followed through every layer and the board says
+it is an example; how parsing, items, the board stack and rendering work
+is a level down (`&graph`), what a part is a doc away (`&doc`). Zoomed out
+(`grafli render --lod map.grafli out.png`) the board is four named bands.
+
+## Example — a mechanism, one level down
 
 `fight-res/palette.json`:
 

@@ -741,7 +741,7 @@ class MainWindow(QMainWindow):
         from grafli.revision import refs_stale_line
         line = refs_stale_line(board, path.resolve().parent)
         if line:
-            self._view.toast(f"⚠ {line[0].upper()}{line[1:]}", "warn")
+            self._view.toast(line[0].upper() + line[1:], "warn")
 
     def _enter_board(self, path: Path, label: str, target_id: str = "",
                      via=None):

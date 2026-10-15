@@ -126,7 +126,7 @@ def test_opening_a_stale_board_shows_the_notice(tmp_path):
     old, head = _repo(tmp_path)
     win = _opened(tmp_path, f"# source: repo @ {old[:7]}")
     assert win._view._toast_text == (
-        f"⚠ Refs read at {old[:7]}, repo is at {head[:7]} — "
+        f"Refs read at {old[:7]}, repo is at {head[:7]} — "
         "@path:line refs may open moved lines")
     assert win._view._toast_kind == "warn"
 

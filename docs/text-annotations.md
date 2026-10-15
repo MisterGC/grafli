@@ -75,6 +75,11 @@ reviewer should spot first.
 
 Plain assignments need no keyword: `out = []` is unambiguous.
 
+A relative `@path` resolves against the repo of the board's
+`# source: <repo> @ <rev>` comment (a relative repo taken from the board's
+folder), else against the board's folder — in the app and in
+`grafli diagnose`.
+
 ### Style
 
 The snippet should reveal *what happens*, not literally mirror the

@@ -175,7 +175,8 @@ A map of code is true at one revision. Record it:
 
 * Put the revision you mapped in a `#` comment at the top of each board
   (`# source: ~/dev/shapes-and-stone @ a1b2c3d`) and in each overlay's
-  `source`.
+  `source`. The board's refs then resolve against that repo, so write them
+  from its root (`@src/Player.qml:88`), never with `../` prefixes.
 * **After the subject changes**, re-check the parts the change touches.
   Update what you verified and the revision; for the parts you could not
   re-check, write a freshness overlay (categories such as `current`,

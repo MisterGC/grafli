@@ -732,7 +732,7 @@ class OverlaysMixin:
         <p style='{kw}'>Inline elements</p>
         <table cellpadding='4' style='margin-left:8px'>
           <tr><td style='{mono}'>@path:line</td>
-              <td>clickable reference &mdash; opens the file at that line in your editor</td></tr>
+              <td>clickable reference &mdash; opens the file at that line in your editor; a relative path starts at the board's <span style='{mono}'># source:</span> repo</td></tr>
           <tr><td style='{mono}'># &hellip;</td>
               <td>comment (italic, muted)</td></tr>
           <tr><td style='{mono}'>"..."  #FFF  42  true</td>

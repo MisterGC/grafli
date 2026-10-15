@@ -259,6 +259,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bad-overlay` names what does not parse, `overlay-unknown-id` names the
   entry and the nearest id on the board.
   ([#216](https://github.com/MisterGC/grafli/issues/216))
+- **Code refs resolve against the board's `# source:` repo.** A map of
+  another repo needed `@../../repo/src/x.py:3` refs that widened notes and
+  broke when folders moved. A board whose comment says
+  `# source: <repo> @ <rev>` now resolves a relative `@src/x.py:3` against
+  that repo: clicking it in a code note or an overlay legend opens the file
+  there, and `grafli diagnose` looks for it there. Renders and exports draw
+  the ref as written. Boards without the comment resolve as before.
+  ([#217](https://github.com/MisterGC/grafli/issues/217))
 
 ### Changed
 - **A sub-board's miniature fills the whole box.** It used to sit small

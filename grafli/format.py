@@ -3,6 +3,7 @@
 Format spec:
   #!grafli v1                                      (file header, first line)
   # comment or title
+  # source: <repo> @ <rev>                         (code refs resolve against <repo>)
   @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card] [!ink] [!sans] [!dashed|!dotted] [&url] [~status=<text>[:%color]] [>parent]
   @ arrow <from_id> -> <to_id> "<label>"           (forward)
   @ arrow <from_id> <- <to_id> "<label>"           (backward)

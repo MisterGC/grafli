@@ -9,7 +9,6 @@ GrafliView provides the scene, board model, and undo machinery.
 from __future__ import annotations
 
 
-import re as _re
 import shlex
 import shutil
 import subprocess
@@ -30,7 +29,7 @@ from PySide6.QtWidgets import (
 )
 from grafli import theme
 from grafli.constants import ARROW_LABEL_FONT_SIZES, FONT_FAMILY
-from grafli.format import Arrow, Image, Note, ref_root
+from grafli.format import Arrow, Board, Image, Note, resolve_code_ref
 from grafli.items import BoxItem, ImageItem, LabelItem, NoteItem
 from grafli.md_note import note_is_md, toggle_task
 from pathlib import Path
@@ -178,21 +177,10 @@ class ResourcesMixin:
         Relative paths are resolved against the board's ``# source:`` repo,
         else the .grafli file's directory.
         """
-        target = ref[1:] if ref.startswith("@") else ref
-        line_no: int | None = None
-        m = _re.match(r"^(.+):(\d+)$", target)
-        if m:
-            target = m.group(1)
-            line_no = int(m.group(2))
-
-        path = Path(target).expanduser()
-        if not path.is_absolute():
-            window = self.window()
-            if hasattr(window, "_file_path") and window._file_path:
-                base = Path(window._file_path).parent
-                if self._board is not None:
-                    base = ref_root(self._board, base)
-                path = base / path
+        window = self.window()
+        board_file = getattr(window, "_file_path", None)
+        base = Path(board_file).parent if board_file else Path()
+        path, line_no = resolve_code_ref(self._board or Board(), base, ref)
         path = path.resolve()
 
         cmd_template = QSettings("Grafli", "Grafli").value(

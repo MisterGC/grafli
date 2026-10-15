@@ -548,6 +548,22 @@ def ref_root(board: Board, base_dir: Path) -> Path:
     return repo if repo.is_absolute() else base_dir / repo
 
 
+def resolve_code_ref(board: Board, base_dir: Path,
+                     ref: str) -> tuple[Path, int | None]:
+    """The file and line an ``@path[:line]`` code ref opens: ``~`` expanded,
+    a relative path taken from ``ref_root``; the line None when the ref
+    names none."""
+    target = ref[1:] if ref.startswith("@") else ref
+    line_no: int | None = None
+    m = re.match(r"^(.+):(\d+)$", target)
+    if m:
+        target, line_no = m.group(1), int(m.group(2))
+    path = Path(target).expanduser()
+    if not path.is_absolute():
+        path = ref_root(board, base_dir) / path
+    return path, line_no
+
+
 def uses_cross_board_stops(board: Board) -> bool:
     """True if a flow has a stop in another board (``<board>#<bookmark>``)."""
     return any("#" in step.ref for flow in board.flows for step in flow.steps)

@@ -276,3 +276,50 @@ def test_the_legend_shrinks_the_slide_diagram(tmp_path: Path, monkeypatch):
     _export(board, tmp_path / "legend.pdf", "--legend",
             monkeypatch=monkeypatch)
     assert sizes[-1] < plain
+
+
+# ── PPTX ──────────────────────────────────────────────────────────
+
+def _pptx_slide(board: Path, out: Path, *flags: str):
+    """The deck's first diagram slide (after the cover)."""
+    from pptx import Presentation
+    from grafli.app import _cmd_export
+    assert _cmd_export([str(board), str(out), *flags]) == 0
+    return Presentation(str(out)).slides[1]
+
+
+def _texts(slide) -> list[str]:
+    return [s.text_frame.text for s in slide.shapes if s.has_text_frame]
+
+
+def test_pptx_legend_adds_editable_labels_and_swatches(tmp_path: Path):
+    from pptx.util import Emu
+    board = _map(tmp_path, BOARD.replace('@app,fmt', '@app,n'))
+    plain = _pptx_slide(board, tmp_path / "plain.pptx")
+    shown = _pptx_slide(board, tmp_path / "legend.pptx", "--legend")
+    texts = _texts(shown)
+    for label in ("User interface", "Core model", "Hot path"):
+        assert label in texts
+        assert label not in _texts(plain)
+    assert "Not on the board" not in texts
+    fills = {str(s.fill.fore_color.rgb) for s in shown.shapes
+             if s.shape_type == 1 and s.fill.type == 1
+             and s.fill.fore_color.type == 1}
+    assert {UI[1:], CORE[1:], HOT[1:]} <= fills
+    # The band is reserved: the diagram picture is shorter with the legend.
+    def picture_h(slide):
+        return [Emu(s.height) for s in slide.shapes if s.shape_type == 13][0]
+    assert picture_h(shown) < picture_h(plain)
+
+
+def test_a_pptx_text_slide_has_no_legend(tmp_path: Path):
+    from pptx import Presentation
+    from grafli.app import _cmd_export
+    board = _map(tmp_path, BOARD.replace(
+        '@ bookmark all "All" @app,fmt\n',
+        '@ bookmark all "All" @app,fmt\n@ bookmark txt "" @n\n').replace(
+        '@ flow tour "Tour" all\n', '@ flow tour "Tour" all txt\n'))
+    out = tmp_path / "deck.pptx"
+    assert _cmd_export([str(board), str(out), "--legend"]) == 0
+    text_slide = Presentation(str(out)).slides[2]
+    assert "User interface" not in _texts(text_slide)

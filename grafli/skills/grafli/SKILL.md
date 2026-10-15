@@ -377,7 +377,9 @@ to a v1 file, bump the header yourself).
   `%base %primary %secondary %tertiary %subtle %accent %highlight
   %muted %soft %clay %teal %rose %forest %plum`, or a raw `#RRGGBB`.
   An unknown token (e.g. `%green`) silently falls back to the default
-  fill — `diagnose` flags it as `unknown-color`.
+  fill — `diagnose` flags it as `unknown-color`. A map can name its own
+  colours in `<stem>-res/palette.json` and use them as `%name` on every
+  board of the map (see `references/format.md`, "Map palette").
 * Modifiers in `[]` are optional and order-sensitive as shown.
 * Multi-line text: use `\n` in labels and note text; a literal quote
   inside quoted text is `\"` (triple-quoted blocks need no escapes).

@@ -77,7 +77,9 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   Tokens are *semantic*: each one resolves to a different value in the light
   and [dark theme](keybindings.md#light-and-dark), so a board written by
   someone on light reads correctly on dark. Prefer them over hex, which is
-  kept exactly as written and so only suits one theme.
+  kept exactly as written and so only suits one theme. A `%name` can also
+  name an entry of the map's [palette](#map-palette), which every board of
+  the map resolves the same way.
 - `^anchor` — `topleft`, `topcenter` or `left`; without one a box's label
   is centred, and a box with children takes `topleft`. Controls how a box's
   label is placed. `left` places it top left like `topleft` and, zoomed out
@@ -318,6 +320,41 @@ using one carries a `#!grafli v3` header.
 
 See [Bookmarks & flows](bookmarks-flows.md) for capturing, editing, playback,
 present mode, and PDF export.
+
+## Map palette
+
+Colours that mean something across a map — a layer, an owner, a state —
+live in one file, `<stem>-res/palette.json`, in the vault of the map's top
+board. Every board of the map (the top board and the sub-boards in its
+vault) resolves a `%name` against it, so changing an entry recolours them
+all, in the app, `grafli render` and the exports.
+
+```json
+{
+  "entries": {
+    "core":   {"color": "%primary", "label": "Core"},
+    "view":   {"color": "%teal",    "label": "View layer"},
+    "export": {"color": "#B5651D",  "label": "Exports"}
+  }
+}
+```
+
+```
+@ box items "Items" 0,0 200x100 %view
+```
+
+| Field | Meaning |
+|---|---|
+| name | Lowercase letters (`a`–`z`), like a theme token; may not be a theme token's name |
+| `color` | A theme token (`%teal`, follows light and dark) or `#rrggbb` |
+| `label` | Shown in the colour grid; the name, capitalised, when missing |
+
+A name that shadows a theme token (`"teal"`) is ignored — the token wins —
+and `grafli diagnose` reports it as an error; an entry it cannot read is a
+warning, and a `%name` that is neither a token nor an entry is the usual
+`unknown-color` warning. A board using a palette entry carries a
+`#!grafli v4` header. Style mode → `c` lists the entries below the theme
+colours. The file is watched: an edit recolours the open board.
 
 ## Overlay files
 

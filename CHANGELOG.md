@@ -226,6 +226,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mode <kbd>s</kbd> <kbd>e</kbd>'s Label row gains Left. A board using it
   is written `#!grafli v4`; older builds open it read-only.
   ([#212](https://github.com/MisterGC/grafli/issues/212))
+- **One palette per map.** Changing what a colour means used to mean
+  rewriting every board of a map. `<stem>-res/palette.json` names entries
+  (a theme token or hex, and a label), a box, note or connector uses one as
+  `%name`, and every board of the map resolves it the same way — in the
+  app, `grafli render` and the exports; editing the file recolours the open
+  board. Style mode <kbd>s</kbd> <kbd>c</kbd> lists the entries below the
+  theme colours, and `grafli diagnose` knows the names and reports one that
+  shadows a theme token. A board using one is written `#!grafli v4`; older
+  builds open it read-only.
+  ([#213](https://github.com/MisterGC/grafli/issues/213))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

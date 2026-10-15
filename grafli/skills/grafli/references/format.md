@@ -21,7 +21,7 @@ class as a misplaced triple-quote modifier.
 
 | Modifier | Values | Effect |
 |----------|--------|--------|
-| `%color` | color token or `#RRGGBB` | fill color |
+| `%color` | color token, map palette `%name` or `#RRGGBB` | fill color; a palette name is `#!grafli v4` |
 | `^anchor` | `^topleft`, `^topcenter`, `^left` | label alignment (default: center); `^left` is top left and, zoomed out, keeps a container a band with its children's colours and its title on the left; `#!grafli v4` |
 | `~size` | named `~small`…`~xxxlarge`, `~4xl` (hero), short aliases `~2xl`/`~3xl`, or numeric `~16` | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |
@@ -659,6 +659,30 @@ board with such a step carries a `#!grafli v3` header — bump it yourself.
 * `@ footer` is a board-global markdown branding line rendered at the
   bottom of every exported content slide; `@ title-bg thumbnail-art`
   gives the export's title slide a faint thumbnail-collage backdrop.
+
+## Map palette (`<stem>-res/palette.json`)
+
+When colours mean something across a map (layers, owners, states), name
+them once in the vault of the map's top board instead of repeating tokens
+on every board. Every board of the map — the top board and the sub-boards
+in its vault — resolves `%name` against it; changing an entry recolours
+them all, in the app, `render` and the exports.
+
+```json
+{
+  "entries": {
+    "core": {"color": "%primary", "label": "Core"},
+    "view": {"color": "%teal", "label": "View layer"}
+  }
+}
+```
+
+* A name is lowercase letters and must not be a theme token's name
+  (`teal`, `rose`, …): such an entry is ignored and `diagnose` reports it
+  as `palette-shadows-token`.
+* `color` is a theme token (follows light/dark) or `#RRGGBB`; `label` is
+  what the colour grid (`s` `c`) shows.
+* A board using a palette name is written `#!grafli v4`.
 
 ## Overlay files (`<stem>-res/<name>.overlay.json`)
 

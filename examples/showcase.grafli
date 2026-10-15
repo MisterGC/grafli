@@ -1,5 +1,6 @@
 #!grafli v1
 # grafli feature showcase — source for the v0.1.0 docs-site screenshots.
+# source: code
 #
 # Theme: NPC behaviors in a fantasy town.
 #
@@ -100,7 +101,7 @@ if ratio > 2.0
 if threat.count > npc.allies
    return guards
 verify tests/test_assess.py:matrix
-return fight  @ai/threat.py:88
+return fight  @ai/threat.py:9
 """ ~width=38
 @ arrow assess_code -- assess
 

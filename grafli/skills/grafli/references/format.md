@@ -727,6 +727,9 @@ board is coloured as `A` shows it, with the overlay's legend.
   a repo: the legend then says **stale** once the repo's `HEAD` moves on.
   Relative `refs` resolve against that repo.
 * Keep `note` to a line or two; the legend shows three lines at most.
+* Run `grafli diagnose` on the board after writing an overlay: a file that
+  does not parse is `bad-overlay`, an entry id that is not on the board is
+  `overlay-unknown-id` (with the nearest id).
 
 ## Quoted-text escaping
 

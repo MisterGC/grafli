@@ -252,6 +252,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `grafli render --overlay <name>` and `grafli export --overlay <name>` do
   the same from the command line.
   ([#215](https://github.com/MisterGC/grafli/issues/215))
+- **`grafli diagnose` checks overlay files.** A malformed overlay file or an
+  entry whose id is no box, note or connector on the board used to go
+  unnoticed until the overlay was missing from the <kbd>A</kbd> cycle or
+  coloured less than expected. `diagnose` now warns about both —
+  `bad-overlay` names what does not parse, `overlay-unknown-id` names the
+  entry and the nearest id on the board.
+  ([#216](https://github.com/MisterGC/grafli/issues/216))
 
 ### Changed
 - **A sub-board's miniature fills the whole box.** It used to sit small

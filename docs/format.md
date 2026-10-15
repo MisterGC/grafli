@@ -409,6 +409,10 @@ are categories the producer declares. Relative `refs` point into the
 <kbd>A</kbd> cycles off → Connectivity → each overlay file in file-name order
 → off. A file that does not parse is skipped with a toast naming the
 problem. The file on screen is watched: an edit recolours the board.
+`grafli diagnose <file>` checks the board's overlay files without opening
+them: a file that does not parse is a `bad-overlay` warning, an entry whose
+id is no box, note or connector on the board an `overlay-unknown-id`
+warning.
 
 An overlay file on screen goes into the exports, so a review can see it
 without the app: the SVG and PNG exports draw the board on the overlay's

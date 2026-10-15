@@ -291,7 +291,8 @@ in `references/genres.md` instead.)
     misplaced modifier silently removes the element; always fix these
     first), children outside parents, sibling overlaps, cramped
     containers, likely-truncated labels, arrow labels crowding endpoints
-    or hiding arrowheads, missing `@path` / image refs. Each finding
+    or hiding arrowheads, missing `@path` / image refs, overlay files
+    that don't parse or name ids not on the board. Each finding
     carries a `fixable` flag and a `severity`:
 
     * `severity: error` (`parse-error`, `invalid-parent-ref`, …) —

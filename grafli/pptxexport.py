@@ -37,13 +37,16 @@ from pptx.util import Pt
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRectF, Qt
 from PySide6.QtGui import QFont, QImage, QPainter, QTextDocument
 
+from grafli import theme as grafli_theme
 from grafli.constants import FONT_FAMILY, SANS_FONT_FAMILY, resolve_textsize_px
 from grafli.flows import isolate_focus, render_thumbnail_art
 from grafli.items import note_ink
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
+from grafli.overlay_legend import SLIDE_CARD_W, card_image, measure_card
 from grafli.slideplan import (SlidePlan, build_slide_plan, live_overlays,
                               note_text_face, playback_text_fit,
-                              slide_doc_lines, slide_presentation)
+                              slide_doc_lines, slide_overlay,
+                              slide_presentation)
 
 # PowerPoint 16:9 canvas in points — same fixed geometry as the PDF exporter, so
 # the fractional layout math below mirrors pdfexport on a 960x540 pt page. When
@@ -459,10 +462,24 @@ def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
                  cap_bottom: float) -> bool:
     """Render a content plan into ``hero``: a text note as native centred text, a
     'no anchor' note, or the rasterized diagram with live note overlays. A caption
-    card, when present, floats above ``cap_bottom``. Shared by both modes."""
+    card, when present, floats above ``cap_bottom``. A view showing an overlay
+    file puts the diagram on the overlay's canvas and its legend card, as a
+    picture, in a column on the right. Shared by both modes."""
     # Text slide: the single note as native, editable, centred text.
     if plan.kind == "text":
         return _build_text_hero(slide, hero, plan)
+
+    reading = slide_overlay(view, plan)
+    if reading is not None:
+        laid, card_h = measure_card(reading, SLIDE_CARD_W)
+        gap = ctx.page_h * 0.06 * 0.5
+        card = card_image(reading, laid, card_h, 4)
+        slide.shapes.add_picture(_png_stream(card),
+                                 Pt(hero.right() - SLIDE_CARD_W),
+                                 Pt(hero.bottom() - card_h),
+                                 Pt(SLIDE_CARD_W), Pt(card_h))
+        hero = QRectF(hero.left(), hero.top(),
+                      hero.width() - SLIDE_CARD_W - gap, hero.height())
 
     source = plan.source
     if source is None:
@@ -484,7 +501,9 @@ def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
     # Doc lines show where the slide's frame keeps them legible.
     with slide_presentation(view, plan), slide_doc_lines(view, scale):
         overlays = live_overlays(view, plan)
-        img = _render_region(view, plan, fitted, overlays)
+        img = _render_region(view, plan, fitted, overlays,
+                             grafli_theme.HEATMAP_BG if reading is not None
+                             else None)
     slide.shapes.add_picture(_png_stream(img), Pt(fitted.left()),
                              Pt(fitted.top()), Pt(fitted.width()),
                              Pt(fitted.height()))
@@ -783,12 +802,13 @@ def _add_run(para, text: str, size_pt: float, font_ref: str, color, *,
 # ── raster ───────────────────────────────────────────────────────────────────
 
 def _render_region(view, plan: SlidePlan, fitted: QRectF,
-                   overlays: list | None = None) -> QImage:
+                   overlays: list | None = None,
+                   background=None) -> QImage:
     """Rasterize the plan's framed scene region to a transparent QImage at the
     fitted size (capped), with overlay notes and container chrome hidden and an
     isolate scope applied — identical to the PDF exporter's diagram raster.
     ``overlays`` narrows which notes are kept out of the raster (defaults to
-    all of the plan's)."""
+    all of the plan's); a *background* colour fills it instead."""
     source = plan.source
     if overlays is None:
         overlays = list(plan.overlays)
@@ -803,7 +823,8 @@ def _render_region(view, plan: SlidePlan, fitted: QRectF,
         k = cap / max(iw, ih)
         iw, ih = max(1, round(iw * k)), max(1, round(ih * k))
     img = QImage(iw, ih, QImage.Format.Format_ARGB32_Premultiplied)
-    img.fill(Qt.GlobalColor.transparent)
+    img.fill(background if background is not None
+             else Qt.GlobalColor.transparent)
     ip = QPainter(img)
     ip.setRenderHint(QPainter.RenderHint.Antialiasing)
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)

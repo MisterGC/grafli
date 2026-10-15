@@ -215,3 +215,26 @@ def draw_export_card(painter: QPainter, at: QPointF, scale: float, reading,
     painter.scale(scale, scale)
     paint_card(painter, QRectF(0, 0, width, height), laid, reading.legend)
     painter.restore()
+
+
+# A slide's card, in card units of one point each: a column right of the
+# diagram.
+SLIDE_CARD_W = 200
+
+
+def card_image(reading, laid: list, height: float, scale: float,
+               width: float = SLIDE_CARD_W) -> QImage:
+    """The measured card as a transparent image, *scale* pixels per card
+    unit, for a deck that places it as a picture."""
+    img = QImage(max(1, round(width * scale)), max(1, round(height * scale)),
+                 QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(img)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+    try:
+        draw_export_card(painter, QPointF(0, 0), scale, reading, laid, height,
+                         width)
+    finally:
+        painter.end()
+    return img

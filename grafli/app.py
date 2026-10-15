@@ -2168,6 +2168,12 @@ def _cmd_export(argv: list[str]) -> int:
         help="Draw the legend of the map's palette (the palette.json entries "
              "the board uses) at the bottom of each diagram slide. PDF only.",
     )
+    parser.add_argument(
+        "--overlay", default=None, metavar="NAME",
+        help="Colour each diagram slide by the board's overlay file "
+             "<stem>-res/NAME.overlay.json, as A shows it in the app, with "
+             "the overlay's legend beside the diagram",
+    )
     args = parser.parse_args(argv)
     if args.template is not None and not args.template.exists():
         print(f"Template not found: {args.template}", file=sys.stderr)
@@ -2254,6 +2260,12 @@ def _cmd_export(argv: list[str]) -> int:
     view.render_headless(args.input.resolve())
     view.load_board(board)
     view._legend_visible = args.legend
+    if args.overlay:
+        try:
+            view.show_overlay(args.overlay)
+        except ValueError as e:
+            print(f"--overlay: {e}", file=sys.stderr)
+            return 2
 
     if args.check:
         # Dry-run through the real exporter (text sizing needs the real

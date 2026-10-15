@@ -42,6 +42,7 @@ from grafli.flows import isolate_focus, render_thumbnail_art
 from grafli.items import note_ink
 from grafli.legend import draw_legend, legend_height
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
+from grafli.overlay_legend import SLIDE_CARD_W, draw_export_card, measure_card
 # Slide-typing/decision layer is shared with the PPTX exporter. ``_container_box``
 # and ``_slide_source`` are re-exported here for the existing pdfexport tests.
 from grafli.slideplan import (  # noqa: F401
@@ -53,6 +54,7 @@ from grafli.slideplan import (  # noqa: F401
     note_text_face,
     playback_text_fit,
     slide_doc_lines,
+    slide_overlay,
     slide_presentation,
 )
 
@@ -374,7 +376,9 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     """Draw one content slide from its plan. Returns True when it is overloaded —
     text that overflows even at the band minimum, or an in-place note below the
     readable floor — so the caller can warn the author. With *legend*, a
-    diagram slide keeps a band at its bottom for the map palette's legend."""
+    diagram slide keeps a band at its bottom for the map palette's legend; a
+    diagram slide of a view showing an overlay file draws the diagram on the
+    overlay's canvas with its legend card in a column on the right."""
     painter.fillRect(page, theme.SCENE_BG)
     pw, ph = page.width(), page.height()
     margin = ph * 0.06
@@ -383,6 +387,11 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     legend_px = _LEGEND_PT * _px_per_pt(page)
     legend_h = legend_height(entries, legend_px, pw - margin * 2)
     legend_reserve = legend_h + margin * 0.4 if entries else 0.0
+    reading = slide_overlay(view, plan)
+    card_column = 0.0
+    if reading is not None:
+        card_laid, card_h = measure_card(reading, SLIDE_CARD_W)
+        card_column = SLIDE_CARD_W * _px_per_pt(page) + margin * 0.5
 
     # A label-less, description-less stop is a "graph-only" slide: the framed
     # diagram fills the page with no title bar or caption — what the graph
@@ -423,7 +432,14 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     # through the flow. ``has_desc`` only gates whether we draw that card.
 
     # ── hero: the bookmark's framed diagram region (or a text slide) ──
-    hero = QRectF(margin, hero_top, pw - margin * 2, hero_bottom - hero_top)
+    hero = QRectF(margin, hero_top, pw - margin * 2 - card_column,
+                  hero_bottom - hero_top)
+    if reading is not None:
+        k = _px_per_pt(page)
+        draw_export_card(painter,
+                         QPointF(pw - margin - SLIDE_CARD_W * k,
+                                 hero_bottom - card_h * k),
+                         k, reading, card_laid, card_h, SLIDE_CARD_W)
 
     # A single-note step with no description renders its note as native,
     # selectable, clickable text instead of a rasterized diagram.
@@ -454,7 +470,9 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
         k = cap / max(iw, ih)
         iw, ih = max(1, round(iw * k)), max(1, round(ih * k))
     img = QImage(iw, ih, QImage.Format.Format_ARGB32_Premultiplied)
-    img.fill(Qt.GlobalColor.transparent)
+    # An overlay's colours are made for its darkened canvas, as in the app.
+    img.fill(theme.HEATMAP_BG if reading is not None
+             else Qt.GlobalColor.transparent)
     ip = QPainter(img)
     ip.setRenderHint(QPainter.RenderHint.Antialiasing)
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)
@@ -492,7 +510,8 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
             overloaded = True
 
     if has_desc:
-        _draw_caption(painter, page, plan.caption, footer, legend_reserve)
+        _draw_caption(painter, page, plan.caption, footer, legend_reserve,
+                      card_column)
     return overloaded
 
 
@@ -764,20 +783,21 @@ def _markdown_height(body: str, markdown: bool, width: float, px: int) -> float:
 
 
 def _draw_caption(painter, page: QRectF, text: str, footer: str,
-                  above: float = 0.0) -> None:
+                  above: float = 0.0, right: float = 0.0) -> None:
     """Draw the step description as a floating dark caption card at the bottom,
-    over the content (above the footer). Markdown, with clickable links; matches
-    the on-canvas playback caption and reserves no layout space."""
+    over the content (above the footer), centred left of a *right* column the
+    slide keeps. Markdown, with clickable links; matches the on-canvas playback
+    caption and reserves no layout space."""
     pw, ph = page.width(), page.height()
     margin = ph * 0.06
     ppp = _px_per_pt(page)
     pad = ph * 0.020
-    card_w = min(pw * 0.62, pw - margin * 2)
+    card_w = min(pw * 0.62, pw - margin * 2 - right)
     text_w = card_w - pad * 2
     ideal_px = max(1, round(_CAPTION_BAND[1] * ppp))
     text_h = min(_markdown_height(text, True, text_w, ideal_px), ph * 0.26)
     card_h = text_h + pad * 2
-    card_x = (pw - card_w) / 2
+    card_x = margin + (pw - margin * 2 - right - card_w) / 2
     card_y = ph - margin - _footer_reserve(page, footer) - above - card_h
     card = QRectF(card_x, card_y, card_w, card_h)
 

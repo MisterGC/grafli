@@ -159,13 +159,26 @@ def slide_doc_lines(view, scale_pt: float):
     return view.doc_lines_at(scale_pt * SLIDE_SCREEN_PX_PER_PT)
 
 
+def slide_overlay(view, plan: SlidePlan):
+    """The reading of the overlay file *view* shows (``A`` in the app,
+    ``--overlay`` on the command line) when *plan* is a diagram slide, so the
+    slide carries it; None otherwise. A stop in another board renders from
+    that board's own view, which shows no overlay."""
+    if plan.kind == "text" or view._overlay_shown() is None:
+        return None
+    return view._complexity_reading
+
+
 def live_overlays(view, plan: SlidePlan) -> list:
     """The plan's overlay notes that should still be drawn as native text
     under its presentation settings — call inside :func:`slide_presentation`.
 
     A note hidden by a "summary" collapse is subsumed by its container's tile;
     a note faded by "complete" focus must keep its faded raster look instead
-    of being re-drawn as full-opacity text."""
+    of being re-drawn as full-opacity text; a shown overlay file dims or
+    recolours every note, so they all keep their raster look."""
+    if slide_overlay(view, plan) is not None:
+        return []
     items = [it for it in plan.overlays if it.isVisible()]
     if plan.emphasis is not None:
         # A path stop fades every note it does not keep.

@@ -282,6 +282,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the levels with path stops, and a Tests overlay that
   `examples/navigation-map-overlay.py` regenerates.
   ([#171](https://github.com/MisterGC/grafli/issues/171))
+- **A slide-grade explanation map ships in `examples/`.**
+  `examples/layers-map.grafli` explains grafli's own layers — format, view,
+  exports — problem-first as a stack of layers, with doc lines, status
+  labels, one palette and its legend, a Tests overlay that
+  `examples/layers-map-overlay.py` regenerates, and two slide-grade levels.
+  Its entry tour exports as a deck with a headline on every stop:
+  `grafli export examples/layers-map.grafli deck.pdf --legend`.
+  ([#222](https://github.com/MisterGC/grafli/issues/222))
 
 ### Changed
 - **A map's tour exports as slides.** The skill's

@@ -73,6 +73,24 @@ To share it with someone without grafli:
 grafli export-html grafli/examples/navigation-map.grafli map.html
 ```
 
+## Slide-grade map demo
+
+`examples/layers-map.grafli` explains grafli's own layers — format, view,
+exports — the way a slide would: the problem first, then the layers as a
+stack of bands in their colours from `layers-map-res/palette.json`. Each
+part shows its doc's first sentence under its label and a status label
+(`live` in the app, `snapshot` outside it). Select **Parser** or
+**PDF / PPTX** and press <kbd>g</kbd><kbd>d</kbd> for a level with a claim
+headline, one emphasised part and a numbered path; <kbd>Shift</kbd>+<kbd>M</kbd>
+shows the legend and <kbd>A</kbd> cycles to the **Tests** overlay, which
+`examples/layers-map-overlay.py` writes. The `entry` tour crosses both
+levels and exports as a deck, one headline per stop:
+
+```bash
+grafli export grafli/examples/layers-map.grafli deck.pdf --legend
+grafli render grafli/examples/layers-map.grafli tests.png --overlay tests
+```
+
 ## Try it yourself
 
 The format is small enough that the fastest way to learn is to read a

@@ -561,3 +561,6 @@ layer's colour, and the `impact` sub-board uses the same palette entries.
 A complete map in three levels — box docs, deep links, a tour across the
 levels, a resting colour per layer and a generated overlay — ships as
 `examples/navigation-map.grafli` in the grafli repository.
+A slide-grade map — problem-first layer stack, doc lines, status labels,
+a palette with its legend, slide-grade levels and an entry tour that
+exports as a deck — ships as `examples/layers-map.grafli`.

@@ -93,3 +93,17 @@ def test_inline_code_in_a_pptx_export_names_the_bundled_mono_face(tmp_path):
             for r in p.runs]
     code = [r for r in runs if r.text == "QTextDocument"]
     assert code and all(r.font.name == FONT_FAMILY for r in code)
+
+
+def test_inline_code_in_an_html_export_names_the_bundled_mono_face(tmp_path):
+    import re
+    from grafli.htmlexport import export_html
+    _app()
+    src = tmp_path / "code.grafli"
+    src.write_text(CODE_FLOW)
+    out = tmp_path / "code.html"
+    export_html(src, out)
+    html = out.read_text()
+    families = set(re.findall(r'font-family=\\?"([^"\\]+)', html))
+    assert "monospace" not in families
+    assert FONT_FAMILY in families

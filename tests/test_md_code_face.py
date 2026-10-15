@@ -48,3 +48,31 @@ def test_inline_code_in_a_markdown_note_resolves_to_jetbrains_mono(face):
     frags = _code_fragments(doc)
     assert [f.text() for f in frags] == ["grep -n"]
     assert QFontInfo(frags[0].charFormat().font()).family() == FONT_FAMILY
+
+
+CODE_FLOW = '''\
+#!grafli v4
+@ note n 0,0 """
+md:
+**Sans face**: `QTextDocument` lays it out
+""" !sans
+@ bookmark bm "Code" @n
+@ flow tour "Tour" bm
+'''
+
+_BUNDLED_PDF_FONTS = ("JetBrainsMonoNF-", "Inter-", "PatrickHand-")
+
+
+def test_inline_code_in_a_pdf_export_embeds_only_the_bundled_faces(tmp_path):
+    import re
+    from grafli.pdfexport import export_flow_to_pdf
+    from grafli.view import GrafliView
+    _app()
+    board = parse(CODE_FLOW)
+    view = GrafliView()
+    view.load_board(board)
+    out = tmp_path / "tour.pdf"
+    export_flow_to_pdf(view, board.flow_by_id("tour"), out)
+    fonts = set(re.findall(rb"/BaseFont\s*/([\w+-]+)", out.read_bytes()))
+    assert b"JetBrainsMonoNF-Regular" in fonts
+    assert all(f.decode().startswith(_BUNDLED_PDF_FONTS) for f in fonts), fonts

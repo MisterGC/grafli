@@ -2215,6 +2215,11 @@ def _cmd_export(argv: list[str]) -> int:
              "the deck. Exit 1 when anything needs fixing.",
     )
     parser.add_argument(
+        "--all-flows", action="store_true",
+        help="With --check: check every flow of the board in one run "
+             "(--json then emits a list of reports, one per flow)",
+    )
+    parser.add_argument(
         "--json", action="store_true",
         help="With --check: emit the report as JSON",
     )
@@ -2262,6 +2267,12 @@ def _cmd_export(argv: list[str]) -> int:
         print("output is required (or pass --check for a dry-run)",
               file=sys.stderr)
         return 2
+    if args.all_flows and not args.check:
+        print("--all-flows only goes with --check", file=sys.stderr)
+        return 2
+    if args.all_flows and args.flow:
+        print("pass either --flow or --all-flows", file=sys.stderr)
+        return 2
     suffix = args.output.suffix.lower() if args.output else ".pdf"
     if suffix not in (".pdf", ".pptx"):
         print(f"Unsupported output format: {args.output.suffix} "
@@ -2277,7 +2288,9 @@ def _cmd_export(argv: list[str]) -> int:
     if not board.flows:
         print("No flows in this file — nothing to export.", file=sys.stderr)
         return 1
-    if args.flow:
+    if args.all_flows:
+        flows = list(board.flows)
+    elif args.flow:
         flow = board.flow_by_id(args.flow)
         if flow is None:
             ids = ", ".join(f.id for f in board.flows)
@@ -2352,7 +2365,8 @@ def _cmd_export(argv: list[str]) -> int:
         clean = not any(r["overloaded"] or r["overlong"] or r["dangling"]
                         or r["missing_docs"] for r in reports)
         if args.json:
-            print(_json.dumps(reports[0], indent=2))
+            print(_json.dumps(reports if args.all_flows else reports[0],
+                              indent=2))
         else:
             for report in reports:
                 _print_check_report(report)

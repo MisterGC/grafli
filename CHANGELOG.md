@@ -384,6 +384,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **A box that holds other items keeps its doc line.** A `&doc` container,
+  a `!card` with children and a box holding only a note now draw their
+  doc's first sentence under the title — on the canvas, in `grafli render`
+  and in the PDF and PPTX slides. Boxes without `&doc` are
+  unchanged. ([#252](https://github.com/MisterGC/grafli/issues/252))
 - **A corner badge on a box with an attachment draws whole.** The badge
   steps aside for the attachment glyph, but the label plate did not, so
   with a doc line or a top label the plate covered a quarter of the badge.

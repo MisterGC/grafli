@@ -2151,6 +2151,11 @@ def _cmd_export(argv: list[str]) -> int:
         help="Name of the template layout for content slides "
              "(default: auto-detected). Only with --template.",
     )
+    parser.add_argument(
+        "--legend", action="store_true",
+        help="Draw the legend of the map's palette (the palette.json entries "
+             "the board uses) at the bottom of each diagram slide. PDF only.",
+    )
     args = parser.parse_args(argv)
     if args.template is not None and not args.template.exists():
         print(f"Template not found: {args.template}", file=sys.stderr)
@@ -2236,6 +2241,7 @@ def _cmd_export(argv: list[str]) -> int:
     # `&doc` boxes resolve their docs against the board, as in the app.
     view.render_headless(args.input.resolve())
     view.load_board(board)
+    view._legend_visible = args.legend
 
     if args.check:
         # Dry-run through the real exporter (text sizing needs the real

@@ -40,6 +40,7 @@ from grafli.constants import (
 )
 from grafli.flows import isolate_focus, render_thumbnail_art
 from grafli.items import note_ink
+from grafli.legend import draw_legend, legend_height
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
 # Slide-typing/decision layer is shared with the PPTX exporter. ``_container_box``
 # and ``_slide_source`` are re-exported here for the existing pdfexport tests.
@@ -82,6 +83,10 @@ _BODY_BAND = (18.0, 24.0, 30.0)   # text-slide hero (fallback for dense notes)
 _CODE_BAND = (13.0, 16.0, 20.0)
 _FOOTER_BAND = (10.0, 13.0, 14.0)
 _CAPTION_BAND = (12.0, 15.0, 18.0)
+
+# The map palette's legend (``grafli.legend``): a band of swatches and labels
+# at the bottom of a diagram slide while the legend is on, in points.
+_LEGEND_PT = 14.0
 
 # A text slide normally sizes at playback parity (the note zoomed to fill the
 # hero, like fitInView frames it in the app) capped here; below the body-band
@@ -142,6 +147,7 @@ def export_flow_to_pdf(view, flow, out_path: str | Path,
     view._scene.setBackgroundBrush(Qt.GlobalColor.transparent)
 
     footer = board.footer or ""
+    legend = view._legend_visible
 
     overloaded = []
     painter = QPainter(writer)
@@ -155,7 +161,7 @@ def export_flow_to_pdf(view, flow, out_path: str | Path,
         for plan in plans[1:]:
             writer.newPage()
             if _draw_content_slide(painter, page, plan.view or view, plan,
-                                   footer):
+                                   footer, legend):
                 overloaded.append((plan.index, plan.title))
             _draw_footer(painter, page, footer)
     finally:
@@ -364,13 +370,19 @@ def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
 
 
 def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
-                        footer: str = "") -> bool:
+                        footer: str = "", legend: bool = False) -> bool:
     """Draw one content slide from its plan. Returns True when it is overloaded —
     text that overflows even at the band minimum, or an in-place note below the
-    readable floor — so the caller can warn the author."""
+    readable floor — so the caller can warn the author. With *legend*, a
+    diagram slide keeps a band at its bottom for the map palette's legend."""
     painter.fillRect(page, theme.SCENE_BG)
     pw, ph = page.width(), page.height()
     margin = ph * 0.06
+    entries = (view.legend_entries()
+               if legend and plan.kind != "text" else [])
+    legend_px = _LEGEND_PT * _px_per_pt(page)
+    legend_h = legend_height(entries, legend_px, pw - margin * 2)
+    legend_reserve = legend_h + margin * 0.4 if entries else 0.0
 
     # A label-less, description-less stop is a "graph-only" slide: the framed
     # diagram fills the page with no title bar or caption — what the graph
@@ -379,7 +391,12 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     has_desc = bool(plan.caption)
 
     hero_top = margin * 0.5
-    hero_bottom = ph - margin * 0.5 - _footer_reserve(page, footer)
+    hero_bottom = (ph - margin * 0.5 - _footer_reserve(page, footer)
+                   - legend_reserve)
+    if entries:
+        draw_legend(painter, QRectF(margin, hero_bottom + margin * 0.3,
+                                    pw - margin * 2, legend_h),
+                    entries, legend_px)
 
     if has_title:
         bar_h = ph * 0.12
@@ -475,7 +492,7 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
             overloaded = True
 
     if has_desc:
-        _draw_caption(painter, page, plan.caption, footer)
+        _draw_caption(painter, page, plan.caption, footer, legend_reserve)
     return overloaded
 
 
@@ -746,7 +763,8 @@ def _markdown_height(body: str, markdown: bool, width: float, px: int) -> float:
     return doc.size().height()
 
 
-def _draw_caption(painter, page: QRectF, text: str, footer: str) -> None:
+def _draw_caption(painter, page: QRectF, text: str, footer: str,
+                  above: float = 0.0) -> None:
     """Draw the step description as a floating dark caption card at the bottom,
     over the content (above the footer). Markdown, with clickable links; matches
     the on-canvas playback caption and reserves no layout space."""
@@ -760,7 +778,7 @@ def _draw_caption(painter, page: QRectF, text: str, footer: str) -> None:
     text_h = min(_markdown_height(text, True, text_w, ideal_px), ph * 0.26)
     card_h = text_h + pad * 2
     card_x = (pw - card_w) / 2
-    card_y = ph - margin - _footer_reserve(page, footer) - card_h
+    card_y = ph - margin - _footer_reserve(page, footer) - above - card_h
     card = QRectF(card_x, card_y, card_w, card_h)
 
     bg = QColor(theme.OVERLAY_BG)

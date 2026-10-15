@@ -474,7 +474,8 @@ task needs them:
 * `references/explaining.md` — explanation maps of any subject (code
   as one section): a top board that opens with the problem and its
   layers as a stack, one question and the evidence for its split per
-  level, box docs and sub-boards for depth, one board per repo plus a
+  level, slide-grade boards (a claim headline, three visual weights,
+  numbered paths, category bars, status labels, cards), box docs and sub-boards for depth, one board per repo plus a
   bench board linking in, relationship kinds on arrows, a resting
   colour per layer (filled boxes from the map's palette), tours across
   levels, the ask-on-the-map loop (answer a `Q:` with a level, a line or

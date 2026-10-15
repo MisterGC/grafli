@@ -284,6 +284,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#171](https://github.com/MisterGC/grafli/issues/171))
 
 ### Changed
+- **Explanation maps read like slides.** The skill's
+  `references/explaining.md` teaches a claim headline per board, three
+  visual weights (emphasis / normal / muted), quiet evidence, numbered
+  paths (`*lead:solid-1`), category bars with connectors in the same
+  palette colour, status labels (`~status=`) and cards (`!card`), each
+  with its GUI path, and shows them on a slide-grade example level of
+  grafli's own parser.
+  ([#220](https://github.com/MisterGC/grafli/issues/220))
 - **Explanation maps open with the problem and its layers.** The skill's
   `references/explaining.md` says the top board of a map states the
   problem, the shape of the answer and the layers of the problem, drawn

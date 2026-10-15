@@ -2304,7 +2304,7 @@ def _cmd_export(argv: list[str]) -> int:
             "flow": flow.id,
             "slides": slides,
             "overloaded": [
-                {"slide": i + 1, "label": lbl} for i, lbl in overloaded
+                {"slide": i + 1, "label": lbl} for i, lbl, _ in overloaded
             ],
             "overlong": overlong,
             "dangling": dangling,
@@ -2353,7 +2353,8 @@ def _cmd_export(argv: list[str]) -> int:
                                                 board_path)
     print(f"Wrote {args.output} ({slides} slides)", file=sys.stderr)
     if overloaded:
-        where = ", ".join(f"#{i + 1} {lbl}".strip() for i, lbl in overloaded)
+        where = ", ".join(f"#{i + 1} {lbl}".strip()
+                          for i, lbl, _ in overloaded)
         print(f"Warning: {len(overloaded)} slide(s) overloaded — trim or "
               f"split: {where}", file=sys.stderr)
     del view

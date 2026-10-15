@@ -44,7 +44,8 @@ from grafli.items import note_ink
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
 from grafli.overlay_legend import SLIDE_CARD_W, card_image, measure_card
 from grafli.slideplan import (SlidePlan, build_slide_plan, live_overlays,
-                              note_text_face, playback_text_fit,
+                              note_text_face, overload_finding,
+                              playback_text_fit,
                               slide_doc_lines, slide_overlay,
                               slide_presentation)
 
@@ -151,8 +152,9 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
       run already references theme fonts/colours.
 
     Returns ``(slide_count, overloaded)`` — same contract as the PDF exporter —
-    where ``overloaded`` lists ``(step_index, title)`` for slides whose in-place
-    notes fall below the readable floor, so the caller can warn the author.
+    where ``overloaded`` lists ``(step_index, title, findings)`` for slides
+    whose in-place notes fall below the readable floor, each such note named in
+    ``findings`` (:func:`overload_finding`), so the caller can warn the author.
     ``board_path`` is the flow's board file; stops in other boards resolve
     from it.
     """
@@ -195,8 +197,10 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
         _build_title_slide(prs.slides.add_slide(tlayout), view, board, flow, ctx)
         for plan in plans[1:]:
             slide = prs.slides.add_slide(clayout)
-            if _build_content_slide(slide, plan.view or view, plan, ctx):
-                overloaded.append((plan.index, plan.title))
+            findings = _build_content_slide(slide, plan.view or view, plan,
+                                            ctx)
+            if findings:
+                overloaded.append((plan.index, plan.title, findings))
     finally:
         view._scene.setBackgroundBrush(old_bg)
         for item in sel:
@@ -397,7 +401,8 @@ def _build_title_slide_template(slide, flow, ctx: _Ctx) -> None:
                font_ref=_FONT_MINOR, color=MSO_THEME_COLOR.TEXT_1, autosize=False)
 
 
-def _build_content_slide(slide, view, plan: SlidePlan, ctx: _Ctx) -> bool:
+def _build_content_slide(slide, view, plan: SlidePlan,
+                         ctx: _Ctx) -> list[dict]:
     if ctx.template:
         return _build_content_slide_template(slide, view, plan, ctx)
 
@@ -436,7 +441,7 @@ def _build_content_slide(slide, view, plan: SlidePlan, ctx: _Ctx) -> bool:
 
 
 def _build_content_slide_template(slide, view, plan: SlidePlan,
-                                  ctx: _Ctx) -> bool:
+                                  ctx: _Ctx) -> list[dict]:
     """Content slide on a template: the title fills the template's title/heading
     placeholder, the diagram fits the body placeholder's region (so it respects
     the template's margins, header and footer), and grafli's own chrome, footer
@@ -459,15 +464,17 @@ def _build_content_slide_template(slide, view, plan: SlidePlan,
 
 
 def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
-                 cap_bottom: float) -> bool:
+                 cap_bottom: float) -> list[dict]:
     """Render a content plan into ``hero``: a text note as native centred text, a
     'no anchor' note, or the rasterized diagram with live note overlays. A caption
-    card, when present, floats above ``cap_bottom``. A view showing an overlay
+    card, when present, floats above ``cap_bottom``. Returns the overload
+    findings of the notes too small to read at the slide's frame. A view showing an overlay
     file puts the diagram on the overlay's canvas and its legend card, as a
     picture, in a column on the right. Shared by both modes."""
     # Text slide: the single note as native, editable, centred text.
     if plan.kind == "text":
-        return _build_text_hero(slide, hero, plan)
+        _build_text_hero(slide, hero, plan)
+        return []
 
     reading = slide_overlay(view, plan)
     if reading is not None:
@@ -488,7 +495,7 @@ def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
         _fill_text(box.text_frame, "no anchor to render", is_md=False,
                    base_pt=_DESC_BAND[1], font_ref=_FONT_MINOR,
                    color=MSO_THEME_COLOR.TEXT_1, anchor=MSO_ANCHOR.MIDDLE)
-        return False
+        return []
 
     # Fit the framed region into the hero, preserving aspect ratio.
     scale = min(hero.width() / source.width(), hero.height() / source.height())
@@ -510,17 +517,18 @@ def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
 
     # Overlay each note as an editable textbox at its mapped position, sized to
     # the same scene scale the diagram was scaled by so it reads in place.
-    overloaded = False
+    findings = []
     for item in overlays:
-        if _build_note_overlay(slide, item, source, fitted, scale):
-            overloaded = True
+        finding = _build_note_overlay(slide, item, source, fitted, scale)
+        if finding is not None:
+            findings.append(finding)
 
     if plan.caption:
         _build_caption(slide, plan.caption, ctx, hero, cap_bottom)
-    return overloaded
+    return findings
 
 
-def _build_text_hero(slide, hero: QRectF, plan: SlidePlan) -> bool:
+def _build_text_hero(slide, hero: QRectF, plan: SlidePlan) -> None:
     """The slide's single note as native text, sized at playback parity: the
     note block fitted into the hero like ``fitInView`` frames it in the app,
     its font scaled by the same factor (capped at ``_BODY_MAX_PT``). A note too
@@ -544,11 +552,10 @@ def _build_text_hero(slide, hero: QRectF, plan: SlidePlan) -> bool:
     _fill_text(box.text_frame, body, is_md=is_md, base_pt=base,
                font_ref=face or _FONT_MINOR, color=_note_color(note),
                anchor=MSO_ANCHOR.MIDDLE, autosize=False)
-    return False
 
 
 def _build_note_overlay(slide, item, source: QRectF, fitted: QRectF,
-                        scale: float) -> bool:
+                        scale: float) -> dict | None:
     note = item.note
     nr = item.sceneBoundingRect()
     # The PDF clips note overlays to the diagram region, so a note hanging mostly
@@ -559,7 +566,7 @@ def _build_note_overlay(slide, item, source: QRectF, fitted: QRectF,
     inter = nr.intersected(source)
     nr_area = (nr.width() * nr.height()) or 1.0
     if inter.isEmpty() or (inter.width() * inter.height()) < 0.55 * nr_area:
-        return False
+        return None
     is_md = note_is_md(note)
     body = (md_hard_quote_breaks(note_md_body(note)) if is_md
             else note.text)
@@ -578,7 +585,9 @@ def _build_note_overlay(slide, item, source: QRectF, fitted: QRectF,
     _fill_text(box.text_frame, body, is_md=is_md, base_pt=base_pt,
                font_ref=_note_face(note) or _FONT_MINOR,
                color=_note_color(note), autosize=False)
-    return base_pt < _READABLE_MIN_PT
+    if base_pt >= _READABLE_MIN_PT:
+        return None
+    return overload_finding(note, base_pt, _READABLE_MIN_PT)
 
 
 def _note_face(note) -> str:

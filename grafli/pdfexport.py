@@ -51,6 +51,7 @@ from grafli.slideplan import (  # noqa: F401
     _slide_source,
     build_slide_plan,
     live_overlays,
+    overload_finding,
     note_text_face,
     playback_text_fit,
     slide_doc_lines,
@@ -117,8 +118,9 @@ def export_flow_to_pdf(view, flow, out_path: str | Path,
     """Render ``flow`` to a PDF at ``out_path``.
 
     Returns ``(slide_count, overloaded)`` where ``overloaded`` is a list of
-    ``(step_index, label)`` for content slides whose text overflows even at the
-    band minimum (or whose in-place notes fall below the readable floor) — the
+    ``(step_index, label, findings)`` for content slides whose text overflows
+    even at the band minimum (or whose in-place notes fall below the readable
+    floor); ``findings`` names each such note (:func:`overload_finding`) — the
     caller surfaces it so the author can trim or split those steps.
 
     ``view`` is a GrafliView whose scene holds the rendered graph (used both
@@ -162,9 +164,10 @@ def export_flow_to_pdf(view, flow, out_path: str | Path,
         _draw_title_slide(painter, page, view, board, flow)
         for plan in plans[1:]:
             writer.newPage()
-            if _draw_content_slide(painter, page, plan.view or view, plan,
-                                   footer, legend):
-                overloaded.append((plan.index, plan.title))
+            findings = _draw_content_slide(painter, page, plan.view or view,
+                                           plan, footer, legend)
+            if findings:
+                overloaded.append((plan.index, plan.title, findings))
             _draw_footer(painter, page, footer)
     finally:
         painter.end()
@@ -338,10 +341,10 @@ def _hidden(items):
 
 
 def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
-                       px_per_pt: float) -> bool:
+                       px_per_pt: float) -> dict | None:
     """Draw one note as native text at its mapped page position, sized to the
     scene scale already baked into ``mapped`` so it matches the diagram. Returns
-    True when the note renders below the readable floor (an overload signal)."""
+    the note's overload finding when it renders below the readable floor."""
     note = item.note
     is_md = note_is_md(note)
     body = (md_hard_quote_breaks(note_md_body(note)) if is_md
@@ -367,15 +370,17 @@ def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
                    vcenter=False, fixed_px=fixed_px, clip=clip,
                    family=note_text_face(note))
     if len(body.strip()) <= _ANNOTATION_MAX_CHARS:
-        return False   # a short annotation rides the picture (issue #123)
-    return fixed_px < _READABLE_MIN_PT * px_per_pt
+        return None   # a short annotation rides the picture (issue #123)
+    if fixed_px >= _READABLE_MIN_PT * px_per_pt:
+        return None
+    return overload_finding(note, fixed_px / px_per_pt, _READABLE_MIN_PT)
 
 
 def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
-                        footer: str = "", legend: bool = False) -> bool:
-    """Draw one content slide from its plan. Returns True when it is overloaded —
-    text that overflows even at the band minimum, or an in-place note below the
-    readable floor — so the caller can warn the author. With *legend*, a
+                        footer: str = "", legend: bool = False) -> list[dict]:
+    """Draw one content slide from its plan. Returns the findings that make
+    it overloaded — text that overflows even at the band minimum, or in-place
+    notes below the readable floor — so the caller can warn the author. With *legend*, a
     diagram slide keeps a band at its bottom for the map palette's legend; a
     diagram slide of a view showing an overlay file draws the diagram on the
     overlay's canvas with its legend card in a column on the right."""
@@ -444,8 +449,11 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     # A single-note step with no description renders its note as native,
     # selectable, clickable text instead of a rasterized diagram.
     if plan.kind == "text":
-        return _draw_text_hero(painter, hero, plan.text_note, _px_per_pt(page),
-                               text_rect=plan.text_rect)
+        if _draw_text_hero(painter, hero, plan.text_note, _px_per_pt(page),
+                           text_rect=plan.text_rect):
+            return [overload_finding(plan.text_note, _BODY_BAND[0],
+                                     _BODY_BAND[0], overflow=True)]
+        return []
 
     source = plan.source
     if source is None:
@@ -453,7 +461,7 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
         painter.setPen(QPen(theme.INK_FAINT))
         painter.drawText(hero, int(Qt.AlignmentFlag.AlignCenter),
                          "no anchor to render")
-        return False
+        return []
 
     scale = min(hero.width() / source.width(), hero.height() / source.height())
     tw, th = source.width() * scale, source.height() * scale
@@ -500,19 +508,21 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
 
     # Overlay each note as real text at its mapped position (same source->fitted
     # transform as the image), sized to the scene scale so it reads in place.
-    overloaded = False
+    findings = []
     for item in overlays:
         nr = item.sceneBoundingRect()
         mapped = QRectF(fitted.left() + (nr.left() - source.left()) * scale,
                         fitted.top() + (nr.top() - source.top()) * scale,
                         nr.width() * scale, nr.height() * scale)
-        if _draw_note_overlay(painter, mapped, hero, item, _px_per_pt(page)):
-            overloaded = True
+        finding = _draw_note_overlay(painter, mapped, hero, item,
+                                     _px_per_pt(page))
+        if finding is not None:
+            findings.append(finding)
 
     if has_desc:
         _draw_caption(painter, page, plan.caption, footer, legend_reserve,
                       card_column)
-    return overloaded
+    return findings
 
 
 _UNORDERED = (

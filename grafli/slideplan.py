@@ -159,6 +159,15 @@ def slide_doc_lines(view, scale_pt: float):
     return view.doc_lines_at(scale_pt * SLIDE_SCREEN_PX_PER_PT)
 
 
+def overload_finding(note, pt: float, floor: float, *,
+                     overflow: bool = False) -> dict:
+    """One element that overloads a slide: the note by id, its text size in
+    pt at that slide's frame and the floor it misses — the size under the
+    readable floor, or (``overflow``) the band minimum it still overflows at."""
+    return {"element": note.id, "pt": round(pt, 1), "floor": round(floor, 1),
+            "reason": "overflow" if overflow else "below-floor"}
+
+
 def slide_overlay(view, plan: SlidePlan):
     """The reading of the overlay file *view* shows (``A`` in the app,
     ``--overlay`` on the command line) when *plan* is a diagram slide, so the

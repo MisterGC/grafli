@@ -10,7 +10,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QFontMetricsF, QTransform
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QTextBrowser
@@ -144,6 +144,46 @@ def test_doc_line_is_one_line_cut_to_the_box(tmp_path: Path):
     rect = item.doc_line_rect()
     assert rect.height() == QFontMetricsF(item._doc_line_font()).height()
     assert rect.width() <= item.box.w
+    win.close()
+
+
+def test_a_number_badge_on_a_doc_box_draws_its_whole_disc(tmp_path: Path):
+    """The badge steps aside for the attachment glyph; the label plate steps
+    aside with it, so it never covers a quarter of the disc (#220)."""
+    from PySide6.QtGui import QColor, QImage, QPainter
+    root = _write(tmp_path / "Badge.grafli",
+                  '#!grafli v4\n'
+                  '@ box doc "Alpha" 0,0 200x90 %highlight *badge:solid-1 '
+                  '&doc:combat\n'
+                  '@ box link "Gamma" 300,0 200x90 %highlight ^topcenter '
+                  '*badge:solid-3 &link:https://example.org\n')
+    _write(tmp_path / "Badge-res" / "combat.md", COMBAT_DOC)
+    win = _window(root)
+    _zoom(win, 1.0)
+    view = win._view
+    assert view._box_items["doc"]._doc_line
+    for bid in ("doc", "link"):
+        item = view._box_items[bid]
+        (badge, _glyph) = item.corner_icon_rects()
+        label = item._label
+        plate = label.mapRectToScene(label._plate_rect())
+        disc = item.mapRectToScene(badge)
+        assert not plate.intersects(disc), bid
+        # The filled disc reads the same ink in all four quarters.
+        img = QImage(int(disc.width()), int(disc.height()),
+                     QImage.Format.Format_ARGB32)
+        img.fill(QColor("white"))
+        p = QPainter(img)
+        view._scene.render(p, QRectF(img.rect()), disc)
+        p.end()
+        c, q = disc.width() / 2, disc.width() * 0.22
+        inks = {img.pixelColor(int(c + dx), int(c + dy)).name()
+                for dx in (-q, q) for dy in (-q, q)}
+        assert len(inks) == 1, (bid, inks)
+    # The doc line runs below the badge and keeps its width.
+    item = view._box_items["doc"]
+    assert item.doc_line_rect().width() == (
+        item.box.w - 2 * (item._badge_icon_side() + 14.0))
     win.close()
 
 

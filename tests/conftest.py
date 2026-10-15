@@ -15,5 +15,7 @@ def _pinned_theme():
     by calling ``theme.set_theme`` themselves.
     """
     theme.set_theme("light")
+    theme.set_map_palette({})
     yield
     theme.set_theme("light")
+    theme.set_map_palette({})

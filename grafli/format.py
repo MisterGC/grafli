@@ -59,7 +59,9 @@ is drawn in that pattern. And a board with an ``!dot`` arrow, whose ends
 draw a dot where they would draw an arrowhead. And a board with a
 ``~status=`` box, which carries a short text label on its bottom edge. And
 a board with a ``^left`` container, which zoomed out stays a band with its
-children's colours and its title on the left.
+children's colours and its title on the left. And a board whose ``%name``
+colour names an entry of the map's palette (``<stem>-res/palette.json``,
+see ``grafli.map_palette``).
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -326,6 +328,11 @@ class Board:
     that also fails to parse most of its lines is probably not a board at all
     (e.g. a Markdown doc opened by mistake) rather than a broken board."""
     version: int = field(default=0, repr=False)
+    palette_names: frozenset[str] = field(default_factory=frozenset,
+                                          repr=False, compare=False)
+    """The names of the map palette's entries (``grafli.map_palette``), set by
+    whoever knows the board's file; a ``%name`` among them is a palette
+    colour. Not serialized."""
     """The N of the file's `#!grafli vN` header, 0 without one. Above
     ``supported_version()`` the board holds syntax this build can't
     represent, so it must not be written back (see ``is_newer``)."""
@@ -1166,6 +1173,26 @@ def parse_file(path: str) -> Board:
 # version among the features it uses (v1 when none); the highest registered
 # version is the newest header this build reads without losing data. New
 # syntax registers itself here.
+# The theme's ``%token`` colour names, the same in every theme (a test holds
+# them to ``theme``). Any other ``%name`` names a palette entry.
+THEME_COLOR_TOKENS = frozenset((
+    "base", "primary", "secondary", "tertiary", "subtle", "accent",
+    "highlight", "muted", "soft", "clay", "teal", "rose", "forest", "plum",
+))
+
+
+def uses_palette_colors(board: Board) -> bool:
+    """Whether *board* colours anything with an entry of its map's palette,
+    which a v3 build cannot resolve. An unknown ``%name`` that is no entry
+    (a typo) stays what it was: a colour that falls back to the default."""
+    colors = [*(x.color for x in board.boxes),
+              *(x.status_color for x in board.boxes),
+              *(x.color for x in board.notes),
+              *(x.color for x in board.arrows)]
+    return any(c.startswith("%") and c[1:] in board.palette_names
+               and c[1:] not in THEME_COLOR_TOKENS for c in colors)
+
+
 VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "tours": (2, lambda b: bool(b.bookmarks or b.flows or b.footer
                                 or b.title_bg)),
@@ -1183,6 +1210,7 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "dot ends": (4, lambda b: any(a.head_shape for a in b.arrows)),
     "status labels": (4, lambda b: any(x.status for x in b.boxes)),
     "left titles": (4, lambda b: any(x.anchor == "left" for x in b.boxes)),
+    "palette colours": (4, uses_palette_colors),
 }
 
 

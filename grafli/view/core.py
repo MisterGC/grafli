@@ -397,6 +397,8 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         # app: it stands in for the window's file, so `&graph` miniatures and
         # `&doc` lines resolve and paint into the render as on the canvas.
         self._headless_board: Path | None = None
+        # The shown map's palette entries (``map_palette``), for the colour grid.
+        self._map_palette: list = []
         # Forward arrow (by id()) -> the reverse arrow merged into its line.
         self._merged_reverse: dict[int, Arrow] = {}
         # Flows-panel edit target: a captured bookmark is inserted after the

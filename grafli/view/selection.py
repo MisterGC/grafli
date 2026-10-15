@@ -67,6 +67,7 @@ from grafli.items import (
     ResizeForeshadow,
 )
 from grafli.lod import LodModel
+from grafli.map_palette import attach_names
 from pathlib import Path
 
 
@@ -263,6 +264,7 @@ class SelectionMixin:
         self._cancel_level_transition()
         self._reset_box_docs()
         self._board = board
+        self.load_map_palette()
         self._lod = LodModel.from_board(board)
         self._lod_simplified = set()
         self._lod_collapsed = set()
@@ -285,6 +287,20 @@ class SelectionMixin:
         self._refresh_lod()
         self._refresh_doc_peek()
         self.flows_changed.emit()
+
+    def load_map_palette(self) -> bool:
+        """Read the shown board's map palette (``%name`` colours) and make it
+        the one colours resolve against; returns whether it changed.
+
+        A view that renders a board for another (a ``&graph`` miniature) has
+        no board file of its own and leaves the palette as it is.
+        """
+        path = self._board_file()
+        if path is None and not hasattr(self.window(), "_file_path"):
+            return False
+        self._map_palette = attach_names(self._board, path)
+        return theme.set_map_palette(
+            {e.name: e.color for e in self._map_palette})
 
     def snapshot_state(self) -> ViewState:
         """Capture view state for buffer switching."""

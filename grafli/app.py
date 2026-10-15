@@ -35,6 +35,7 @@ from grafli.format import (Board, is_newer, parse, serialize,
                            serialize_to_file, supported_version)
 from grafli.sync import Conflict, atomic_write, merge_boards
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
+from grafli.map_palette import attach_names
 from grafli.sidepanel import PanelToggleButton, SidePanel, ThemeToggleButton
 from grafli.view import GrafliView
 
@@ -124,6 +125,7 @@ class MainWindow(QMainWindow):
         self._watcher: JsonSafeWatcher | None = None
         self._docs_watcher: MultiFileWatcher | None = None
         self._images_watcher: MultiFileWatcher | None = None
+        self._palette_watcher: MultiFileWatcher | None = None
         self._buffers = BufferManager()
 
         self._autosave_timer = QTimer(self)
@@ -1244,6 +1246,26 @@ class MainWindow(QMainWindow):
         self._watcher.start()
         self._watch_docs()
         self._watch_images()
+        self._watch_palette()
+
+    def _watch_palette(self):
+        """(Re)start the poller over the places the map's palette file may
+        live, so writing, editing or removing it recolours the board."""
+        if self._palette_watcher:
+            self._palette_watcher.stop()
+            self._palette_watcher = None
+        if not self._file_path:
+            return
+        from grafli.map_palette import candidate_paths
+        paths = [str(p) for p in candidate_paths(self._file_path)]
+        self._palette_watcher = MultiFileWatcher(paths)
+        self._palette_watcher.files_changed.connect(self._on_palette_changed)
+        self._palette_watcher.start()
+
+    def _on_palette_changed(self, _changed: list):
+        # Not a board change: no reload, no dirty flag — just recolour.
+        if self._view.load_map_palette():
+            self._apply_theme()
 
     def _watch_docs(self):
         """(Re)start the consolidated poller over the board's vault docs, so
@@ -1306,6 +1328,9 @@ class MainWindow(QMainWindow):
         if self._images_watcher:
             self._images_watcher.stop()
             self._images_watcher = None
+        if self._palette_watcher:
+            self._palette_watcher.stop()
+            self._palette_watcher = None
 
     def _reconcile_external(self, disk_text: str) -> tuple[Board, list[Conflict]]:
         """3-way merge an external on-disk edit into the in-memory board.
@@ -2419,6 +2444,7 @@ def _cmd_diagnose(argv: list[str]) -> int:
 
     text = args.input.read_text(encoding="utf-8")
     board = parse(text)
+    attach_names(board, args.input)
     from grafli.diagnostics import Diagnostic, apply_fixes
     note_rect = _make_note_rect_provider()
     arrow_label_size = _make_arrow_label_size_provider()
@@ -2568,6 +2594,7 @@ def _cmd_fmt(argv: list[str]) -> int:
                   file=sys.stderr)
             malformed += 1
             continue
+        attach_names(board, path)
         out = serialize(board)
         if out == text:
             continue

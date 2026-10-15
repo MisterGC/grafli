@@ -10,13 +10,13 @@ a note and code refs per element, and where the data came from. Nothing in the
 from __future__ import annotations
 
 import json
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from grafli.format import Board
 from grafli.heat import HeatDetail, HeatLegend, HeatReading
 from grafli.resources import res_dir
+from grafli.revision import head_revision, revisions_match
 
 SUFFIX = ".overlay.json"
 
@@ -185,15 +185,6 @@ def repo_path(overlay: Overlay, base_dir: Path) -> Path | None:
     return path if path.is_absolute() else base_dir / path
 
 
-def head_revision(repo: Path) -> str | None:
-    try:
-        out = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
-                             capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return out.stdout.strip() if out.returncode == 0 else None
-
-
 def stale_line(overlay: Overlay, base_dir: Path) -> str:
     """The legend's stale line, or "" while the data matches the repo.
 
@@ -206,8 +197,7 @@ def stale_line(overlay: Overlay, base_dir: Path) -> str:
     head = head_revision(repo)
     if head is None:
         return f"stale? cannot read the HEAD of {overlay.repo}"
-    rev = overlay.revision.lower()
-    if head.startswith(rev) or rev.startswith(head):
+    if revisions_match(overlay.revision, head):
         return ""
     return f"stale: analysed at {overlay.revision[:7]}, repo is at {head[:7]}"
 

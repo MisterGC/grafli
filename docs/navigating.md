@@ -133,7 +133,8 @@ looked.
   spot where the density is. When the board has
   [overlay files](format.md#overlay-files) beside it, further presses show
   each of them in turn — test results, churn, whatever a script wrote — with
-  a legend card that shows the selected element's note and refs.
+  a legend card that shows the selected element's note and refs. The overlay
+  on screen goes into the SVG/PNG and PDF/PPTX exports with its legend.
 
 ## Read a board zoomed out (semantic zoom)
 

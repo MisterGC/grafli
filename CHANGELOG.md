@@ -244,6 +244,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `grafli render --legend` and `grafli export --legend` do the same from the
   command line. Nothing in the `.grafli` changes.
   ([#214](https://github.com/MisterGC/grafli/issues/214))
+- **Overlays render outside the app.** An overlay file shown with
+  <kbd>A</kbd> used to stay on screen: renders and decks came out plain, so
+  a review could not see status or coverage. While one is on, the SVG/PNG
+  exports draw the board on the overlay's canvas with its legend card below,
+  and PDF/PPTX diagram slides carry it with the card beside the diagram.
+  `grafli render --overlay <name>` and `grafli export --overlay <name>` do
+  the same from the command line.
+  ([#215](https://github.com/MisterGC/grafli/issues/215))
 
 ### Changed
 - **A sub-board's miniature fills the whole box.** It used to sit small

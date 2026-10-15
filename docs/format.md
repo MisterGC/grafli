@@ -410,6 +410,17 @@ are categories the producer declares. Relative `refs` point into the
 → off. A file that does not parse is skipped with a toast naming the
 problem. The file on screen is watched: an edit recolours the board.
 
+An overlay file on screen goes into the exports, so a review can see it
+without the app: the SVG and PNG exports draw the board on the overlay's
+darkened canvas with its legend card in a band below, and a PDF or PPTX
+flow export draws each diagram slide that way with the card in a column
+to its right (not on the cover or a text slide; a stop in another board
+shows that board without the overlay). From the command line,
+`grafli render <file> out.png --overlay <name>` and
+`grafli export <file> deck.pdf --overlay <name>` (PDF or PPTX) do the same
+for `<stem>-res/<name>.overlay.json`; an unknown name fails and lists the
+overlays the board has.
+
 ## Why plain text
 
 - **Git-native** — every change is a line-level diff with intent baked in.

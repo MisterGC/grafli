@@ -694,7 +694,9 @@ To colour a board with analysis data (tests, churn, review state, what a
 reader understood), write one JSON file per overlay into the vault — never
 into the `.grafli`. The user presses `A` to cycle off → Connectivity → each
 overlay file by name → off; the file is watched, so rewriting it recolours
-the open board.
+the open board. For a picture or a deck that shows it, pass
+`--overlay <name>` to `grafli render` or `grafli export` (PDF or PPTX): the
+board is coloured as `A` shows it, with the overlay's legend.
 
 ```json
 {

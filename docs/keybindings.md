@@ -127,7 +127,7 @@ connector.
 |-----|--------|
 | <kbd>,</kbd> | Dim arrows |
 | <kbd>Shift</kbd>+<kbd>N</kbd> | Dim notes (and their connectors) |
-| <kbd>A</kbd> | Connectivity heatmap, then each overlay file |
+| <kbd>A</kbd> | Connectivity heatmap, then each overlay file; the overlay file on screen also goes into the SVG/PNG and PDF/PPTX exports, with its legend |
 | <kbd>B</kbd> | Subgraph focus (cycle direction: all → forward → backward) |
 | <kbd>Shift</kbd>+<kbd>B</kbd> | Toggle focus depth (full / 1-hop) |
 

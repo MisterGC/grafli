@@ -369,6 +369,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **A corner badge on a box with an attachment draws whole.** The badge
+  steps aside for the attachment glyph, but the label plate did not, so
+  with a doc line or a top label the plate covered a quarter of the badge.
+  The label now stays clear of it; boxes without an attachment are
+  unchanged. ([#220](https://github.com/MisterGC/grafli/issues/220))
 - **An `!ink` note keeps its colour in the PDF and PPTX exports.** Slides
   set note text as native text in board ink, so an `!ink` note lost its
   `%color` there. Its text now prints in that colour; notes without `!ink`

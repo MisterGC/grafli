@@ -236,6 +236,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shadows a theme token. A board using one is written `#!grafli v4`; older
   builds open it read-only.
   ([#213](https://github.com/MisterGC/grafli/issues/213))
+- **A legend drawn from the map's palette.** A map whose colours mean
+  something needed a hand-made note to say what. <kbd>Shift</kbd>+<kbd>M</kbd>
+  (or *Legend* in the side panel) shows a card with a swatch and label for
+  each palette entry the board uses; while it is on, the SVG/PNG exports
+  draw it below the board and PDF diagram slides at their bottom.
+  `grafli render --legend` and `grafli export --legend` do the same from the
+  command line. Nothing in the `.grafli` changes.
+  ([#214](https://github.com/MisterGC/grafli/issues/214))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

@@ -347,7 +347,7 @@ all, in the app, `grafli render` and the exports.
 |---|---|
 | name | Lowercase letters (`a`–`z`), like a theme token; may not be a theme token's name |
 | `color` | A theme token (`%teal`, follows light and dark) or `#rrggbb` |
-| `label` | Shown in the colour grid; the name, capitalised, when missing |
+| `label` | Shown in the colour grid and the legend; the name, capitalised, when missing |
 
 A name that shadows a theme token (`"teal"`) is ignored — the token wins —
 and `grafli diagnose` reports it as an error; an entry it cannot read is a
@@ -355,6 +355,17 @@ warning, and a `%name` that is neither a token nor an entry is the usual
 `unknown-color` warning. A board using a palette entry carries a
 `#!grafli v4` header. Style mode → `c` lists the entries below the theme
 colours. The file is watched: an edit recolours the open board.
+
+The palette is also the map's legend: <kbd>Shift</kbd>+<kbd>M</kbd> (or
+*Legend* in the side panel's *View* section) shows a card in the canvas's
+bottom-left corner with a swatch and the label of each entry the board uses,
+in the file's order; entries no box, status label, note or connector of the
+board uses stay out. While it is on, the SVG and PNG exports draw it in a
+band below the board and a PDF flow export draws it at the bottom of each
+diagram slide (not on the cover or a text slide). From the command line,
+`grafli render --legend` and `grafli export --legend` (PDF) do the same. The
+legend is a view setting, not part of the board: nothing in the `.grafli`
+changes.
 
 ## Overlay files
 

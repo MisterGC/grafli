@@ -47,7 +47,7 @@ Extract the skill from your installed copy and point your agent at it:
 | Claude Code | `~/.claude/skills/grafli/SKILL.md` | <https://code.claude.com/docs/en/skills> |
 | OpenCode | `~/.config/opencode/skills/grafli/SKILL.md` | <https://opencode.ai/docs/skills> |
 | Codex CLI | append to `~/.codex/AGENTS.md` | <https://agents.md/> |
-""" ~width=95
+""" ~width=105
 @ note n3 799,439 "Some other note ...\n\nBut with longer text so we can evaluate things and more." ~width=32
 @ box box1 "A Node" 1012,237 160x80
 @ box box2 "A Node" 1325,235 160x80

@@ -2532,12 +2532,14 @@ class NoteItem(QGraphicsSimpleTextItem):
 
     @staticmethod
     def _style_code_spans(doc: QTextDocument):
-        """Give inline code and fenced blocks a muted plate.
+        """Give inline code and fenced blocks a muted plate in the mono face.
 
-        The note font is already monospace, so code spans would otherwise
-        be invisible. Background brushes (unlike text colour) do render via
-        the document layout, so we set them directly on the char formats
-        Qt marked as fixed-pitch during the Markdown import.
+        In a mono note code spans would otherwise be invisible. Background
+        brushes (unlike text colour) do render via the document layout, so we
+        set them directly on the char formats Qt marked as fixed-pitch during
+        the Markdown import. Qt names those spans by the generic "monospace"
+        family, which headless resolves to a serif system face, so we pin the
+        bundled mono family on them too.
         """
         bg = QBrush(theme.NOTE_MD_CODE_BG_COLOR)
         cursor = QTextCursor(doc)
@@ -2549,6 +2551,7 @@ class NoteItem(QGraphicsSimpleTextItem):
                 if frag.isValid() and frag.charFormat().fontFixedPitch():
                     fmt = QTextCharFormat()
                     fmt.setBackground(bg)
+                    fmt.setFontFamilies([FONT_FAMILY])
                     cursor.setPosition(frag.position())
                     cursor.setPosition(
                         frag.position() + frag.length(),

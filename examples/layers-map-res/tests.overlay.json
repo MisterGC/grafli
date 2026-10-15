@@ -1,10 +1,10 @@
 {
   "title": "Tests",
   "producer": "examples/layers-map-overlay.py (grep over tests/)",
-  "created": "2026-10-15T13:00:57Z",
+  "created": "2026-10-15T13:49:53Z",
   "source": {
     "repo": "..",
-    "revision": "8820cf41952e1b2d7d6952b3d32ccfc00fe0ad1b"
+    "revision": "59a0ced46bb22955d777de8907c9b4613c882665"
   },
   "kind": "category",
   "categories": [
@@ -36,7 +36,7 @@
     },
     "render": {
       "category": "tested",
-      "note": "18 test files name _cmd_render",
+      "note": "19 test files name _cmd_render",
       "refs": [
         "@tests/test_box_docs.py:316",
         "@tests/test_box_outline.py:89",
@@ -69,16 +69,17 @@
       ]
     },
     "overlays": {
-      "category": "thin",
-      "note": "2 test files name load_overlay, parse_overlay",
+      "category": "tested",
+      "note": "3 test files name load_overlay, parse_overlay",
       "refs": [
+        "@tests/test_layers_map_example.py:21",
         "@tests/test_navigation_map_example.py:23",
         "@tests/test_overlay_file.py:13"
       ]
     },
     "parser": {
       "category": "tested",
-      "note": "81 test files name parse, serialize",
+      "note": "82 test files name parse, serialize",
       "refs": [
         "@tests/test_align_guides.py:16",
         "@tests/test_auto_parent.py:15",
@@ -86,20 +87,21 @@
       ]
     },
     "palette": {
-      "category": "thin",
-      "note": "2 test files name load_palette, parse_palette",
+      "category": "tested",
+      "note": "3 test files name load_palette, parse_palette",
       "refs": [
+        "@tests/test_layers_map_example.py:20",
         "@tests/test_map_palette.py:21",
         "@tests/test_navigation_map_example.py:22"
       ]
     },
     "vault": {
       "category": "tested",
-      "note": "3 test files name resolve_code_ref, doc_first_sentence",
+      "note": "4 test files name resolve_code_ref, doc_first_sentence",
       "refs": [
         "@tests/test_box_docs.py:21",
         "@tests/test_diagnose_refs.py:174",
-        "@tests/test_navigation_map_example.py:21"
+        "@tests/test_layers_map_example.py:19"
       ]
     }
   }

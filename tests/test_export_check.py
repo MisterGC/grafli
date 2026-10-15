@@ -1,6 +1,6 @@
-"""`grafli export --check` names what overloads a slide: each note under
-the readable floor, its size in pt at that slide's frame and the floor
-(#193)."""
+"""`grafli export --check` names what overloads a slide — each note under
+the readable floor, its size in pt at that slide's frame and the floor —
+and with `--all-flows` checks every flow of a board in one run (#193)."""
 
 from __future__ import annotations
 
@@ -121,3 +121,42 @@ def test_export_toast_names_the_first_note():
     assert _overload_toast([(1, "Overview", [finding])]) == (
         " · 1 overloaded — trim or split: "
         "#2 note 'evidence' at 2.2 pt (floor 11 pt)")
+
+
+def test_all_flows_checks_every_flow_in_one_run(tmp_path: Path, capsys):
+    from grafli.app import _cmd_export
+    path = _board_file(tmp_path)
+    assert _cmd_export([str(path), "--check", "--all-flows", "--json"]) == 1
+    reports = json.loads(capsys.readouterr().out)
+    assert [(r["flow"], r["slides"]) for r in reports] == [("f", 3), ("g", 2)]
+    assert [len(r["overloaded"]) for r in reports] == [1, 0]
+    _check(reports[0]["overloaded"][0]["elements"][0])
+
+
+def test_all_flows_text_reports_each_flow(tmp_path: Path, capsys):
+    from grafli.app import _cmd_export
+    path = _board_file(tmp_path)
+    assert _cmd_export([str(path), "--check", "--all-flows"]) == 1
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "flow 'f': 3 slides"
+    assert lines[1].startswith("[overloaded] slide #2 Overview: ")
+    assert lines[2:] == ["flow 'g': 2 slides", "No findings."]
+
+
+def test_all_flows_is_clean_when_every_flow_is(tmp_path: Path, capsys):
+    from grafli.app import _cmd_export
+    path = _board_file(tmp_path)
+    path.write_text(WIDE.replace('@ flow f "F" side wide\n', ""))
+    assert _cmd_export([str(path), "--check", "--all-flows"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "flow 'g': 2 slides", "No findings."]
+
+
+def test_all_flows_needs_check_and_excludes_flow(tmp_path: Path, capsys):
+    from grafli.app import _cmd_export
+    path = _board_file(tmp_path)
+    assert _cmd_export([str(path), str(tmp_path / "o.pdf"),
+                        "--all-flows"]) == 2
+    assert _cmd_export([str(path), "--check", "--all-flows",
+                        "--flow", "f"]) == 2
+    assert not (tmp_path / "o.pdf").exists()

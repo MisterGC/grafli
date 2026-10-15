@@ -898,12 +898,21 @@ class BoxItem(QGraphicsRectItem):
         if self._has_lead_icon():
             return w - (self._lead_icon_w() + 24.0)
         if self._has_badge_icon():
-            return w - 2 * (self._badge_icon_side() + 14.0)
+            return w - 2 * (w - self._badge_rect(w).left() + 6.0)
         return w - 16.0
 
     def _badge_icon_side(self) -> float:
         """Compact corner-badge size, scaled to the box."""
         return max(18.0, min(28.0, min(self.box.w, self.box.h) * 0.26))
+
+    def _badge_rect(self, w: float | None = None) -> QRectF:
+        """The corner badge in item coordinates, for a box *w* wide. The
+        attachment glyph owns the very corner, so the badge steps aside for
+        it."""
+        w = self.box.w if w is None else w
+        side = self._badge_icon_side()
+        dx = 20.0 if self.box.url else 0.0
+        return QRectF(w - side - 8.0 - dx, 8.0, side, side)
 
     def _paint_icon(self, painter: QPainter):
         """Draw the visual-vocabulary glyph. ``fill`` (default): big icon, the
@@ -913,12 +922,8 @@ class BoxItem(QGraphicsRectItem):
         its normal layout."""
         w, h = self.box.w, self.box.h
         if self.box.icon_placement == "badge":
-            side = self._badge_icon_side()
-            # The attachment glyph owns the very corner — step aside for it.
-            dx = 20.0 if self.box.url else 0.0
             # The badge sits on its own paper disc: board ink reads there.
-            iconset.paint_badge(painter, self.box.icon,
-                                QRectF(w - side - 8.0 - dx, 8.0, side, side),
+            iconset.paint_badge(painter, self.box.icon, self._badge_rect(),
                                 QColor(theme.INK))
             return
         color = self._label_ink()
@@ -1464,9 +1469,7 @@ class BoxItem(QGraphicsRectItem):
         w = self.box.w
         rects = []
         if self._has_badge_icon():
-            side = self._badge_icon_side()
-            dx = 20.0 if self.box.url else 0.0
-            rects.append(QRectF(w - side - 8.0 - dx, 8.0, side, side))
+            rects.append(self._badge_rect())
         if self.box.url or self.box.attach_kind == "doc":
             rects.append(QRectF(w - 17, 2, 14, 11))
         return rects
@@ -1590,6 +1593,10 @@ class BoxItem(QGraphicsRectItem):
         label_top = self._label.pos().y() - self.pos().y()
         top = label_top + self._label.boundingRect().height() + self._DOC_LINE_GAP
         width = self._label_width_for(self.box.w)
+        if self._has_badge_icon() and self._miniature is None:
+            # The doc line runs below the badge: only the label steps aside
+            # for it.
+            width = self.box.w - 2 * (self._badge_icon_side() + 14.0)
         if self._has_lead_icon():
             left = self._label.pos().x() - self.pos().x()
             width = self.box.w - left - 8.0

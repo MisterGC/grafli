@@ -1484,13 +1484,30 @@ class BoxItem(QGraphicsRectItem):
             _paint_attach_glyph(painter, self.rect(), self.box)
 
     def miniature_rect(self) -> QRectF:
-        """Where the miniature goes, in item coordinates: the body below a
-        top-anchored label."""
-        top = 8.0 + self._label.boundingRect().height() + 6.0
-        return QRectF(8.0, top, self.box.w - 16.0, self.box.h - top - 8.0)
+        """Where the miniature goes, in item coordinates: the whole box,
+        edge to edge; the label band covers its top."""
+        return self.rect()
+
+    def miniature_band_rect(self) -> QRectF:
+        """The backing band across the top of the box while a miniature
+        shows: it holds the label and the corner icons."""
+        bottom = 0.0
+        if self.box.label:
+            bottom = 8.0 + self._label.boundingRect().height() + 6.0
+        for icon in self.corner_icon_rects():
+            bottom = max(bottom, icon.bottom() + 6.0)
+        return QRectF(0.0, 0.0, self.box.w, min(bottom, self.box.h))
+
+    def miniature_body_rect(self) -> QRectF:
+        """The part of the miniature the band leaves in sight — its size on
+        screen decides whether the miniature shows."""
+        top = self.miniature_band_rect().bottom()
+        return QRectF(0.0, top, self.box.w, self.box.h - top)
 
     def miniature_pixmap_rect(self, pixmap: QPixmap) -> QRectF:
-        """The part of miniature_rect() *pixmap* fills, keeping its aspect."""
+        """Where *pixmap* goes in miniature_rect(), keeping its aspect: as
+        large as the box allows, so it reaches the box edges on the side
+        that limits it and none of the sub-board is cut off."""
         area = self.miniature_rect()
         pw, ph = pixmap.width(), pixmap.height()
         if area.width() <= 0 or area.height() <= 0 or pw <= 0 or ph <= 0:
@@ -1500,20 +1517,39 @@ class BoxItem(QGraphicsRectItem):
         return QRectF(area.center().x() - w / 2, area.center().y() - h / 2,
                       w, h)
 
-    def _paint_miniature(self, painter: QPainter):
+    def _miniature_band_fill(self) -> QColor:
+        """The band's fill: the box's own fill, so the label ink picked for
+        it still reads, or the surface colour on an unfilled box."""
+        hex_color = theme.resolve_color(self.box.color)
+        fill = QColor(hex_color) if hex_color else QColor(theme.SURFACE)
+        fill.setAlphaF(0.9)
+        return fill
+
+    def _paint_miniature(self, painter: QPainter, radius: float):
         target = self.miniature_pixmap_rect(self._miniature)
         if target.isEmpty():
             return
+        shape = QPainterPath()
+        shape.addRoundedRect(self.rect(), radius, radius)
         painter.save()
+        painter.setClipPath(shape)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.drawPixmap(target, self._miniature,
                            QRectF(self._miniature.rect()))
-        frame = QColor(theme.INK)
-        frame.setAlphaF(0.25)
-        painter.setPen(QPen(frame, 1.0))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(target)
+        band = self.miniature_band_rect()
+        if not band.isEmpty():
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(self._miniature_band_fill()))
+            painter.drawRect(band)
+            rule = QColor(theme.INK)
+            rule.setAlphaF(0.25)
+            painter.setPen(QPen(rule, 1.0))
+            painter.drawLine(band.bottomLeft(), band.bottomRight())
         painter.restore()
+        # The outline goes back over the raster's edges.
+        painter.setPen(self.pen())
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(self.rect(), radius, radius)
 
     _DOC_LINE_GAP = 2.0
 
@@ -1668,16 +1704,22 @@ class BoxItem(QGraphicsRectItem):
             self._paint_lod_tile(painter)
         elif self._lod_simplified:
             self._paint_lod_shell_bars(painter)
-        elif (self.box.icon and iconset.has_icon(self.box.icon)
-              and not (self._icons_above_label() and self._has_badge_icon())):
-            self._paint_icon(painter)
         # Only on the canvas: exports and thumbnails render the scene without
         # a widget and show the box as it is drawn without a miniature. A
         # headless render draws the canvas offscreen and keeps them.
         on_canvas = widget is not None or bool(
             self.scene() and self.scene().property("canvas_offscreen"))
-        if self._miniature is not None and on_canvas:
-            self._paint_miniature(painter)
+        mini = self._miniature is not None and on_canvas
+        if (self._lod_tile is None and not self._lod_simplified
+                and self.box.icon and iconset.has_icon(self.box.icon)
+                and not (self._has_badge_icon()
+                         and (mini or self._icons_above_label()))):
+            self._paint_icon(painter)
+        if mini:
+            self._paint_miniature(painter, radius)
+            # The badge rides on the band, above the raster.
+            if self._has_badge_icon() and not self._icons_above_label():
+                self._paint_icon(painter)
         # The view decides where a doc line shows, exports included.
         if self._doc_line:
             self._paint_doc_line(painter)

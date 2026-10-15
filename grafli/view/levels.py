@@ -105,7 +105,7 @@ class LevelsMixin:
             path = self._sub_board_path(item.box) if active else None
             if (path is not None and bid not in skip
                     and self._may_show_miniature(item)):
-                area = item.miniature_rect()
+                area = item.miniature_body_rect()
                 body_px = min(area.width(), area.height()) * scale
                 if should_show_miniature(body_px, item._miniature is not None):
                     pix = self._miniature_cache().get(path)

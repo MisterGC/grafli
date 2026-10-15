@@ -94,7 +94,7 @@ def test_graph_box_shows_its_miniature_once_large_enough(tmp_path: Path):
     view = win._view
     view._lod_enabled = False   # isolate the miniature threshold
     item = view._box_items["combat"]
-    area = item.miniature_rect()
+    area = item.miniature_body_rect()
     short = min(area.width(), area.height())
 
     _zoom(win, 1.0)
@@ -194,9 +194,9 @@ def test_icon_boxes_show_a_miniature_only_with_a_corner_badge(tmp_path: Path):
     assert items["fill"]._miniature is None
     badge = items["badge"]
     assert badge._miniature is not None
-    # The badge sits in the corner, above the miniature.
+    # The badge sits in the corner, on the band above the miniature.
     side = badge._badge_icon_side()
-    assert 8.0 + side <= badge.miniature_rect().top()
+    assert 8.0 + side <= badge.miniature_band_rect().bottom()
     win.close()
 
 

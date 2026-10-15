@@ -76,3 +76,20 @@ def test_inline_code_in_a_pdf_export_embeds_only_the_bundled_faces(tmp_path):
     fonts = set(re.findall(rb"/BaseFont\s*/([\w+-]+)", out.read_bytes()))
     assert b"JetBrainsMonoNF-Regular" in fonts
     assert all(f.decode().startswith(_BUNDLED_PDF_FONTS) for f in fonts), fonts
+
+
+def test_inline_code_in_a_pptx_export_names_the_bundled_mono_face(tmp_path):
+    from pptx import Presentation
+    from grafli.pptxexport import export_flow_to_pptx
+    from grafli.view import GrafliView
+    _app()
+    board = parse(CODE_FLOW)
+    view = GrafliView()
+    view.load_board(board)
+    out = tmp_path / "tour.pptx"
+    export_flow_to_pptx(view, board.flow_by_id("tour"), out)
+    runs = [r for slide in Presentation(out).slides for sh in slide.shapes
+            if sh.has_text_frame for p in sh.text_frame.paragraphs
+            for r in p.runs]
+    code = [r for r in runs if r.text == "QTextDocument"]
+    assert code and all(r.font.name == FONT_FAMILY for r in code)

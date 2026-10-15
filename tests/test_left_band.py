@@ -77,8 +77,10 @@ def test_the_box_form_names_left():
 # ── Full zoom: a top-left heading ─────────────────────────────────
 
 def test_at_full_zoom_the_title_sits_where_topleft_puts_it():
-    left = _view(BAND)._box_items["ui"]
-    top = _view(TOPLEFT)._box_items["ui"]
+    # Hold the views: a dropped view takes its scene items with it.
+    left_view, top_view = _view(BAND), _view(TOPLEFT)
+    left = left_view._box_items["ui"]
+    top = top_view._box_items["ui"]
     assert left._get_effective_anchor() == "topleft"
     assert left._label.pos() == top._label.pos()
     assert left._lod_tile is None

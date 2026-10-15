@@ -44,7 +44,7 @@ try:
   emit: OrderCreated(order.id)
 catch: PaymentDeclined -> err: reject order
 post: audit trail includes "order.created"
-verify: test_order_happy_path @tests/orders_test.py:4
+verify: test_order_happy_path @tests/orders_test.py:41
 risk: reservation leak if payment timeout is not compensated
 """ ~small !mono
 @ arrow n_place_order -> orders !dotted

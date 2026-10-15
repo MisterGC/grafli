@@ -101,7 +101,7 @@ if ratio > 2.0
 if threat.count > npc.allies
    return guards
 verify tests/test_assess.py:matrix
-return fight  @ai/threat.py:9
+return fight  @ai/threat.py:88
 """ ~width=38
 @ arrow assess_code -- assess
 

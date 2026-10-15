@@ -48,7 +48,7 @@ state = req.query.state
 if not csrf_match(state, req.cookie):
   err 400 csrf_mismatch
 risk timing leak — use constant_time_eq
-return exchange(req.query.code)  @auth/callback.py:12
+return exchange(req.query.code)  @auth/callback.py:23
 """ ~small
 
 @ note n_xchg 429,414 """
@@ -58,7 +58,7 @@ token = call provider.post(token_url, code)
 verify token.iss == expected_issuer
 verify token.aud == client_id
 profile = call provider.get(userinfo_url, token)
-return upsert_user(profile)  @auth/oauth.py:11
+return upsert_user(profile)  @auth/oauth.py:88
 """ ~small
 
 @ note n_users 836,415 """
@@ -70,7 +70,7 @@ if existing:
   return existing
 new = create_user(profile)
 emit UserCreated(new.id)
-return new  @users/store.py:11
+return new  @users/store.py:14
 """ ~small
 
 @ note n_sess 1196,418 """
@@ -81,7 +81,7 @@ cookie = sign(sid, secret)
 state new -> active in redis (ttl=30d)
 post cookie has HttpOnly, Secure, SameSite=Lax
 risk fixation if reusing pre-auth sid
-return sid  @auth/session.py:7
+return sid  @auth/session.py:5
 """ ~small
 
 @ note n_done 1580,420 """
@@ -90,7 +90,7 @@ finalize(sid, return_to) -> Response
 verify return_to in allowlist
 risk open redirect via crafted return_to
 post Location set, Set-Cookie set
-return 302 redirect_to=return_to  @auth/callback.py:18
+return 302 redirect_to=return_to  @auth/callback.py:78
 """ ~small
 
 # ── Cross-cutting concerns: security tests ─────────

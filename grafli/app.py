@@ -260,6 +260,7 @@ class MainWindow(QMainWindow):
             "search":       self._view._start_search,
             "grid":         self._view.toggle_grid,
             "minimap":      self._view._toggle_minimap,
+            "legend":       self._view._toggle_legend,
             "dim_notes":    self._view._toggle_notes_hidden,
             "dim_arrows":   self._view._toggle_arrows_dimmed,
             "complexity":   self._view._toggle_complexity,

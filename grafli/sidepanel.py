@@ -310,6 +310,7 @@ class SidePanel(QWidget):
         self._add_section("view", "View", [
             ("grid",          "󰕘", "Grid",     "#"),
             ("minimap",       "󰍍", "Minimap",  "M"),
+            ("legend",        "\U000F03D8", "Legend",   "⇧M"),
             ("dim_notes",     "󰎞", "Notes",    "⇧N"),
             ("dim_arrows",    "󰁔", "Edges",    ","),
             ("complexity",    "󰈸", "Analysis", "A"),

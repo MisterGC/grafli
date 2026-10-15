@@ -453,6 +453,7 @@ class OverlaysMixin:
             ("View", [
                 ("#", "Toggle grid"),
                 ("M", "Toggle minimap"),
+                ("\u21e7M", "Toggle the legend of the map's palette (also in exports)"),
                 ("⇧D", "Toggle level-of-detail (semantic zoom)"),
                 ("Dbl-click tile", "Fly into a collapsed group"),
                 ("\\", "Toggle tools panel"),

@@ -68,6 +68,7 @@ from grafli.view.minimap import MinimapMixin
 from grafli.view.export import ExportMixin
 from grafli.view.flows import FlowsMixin
 from grafli.view.boxdocs import BoxDocsMixin
+from grafli.view.legend import LegendMixin
 from grafli.view.levels import LevelsMixin
 from grafli.view.navigation import NavigationMixin
 from grafli.view.overlay_files import OverlayFilesMixin
@@ -117,7 +118,8 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
                  MinimapMixin, StyleModeMixin,
                  SelectionMixin, StructureMixin, ResourcesMixin,
                  NavigationMixin, ViewportMixin, FlowsMixin, OverlaysMixin,
-                 ExportMixin, LevelsMixin, BoxDocsMixin, QGraphicsView):
+                 ExportMixin, LevelsMixin, BoxDocsMixin, LegendMixin,
+                 QGraphicsView):
     """QGraphicsView with pan/zoom and file-backed board rendering."""
 
     arrow_update_needed = Signal()
@@ -343,6 +345,8 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         self._minimap_dragging: bool = False
         self._minimap_drag_offset: QPointF = QPointF()
         self._minimap_info_rect: QRectF | None = None
+        # The map palette's legend (Shift+M), on the canvas and in exports.
+        self._legend_visible: bool = False
         self._graph_stats: dict = {}
 
         # Animated zoom
@@ -523,6 +527,7 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         self._draw_complexity_legend(painter)
         self._draw_minimap(painter)
         self._draw_overlay_legend(painter)
+        self._draw_palette_legend(painter)
         self._draw_search_badge(painter)
         self._draw_flow_overlay(painter)
         self._draw_debug_overlay(painter)
@@ -1849,6 +1854,12 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         # M — toggle minimap
         if event.key() == Qt.Key.Key_M and no_mod:
             self._toggle_minimap()
+            event.accept()
+            return
+
+        # Shift+M — toggle the map palette's legend
+        if event.key() == Qt.Key.Key_M and shift_only:
+            self._toggle_legend()
             event.accept()
             return
 

@@ -1,0 +1,106 @@
+{
+  "title": "Tests",
+  "producer": "examples/layers-map-overlay.py (grep over tests/)",
+  "created": "2026-10-15T13:00:57Z",
+  "source": {
+    "repo": "..",
+    "revision": "8820cf41952e1b2d7d6952b3d32ccfc00fe0ad1b"
+  },
+  "kind": "category",
+  "categories": [
+    {
+      "id": "tested",
+      "label": "3+ test files",
+      "color": "%forest"
+    },
+    {
+      "id": "thin",
+      "label": "1–2 test files",
+      "color": "%clay"
+    },
+    {
+      "id": "none",
+      "label": "No test names it",
+      "color": "%rose"
+    }
+  ],
+  "entries": {
+    "slides": {
+      "category": "tested",
+      "note": "16 test files name build_slide_plan, export_flow_to_pdf, export_flow_to_pptx",
+      "refs": [
+        "@tests/test_box_docs.py:403",
+        "@tests/test_box_outline.py:119",
+        "@tests/test_dot_ends.py:169"
+      ]
+    },
+    "render": {
+      "category": "tested",
+      "note": "18 test files name _cmd_render",
+      "refs": [
+        "@tests/test_box_docs.py:316",
+        "@tests/test_box_outline.py:89",
+        "@tests/test_card.py:74"
+      ]
+    },
+    "html": {
+      "category": "tested",
+      "note": "4 test files name export_html, reachable_boards",
+      "refs": [
+        "@tests/test_box_docs.py:443",
+        "@tests/test_html_export.py:19",
+        "@tests/test_md_code_face.py:100"
+      ]
+    },
+    "scene": {
+      "category": "tested",
+      "note": "64 test files name load_board, BoxItem",
+      "refs": [
+        "@tests/test_align_guides.py:31",
+        "@tests/test_auto_parent.py:1",
+        "@tests/test_autoflow.py:35"
+      ]
+    },
+    "lod": {
+      "category": "thin",
+      "note": "1 test files name LodModel, should_collapse_container",
+      "refs": [
+        "@tests/test_lod.py:11"
+      ]
+    },
+    "overlays": {
+      "category": "thin",
+      "note": "2 test files name load_overlay, parse_overlay",
+      "refs": [
+        "@tests/test_navigation_map_example.py:23",
+        "@tests/test_overlay_file.py:13"
+      ]
+    },
+    "parser": {
+      "category": "tested",
+      "note": "81 test files name parse, serialize",
+      "refs": [
+        "@tests/test_align_guides.py:16",
+        "@tests/test_auto_parent.py:15",
+        "@tests/test_autoflow.py:9"
+      ]
+    },
+    "palette": {
+      "category": "thin",
+      "note": "2 test files name load_palette, parse_palette",
+      "refs": [
+        "@tests/test_map_palette.py:21",
+        "@tests/test_navigation_map_example.py:22"
+      ]
+    },
+    "vault": {
+      "category": "tested",
+      "note": "3 test files name resolve_code_ref, doc_first_sentence",
+      "refs": [
+        "@tests/test_box_docs.py:21",
+        "@tests/test_diagnose_refs.py:174",
+        "@tests/test_navigation_map_example.py:21"
+      ]
+    }
+  }
+}

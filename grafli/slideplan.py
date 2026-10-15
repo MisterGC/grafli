@@ -168,6 +168,15 @@ def overload_finding(note, pt: float, floor: float, *,
             "reason": "overflow" if overflow else "below-floor"}
 
 
+def describe_overload(finding: dict) -> str:
+    """A finding as one phrase, e.g. ``note 'cap' at 7.2 pt (floor 11 pt)``."""
+    pt, floor = f"{finding['pt']:g}", f"{finding['floor']:g}"
+    if finding["reason"] == "overflow":
+        return (f"note '{finding['element']}' overflows the slide "
+                f"at {pt} pt (the minimum)")
+    return f"note '{finding['element']}' at {pt} pt (floor {floor} pt)"
+
+
 def slide_overlay(view, plan: SlidePlan):
     """The reading of the overlay file *view* shows (``A`` in the app,
     ``--overlay`` on the command line) when *plan* is a diagram slide, so the

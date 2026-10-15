@@ -37,6 +37,7 @@ from grafli.sync import Conflict, atomic_write, merge_boards
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
 from grafli.map_palette import attach_names
 from grafli.sidepanel import PanelToggleButton, SidePanel, ThemeToggleButton
+from grafli.slideplan import describe_overload
 from grafli.view import GrafliView
 
 
@@ -375,9 +376,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # surface any render/IO failure
             self._view.toast(f"PDF export failed: {exc}", "error")
             return
-        msg = f"PDF exported · {slides} slides"
-        if overloaded:
-            msg += f" · {len(overloaded)} overloaded — trim or split"
+        msg = f"PDF exported · {slides} slides" + _overload_toast(overloaded)
         self._view.toast(msg, "warn" if overloaded else "info")
 
     def _export_flow_pptx(self, flow=None):
@@ -421,9 +420,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # surface any render/IO failure
             self._view.toast(f"PPTX export failed: {exc}", "error")
             return
-        msg = f"PPTX exported · {slides} slides"
-        if overloaded:
-            msg += f" · {len(overloaded)} overloaded — trim or split"
+        msg = f"PPTX exported · {slides} slides" + _overload_toast(overloaded)
         self._view.toast(msg, "warn" if overloaded else "info")
 
     def _export_html(self):
@@ -1475,6 +1472,16 @@ def _newer_board_reason(board: Board) -> str:
             f"to v{supported_version()}")
 
 
+def _overload_toast(overloaded: list) -> str:
+    """The export toast's tail for overloaded slides: how many, and what
+    makes the first one overloaded, so the author knows where to look."""
+    if not overloaded:
+        return ""
+    index, _label, findings = overloaded[0]
+    return (f" · {len(overloaded)} overloaded — trim or split: "
+            f"#{index + 1} {describe_overload(findings[0])}")
+
+
 def _step_bookmark(board_path: Path, board: Board, ref: str):
     """The bookmark a flow step names — on *board*, or for a
     ``<board>#<bookmark>`` stop on that other board — or None."""
@@ -2304,7 +2311,8 @@ def _cmd_export(argv: list[str]) -> int:
             "flow": flow.id,
             "slides": slides,
             "overloaded": [
-                {"slide": i + 1, "label": lbl} for i, lbl, _ in overloaded
+                {"slide": i + 1, "label": lbl, "elements": findings}
+                for i, lbl, findings in overloaded
             ],
             "overlong": overlong,
             "dangling": dangling,
@@ -2317,7 +2325,9 @@ def _cmd_export(argv: list[str]) -> int:
             print(f"flow '{flow.id}': {slides} slides")
             for entry in report["overloaded"]:
                 print(f"[overloaded] slide #{entry['slide']} "
-                      f"{entry['label']}".rstrip()
+                      f"{entry['label']}".rstrip() + ": "
+                      + "; ".join(describe_overload(f)
+                                  for f in entry["elements"])
                       + " — trim the text or split the slide")
             for entry in overlong:
                 print(f"[overlong-caption] bookmark '{entry['bookmark']}' — "
@@ -2353,8 +2363,10 @@ def _cmd_export(argv: list[str]) -> int:
                                                 board_path)
     print(f"Wrote {args.output} ({slides} slides)", file=sys.stderr)
     if overloaded:
-        where = ", ".join(f"#{i + 1} {lbl}".strip()
-                          for i, lbl, _ in overloaded)
+        where = "; ".join(
+            f"#{i + 1} {lbl}".strip() + ": "
+            + ", ".join(describe_overload(f) for f in findings)
+            for i, lbl, findings in overloaded)
         print(f"Warning: {len(overloaded)} slide(s) overloaded — trim or "
               f"split: {where}", file=sys.stderr)
     del view

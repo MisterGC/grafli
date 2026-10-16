@@ -2175,7 +2175,7 @@ def _cmd_export(argv: list[str]) -> int:
     parser.add_argument(
         "--legend", action="store_true",
         help="Draw the legend of the map's palette (the palette.json entries "
-             "the board uses) at the bottom of each diagram slide. PDF only.",
+             "the board uses) at the bottom of each diagram slide.",
     )
     parser.add_argument(
         "--overlay", default=None, metavar="NAME",

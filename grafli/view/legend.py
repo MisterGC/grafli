@@ -2,7 +2,7 @@
 
 ``Shift+M`` toggles a card in the bottom-left corner listing the palette
 entries the board uses (``grafli.legend``). The same switch puts the legend
-into the SVG/PNG exports and the PDF slides exported from the app.
+into the SVG/PNG exports and the PDF/PPTX slides exported from the app.
 """
 
 from __future__ import annotations

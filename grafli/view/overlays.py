@@ -1,9 +1,10 @@
 """Transient overlays and feedback for GrafliView (mixin).
 
 The view's ephemeral UI layer: confirmation flashes, toasts, the shared
-fade helper behind all transient micro-motion, the debug overlay, the
-glyph picker, and the Shift+H cheatsheet dialog. Nothing here touches the
-board model — it is presentation-only feedback on top of the canvas.
+fade helper behind all transient micro-motion, the empty-board hint, the
+debug overlay, the glyph picker, and the Shift+H cheatsheet dialog. Nothing
+here touches the board model — it is presentation-only feedback on top of
+the canvas.
 """
 
 from __future__ import annotations
@@ -228,6 +229,56 @@ class OverlaysMixin:
                          text)
         painter.restore()
 
+    # ── Empty-board hint ──
+
+    # (line, point size) — the first keys a blank board can be started with.
+    # Keys must stay in sync with the mode shortcuts in GrafliView.keyPressEvent.
+    _EMPTY_HINT = (
+        ("n box  ·  t note  ·  i image", 15),
+        ("F1 all keys", 11),
+    )
+
+    def _empty_hint_lines(self) -> tuple[tuple[str, int], ...]:
+        """Return the starting hint's (line, size) pairs, () when it is off.
+
+        A board with nothing on it offers no way in to a keyboard-driven
+        canvas (#153); the moment the first element lands the hint has done
+        its job and the board speaks for itself.
+        """
+        board = self._board
+        if board is None:
+            return ()
+        if board.boxes or board.notes or board.images or board.arrows:
+            return ()
+        return self._EMPTY_HINT
+
+    def _draw_empty_hint(self, painter: QPainter):
+        """Paint the starting hint in the middle of the viewport.
+
+        Painted rather than a widget, so it takes no clicks and — like the
+        grid dots — stays out of exports, which render the scene, not the view.
+        """
+        lines = self._empty_hint_lines()
+        if not lines:
+            return
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        painter.setPen(QPen(QColor(theme.INK_MUTED)))
+        gap = 12
+        heights = []
+        for _, size in lines:
+            painter.setFont(QFont(FONT_FAMILY, size))
+            heights.append(painter.fontMetrics().height())
+        vp = self.viewport().rect()
+        y = vp.center().y() - (sum(heights) + gap * (len(lines) - 1)) / 2
+        for (text, size), h in zip(lines, heights):
+            painter.setFont(QFont(FONT_FAMILY, size))
+            painter.drawText(QRectF(0, y, vp.width(), h),
+                             Qt.AlignmentFlag.AlignCenter, text)
+            y += h + gap
+        painter.restore()
+
     # ── Debug overlay ──
 
     def _record_shortcut(self, label: str):
@@ -345,6 +396,10 @@ class OverlaysMixin:
                 ("gz", "Focus: zoom to selection ⇄ back"),
                 ("gp", "Select parent (zoom if needed)"),
                 ("gc", "Select first child"),
+                ("gd / Return", "Zoom into the box's sub-board"),
+                ("gu", "Back to the board you came from"),
+                ("gv", "Peek at the box's doc (Esc closes)"),
+                ("gt", "Pick a tour through the box, play from there"),
                 ("Tab / \u21e7Tab", "Cycle siblings (or search matches)"),
                 ("f / Ctrl+J", "Jump to any item (global)"),
                 ("Ctrl+O / Ctrl+I", "Nav history back / forward"),
@@ -376,10 +431,11 @@ class OverlaysMixin:
             ]),
             ("Style", [
                 ("s", "Style mode — same keys for box / note / connector:"),
-                ("  e", "Appearance: box background + label spot, note plate"),
-                ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
-                ("  i", "Symbol grid (⇥ fill/lead/badge, 1-9 number)"),
-                ("  t", "Text grid: size × bold/italic (⇥ font, o outline, s shadow)"),
+                ("  e", "Appearance: plate/flat/card, label spot (left: a band zoomed out), label ink, outline"),
+                ("  c", "Color grid, then the map palette's %names (hjkl pick, live, ⏎ apply)"),
+                ("  i", "Symbol grid (⇥ fill/lead/badge, 0-9 number, f filled)"),
+                ("  t", "Text grid: size × bold/italic (⇥ sans/mono/hand, o outline, s shadow)"),
+                ("  s", "Status label on a box (~status=): type it, then pick its colour"),
                 ("  j / k", "Nudge text size"),
                 ("  d", "Dimension mode (resize)"),
                 ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),
@@ -390,13 +446,14 @@ class OverlaysMixin:
             ("Focus & Analysis", [
                 (",", "Dim arrows"),
                 ("\u21e7N", "Dim notes \u2014 concentrate on the graph"),
-                ("A", "Complexity analysis heatmap"),
+                ("A", "Connectivity heatmap (graph arrows per box), then each overlay file (also in exports)"),
                 ("B", "Subgraph focus (cycle direction)"),
                 ("\u21e7B", "Toggle focus depth (full/1-hop)"),
             ]),
             ("View", [
                 ("#", "Toggle grid"),
                 ("M", "Toggle minimap"),
+                ("\u21e7M", "Toggle the legend of the map's palette (also in exports)"),
                 ("⇧D", "Toggle level-of-detail (semantic zoom)"),
                 ("Dbl-click tile", "Fly into a collapsed group"),
                 ("\\", "Toggle tools panel"),
@@ -415,6 +472,7 @@ class OverlaysMixin:
                 ("←", "Previous stop"),
                 ("t", "Toggle smooth / instant"),
                 ("p", "Cycle paused / playing / loop"),
+                ("gd / Return", "Leave the tour into a level; gu resumes it"),
                 ("F5", "Present flow fullscreen"),
                 ("Esc", "Exit playback / present"),
                 ("Caption", f"Shown in full, wrapped — keep it ≤ "
@@ -431,7 +489,7 @@ class OverlaysMixin:
             ("Arrow", [
                 ("e", "Edit arrow label"),
                 ("s", "Enter arrow style mode"),
-                ("s then e", "Appearance: heads, line, thickness, routing, colour"),
+                ("s then e", "Appearance: heads, ends, line, thickness, routing, sides, colour"),
                 ("s then c", "Color grid"),
                 ("s then t", "Label text size"),
                 ("h / l", "Toggle arrowheads"),
@@ -674,7 +732,7 @@ class OverlaysMixin:
         <p style='{kw}'>Inline elements</p>
         <table cellpadding='4' style='margin-left:8px'>
           <tr><td style='{mono}'>@path:line</td>
-              <td>clickable reference &mdash; opens the file at that line in your editor</td></tr>
+              <td>clickable reference &mdash; opens the file at that line in your editor; a relative path starts at the board's <span style='{mono}'># source:</span> repo; opening the board warns when that repo moved on from its <span style='{mono}'>@ rev</span></td></tr>
           <tr><td style='{mono}'># &hellip;</td>
               <td>comment (italic, muted)</td></tr>
           <tr><td style='{mono}'>"..."  #FFF  42  true</td>

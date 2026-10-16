@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFontMetricsF
 from PySide6.QtWidgets import QApplication, QGraphicsTextItem
 
 from grafli import iconset
@@ -73,7 +73,9 @@ def test_iconset_names_and_render():
     assert iconset.has_icon("lightbulb") and not iconset.has_icon("nope")
     assert iconset.has_icon("bulb")          # legacy alias
     assert iconset.has_icon("3") and iconset.has_icon("42")   # number badges
-    assert not iconset.has_icon("0") and not iconset.has_icon("100")
+    assert iconset.has_icon("0") and iconset.has_icon("solid-12")
+    assert not iconset.has_icon("100") and not iconset.has_icon("solid-100")
+    assert not iconset.has_icon("solid-")
     pm = iconset.icon_pixmap("bulb", QColor("#2F3437"), 64, 2.0)
     assert pm is not None and not pm.isNull()
     assert pm.devicePixelRatio() == 2.0
@@ -189,6 +191,52 @@ def test_picker_applies_to_note_too():
     assert view.board.notes[0].icon == chosen
 
 
+_CONTAINER = (
+    '@ box group "Group" 0,0 400x300 !flat{icon}\n'
+    '@ box child "Child" 40,120 200x80 >group\n'
+)
+
+
+def _label_rect(it):
+    """The label's rect in item coordinates."""
+    return it._label.mapRectToItem(it, it._label.boundingRect())
+
+
+def test_container_label_stays_top_left_without_lead_icon():
+    it = _view(_CONTAINER.format(icon=""))._box_items["group"]
+    assert it._get_effective_anchor() == "topleft"
+    assert _label_rect(it).topLeft().toTuple() == (8.0, 8.0)
+
+
+def test_container_lead_icon_and_label_stay_top_left():
+    it = _view(_CONTAINER.format(icon=" *lead:gear"))._box_items["group"]
+    icon, _ = it._lead_layout()
+    label = _label_rect(it)
+    # The icon sits in the top-left corner, not at mid-height.
+    assert icon.left() == 8.0
+    assert icon.top() >= 8.0 and icon.bottom() < it.box.h / 2
+    assert (icon.width(), icon.height()) == (it._lead_icon_w(),
+                                             it._lead_icon_side())
+    # The label starts right of the icon gutter and stays at the top.
+    assert label.left() == 8.0 + icon.width() + 8.0
+    assert label.top() >= 8.0 and label.bottom() < it.box.h / 2
+    # The icon centres on the label's first line, and one of them touches
+    # the 8 px top inset.
+    margin = it._label.document().documentMargin()
+    line_h = QFontMetricsF(it._label.font()).height()
+    assert abs(icon.center().y() - (label.top() + margin + line_h / 2)) < 0.01
+    assert min(icon.top(), label.top()) == 8.0
+
+
+def test_leaf_lead_icon_and_label_stay_centred():
+    # Without a top anchor the lead icon and label still centre at mid-height.
+    it = _view('@ box a "Auth" 0,0 200x120 *lead:lock\n')._box_items["a"]
+    icon, _ = it._lead_layout()
+    label = _label_rect(it)
+    assert icon.top() == (it.box.h - icon.height()) / 2
+    assert label.top() == (it.box.h - label.height()) / 2
+
+
 def test_lead_box_label_reserves_icon_gutter():
     # A lead glyph must not push the label past the box edge.
     view = _view('@ box t "Really long heading that would overflow a lead box"'
@@ -287,3 +335,66 @@ def test_picker_none_cell_clears_icon():
     view._apply_icon_picker_live()
     view._commit_icon_picker()
     assert view.board.box_by_id("a").icon == ""
+
+
+# ── filled number markers and 0 (#208) ──────────────────────────
+
+def _press(view, *keys):
+    from PySide6.QtTest import QTest
+    for key in keys:
+        QTest.keyClick(view, key)
+
+
+def test_s_i_zero_key_sets_a_zero_marker():
+    from PySide6.QtCore import Qt
+    view = _view('@ box a "A" 0,0 140x70\n')
+    view._box_items["a"].setSelected(True)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_I)
+    assert view._icon_picker_active
+    _press(view, Qt.Key.Key_0)
+    assert view._box_items["a"].box.icon == "0"
+    _press(view, Qt.Key.Key_Return)
+    assert view.board.box_by_id("a").icon == "0"
+    assert serialize(view.board).startswith("#!grafli v4\n")
+
+
+def test_s_i_f_fills_the_typed_number_with_preview_and_undo():
+    from PySide6.QtCore import Qt
+    view = _view('@ box a "A" 0,0 140x70\n')
+    item = view._box_items["a"]
+    item.setSelected(True)
+    before = len(view._undo_stack)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_I, Qt.Key.Key_1, Qt.Key.Key_2)
+    assert item.box.icon == "12"
+    _press(view, Qt.Key.Key_F)                   # live preview: filled
+    assert item.box.icon == "solid-12"
+    _press(view, Qt.Key.Key_Return)
+    assert view.board.box_by_id("a").icon == "solid-12"
+    out = serialize(view.board)
+    assert "140x70 *solid-12" in out and out.startswith("#!grafli v4\n")
+    assert len(view._undo_stack) == before + 1
+    view._undo()
+    assert view.board.box_by_id("a").icon == ""
+    assert serialize(view.board).startswith("#!grafli v1\n")
+
+
+def test_s_i_opens_on_a_filled_marker_and_f_unfills_it():
+    from PySide6.QtCore import Qt
+    view = _view('@ note n 0,0 "third" *badge:solid-3\n')
+    view._note_items["n"].setSelected(True)
+    view._open_icon_picker()
+    assert (view._icon_picker_digit, view._icon_picker_solid) == ("3", True)
+    _press(view, Qt.Key.Key_F)
+    assert view._note_items["n"].note.icon == "3"
+    _press(view, Qt.Key.Key_Escape)              # cancel restores the fill
+    assert view._note_items["n"].note.icon == "solid-3"
+    assert view._note_items["n"].note.icon_placement == "badge"
+
+
+def test_s_i_a_leading_zero_reads_as_the_next_digit():
+    from PySide6.QtCore import Qt
+    view = _view('@ box a "A" 0,0 140x70\n')
+    view._box_items["a"].setSelected(True)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_I, Qt.Key.Key_0, Qt.Key.Key_7)
+    assert view._box_items["a"].box.icon == "7"
+    view._cancel_icon_picker()

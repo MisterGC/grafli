@@ -11,7 +11,11 @@ description: >
   guided tours, exportable as slides), and on THINKING-BOARD requests —
   "help me think through X", "weigh the options", "map the unknowns",
   "should we do A or B" — where a human would go to a whiteboard: author
-  a board that structures the problem. Do NOT trigger on generic "review
+  a board that structures the problem. ALSO trigger on requests to
+  UNDERSTAND, LEARN, EXPLAIN or REVIEW a subject through a map — "map
+  this codebase so I can understand it", "help me learn X level by
+  level", "explain this system on a board" — and on `Q:` notes left on
+  such a map: build an explanation map with levels and tours. Do NOT trigger on generic "review
   this code", "explain this function", "summarize this module" requests
   unless the user also asks for a visual, a board, or a diagram. When
   unsure, ask the user a one-line clarifier before pulling this skill in.
@@ -164,7 +168,10 @@ comprehensible as the canvas:
   carried a `&doc`/`&graph` attachment (removes now-orphaned vault docs;
   never automatic).
 * **You own the header.** When you add the first `@ bookmark`/`@ flow`
-  to a v1 file, bump the first line to `#!grafli v2` yourself.
+  to a v1 file, bump the first line to `#!grafli v2` yourself; the first
+  `#<id>` board link (`&graph:<name>#<id>`, `&link:<path>.grafli#<id>`)
+  or the first arrow `~id=<id>` or flow stop in another board
+  (`<board>#<bookmark>`) makes it `#!grafli v3`.
 
 **Revising markdown prose — propose, don't overwrite.** When you rewrite a
 markdown doc or note body that a human will review (a `.md` doc body, or any
@@ -207,7 +214,9 @@ in `references/genres.md` instead.)
    per level** — if the cast overflows that, plan the depth ladder now:
    group into containers, or push detail into notes / `&doc` docs /
    `&graph` sub-boards (see "The right altitude" in
-   `references/design.md`).
+   `references/design.md`). For a map someone reads to understand a
+   subject, every level also states its question and the evidence for
+   its split — see `references/explaining.md`.
 3. **Flow direction.** Pick **one** for the whole diagram —
    left-to-right, top-to-bottom, or center-out (see "Flow direction"
    under Layout strategy in `references/design.md` for which fits what).
@@ -218,7 +227,22 @@ in `references/genres.md` instead.)
    tier you want to show but have nothing to put in yet — has to ask
    for that look: `!flat ^topleft ~small`. Without it an empty band
    renders as a big rounded leaf node, which reads as a component
-   rather than a layer.
+   rather than a layer. A stack of layer containers that must still
+   read as a stack zoomed out takes `^left` instead of `^topleft`
+   (written `#!grafli v4`): collapsed, each band keeps a strip of its
+   children's colours and its title on the left. The reverse — a **card**, a box that keeps its
+   fill, border and centred title around a body note it owns — asks for
+   `!card` (written `#!grafli v4`). A dark fill reads with `!ink`: the
+   label and icon take a light ink on the fill itself, no plate; on a
+   note, `!ink` draws the text in its `%color` (both `#!grafli v4`).
+   Box labels are monospace; `!sans` sets a box's label in a
+   proportional face (Inter) — for an explanation map's titles
+   (`#!grafli v4`). On a note, `!sans` swaps the handwriting for Inter.
+   Something later or optional gets a `!dashed` or `!dotted` outline
+   (`#!grafli v4`); on a flat box or a container it adds the outline.
+   A resting status (`open`, `designed`) is `~status=open` or
+   `~status=designed:%rose`, a pill on the box's bottom edge that shows in
+   every view (`#!grafli v4`); keep overlays for what is toggled with `A`.
 5. **Place children inside containers**, sized and aligned to the
    grid (multiples of 50). Use the container margin model in
    `references/design.md`.
@@ -241,8 +265,10 @@ in `references/genres.md` instead.)
    other multi-line detail, use a `code:` note; for prose with light
    structure (rationale, checklists, review notes), use an `md:`
    Markdown note — those are the right home for content too long for
-   a box label. Boxes are identifiers, notes are bodies (see the Box
-   section) — never inline multi-line detail into a box label.
+   a box label — or the box's own `&doc`, whose first sentence shows
+   on one line under the label and whose whole text `gv` peeks. Boxes
+   are identifiers; notes or the box's own `&doc` are bodies (see the
+   Box section) — never inline multi-line detail into a box label.
 8. **Re-read against the quality bar.** Pretend you're the user opening
    the file: the eye lands on the entry point, the board answers its one
    question, depth is on demand, no arrows crossing. If not, reposition
@@ -265,14 +291,17 @@ in `references/genres.md` instead.)
     misplaced modifier silently removes the element; always fix these
     first), children outside parents, sibling overlaps, cramped
     containers, likely-truncated labels, arrow labels crowding endpoints
-    or hiding arrowheads, missing `@path` / image refs. Each finding
+    or hiding arrowheads, missing images, `&graph` / `.grafli` `&link`
+    targets and `#<id>`s that do not exist and `@path:line` refs whose
+    file or line does not exist (both errors), overlay files
+    that don't parse or name ids not on the board. Each finding
     carries a `fixable` flag and a `severity`:
 
     * `severity: error` (`parse-error`, `invalid-parent-ref`, …) —
       always fix.
     * `fixable: true` — usually a real geometry mistake. Try to fix.
     * `fixable: false` — heuristic or possibly-intentional (a
-      placeholder reference, an artistic crowding choice).
+      missing image placeholder, an artistic crowding choice).
       Acknowledge once and move on.
 
     **Let the tool do the mechanical part.** `grafli diagnose <file>
@@ -296,15 +325,22 @@ in `references/genres.md` instead.)
     only for boards that must be spotless), so you can loop on
     "re-run until `diagnose` exits 0" without parsing output.
     (For flows/decks there is a matching check:
-    `grafli export <file> --check` — see
-    `references/presenting.md`.)
+    `grafli export <file> --check --all-flows`, which names the note
+    that makes a slide overloaded — see `references/presenting.md`.)
+11. **Format before committing.** `grafli fmt <file>.grafli` rewrites
+    the board in the canonical serialized form — integer coordinates,
+    canonical token order and spacing — exactly what the app's own save
+    produces, so hand-authored edits don't create noisy git diffs later.
+    Line order, comments, and blank lines survive; files with malformed
+    lines are left untouched (fix the reported lines first). `--check`
+    makes it a CI gate: exit 1 when a file would change.
 
 ## File format quick reference
 
 ```
 # Comments and titles
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat !bold !italic] [*icon] [&attach] [>parent] [# annotation]
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [~size] [# annotation]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [!dot] [~size] [~from=<side>] [~to=<side>] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [# annotation]
@@ -325,7 +361,11 @@ override that per image.
 point outside the board), `&doc:<name>` (a markdown document at
 `<stem>-res/<name>.md`), or `&graph:<name>` (a sub-board at
 `<stem>-res/<name>.grafli`). See "Attachments" in
-`references/design.md`.
+`references/design.md`. A board link may end in `#<id>` —
+`&graph:<name>#<id>`, `&link:<path>.grafli#<id>` — to open that board
+framed on the bookmark (else element) `<id>`, selected; such a file
+carries a `#!grafli v3` header. See "Board links into a bookmark or
+element" in `references/format.md`.
 
 `@ bookmark` / `@ flow` / `@ footer` build **guided tours and slide
 decks** — see `references/presenting.md`. A file that uses them carries
@@ -340,7 +380,9 @@ to a v1 file, bump the header yourself).
   `%base %primary %secondary %tertiary %subtle %accent %highlight
   %muted %soft %clay %teal %rose %forest %plum`, or a raw `#RRGGBB`.
   An unknown token (e.g. `%green`) silently falls back to the default
-  fill — `diagnose` flags it as `unknown-color`.
+  fill — `diagnose` flags it as `unknown-color`. A map can name its own
+  colours in `<stem>-res/palette.json` and use them as `%name` on every
+  board of the map (see `references/format.md`, "Map palette").
 * Modifiers in `[]` are optional and order-sensitive as shown.
 * Multi-line text: use `\n` in labels and note text; a literal quote
   inside quoted text is `\"` (triple-quoted blocks need no escapes).
@@ -410,8 +452,9 @@ task needs them:
 
 * `references/format.md` — the full element syntax: box / arrow / note
   modifier tables, code-mode keywords, markdown-note subset, discussion
-  notes, images, colors, glyphs, `>parent` nesting, attachments. Open
-  when you write any element beyond the quick reference above.
+  notes, images, colors, glyphs, `>parent` nesting, attachments, and
+  overlay files (analysis data beside a board). Open when you write any
+  element beyond the quick reference above, or analysis data for a board.
 * `references/design.md` — diagram design principles: visual hierarchy,
   typography, layout strategy, container margin model, arrow discipline,
   the pattern gallery (architecture, pipeline, hub-and-spoke, visual
@@ -425,9 +468,21 @@ task needs them:
   expert checklist is your self-review before shipping.
 * `references/presenting.md` — flows, slide composition, and export:
   bookmarks (incl. `~iso` scoping), text slides, container-as-slide,
-  auto-flows, narration craft, PDF/PPTX export (incl. corporate
+  slides from a map (frame with a bookmark, the legibility arithmetic, a
+  headline per stop), auto-flows, narration craft, PDF/PPTX export (incl. corporate
   templates) and the `export --check` verify loop. Open when asked to
   explain, walk through, present, or build a deck from a board.
+* `references/explaining.md` — explanation maps of any subject (code
+  as one section): a top board that opens with the problem and its
+  layers as a stack, one question and the evidence for its split per
+  level, slide-grade boards (a claim headline, three visual weights,
+  numbered paths, category bars, status labels, cards), box docs and sub-boards for depth, one board per repo plus a
+  bench board linking in, relationship kinds on arrows, a resting
+  colour per layer (filled boxes from the map's palette), tours across
+  levels, the ask-on-the-map loop (answer a `Q:` with a level, a line or
+  a tour), overlay files with provenance, and marking a map stale. Open
+  when the user wants to understand, learn, explain or review a subject
+  on a map.
 * `references/thinking.md` — thinking boards: decision boards, tension
   maps, question landscapes, assumption/evidence boards, and the
   deliberate-incompleteness rules. Open when the user wants to *think
@@ -503,7 +558,15 @@ grafli render input.grafli /tmp/check.png --focus api,auth  # crop to a region
 grafli render input.grafli /tmp/check.png --lod  # zoomed-out (semantic zoom) reading
 grafli render input.grafli /tmp/stop.png --bookmark bm_x  # one flow stop as framed
 grafli render input.grafli /tmp/stop.png --step tour:3    # step 3 with its detail/focus resolved
+grafli export-html input.grafli out.html  # the board + every reachable board as one offline page, tours playable
 ```
+
+The render draws what the canvas draws at that zoom — 100% by default,
+the fitted board with `--lod` — including a `&graph` box's miniature and
+a `&doc` box's first sentence when the box has room for them. The PDF,
+PPTX and HTML exports show that sentence too; a slide drops it when its
+frame makes it too small to read, so frame a stop close enough for the
+lines you want seen.
 
 Workflow:
 

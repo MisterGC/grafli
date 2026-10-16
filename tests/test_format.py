@@ -177,6 +177,39 @@ def test_arrow_without_kind_is_byte_stable():
     assert out == src
 
 
+def test_arrow_id_roundtrips():
+    src = (
+        '#!grafli v3\n'
+        '@ box a "A" 0,0 100x50\n'
+        '@ box b "B" 300,0 100x50\n'
+        '@ arrow a -> b "send" !dashed ~kind=graph ~id=send-req # why\n'
+        '@ arrow a -> b "ack" ~id=ack\n'
+    )
+    board = parse(src)
+    assert [a.id for a in board.arrows] == ["send-req", "ack"]
+    assert board.arrows[0].kind == "graph"
+    assert board.arrows[0].annotation == "why"
+    assert serialize(board) == src
+
+
+def test_arrows_without_ids_are_byte_stable():
+    src = (
+        '#!grafli v1\n'
+        '@ box a "A" 0,0 100x50\n'
+        '@ box b "B" 300,0 100x50\n'
+        '@ note n1 300,200 "hi"\n'
+        '@ arrow a -> b "x" @4,-8 %red !dotted !thick !ortho ~large '
+        '&link:https://k.io ~kind=annotation # note\n'
+        '@ arrow b <-> a\n'
+        '@ arrow a -- n1 "explains"\n'
+    )
+    board = parse(src)
+    assert all(a.id == "" for a in board.arrows)
+    out = serialize(board)
+    assert "~id=" not in out
+    assert out == src
+
+
 def test_flow_auto_start_roundtrips():
     src = (
         '#!grafli v2\n'
@@ -912,57 +945,55 @@ def test_parse_note_annotation():
     assert board.notes[0].annotation == "move this"
 
 
-def test_serialize_box_annotation_stripped():
-    """Annotations are parsed but no longer serialized."""
+def test_serialize_box_annotation_kept():
+    """Annotations round-trip as a trailing `# text` (#158)."""
     box = Box(id="b1", label="API", x=100, y=200, w=200, h=100,
               annotation="should this be async?")
     board = Board()
     board.add_box(box)
     text = serialize(board)
-    assert "# should this be async?" not in text
-    assert '@ box b1 "API" 100,200 200x100\n' in text
+    assert '@ box b1 "API" 100,200 200x100 # should this be async?\n' in text
 
 
-def test_serialize_arrow_annotation_stripped():
+def test_serialize_arrow_annotation_kept():
     arrow = Arrow(from_id="a", to_id="b", label="calls",
                   annotation="review direction")
     board = Board()
     board.add_arrow(arrow)
     text = serialize(board)
-    assert "# review direction" not in text
+    assert '@ arrow a -> b "calls" # review direction\n' in text
 
 
-def test_serialize_note_annotation_stripped():
+def test_serialize_note_annotation_kept():
     note = Note(id="n1", x=50, y=300, text="entry", annotation="move this")
     board = Board()
     board.add_note(note)
     text = serialize(board)
-    assert "# move this" not in text
+    assert '@ note n1 50,300 "entry" # move this\n' in text
 
 
-def test_box_annotation_parsed_not_serialized():
+def test_box_annotation_parsed_and_serialized():
     text = '@ box b1 "API" 100,200 200x100  # should this be async?\n'
     board = parse(text)
     assert board.boxes[0].annotation == "should this be async?"
     result = serialize(board)
-    assert "# should this be async?" not in result
-    assert '@ box b1 "API" 100,200 200x100\n' in result
+    assert '@ box b1 "API" 100,200 200x100 # should this be async?\n' in result
 
 
-def test_arrow_annotation_parsed_not_serialized():
+def test_arrow_annotation_parsed_and_serialized():
     text = '@ arrow a -> b "calls"  # review direction\n'
     board = parse(text)
     assert board.arrows[0].annotation == "review direction"
     result = serialize(board)
-    assert "# review direction" not in result
+    assert '@ arrow a -> b "calls" # review direction\n' in result
 
 
-def test_note_annotation_parsed_not_serialized():
+def test_note_annotation_parsed_and_serialized():
     text = '@ note n1 50,300 "entry"  # move this\n'
     board = parse(text)
     assert board.notes[0].annotation == "move this"
     result = serialize(board)
-    assert "# move this" not in result
+    assert '@ note n1 50,300 "entry" # move this\n' in result
 
 
 def test_arrow_bidi_style_annotation_parsed():
@@ -974,7 +1005,7 @@ def test_arrow_bidi_style_annotation_parsed():
     assert arrow.style == "dotted"
     assert arrow.annotation == "check latency"
     result = serialize(board)
-    assert "# check latency" not in result
+    assert '@ arrow a <-> b "data" !dotted # check latency\n' in result
 
 
 def test_box_all_fields_with_annotation_parsed():
@@ -983,7 +1014,7 @@ def test_box_all_fields_with_annotation_parsed():
     box = board.boxes[0]
     assert box.annotation == "needs review"
     result = serialize(board)
-    assert "# needs review" not in result
+    assert '@ box web "Web" 60,70 180x80 %secondary ^topleft ~small !flat >root # needs review\n' in result
 
 
 def test_note_all_fields_with_annotation_parsed():
@@ -992,7 +1023,7 @@ def test_note_all_fields_with_annotation_parsed():
     note = board.notes[0]
     assert note.annotation == "move up"
     result = serialize(board)
-    assert "# move up" not in result
+    assert '@ note n1 100,200 "Label" %accent ~large !mono # move up\n' in result
 
 
 # ── Arrow url tests ──────────────────────────────────────────
@@ -1169,9 +1200,8 @@ def test_arrow_all_fields_roundtrip():
     assert arrow.annotation == "check latency"
     assert arrow.head_from is True
     assert arrow.head_to is True
-    # Annotation is parsed but not serialized
     result = serialize(board)
-    assert '@ arrow a <-> b "data" !dashed ~xxlarge\n' in result
+    assert '@ arrow a <-> b "data" !dashed ~xxlarge # check latency\n' in result
 
 
 # ── Note newline tests ─────────────────────────────────────
@@ -1242,9 +1272,8 @@ def test_note_all_fields_with_parent_roundtrip():
     assert note.style == "mono"
     assert note.parent == "box1"
     assert note.annotation == "annotation"
-    # Annotation is parsed but not serialized
     result = serialize(board)
-    assert '@ note n1 100,200 "hello" %accent ~large !mono >box1\n' in result
+    assert '@ note n1 100,200 "hello" %accent ~large !mono >box1 # annotation\n' in result
 
 
 # ── Note block text tests ─────────────────────────────────
@@ -1351,9 +1380,8 @@ def test_arrow_all_fields_with_offset_roundtrip():
     assert arrow.annotation == "check latency"
     assert arrow.head_from is True
     assert arrow.head_to is True
-    # Annotation is parsed but not serialized
     result = serialize(board)
-    assert '@ arrow a <-> b "data" @-5,12 !dashed ~xxlarge\n' in result
+    assert '@ arrow a <-> b "data" @-5,12 !dashed ~xxlarge # check latency\n' in result
 
 
 def test_arrow_label_offset_negative():
@@ -1431,9 +1459,8 @@ def test_box_all_fields_with_url_roundtrip():
     assert box.url == "https://example.com"
     assert box.parent == "sprint1"
     assert box.annotation == "review"
-    # Annotation parsed but not serialized
     result = serialize(board)
-    assert '@ box yt1 "YT-1234" 100,200 160x80 %secondary ^topleft ~small !flat &https://example.com >sprint1\n' in result
+    assert '@ box yt1 "YT-1234" 100,200 160x80 %secondary ^topleft ~small !flat &https://example.com >sprint1 # review\n' in result
 
 
 def test_note_all_fields_with_url_roundtrip():
@@ -1443,9 +1470,8 @@ def test_note_all_fields_with_url_roundtrip():
     assert note.url == "https://example.com"
     assert note.parent == "box1"
     assert note.annotation == "annotation"
-    # Annotation parsed but not serialized
     result = serialize(board)
-    assert '@ note n1 100,200 "Label" %accent ~large !mono &https://example.com >box1\n' in result
+    assert '@ note n1 100,200 "Label" %accent ~large !mono &https://example.com >box1 # annotation\n' in result
 
 
 def test_box_url_with_various_schemes():
@@ -1782,6 +1808,46 @@ def test_note_with_wxh_is_told_to_use_size():
     w = b.parse_warnings[0]
     assert "no width" in w.reason
     assert "~size" in w.reason
+
+
+def test_legal_tokens_out_of_order_get_the_full_grammar():
+    """#145: `^topleft` after `!flat` is legal vocabulary in an illegal
+    order — the message must name both tokens so the author isn't sent
+    hunting for a typo that isn't there."""
+    from grafli.format import parse
+    b = parse('@ box l2 "Domain" 20,150 700x110 %accent !flat ^topleft\n')
+    assert b.boxes == []
+    w = b.parse_warnings[0]
+    assert "^topleft" in w.reason
+    assert "!flat" in w.reason
+    assert "order" in w.reason
+
+
+def test_malformed_arrow_and_image_name_their_grammar():
+    from grafli.format import parse
+    b = parse('@ arrow a => b\n@ image i1 broken.svg 0,0 100x100\n')
+    reasons = [w.reason for w in b.parse_warnings]
+    assert any("malformed @ arrow" in r and "!spline" in r for r in reasons)
+    assert any("malformed @ image" in r and "!frame|!noframe" in r
+               for r in reasons)
+
+
+def test_grammar_messages_track_the_regexes():
+    """Every `!` flag a directive regex accepts appears in its FORM
+    constant — the drift that produced #145 can't silently recur."""
+    import re as _re
+    from grafli import format as fmt
+    pairs = ((fmt._RE_BOX, fmt.BOX_FORM), (fmt._RE_NOTE, fmt.NOTE_FORM),
+             (fmt._RE_ARROW, fmt.ARROW_FORM), (fmt._RE_IMAGE, fmt.IMAGE_FORM))
+    for regex, form in pairs:
+        for group in _re.findall(r'!\((?:\?:)?([a-z|]+)\)', regex.pattern):
+            for flag in group.split("|"):
+                assert "!" + flag in form, (flag, form)
+    for token in ("^topleft", "^topcenter", "*icon", "&attach", "~status=",
+                  ">parent"):
+        assert token in fmt.BOX_FORM
+    assert "~width=N" in fmt.NOTE_FORM and "*icon" in fmt.NOTE_FORM
+    assert "@dx,dy" in fmt.ARROW_FORM and "~kind=" in fmt.ARROW_FORM
 
 
 def test_clean_file_has_no_parse_warnings():

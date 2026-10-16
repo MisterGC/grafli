@@ -274,8 +274,8 @@ Place notes deliberately:
 * **Note-to-element arrows** — when a note isn't directly adjacent
   to its target, use `@ arrow note_id -> box_id !dotted` to make
   the linkage explicit.
-* Keep notes short — if you need a paragraph, it belongs in
-  documentation, not on the diagram.
+* Keep notes short — if you need a paragraph, it belongs in a `&doc`
+  (the box's own, or a doc-bodied note), not in a note's text.
 
 ### Attachments (`&`)
 
@@ -294,9 +294,17 @@ Every element can carry **one** typed attachment:
 - `&doc:<name>` — a markdown document at `<stem>-res/<name>.md` (bare
   name, no path/extension). On a **note** it is rendered as the body
   (that's what a markdown note is — bare `&doc` names it after the note
-  id); on a box/image/arrow it opens in the editor.
+  id); on a box/image/arrow it opens in the editor. A box shows the
+  doc's first sentence on one line below its label (when the box has
+  room for it) — a container or a `!card` with children too, under its
+  title — and `gv` peeks the whole doc — so open the doc with one
+  sentence that says what the box is.
 - `&graph:<name>` — a sub-board at `<stem>-res/<name>.grafli`; its own
   resources nest at `<stem>-res/<name>-res/`.
+- `&graph:<name>#<id>` / `&link:<path>.grafli#<id>` — open that board
+  framed on its bookmark (else element) `<id>`; the way to point from one
+  map into one place of another board (a `#!grafli v3` file, see
+  `references/format.md`).
 
 Content attachments live only in the `<stem>-res/` vault, so a board
 plus its vault is the complete, copyable unit. Legacy untyped `&url`
@@ -394,7 +402,10 @@ When using multiple arrow styles or color meanings, add a legend.
 If a single box's internal logic would need 5+ children to depict,
 link a sub-grafli with `&graph:<name>` instead of stuffing it into
 the parent diagram. The sub-board lives at `<stem>-res/<name>.grafli`,
-renders as its own canvas, and the viewer follows the link.
+renders as its own canvas, and the viewer follows the link. Once the box
+is large enough on screen it shows a miniature of the sub-board filling
+the box, with the label on a band across its top — give a box you expect people to enter room for one (wider and
+taller than a plain node).
 
 ```
 @ box orders "Order Processing" 100,100 220x100 &graph:orders-flow

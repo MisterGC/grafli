@@ -3,7 +3,8 @@
 Format spec:
   #!grafli v1                                      (file header, first line)
   # comment or title
-  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat] [&url] [>parent]
+  # source: <repo> @ <rev>                         (code refs resolve against <repo>)
+  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card] [!ink] [!sans] [!dashed|!dotted] [&url] [~status=<text>[:%color]] [>parent]
   @ arrow <from_id> -> <to_id> "<label>"           (forward)
   @ arrow <from_id> <- <to_id> "<label>"           (backward)
   @ arrow <from_id> <-> <to_id> "<label>"          (bidirectional)
@@ -14,8 +15,11 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" !thick      (thickness: thin / thick; default tracks node size)
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
   @ arrow <from_id> -> <to_id> "label" ~kind=graph (connector kind: graph / annotation; default derives from endpoints)
-  @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono] [&attach] [>parent]
-  @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono] [&attach] [>parent]
+  @ arrow <from_id> -> <to_id> "label" ~from=right ~to=left (pinned sides: top / right / bottom / left; default picks from geometry; v4)
+  @ arrow <from_id> <-> <to_id> "label" !dot       (each end with a head ends in a dot instead; v4)
+  @ arrow <from_id> -> <to_id> "label" ~id=<id>    (stable id, only when something references the arrow; v3)
+  @ note <id> <x>,<y> "<text>" [%color] [~size] [!mono|!sans] [!ink] [&attach] [>parent]
+  @ note <id> <x>,<y> <triple-quoted text block> [%color] [~size] [!mono|!sans] [!ink] [&attach] [>parent]
   @ note <id> <x>,<y> [...] &doc [>parent]         (doc-bodied: body = <stem>-res/<id>.md)
   @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [&attach]
 
@@ -30,6 +34,7 @@ values parse forever and are classified to a kind on load.
   @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] ["<description>"]
   @ flow <id> "<label>" <step> ... [~auto=<node_id>] [~detail=<v>] [~focus=<v>] ["<description>"]
     step: <bookmark_ref>[:<dwell>][:detail=<v>][:focus=<v>]  (segments in any order)
+    bookmark_ref: <bookmark_id> | <board>#<bookmark_id>  (stop in another board; v3)
   @ footer "<markdown>"                            (board-global PDF footer)
   @ title-bg <style>                               (title-slide background: thumbnail-art)
 
@@ -39,17 +44,41 @@ layout edits. A flow is an ordered list of bookmark refs with optional
 auto-play dwell times. ``footer`` is a single board-global markdown branding
 line rendered at the bottom of every exported PDF slide. The v2 header is
 emitted only when such directives are present; pure-diagram files stay on v1.
+A board link with a ``#<id>`` fragment (``&graph:<name>#<id>``,
+``&link:<path>.grafli#<id>``) opens that board framed on the bookmark or
+element ``<id>``; a board using one is written as v3. So is a board whose
+arrows carry ``~id=<id>``, and one whose flow has a stop in another board:
+a step ``<board>#<bookmark>``, ``<board>`` being a vault sub-board name or a
+relative path ending in ``.grafli``.
+A ``!card`` box keeps its node look while it holds children; a board using
+one is written as v4. So is a board with an ``!ink`` box or note: a box's
+label and icon take their ink from its fill and drop the light plate, a
+note's text takes its ``%color``. And a board with a ``!sans`` box or note,
+whose text is set in the bundled proportional face (Inter) instead of mono or
+handwriting. And a board with a ``!dashed`` or ``!dotted`` box, whose outline
+is drawn in that pattern. And a board with an ``!dot`` arrow, whose ends
+draw a dot where they would draw an arrowhead. And a board with a
+``~status=`` box, which carries a short text label on its bottom edge. And
+a board with a ``^left`` container, which zoomed out stays a band with its
+children's colours and its title on the left. And a board whose ``%name``
+colour names an entry of the map's palette (``<stem>-res/palette.json``,
+see ``grafli.map_palette``).
+Each version's features are listed in ``VERSION_FEATURES``; a board whose
+header is newer than the newest listed version opens read-only.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from grafli.glyphs import ensure_text_presentation
 
 HEADER = "#!grafli v1"
 HEADER_V2 = "#!grafli v2"
+_RE_HEADER = re.compile(r'^#!grafli v(\d+)$')
 DEFAULT_BOOKMARK_PAD = 60   # scene px of breathing room around the anchor
 
 # Presentation settings a flow (as the default for its steps) or a single step
@@ -76,9 +105,10 @@ class Box:
     w: float
     h: float
     color: str = ""
-    anchor: str = ""      # "topleft", "topcenter", or "" (= center)
+    anchor: str = ""      # "topleft", "topcenter", "left" (top left, and a
+                          # zoomed-out band title), or "" (= center)
     textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
-    style: str = ""       # "" (node) or "flat"
+    style: str = ""       # "" (node), "flat", or "card" (node look with children)
     url: str = ""
     # Attachment kind for ``url``: "link" (opens externally — the only kind
     # that may point outside the board), "doc" (markdown document in the
@@ -95,6 +125,16 @@ class Box:
     icon_placement: str = ""
     # Text emphasis layered on the size: "", "bold", "italic", or "bold italic".
     emphasis: str = ""
+    # `!ink`: label and icon ink follow the fill, without the light plate.
+    ink: bool = False
+    # `!sans`: the label is set in the bundled proportional face, not mono.
+    sans: bool = False
+    # Outline pattern: "dashed", "dotted", or "" (solid).
+    border: str = ""
+    # `~status=<text>[:%color]`: a short label drawn on the box's bottom edge
+    # in every view. "" = none; ``status_color`` "" = the neutral pill.
+    status: str = ""
+    status_color: str = ""
 
 
 @dataclass
@@ -114,11 +154,22 @@ class Arrow:
     textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
     head_from: bool = False  # arrowhead at from_id end
     head_to: bool = True     # arrowhead at to_id end
+    # What an end with a head draws: "" (an arrowhead) or "dot" (`!dot`, a
+    # filled dot). Which ends carry one is still head_from / head_to.
+    head_shape: str = ""
     url: str = ""
     attach_kind: str = ""    # see Box.attach_kind
     # Connector kind: "" derives from endpoints (a note endpoint ⇒ annotation,
     # box↔box ⇒ graph); "graph"/"annotation" override that default.
     kind: str = ""
+    # The side the connector leaves its from element by and enters its to
+    # element at: "top" / "right" / "bottom" / "left", or "" (= picked from
+    # geometry, as an unpinned connector always has been).
+    from_side: str = ""
+    to_side: str = ""
+    # Optional stable id, written only when something references the arrow
+    # (a bookmark, a tour stop, an overlay entry); "" for a plain arrow.
+    id: str = ""
     annotation: str = ""     # deprecated — kept for migration parsing
 
 
@@ -133,7 +184,7 @@ class Note:
     text: str
     color: str = ""
     textsize: str = ""
-    style: str = ""       # "" (handwritten) or "mono"
+    style: str = ""       # "" (handwritten), "mono" or "sans"
     flat: bool = False    # True = no background plate; text sits on the canvas
     url: str = ""
     # See Box.attach_kind. On a note, kind "doc" means the note is
@@ -158,6 +209,7 @@ class Note:
     icon: str = ""
     icon_placement: str = ""
     emphasis: str = ""   # see Box.emphasis
+    ink: bool = False    # `!ink`: the text takes the note's %color
 
 
 @dataclass
@@ -220,6 +272,9 @@ class FlowStep:
     # Per-step presentation overrides; "" = inherit the flow's value.
     detail: str = ""          # "", or one of DETAIL_VALUES
     focus: str = ""           # "", or one of FOCUS_VALUES
+    # Segments this build doesn't know (e.g. ``zoom=x`` from a newer grafli),
+    # verbatim and in order, written back after the known ones.
+    extra: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -236,6 +291,9 @@ class Flow:
     # GUI state (detail) / off (focus). A step's own value overrides these.
     detail: str = ""          # "", or one of DETAIL_VALUES
     focus: str = ""           # "", or one of FOCUS_VALUES
+    # ``~`` markers this build doesn't know, verbatim and in order, written
+    # back after the known ones.
+    extra: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -271,6 +329,15 @@ class Board:
     """True if the file carried a `#!grafli` header line. A file without one
     that also fails to parse most of its lines is probably not a board at all
     (e.g. a Markdown doc opened by mistake) rather than a broken board."""
+    version: int = field(default=0, repr=False)
+    palette_names: frozenset[str] = field(default_factory=frozenset,
+                                          repr=False, compare=False)
+    """The names of the map palette's entries (``grafli.map_palette``), set by
+    whoever knows the board's file; a ``%name`` among them is a palette
+    colour. Not serialized."""
+    """The N of the file's `#!grafli vN` header, 0 without one. Above
+    ``supported_version()`` the board holds syntax this build can't
+    represent, so it must not be written back (see ``is_newer``)."""
 
     def box_by_id(self, box_id: str) -> Box | None:
         for b in self.boxes:
@@ -358,6 +425,15 @@ class Board:
         self.images.remove(image)
         self._lines = [(k, v) for k, v in self._lines if v is not image]
 
+    def arrow_by_id(self, arrow_id: str) -> Arrow | None:
+        """The arrow carrying ``~id=<arrow_id>``; plain arrows have no id."""
+        if not arrow_id:
+            return None
+        for arrow in self.arrows:
+            if arrow.id == arrow_id:
+                return arrow
+        return None
+
     def bookmark_by_id(self, bookmark_id: str) -> Bookmark | None:
         for bm in self.bookmarks:
             if bm.id == bookmark_id:
@@ -431,6 +507,79 @@ def split_attach(raw: str) -> tuple[str, str]:
     return "", raw
 
 
+def split_board_fragment(target: str) -> tuple[str, str]:
+    """Split the ``#<id>`` off a board link: ``combat#blow`` → ("combat",
+    "blow"). The id names a bookmark or element the board opens framed on;
+    without one the fragment is ""."""
+    board, _, fragment = target.partition("#")
+    return board, fragment
+
+
+def split_step_ref(ref: str) -> tuple[str, str]:
+    """Split a flow step's ref into (board, bookmark id): ``combat#blow`` →
+    ("combat", "blow"); a stop on the flow's own board has board ""."""
+    if "#" not in ref:
+        return "", ref
+    board, _, bookmark = ref.partition("#")
+    return board, bookmark
+
+
+_SOURCE_RE = re.compile(r"^#\s*source:\s*(.+?)(?:\s+@\s+(\S+))?\s*$")
+
+
+def board_source(board: Board) -> tuple[str, str] | None:
+    """The repo and revision a ``# source: <repo> @ <rev>`` comment names,
+    the revision "" when the comment gives none; None without the comment."""
+    for comment in board.comments:
+        m = _SOURCE_RE.match(comment)
+        if m:
+            return m.group(1), m.group(2) or ""
+    return None
+
+
+def ref_root(board: Board, base_dir: Path) -> Path:
+    """Where a relative ``@path:line`` code ref points into: the repo of the
+    board's ``# source:`` comment (a relative one taken from *base_dir*), else
+    *base_dir*, the board's directory."""
+    source = board_source(board)
+    if source is None:
+        return base_dir
+    repo = Path(source[0]).expanduser()
+    return repo if repo.is_absolute() else base_dir / repo
+
+
+def resolve_code_ref(board: Board, base_dir: Path,
+                     ref: str) -> tuple[Path, int | None]:
+    """The file and line an ``@path[:line]`` code ref opens: ``~`` expanded,
+    a relative path taken from ``ref_root``; the line None when the ref
+    names none."""
+    target = ref[1:] if ref.startswith("@") else ref
+    line_no: int | None = None
+    m = re.match(r"^(.+):(\d+)$", target)
+    if m:
+        target, line_no = m.group(1), int(m.group(2))
+    path = Path(target).expanduser()
+    if not path.is_absolute():
+        path = ref_root(board, base_dir) / path
+    return path, line_no
+
+
+def uses_cross_board_stops(board: Board) -> bool:
+    """True if a flow has a stop in another board (``<board>#<bookmark>``)."""
+    return any("#" in step.ref for flow in board.flows for step in flow.steps)
+
+
+def uses_board_fragments(board: Board) -> bool:
+    """True if an attachment points into a board: ``&graph:<name>#<id>`` or
+    ``&link:<path>.grafli#<id>``."""
+    for el in (*board.boxes, *board.notes, *board.images, *board.arrows):
+        if el.attach_kind == "graph" and "#" in el.url:
+            return True
+        if el.attach_kind != "doc" and ".grafli#" in el.url:
+            return True
+    return False
+
+
 def doc_name(element) -> str:
     """The vault doc name for a doc-attached element (bare ``&doc`` → id)."""
     return element.url or getattr(element, "id", "")
@@ -447,11 +596,24 @@ ICON_PLACEMENTS = ("lead", "badge")
 ICON_ALIASES = {"bulb": "lightbulb", "doc": "document"}
 
 
+# A filled number marker: ``*solid-<n>`` is ``*<n>`` drawn as a filled disc.
+SOLID_NUMBER_PREFIX = "solid-"
+
+
 def _canonical_icon(name: str) -> str:
     name = ICON_ALIASES.get(name, name)
-    if name.isdigit() and int(name) > 0:
-        return str(int(name))   # zero-strip number badges: *03 → *3
+    solid = name.startswith(SOLID_NUMBER_PREFIX)
+    digits = name[len(SOLID_NUMBER_PREFIX):] if solid else name
+    if digits.isdigit():
+        # zero-strip number markers: *03 → *3, *solid-07 → *solid-7, *00 → *0
+        return (SOLID_NUMBER_PREFIX if solid else "") + str(int(digits))
     return name
+
+
+def uses_number_markers(board: Board) -> bool:
+    """True if a box or note carries a filled number marker or ``*0``."""
+    return any(el.icon == "0" or el.icon.startswith(SOLID_NUMBER_PREFIX)
+               for el in (*board.boxes, *board.notes))
 
 
 def split_icon(raw: str) -> tuple[str, str]:
@@ -491,6 +653,11 @@ def emphasis_tokens(emphasis: str) -> str:
     return "".join(f" !{k}" for k in _EMPHASIS_ORDER if k in parts)
 
 
+def note_face(flags) -> str:
+    """A note's face from its flags: "" (handwritten), "mono" or "sans"."""
+    return "mono" if "mono" in flags else "sans" if "sans" in flags else ""
+
+
 # ── Regex patterns ──────────────────────────────────────────────
 
 # Quoted text slots accept `\"` as an escaped quote (and `\n` stays the
@@ -512,11 +679,12 @@ _RE_BOX = re.compile(
     r'^@\s+box\s+(\S+)\s+"' + _QT + r'"\s+'
     r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+\^(topleft|topcenter))?'
+    r'(?:\s+\^(topleft|topcenter|left))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
-    r'((?:\s+!(?:flat|ratio|fit|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:flat|card|ink|sans|dashed|dotted|ratio|fit|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
+    r'(?:\s+~status=([^\s:]+)(?::(#[0-9A-Fa-f]{6}|%[a-z]+))?)?'
     r'(?:\s+>(\S+))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
@@ -527,10 +695,13 @@ _RE_ARROW = re.compile(
     r'(?:\s+"' + _QT + r'")?'
     r'(?:\s+@(-?[\d.]+),(-?[\d.]+))?'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'          # color override
-    r'((?:\s+!(?:dashed|dotted|thin|thick|spline|ortho))*)'  # pattern, thickness, routing
+    r'((?:\s+!(?:dashed|dotted|thin|thick|spline|ortho|dot))*)'  # pattern, thickness, routing, head shape
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+~kind=(graph|annotation))?'
+    r'(?:\s+~from=(top|right|bottom|left))?'
+    r'(?:\s+~to=(top|right|bottom|left))?'
+    r'(?:\s+~id=([^\s#]\S*))?'
     r'(?:\s+#\s*(.+?))?'
     r'\s*$'
 )
@@ -541,7 +712,7 @@ _RE_NOTE = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'((?:\s+!(?:mono|flat|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:mono|sans|flat|ink|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -559,7 +730,7 @@ _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
     r'(?:\s+~width=(\d+))?'
-    r'((?:\s+!(?:mono|flat|bold|italic|outline|shadow))*)'
+    r'((?:\s+!(?:mono|sans|flat|ink|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+>(\S+))?'
@@ -609,13 +780,36 @@ _COORD_TOKEN_RE = re.compile(r'^-?[\d.]+,\s*-?[\d.]+$')
 _SIZE_TOKEN_RE = re.compile(r'(?<!\w)[\d.]+x[\d.]+(?!\w)')
 
 
+# The full accepted form of each directive, optional tokens in the order
+# the regexes above require them. Kept as constants right below the
+# regexes so the demotion messages can't drift from the grammar again
+# (#145); tests cross-check them against the regex sources.
+BOX_FORM = ('@ box <id> "label" x,y wxh [%color|#rrggbb] '
+            '[^topleft|^topcenter|^left] [~size] '
+            '[!flat|!card|!ink|!sans|!dashed|!dotted|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
+            '[*icon] [&attach] [~status=<text>[:%color]] [>parent]')
+NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
+             '[~width=N] [!mono|!sans|!flat|!ink|!bold|!italic|!outline|!shadow ...] '
+             '[*icon] [&attach] [>parent]')
+ARROW_FORM = ('@ arrow <from> ->|<-|<->|-- <to> ["label"] [@dx,dy] '
+              '[%color|#rrggbb] '
+              '[!dashed|!dotted|!thin|!thick|!spline|!ortho|!dot ...] '
+              '[~size] [&attach] [~kind=graph|annotation] '
+              '[~from=top|right|bottom|left] [~to=top|right|bottom|left] '
+              '[~id=<id>]')
+IMAGE_FORM = ('@ image <id> "path" x,y wxh [!frame|!noframe] '
+              '[>parent] [&attach]')
+_ORDER_HINT = " — optional tokens must appear in this order"
+
+
 def _diagnose_malformed_directive(stripped: str) -> str:
     """Return a grammar-aware reason for an `@` line the parser dropped.
 
     The two traps agents hit are asymmetries between `@ box` and `@ note`:
     box wants the label before the coordinates, note wants coordinates
-    before the text and takes no `WxH`. Name the expected grammar, and
-    pinpoint the transposition when it's detectable.
+    before the text and takes no `WxH`. Name the full expected grammar —
+    the parser is order-sensitive, so a legal token in the wrong slot is
+    rejected too — and pinpoint the transposition when it's detectable.
     """
     parts = stripped.split()
     kind = parts[1] if len(parts) >= 2 else ""
@@ -624,30 +818,33 @@ def _diagnose_malformed_directive(stripped: str) -> str:
         # coordinate token there means the author wrote it note-style.
         if len(parts) >= 4 and _COORD_TOKEN_RE.match(parts[3]):
             return ('looks like coordinates where a label is expected — for '
-                    '@ box the label comes first: '
-                    '@ box <id> "label" x,y wxh')
-        return ('malformed @ box — expected '
-                '@ box <id> "label" x,y wxh [%color] [~size]')
+                    '@ box the label comes first: ' + BOX_FORM + _ORDER_HINT)
+        return 'malformed @ box — expected ' + BOX_FORM + _ORDER_HINT
     if kind == "note":
         if _SIZE_TOKEN_RE.search(stripped):
             return ('@ note takes no width×height — set size with ~size '
                     '(e.g. ~large) and wrap width with ~width=. Grammar: '
-                    '@ note <id> x,y "text" [~size] [~width=N]')
-        return ('malformed @ note — expected '
-                '@ note <id> x,y "text" [~size]')
+                    + NOTE_FORM + _ORDER_HINT)
+        return 'malformed @ note — expected ' + NOTE_FORM + _ORDER_HINT
+    if kind == "arrow":
+        return 'malformed @ arrow — expected ' + ARROW_FORM + _ORDER_HINT
+    if kind == "image":
+        return 'malformed @ image — expected ' + IMAGE_FORM + _ORDER_HINT
     return "malformed directive — kept as a comment"
 
-def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:
+def _parse_flow_rest(
+        rest: str) -> tuple[list[FlowStep], str, str, str, str, list[str]]:
     """Split a flow line's tail into
-    (steps, description, auto_start, detail, focus).
+    (steps, description, auto_start, detail, focus, extra markers).
 
     The tail is step tokens (``ref`` with optional ``:``-separated segments —
     a bare number is the dwell, ``detail=<v>`` / ``focus=<v>`` are per-step
     presentation overrides), optional ``~auto=<node_id>`` / ``~detail=<v>`` /
     ``~focus=<v>`` markers, and an optional quoted description. Bookmark ids
     never contain quotes, so the first ``"`` unambiguously starts the
-    description. Unknown segments and out-of-vocabulary values are ignored,
-    so older grafli builds' files (and future tokens) parse without loss.
+    description. Unknown segments, unknown ``~`` markers and
+    out-of-vocabulary values are kept verbatim (``FlowStep.extra`` /
+    ``Flow.extra``), so a newer build's tokens survive a save.
     """
     rest = rest.strip()
     description = ""
@@ -661,6 +858,7 @@ def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:
     auto_start = ""
     flow_detail = ""
     flow_focus = ""
+    flow_extra: list[str] = []
     for token in rest.split():
         if token.startswith("~auto="):
             auto_start = token[len("~auto="):]
@@ -669,11 +867,19 @@ def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:
             value = token[len("~detail="):]
             if value in DETAIL_VALUES:
                 flow_detail = value
+            else:
+                flow_extra.append(token)
             continue
         if token.startswith("~focus="):
             value = token[len("~focus="):]
             if value in FOCUS_VALUES:
                 flow_focus = value
+            else:
+                flow_extra.append(token)
+            continue
+        if token.startswith("~"):
+            # A marker from a newer build — never a bookmark ref.
+            flow_extra.append(token)
             continue
         parts = token.split(":")
         ref = parts[0]
@@ -682,6 +888,7 @@ def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:
         parsed_dwell: float | None = None
         step_detail = ""
         step_focus = ""
+        step_extra: list[str] = []
         for seg in parts[1:]:
             if not seg:
                 continue
@@ -691,14 +898,18 @@ def _parse_flow_rest(rest: str) -> tuple[list[FlowStep], str, str, str, str]:
                     step_detail = value
                 elif key == "focus" and value in FOCUS_VALUES:
                     step_focus = value
+                else:
+                    step_extra.append(seg)
                 continue
             try:
                 parsed_dwell = float(seg.rstrip("s"))
             except ValueError:
-                pass
+                step_extra.append(seg)
         steps.append(FlowStep(ref=ref, dwell=parsed_dwell,
-                              detail=step_detail, focus=step_focus))
-    return steps, description, auto_start, flow_detail, flow_focus
+                              detail=step_detail, focus=step_focus,
+                              extra=step_extra))
+    return (steps, description, auto_start, flow_detail, flow_focus,
+            flow_extra)
 
 
 def parse(text: str) -> Board:
@@ -715,9 +926,11 @@ def parse(text: str) -> Board:
             board._lines.append(("blank", None))
             continue
 
-        if stripped in (HEADER, HEADER_V2):
+        m = _RE_HEADER.match(stripped)
+        if m:
             board._lines.append(("header", stripped))
             board.had_header = True
+            board.version = int(m.group(1))
             continue
 
         if stripped.startswith("#"):
@@ -728,7 +941,8 @@ def parse(text: str) -> Board:
         m = _RE_BOX.match(stripped)
         if m:
             # The flags run tolerates legacy !ratio / !fit (now no-ops) so older
-            # files still load; only !flat is honoured and re-serialized.
+            # files still load; only !flat / !card / !ink / !sans / !dashed /
+            # !dotted are honoured and re-serialized.
             flags = set(re.findall(r'!(\w+)', m.group(10) or ""))
             kind, url = split_attach(m.group(12) or "") if m.group(12) else ("", "")
             box = Box(
@@ -741,14 +955,21 @@ def parse(text: str) -> Board:
                 color=m.group(7) or "",
                 anchor=m.group(8) or "",
                 textsize=m.group(9) or "",
-                style="flat" if "flat" in flags else "",
+                style=("flat" if "flat" in flags
+                       else "card" if "card" in flags else ""),
                 emphasis=emphasis_from_flags(flags),
+                ink="ink" in flags,
+                sans="sans" in flags,
+                border=("dashed" if "dashed" in flags
+                        else "dotted" if "dotted" in flags else ""),
                 icon=split_icon(m.group(11) or "")[1],
                 icon_placement=split_icon(m.group(11) or "")[0],
                 url=url,
                 attach_kind=kind,
-                parent=m.group(13) or "",
-                annotation=(m.group(14) or "").replace("\\n", "\n"),
+                status=m.group(13) or "",
+                status_color=m.group(14) or "",
+                parent=m.group(15) or "",
+                annotation=(m.group(16) or "").replace("\\n", "\n"),
             )
             board.boxes.append(box)
             board._lines.append(("box", box))
@@ -759,13 +980,15 @@ def parse(text: str) -> Board:
             op = m.group(2)
             kind, url = split_attach(m.group(10) or "") if m.group(10) else ("", "")
             flags = m.group(8).split() if m.group(8) else []
-            # A run of "!dashed"/"!dotted"/"!thin"/"!thick"/"!spline"/"!ortho"
-            # flags in any order, one per axis: thickness, line pattern, and
-            # routing are independent, so "!dashed !ortho" is a dashed stair.
+            # A run of "!dashed"/"!dotted"/"!thin"/"!thick"/"!spline"/"!ortho"/
+            # "!dot" flags in any order, one per axis: thickness, line pattern,
+            # routing and head shape are independent, so "!dashed !ortho" is a
+            # dashed stair.
             # Legacy files carrying a bare "!thick" migrate to thickness here.
             style = next((f[1:] for f in flags if f in ("!dashed", "!dotted")), "")
             thickness = next((f[1:] for f in flags if f in ("!thin", "!thick")), "")
             routing = next((f[1:] for f in flags if f in ("!spline", "!ortho")), "")
+            head_shape = "dot" if "!dot" in flags else ""
             arrow = Arrow(
                 from_id=m.group(1),
                 to_id=m.group(3),
@@ -779,10 +1002,14 @@ def parse(text: str) -> Board:
                 textsize=m.group(9) or "",
                 head_from=op in ("<->", "<-"),
                 head_to=op in ("<->", "->"),
+                head_shape=head_shape,
                 url=url,
                 attach_kind=kind,
                 kind=m.group(11) or "",
-                annotation=(m.group(12) or "").replace("\\n", "\n"),
+                from_side=m.group(12) or "",
+                to_side=m.group(13) or "",
+                id=m.group(14) or "",
+                annotation=(m.group(15) or "").replace("\\n", "\n"),
             )
             board.arrows.append(arrow)
             board._lines.append(("arrow", arrow))
@@ -819,9 +1046,10 @@ def parse(text: str) -> Board:
                     wrap_chars=int(sm.group(3)) if sm.group(3)
                                                 else DEFAULT_NOTE_WRAP_CHARS,
                     wrap_chars_explicit=bool(sm.group(3)),
-                    style="mono" if "mono" in blk_flags else "",
+                    style=note_face(blk_flags),
                     flat="flat" in blk_flags,
                     emphasis=emphasis_from_flags(blk_flags),
+                    ink="ink" in blk_flags,
                     icon=split_icon(sm.group(5) or "")[1],
                     icon_placement=split_icon(sm.group(5) or "")[0],
                     url=url,
@@ -864,9 +1092,10 @@ def parse(text: str) -> Board:
                 wrap_chars=int(m.group(7)) if m.group(7)
                                             else DEFAULT_NOTE_WRAP_CHARS,
                 wrap_chars_explicit=bool(m.group(7)),
-                style="mono" if "mono" in note_flags else "",
+                style=note_face(note_flags),
                 flat="flat" in note_flags,
                 emphasis=emphasis_from_flags(note_flags),
+                ink="ink" in note_flags,
                 icon=split_icon(m.group(9) or "")[1],
                 icon_placement=split_icon(m.group(9) or "")[0],
                 url=url,
@@ -916,7 +1145,7 @@ def parse(text: str) -> Board:
 
         m = _RE_FLOW.match(stripped)
         if m:
-            steps, description, auto_start, detail, focus = \
+            steps, description, auto_start, detail, focus, extra = \
                 _parse_flow_rest(m.group(3))
             flow = Flow(
                 id=m.group(1),
@@ -928,6 +1157,7 @@ def parse(text: str) -> Board:
                 auto_start=auto_start,
                 detail=detail,
                 focus=focus,
+                extra=extra,
             )
             board.flows.append(flow)
             board._lines.append(("flow", flow))
@@ -978,6 +1208,71 @@ def parse_file(path: str) -> Board:
         return parse(f.read())
 
 
+# ── Format versions ─────────────────────────────────────────────
+
+# The header version each format feature needs, keyed by feature name, with
+# the test whether a board uses it. A board is written with the highest
+# version among the features it uses (v1 when none); the highest registered
+# version is the newest header this build reads without losing data. New
+# syntax registers itself here.
+# The theme's ``%token`` colour names, the same in every theme (a test holds
+# them to ``theme``). Any other ``%name`` names a palette entry.
+THEME_COLOR_TOKENS = frozenset((
+    "base", "primary", "secondary", "tertiary", "subtle", "accent",
+    "highlight", "muted", "soft", "clay", "teal", "rose", "forest", "plum",
+))
+
+
+def uses_palette_colors(board: Board) -> bool:
+    """Whether *board* colours anything with an entry of its map's palette,
+    which a v3 build cannot resolve. An unknown ``%name`` that is no entry
+    (a typo) stays what it was: a colour that falls back to the default."""
+    colors = [*(x.color for x in board.boxes),
+              *(x.status_color for x in board.boxes),
+              *(x.color for x in board.notes),
+              *(x.color for x in board.arrows)]
+    return any(c.startswith("%") and c[1:] in board.palette_names
+               and c[1:] not in THEME_COLOR_TOKENS for c in colors)
+
+
+VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
+    "tours": (2, lambda b: bool(b.bookmarks or b.flows or b.footer
+                                or b.title_bg)),
+    "board fragments": (3, uses_board_fragments),
+    "arrow ids": (3, lambda b: any(a.id for a in b.arrows)),
+    "cross-board stops": (3, uses_cross_board_stops),
+    "card boxes": (4, lambda b: any(x.style == "card" for x in b.boxes)),
+    "label ink": (4, lambda b: any(x.ink for x in [*b.boxes, *b.notes])),
+    "sans face": (4, lambda b: (any(x.sans for x in b.boxes)
+                                or any(n.style == "sans" for n in b.notes))),
+    "box outlines": (4, lambda b: any(x.border for x in b.boxes)),
+    "number markers": (4, uses_number_markers),
+    "connector sides": (4, lambda b: any(a.from_side or a.to_side
+                                         for a in b.arrows)),
+    "dot ends": (4, lambda b: any(a.head_shape for a in b.arrows)),
+    "status labels": (4, lambda b: any(x.status for x in b.boxes)),
+    "left titles": (4, lambda b: any(x.anchor == "left" for x in b.boxes)),
+    "palette colours": (4, uses_palette_colors),
+}
+
+
+def supported_version() -> int:
+    """The newest ``#!grafli vN`` this build can read and write back."""
+    return max([1, *(v for v, _ in VERSION_FEATURES.values())])
+
+
+def required_version(board: Board) -> int:
+    """The header version *board* must be written with."""
+    return max([1, *(v for v, uses in VERSION_FEATURES.values()
+                     if uses(board))])
+
+
+def is_newer(board: Board) -> bool:
+    """True if *board* was written by a newer grafli than this build — it
+    may hold syntax this build drops, so it opens read-only."""
+    return board.version > supported_version()
+
+
 # ── Serializer ──────────────────────────────────────────────────
 
 def _q(value: float) -> int:
@@ -1010,6 +1305,13 @@ def _attach_token(el, bare_doc_id: str | None = None) -> str:
     return f" &{el.url}" if el.url else ""
 
 
+def _annotation_token(el) -> str:
+    """The trailing ``# annotation`` of an element line, or ""."""
+    if not el.annotation:
+        return ""
+    return " # " + el.annotation.replace("\n", "\\n")
+
+
 def _serialize_box(box: Box) -> str:
     x = _q(box.x)
     y = _q(box.y)
@@ -1025,13 +1327,23 @@ def _serialize_box(box: Box) -> str:
         s += f" ~{box.textsize}"
     if box.style:
         s += f" !{box.style}"
+    if box.ink:
+        s += " !ink"
+    if box.sans:
+        s += " !sans"
+    if box.border:
+        s += f" !{box.border}"
     s += emphasis_tokens(box.emphasis)
     if box.icon:
         s += f" *{icon_token(box)}"
     s += _attach_token(box)
+    if box.status:
+        s += f" ~status={box.status}"
+        if box.status_color:
+            s += f":{box.status_color}"
     if box.parent:
         s += f" >{box.parent}"
-    return s
+    return s + _annotation_token(box)
 
 
 def _serialize_arrow(arrow: Arrow) -> str:
@@ -1058,12 +1370,20 @@ def _serialize_arrow(arrow: Arrow) -> str:
         base += f" !{arrow.thickness}"
     if arrow.routing:
         base += f" !{arrow.routing}"
+    if arrow.head_shape:
+        base += f" !{arrow.head_shape}"
     if arrow.textsize:
         base += f" ~{arrow.textsize}"
     base += _attach_token(arrow)
     if arrow.kind:
         base += f" ~kind={arrow.kind}"
-    return base
+    if arrow.from_side:
+        base += f" ~from={arrow.from_side}"
+    if arrow.to_side:
+        base += f" ~to={arrow.to_side}"
+    if arrow.id:
+        base += f" ~id={arrow.id}"
+    return base + _annotation_token(arrow)
 
 
 def _note_attrs(note: Note) -> str:
@@ -1079,13 +1399,15 @@ def _note_attrs(note: Note) -> str:
         s += " !flat"
     if note.style:
         s += f" !{note.style}"
+    if note.ink:
+        s += " !ink"
     s += emphasis_tokens(note.emphasis)
     if note.icon:
         s += f" *{icon_token(note)}"
     s += _attach_token(note, bare_doc_id=note.id)
     if note.parent:
         s += f" >{note.parent}"
-    return s
+    return s + _annotation_token(note)
 
 
 def _serialize_note(note: Note, embed_doc_bodies: bool = False) -> str:
@@ -1122,7 +1444,7 @@ def _serialize_image(image: Image) -> str:
     if image.parent:
         s += f" >{image.parent}"
     s += _attach_token(image)
-    return s
+    return s + _annotation_token(image)
 
 
 def _serialize_bookmark(bm: Bookmark) -> str:
@@ -1155,12 +1477,16 @@ def _serialize_flow(flow: Flow) -> str:
             s += f":detail={step.detail}"
         if step.focus:
             s += f":focus={step.focus}"
+        for seg in step.extra:
+            s += f":{seg}"
     if flow.auto_start:
         s += f" ~auto={flow.auto_start}"
     if flow.detail:
         s += f" ~detail={flow.detail}"
     if flow.focus:
         s += f" ~focus={flow.focus}"
+    for marker in flow.extra:
+        s += f" {marker}"
     if flow.description:
         desc = escape_quoted(flow.description)
         s += f' "{desc}"'
@@ -1179,8 +1505,9 @@ def _serialize_title_bg(title_bg: str) -> str:
 def serialize(board: Board, *, embed_doc_bodies: bool = False) -> str:
     """Serialize a Board object back to .grafli format.
 
-    Emits the v2 header only when the board carries bookmarks or flows;
-    otherwise stays on v1 so existing files round-trip byte-stable.
+    Emits the header version the board's features need (see
+    ``VERSION_FEATURES``): v2 once it carries bookmarks or flows, v1 for a
+    pure diagram, so existing files round-trip byte-stable.
     If the board was parsed (has _lines), preserves original ordering.
     Otherwise, outputs comments, then boxes, arrows, notes.
 
@@ -1189,8 +1516,7 @@ def serialize(board: Board, *, embed_doc_bodies: bool = False) -> str:
     which must restore bodies without filesystem reads. Never written to
     disk.
     """
-    header = (HEADER_V2 if (board.bookmarks or board.flows or board.footer
-                            or board.title_bg) else HEADER)
+    header = f"#!grafli v{required_version(board)}"
     meta_lines = []
     if board.footer:
         meta_lines.append(_serialize_footer(board.footer))

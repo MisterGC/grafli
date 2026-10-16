@@ -36,13 +36,19 @@ The skill gives the agent:
 - **Thinking-board patterns** — decision boards, tension maps,
   question landscapes, and the deliberate-incompleteness rules that
   keep the board a tool for *your* thinking.
+- **Explanation maps** — maps of any subject you read level by level:
+  each level states its question and the evidence for its split, box
+  docs and sub-boards hold the depth, tours walk through what happens
+  in order, overlay files carry analysis data with its provenance, and
+  a `Q:` you leave on the map is answered on the map — with a deeper
+  level, one line or a tour.
 - **Common-mistakes checklist** — quote escaping, disconnected nodes,
   truncated labels, deprecated keywords. The things that recur.
 
 It's structured as a lean, always-loaded core (`SKILL.md` — triggers,
 workflow, etiquette, checklist) plus `references/` files the agent
 reads on demand (full format tables, design principles, presenting,
-thinking boards) — deep coverage without a heavyweight prompt.
+thinking boards, explanation maps) — deep coverage without a heavyweight prompt.
 
 ## Install
 
@@ -102,6 +108,12 @@ human explainer would walk to a whiteboard. The agent then authors a
 board that structures the problem (a decision board, a tension map, a
 question landscape) rather than one that documents a system.
 
+It activates when you want to **understand, learn, explain or review a
+subject on a map** — "map this codebase so I can understand it", "help
+me learn X level by level". The agent builds an explanation map: an
+overview whose parts you enter with <kbd>g</kbd><kbd>d</kbd>, tours
+across its levels, and answers to the `Q:` notes you leave on it.
+
 It does **not** activate on generic "review this code", "explain this
 function", or "summarize this module" requests unless the user also
 asks for a visual, a board, or a diagram. Keeping the trigger tight
@@ -115,7 +127,10 @@ Once the skill is installed, the agent:
 2. Asks any clarifying question (the planning loop).
 3. Produces a `.grafli` file using `Write`.
 4. Verifies its own work headlessly: `grafli render` (with `--focus`,
-   `--lod`, and `--bookmark` for targeted looks), `grafli diagnose`
+   `--lod`, and `--bookmark` for targeted looks), `grafli fmt` to
+   normalize what it wrote into the same canonical form the app saves
+   (integer coordinates, canonical spacing — keeps diffs clean),
+   `grafli diagnose`
    (incl. `parse-error` findings for lines that would silently drop),
    `grafli inspect` for placement geometry, and `grafli export --check`
    when a deck is involved. `grafli diagnose --fix` applies the

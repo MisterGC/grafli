@@ -286,16 +286,69 @@ def test_drop_of_an_unreadable_file_is_skipped(tmp_path: Path):
     assert "broken.svg" in w._view._toast_text
 
 
-def test_drop_without_a_saved_board_toasts(tmp_path: Path):
+def _save_dialog(monkeypatch, answer: str):
+    """Answer the save-location dialog with *answer* ("" cancels)."""
+    from PySide6.QtWidgets import QFileDialog
+    asked = []
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName",
+        staticmethod(lambda *a, **k: (asked.append(a), (answer, ""))[1]),
+    )
+    return asked
+
+
+def test_drop_on_an_untitled_board_saves_it_first(tmp_path: Path, monkeypatch):
+    _app()
+    from grafli.app import MainWindow
+    w = MainWindow()
+    src = tmp_path / "pics"
+    src.mkdir()
+    (src / "logo.svg").write_bytes(SVG_2_1)
+    board_dir = tmp_path / "boards"
+    board_dir.mkdir()
+    target = board_dir / "fresh.grafli"
+    asked = _save_dialog(monkeypatch, str(target))
+
+    w._view._add_image_files([src / "logo.svg"], QPointF(0, 0))
+
+    assert len(asked) == 1
+    assert w._file_path == target
+    images = w._view._board.images
+    assert len(images) == 1
+    # Saved first, so the vault copy has somewhere to go and base_dir resolves.
+    assert images[0].image_path == "fresh-res/logo.svg"
+    assert (board_dir / "fresh-res" / "logo.svg").exists()
+    assert images[0].x == -images[0].w / 2      # still centred on the drop
+    assert not w._view._image_items[images[0].id]._placeholder
+
+
+def test_cancelling_the_save_dialog_drops_nothing(tmp_path: Path, monkeypatch):
     _app()
     from grafli.app import MainWindow
     w = MainWindow()
     (tmp_path / "logo.svg").write_bytes(SVG_2_1)
+    _save_dialog(monkeypatch, "")
 
     w._view._add_image_files([tmp_path / "logo.svg"], QPointF(0, 0))
 
     assert w._view._board.images == []
-    assert "Save the board first" in w._view._toast_text
+    assert w._file_path is None
+    assert w._view._toast_text == ""        # a cancel says nothing
+
+
+def test_drop_on_a_windowless_view_toasts(tmp_path: Path):
+    # No MainWindow above the view (headless render): no dialog to offer.
+    _app()
+    from grafli.format import parse
+    from grafli.view import GrafliView
+    (tmp_path / "logo.svg").write_bytes(SVG_2_1)
+    view = GrafliView()
+    view.load_board(parse('#!grafli v1\n'))
+
+    view._add_image_files([tmp_path / "logo.svg"], QPointF(0, 0))
+
+    assert view._board.images == []
+    assert "Save the board first" in view._toast_text
 
 
 # ── the view's drag & drop plumbing ───────────────────────────────────────
@@ -341,6 +394,25 @@ def test_drop_event_adds_the_image(tmp_path: Path):
                     Qt.MouseButton.LeftButton,
                     Qt.KeyboardModifier.NoModifier)
     w._view.dropEvent(ev)
+    assert [i.image_path for i in w._view._board.images] == ["logo.svg"]
+
+
+def test_drop_event_on_an_untitled_board_adds_after_the_drop(tmp_path: Path,
+                                                             monkeypatch):
+    # The save dialog is opened from the next event-loop turn, not from
+    # inside the drop handler — the add lands once that turn runs.
+    _app()
+    from grafli.app import MainWindow
+    w = MainWindow()
+    (tmp_path / "logo.svg").write_bytes(SVG_2_1)
+    _save_dialog(monkeypatch, str(tmp_path / "fresh.grafli"))
+    mime = _mime([tmp_path / "logo.svg"])
+    ev = QDropEvent(QPointF(10, 10), Qt.DropAction.CopyAction, mime,
+                    Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.NoModifier)
+    w._view.dropEvent(ev)
+    assert w._view._board.images == []
+    QApplication.processEvents()
     assert [i.image_path for i in w._view._board.images] == ["logo.svg"]
 
 

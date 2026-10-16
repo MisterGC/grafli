@@ -67,7 +67,10 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 - Connector routing — straight by default, `!spline` for a curve, `!ortho`
   for a right-angle stair that slides clear of boxes in its way. Anchors
   are derived from the layout rather than stored, so a board renders the
-  same in the app and in `grafli render`.
+  same in the app and in `grafli render`. `~from=right ~to=left` pins the
+  sides a connector leaves and enters by (`top` / `right` / `bottom` /
+  `left`), which also draws a U-turn without a helper box. `!dot` ends a
+  connector in a dot instead of an arrowhead.
 - Code-mode notes — minimal pseudocode for review-oriented diagrams: a
   bold function signature on the first line, control/effect keywords
   (`if`, `for`, `call`, `emit`, …) in blue, contract keywords (`pre`,
@@ -76,15 +79,16 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
   and concepts, 10 emphasis marks) drawn from one hand-editable SVG sheet:
   `*lightbulb` fills a node, `*lead:lock` sits beside the label,
   `*badge:flame` overlays a corner, and `*badge:3` numbers a sequence
-  (1–99). Picked visually via style mode → <kbd>i</kbd>.
+  (0–99; `*solid-3` fills the disc). Picked visually via style mode → <kbd>i</kbd>.
 - Tasks (`T:` / `TODO:`), questions (`Q:` / `QUESTION:`, both
   case-insensitive), and threaded discussions inside notes.
 - Find and focus — combine these at will:
   - **Subgraph focus** (<kbd>B</kbd>) — fade everything not reachable from
     the selection; cycle direction (incoming / outgoing / both) and
     depth (1-hop / unlimited).
-  - **Complexity heatmap** (<kbd>A</kbd>) — color nodes by connectivity
-    to find hot spots.
+  - **Connectivity heatmap** (<kbd>A</kbd>) — color boxes by graph arrows
+    to find hot spots; further presses show the overlay files a script
+    wrote beside the board (test results, churn, …).
   - **Dim connectors** (<kbd>,</kbd>) / **dim notes**
     (<kbd>Shift</kbd>+<kbd>N</kbd>) — fade arrows or text-notes to 8%
     opacity to read the rest.
@@ -93,6 +97,9 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 - Jump labels and graph navigation — every visible element is one or two keys
   away; hold <kbd>Alt</kbd> to follow connectors edge by edge.
 - Sub-graflis — link any node to a deeper diagram in its own file.
+- Share as one page — `grafli export-html` writes a board and every board
+  reachable from it into a single offline HTML file: zoom into levels, peek
+  at docs, switch overlays and play the tours in any browser.
 - Bookmarks & flows — save labeled viewpoints (semantic anchors, not pixel
   coords) and string them into guided tours: step through, auto-play, present
   fullscreen (<kbd>F5</kbd>), or export a slide PDF (`grafli export … --flow`).
@@ -139,8 +146,8 @@ return ok  @api/handler.py:42
 
 | Element | Syntax |
 |---------|--------|
-| Box   | `@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [>parent]` |
-| Arrow | `@ arrow <from> <op> <to> ["label"] [!style] [!routing] [~size]` |
+| Box   | `@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [~status=<text>[:color]] [>parent]` |
+| Arrow | `@ arrow <from> <op> <to> ["label"] [!style] [!routing] [!dot] [~size] [~from=<side>] [~to=<side>]` |
 | Note  | `@ note [<id>] <x>,<y> "<text>" [color] [~size] [!style] [>parent]` |
 
 Arrow operators: `->` right, `<-` left, `<->` both, `--` none.

@@ -9,7 +9,6 @@ from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QPainterPath, QPolygonF
 
 from grafli.constants import ARROWHEAD_SIZE
-from grafli.format import Box
 
 
 def _rect_edge_point(x: float, y: float, w: float, h: float, target: QPointF) -> QPointF:
@@ -36,10 +35,51 @@ def _rect_edge_point(x: float, y: float, w: float, h: float, target: QPointF) ->
     return QPointF(cx + dx * t, cy + dy * t)
 
 
-def _box_edge_point(box: Box, target: QPointF) -> QPointF:
-    """Find the point on box's edge closest to target along the line
-    from box center to target."""
-    return _rect_edge_point(box.x, box.y, box.w, box.h, target)
+def _rect_centre(rect: tuple) -> QPointF:
+    x, y, w, h = rect
+    return QPointF(x + w / 2, y + h / 2)
+
+
+# ── Sides of a rect ────────────────────────────────────────────────
+#
+# Every connector endpoint is a (side, t) pair on one of the four sides,
+# whether it was derived from a ray, chosen for a routing, or pushed along by
+# the spread pass. These three convert between that pair and a scene point.
+
+
+def point_on_side(rect: tuple, side: str, t: float = 0.5) -> QPointF:
+    """The point ``t`` of the way along a rect's side (0..1, 0.5 = midpoint)."""
+    x, y, w, h = rect
+    if side == "n":
+        return QPointF(x + w * t, y)
+    if side == "s":
+        return QPointF(x + w * t, y + h)
+    if side == "w":
+        return QPointF(x, y + h * t)
+    return QPointF(x + w, y + h * t)
+
+
+def side_of_point(rect: tuple, pt: QPointF) -> str:
+    """Which side of ``rect`` a point sits on (nearest edge)."""
+    x, y, w, h = rect
+    dists = {
+        "w": abs(pt.x() - x), "e": abs(pt.x() - (x + w)),
+        "n": abs(pt.y() - y), "s": abs(pt.y() - (y + h)),
+    }
+    return min(dists, key=dists.get)
+
+
+# A connector may pin the side it leaves and the side it enters (#209). The file
+# names them as a reader would; the geometry keeps its compass letters.
+SIDE_NAMES = {"top": "n", "right": "e", "bottom": "s", "left": "w"}
+
+
+def t_of_point(rect: tuple, side: str, pt: QPointF) -> float:
+    """Where along a side a point sits, as 0..1."""
+    x, y, w, h = rect
+    if side in ("n", "s"):
+        return 0.0 if w <= 0 else max(0.0, min(1.0, (pt.x() - x) / w))
+    return 0.0 if h <= 0 else max(0.0, min(1.0, (pt.y() - y) / h))
 
 
 def _line_rect_clip(p1: QPointF, p2: QPointF, rect: QRectF) -> tuple[QPointF, QPointF]:
@@ -88,38 +128,121 @@ def _line_rect_clip(p1: QPointF, p2: QPointF, rect: QRectF) -> tuple[QPointF, QP
 
 
 def _aligned_edge_points(
-    from_box: Box, to_box: Box,
+    f_rect: tuple, t_rect: tuple,
 ) -> tuple[QPointF, QPointF] | None:
-    """Return edge-to-edge points when boxes share horizontal or vertical range.
+    """Return edge-to-edge points when two rects share enough of an axis.
 
     Returns a (start, end) pair for a straight H or V segment, or None when
-    the boxes are diagonal (caller falls back to center-to-center logic).
+    the rects are diagonal (caller falls back to center-to-center logic).
+
+    "Enough" means the shared range covers at least one of the two centres.
+    That is the overlap a reader takes for deliberate alignment, and it is also
+    what keeps the straight segment out of both elements' corners. Two elements
+    that merely graze each other's range would otherwise get a line squeezed
+    into the sliver they share, hugging one corner of each (#156).
     """
-    fcy = from_box.y + from_box.h / 2
-    tcy = to_box.y + to_box.h / 2
-    fcx = from_box.x + from_box.w / 2
-    tcx = to_box.x + to_box.w / 2
+    fx, fy, fw, fh = f_rect
+    tx, ty, tw, th = t_rect
+    fcx, fcy = fx + fw / 2, fy + fh / 2
+    tcx, tcy = tx + tw / 2, ty + th / 2
 
-    x_lo = max(from_box.x, to_box.x)
-    x_hi = min(from_box.x + from_box.w, to_box.x + to_box.w)
-    y_lo = max(from_box.y, to_box.y)
-    y_hi = min(from_box.y + from_box.h, to_box.y + to_box.h)
+    x_lo = max(fx, tx)
+    x_hi = min(fx + fw, tx + tw)
+    y_lo = max(fy, ty)
+    y_hi = min(fy + fh, ty + th)
 
-    if x_lo < x_hi:
+    if x_lo < x_hi and (x_lo <= fcx <= x_hi or x_lo <= tcx <= x_hi):
         # Horizontal overlap -> straight vertical line
         mx = (x_lo + x_hi) / 2
-        sy = from_box.y + from_box.h if fcy < tcy else from_box.y
-        ey = to_box.y if fcy < tcy else to_box.y + to_box.h
+        sy = fy + fh if fcy < tcy else fy
+        ey = ty if fcy < tcy else ty + th
         return QPointF(mx, sy), QPointF(mx, ey)
 
-    if y_lo < y_hi:
+    if y_lo < y_hi and (y_lo <= fcy <= y_hi or y_lo <= tcy <= y_hi):
         # Vertical overlap -> straight horizontal line
         my = (y_lo + y_hi) / 2
-        sx = from_box.x + from_box.w if fcx < tcx else from_box.x
-        ex = to_box.x if fcx < tcx else to_box.x + to_box.w
+        sx = fx + fw if fcx < tcx else fx
+        ex = tx if fcx < tcx else tx + tw
         return QPointF(sx, my), QPointF(ex, my)
 
     return None
+
+
+# Where along a side a connector may attach, as fractions of the side's length.
+# Outside this band an endpoint reads as a corner connection rather than as a
+# link between two elements, so a natural position landing there is pulled back
+# in (#156). Wide enough that a correction stays close to the centre-to-centre
+# ray it replaces — a line that visibly misses the element it points at looks
+# worse than a corner exit.
+CENTRAL_BAND_LO = 0.25
+CENTRAL_BAND_HI = 1.0 - CENTRAL_BAND_LO
+
+
+def facing_sides(f_rect: tuple, t_rect: tuple) -> tuple[str, str]:
+    """The opposite pair of sides two rects turn toward each other.
+
+    Which axis dominates cannot be read off the centre delta alone: two boxes
+    stacked with a sideways offset would count as a horizontal relation as soon
+    as that offset is the larger number, however far apart they sit vertically.
+    Each axis is therefore measured against the extent the two rects themselves
+    cover on it, which asks the question that matters — on which axis do they
+    actually stand clear of each other.
+    """
+    d = _rect_centre(t_rect) - _rect_centre(f_rect)
+    span_x = (f_rect[2] + t_rect[2]) / 2
+    span_y = (f_rect[3] + t_rect[3]) / 2
+    reach_x = abs(d.x()) / span_x if span_x > 0 else math.inf
+    reach_y = abs(d.y()) / span_y if span_y > 0 else math.inf
+    if reach_x >= reach_y:
+        return ("e", "w") if d.x() >= 0 else ("w", "e")
+    return ("s", "n") if d.y() >= 0 else ("n", "s")
+
+
+def _central_endpoint(rect: tuple, pt: QPointF,
+                      other_centre: QPointF, facing: str) -> QPointF:
+    """``pt`` moved out of the corner zone, or returned untouched.
+
+    An endpoint already in the central band of its side is the one the reader
+    expects — the clipped centre-to-centre ray — and stays exactly where it is.
+    One in a corner zone moves onto the side that faces the other element,
+    aiming at that element's centre, and is then held inside the band.
+    """
+    side = side_of_point(rect, pt)
+    t = t_of_point(rect, side, pt)
+    if CENTRAL_BAND_LO <= t <= CENTRAL_BAND_HI:
+        return pt
+    if side != facing:
+        side = facing
+        t = t_of_point(rect, side, other_centre)
+    return point_on_side(rect, side, max(CENTRAL_BAND_LO,
+                                         min(CENTRAL_BAND_HI, t)))
+
+
+def endpoint_pair(f_rect: tuple, t_rect: tuple,
+                  allow_aligned: bool = True) -> tuple[QPointF, QPointF]:
+    """Where a direct connector between two elements attaches to each.
+
+    Conceptually centre-to-centre: the straight segment clipped to both edges
+    is what a reader expects, so it is kept whenever both of its ends already
+    land in the central band of their side. Only an end that would sit in a
+    corner is moved (#156).
+
+    ``allow_aligned`` enables the straight-segment shortcut for elements whose
+    ranges overlap deliberately; the caller withholds it where that shortcut
+    has never applied. Pure geometry throughout, so the app and a headless
+    render place every endpoint identically.
+    """
+    if allow_aligned:
+        aligned = _aligned_edge_points(f_rect, t_rect)
+        if aligned:
+            return aligned
+
+    f_mid, t_mid = _rect_centre(f_rect), _rect_centre(t_rect)
+    s_pt = _rect_edge_point(*f_rect, t_mid)
+    e_pt = _rect_edge_point(*t_rect, f_mid)
+    f_face, t_face = facing_sides(f_rect, t_rect)
+    return (_central_endpoint(f_rect, s_pt, t_mid, f_face),
+            _central_endpoint(t_rect, e_pt, f_mid, t_face))
 
 
 def _arrowhead_polygon(tip: QPointF, angle: float,
@@ -135,6 +258,15 @@ def _arrowhead_polygon(tip: QPointF, angle: float,
         tip.y() - s * math.sin(angle + math.pi / 6),
     )
     return QPolygonF([tip, p1, p2, tip])
+
+
+def _dot_polygon(centre: QPointF, radius: float, steps: int = 24) -> QPolygonF:
+    """A filled dot at a connector end (`!dot`, #210), as a polygon so it is
+    selected, recoloured and hit-tested like an arrowhead."""
+    return QPolygonF([
+        QPointF(centre.x() + radius * math.cos(2 * math.pi * i / steps),
+                centre.y() + radius * math.sin(2 * math.pi * i / steps))
+        for i in range(steps)])
 
 
 # ── Routing (#138) ─────────────────────────────────────────────────
@@ -175,18 +307,6 @@ ORTHO_MAX_CANDIDATES = 16
 ORTHO_MAX_OBSTACLES = 24
 
 _NORMALS = {"n": (0.0, -1.0), "s": (0.0, 1.0), "e": (1.0, 0.0), "w": (-1.0, 0.0)}
-
-
-def point_on_side(rect: tuple, side: str, t: float = 0.5) -> QPointF:
-    """The point ``t`` of the way along a rect's side (0..1, 0.5 = midpoint)."""
-    x, y, w, h = rect
-    if side == "n":
-        return QPointF(x + w * t, y)
-    if side == "s":
-        return QPointF(x + w * t, y + h)
-    if side == "w":
-        return QPointF(x, y + h * t)
-    return QPointF(x + w, y + h * t)
 
 
 def _segment_hits_rect(a: QPointF, b: QPointF, rect: QRectF) -> bool:
@@ -310,7 +430,8 @@ def _best_mid(start: QPointF, end: QPointF,
 
 def ortho_points(start: QPointF, start_side: str,
                  end: QPointF, end_side: str,
-                 obstacles: list[QRectF] | None = None) -> list[QPointF]:
+                 obstacles: list[QRectF] | None = None,
+                 ends: tuple[QRectF, QRectF] | None = None) -> list[QPointF]:
     """Corner points of a right-angle route between two side anchors.
 
     Two parallel exits give a Z (three segments, turning at a mid-line in the
@@ -321,6 +442,11 @@ def ortho_points(start: QPointF, start_side: str,
     ``obstacles`` are rects the mid-line should avoid; the caller excludes the
     connector's own endpoints. Only the Z case has a free parameter to spend, so
     an L is unaffected.
+
+    ``ends`` — the rects of the two endpoints — marks a connector with pinned
+    sides (#209). Its route must leave and enter along those sides, so where
+    the plain stair would run back across its own box it is replaced by one
+    that steps out first.
     """
     horiz_start = start_side in ("e", "w")
     horiz_end = end_side in ("e", "w")
@@ -336,9 +462,18 @@ def ortho_points(start: QPointF, start_side: str,
     else:
         pts = [start, QPointF(start.x(), end.y()), end]
 
-    # Drop points that coincide, then points that don't actually turn: an
-    # aligned pair collapses a Z into one straight run, and a corner that isn't
-    # a corner would still get handed to the rounding pass.
+    pts = _tidy(pts)
+    if ends is None or _keeps_to_sides(pts, start_side, end_side):
+        return pts
+    return _pinned_stair(start, start_side, end, end_side,
+                         [*ends, *(obstacles or [])])
+
+
+def _tidy(pts: list[QPointF]) -> list[QPointF]:
+    """Drop points that coincide, then points that don't actually turn: an
+    aligned pair collapses a Z into one straight run, and a corner that isn't
+    a corner would still get handed to the rounding pass. A point where the
+    route doubles back is a turn and stays."""
     out: list[QPointF] = []
     for p in pts:
         if not out or (abs(p.x() - out[-1].x()) > 0.01
@@ -349,11 +484,115 @@ def ortho_points(start: QPointF, start_side: str,
         prev, cur, nxt = straightened[-1], out[i], out[i + 1]
         cross = ((cur.x() - prev.x()) * (nxt.y() - cur.y())
                  - (cur.y() - prev.y()) * (nxt.x() - cur.x()))
-        if abs(cross) > 0.01:
+        dot = ((cur.x() - prev.x()) * (nxt.x() - cur.x())
+               + (cur.y() - prev.y()) * (nxt.y() - cur.y()))
+        if abs(cross) > 0.01 or dot < 0:
             straightened.append(cur)
     if len(out) > 1:
         straightened.append(out[-1])
     return straightened
+
+
+# How far a pinned connector steps straight out of its side before it turns,
+# when the other end lies behind that side (#209) — enough for the turn to read
+# as leaving the box, short enough to stay close to it.
+PINNED_STUB = 18.0
+
+
+def _along(a: QPointF, b: QPointF, side: str) -> float:
+    """How far ``a``→``b`` travels along the outward normal of ``side``."""
+    nx, ny = _NORMALS[side]
+    return (b.x() - a.x()) * nx + (b.y() - a.y()) * ny
+
+
+def _keeps_to_sides(pts: list[QPointF], start_side: str, end_side: str) -> bool:
+    """Whether a route leaves out of its start side and enters into its end
+    side, rather than running back across the box it starts or ends on."""
+    return (len(pts) >= 2 and _along(pts[0], pts[1], start_side) > 0.01
+            and _along(pts[-1], pts[-2], end_side) > 0.01)
+
+
+def _stub_points(start: QPointF, start_side: str,
+                 end: QPointF, end_side: str) -> tuple[QPointF, QPointF]:
+    """The two points a pinned connector steps out to before it turns.
+
+    Two ends pinned to the same side step out to the same line, past whichever
+    end sits further out, so a U-turn comes back square instead of cutting the
+    corner of the box that sticks out more.
+    """
+    sx, sy = _NORMALS[start_side]
+    ex, ey = _NORMALS[end_side]
+    p1 = QPointF(start.x() + sx * PINNED_STUB, start.y() + sy * PINNED_STUB)
+    p2 = QPointF(end.x() + ex * PINNED_STUB, end.y() + ey * PINNED_STUB)
+    if start_side == end_side:
+        if start_side in ("e", "w"):
+            far = max if start_side == "e" else min
+            x = far(p1.x(), p2.x())
+            p1, p2 = QPointF(x, p1.y()), QPointF(x, p2.y())
+        else:
+            far = max if start_side == "s" else min
+            y = far(p1.y(), p2.y())
+            p1, p2 = QPointF(p1.x(), y), QPointF(p2.x(), y)
+    return p1, p2
+
+
+def _reversals(pts: list[QPointF]) -> int:
+    """How often a route doubles back on the segment it just drew."""
+    return sum(
+        1 for a, b, c in zip(pts, pts[1:], pts[2:])
+        if ((b.x() - a.x()) * (c.x() - b.x())
+            + (b.y() - a.y()) * (c.y() - b.y())) < 0)
+
+
+def _pinned_stair(start: QPointF, start_side: str,
+                  end: QPointF, end_side: str,
+                  blockers: list[QRectF]) -> list[QPointF]:
+    """A right-angle route that leaves and enters along pinned sides.
+
+    Only used when the plain stair would run back across its own box — a
+    U-turn, or an end pinned to the side facing away from the other. Each end
+    steps out of its side, and the two stub points are joined by whichever of a
+    few right-angle shapes crosses the fewest boxes, the endpoints' own boxes
+    included; a tie keeps the shorter shape and then the listed order.
+    """
+    p1, p2 = _stub_points(start, start_side, end, end_side)
+    mx, my = (p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2
+    candidates = [
+        [start, p1, QPointF(p1.x(), p2.y()), p2, end],
+        [start, p1, QPointF(p2.x(), p1.y()), p2, end],
+        [start, p1, QPointF(p1.x(), my), QPointF(p2.x(), my), p2, end],
+        [start, p1, QPointF(mx, p1.y()), QPointF(mx, p2.y()), p2, end],
+    ]
+    best, best_key = None, None
+    for pts in candidates:
+        pts = _tidy(pts)
+        key = (_reversals(pts), _crossed(pts, blockers), len(pts))
+        if best_key is None or key < best_key:
+            best, best_key = pts, key
+    return best
+
+
+def pinned_direct_points(start: QPointF, start_side: str,
+                         end: QPointF, end_side: str) -> list[QPointF]:
+    """The run of a direct connector between two pinned anchors (#209).
+
+    Straight when it can leave and enter through the pinned sides; otherwise it
+    steps out of each side first and runs straight between the two stub points,
+    so a U-turn or a back-facing pin still reads as leaving that side.
+    """
+    if (_along(start, end, start_side) > 0.01
+            and _along(end, start, end_side) > 0.01):
+        return [start, end]
+    p1, p2 = _stub_points(start, start_side, end, end_side)
+    return _tidy([start, p1, p2, end])
+
+
+def polyline_path(points: list[QPointF]) -> QPainterPath:
+    """A path through ``points`` with sharp corners."""
+    path = QPainterPath(points[0])
+    for pt in points[1:]:
+        path.lineTo(pt)
+    return path
 
 
 def _rounded_polyline(points: list[QPointF], radius: float) -> QPainterPath:
@@ -400,17 +639,20 @@ def spline_path(start: QPointF, start_side: str,
 
 def routed_path(routing: str, start: QPointF, start_side: str,
                 end: QPointF, end_side: str,
-                obstacles: list[QRectF] | None = None) -> QPainterPath:
+                obstacles: list[QRectF] | None = None,
+                ends: tuple[QRectF, QRectF] | None = None) -> QPainterPath:
     """The connector body for a routing, as a path.
 
     ``obstacles`` lets a stair slide its mid-line clear of intervening boxes;
-    the other routings have no free parameter to spend and ignore it.
+    the other routings have no free parameter to spend and ignore it. ``ends``
+    marks a connector with pinned sides (see ``ortho_points``); a spline already
+    leaves along each side's normal and needs nothing more.
     """
     if routing == "spline":
         return spline_path(start, start_side, end, end_side)
     if routing == "ortho":
         return _rounded_polyline(
-            ortho_points(start, start_side, end, end_side, obstacles),
+            ortho_points(start, start_side, end, end_side, obstacles, ends),
             ORTHO_RADIUS)
     path = QPainterPath(start)
     path.lineTo(end)
@@ -540,24 +782,6 @@ ROUTED_CENTRE_BIAS = 0.34
 ANCHOR_MARGIN = 0.06
 
 
-def side_of_point(rect: tuple, pt: QPointF) -> str:
-    """Which side of ``rect`` a point sits on (nearest edge)."""
-    x, y, w, h = rect
-    dists = {
-        "w": abs(pt.x() - x), "e": abs(pt.x() - (x + w)),
-        "n": abs(pt.y() - y), "s": abs(pt.y() - (y + h)),
-    }
-    return min(dists, key=dists.get)
-
-
-def t_of_point(rect: tuple, side: str, pt: QPointF) -> float:
-    """Where along a side a point sits, as 0..1."""
-    x, y, w, h = rect
-    if side in ("n", "s"):
-        return 0.0 if w <= 0 else max(0.0, min(1.0, (pt.x() - x) / w))
-    return 0.0 if h <= 0 else max(0.0, min(1.0, (pt.y() - y) / h))
-
-
 def relax_positions(desired: list[float], min_sep: float,
                     order_key: list[float] | None = None) -> list[float]:
     """Push crowded anchors apart along a side, preserving their order.
@@ -597,4 +821,160 @@ def relax_positions(desired: list[float], min_sep: float,
     for slot, i in enumerate(order):
         out[i] = vals[slot]
     return out
+
+
+# ── Self-connectors and parallel edges ─────────────────────────────
+#
+# Both are cases where a connector's own two endpoints don't determine its
+# shape. A self-connector has one endpoint, so there is no centre-to-centre ray
+# to follow at all (#139); parallel connectors between one pair have *identical*
+# endpoints, so nothing local to a connector tells it apart from its sibling
+# (#140). Each therefore takes one extra input — which corner is free, which
+# slot in the fan — and stays a pure function of that plus the element rects.
+
+# The adjacent side pairs a self-connector can loop over, in the order they are
+# tried. A pair carrying no other connector wins; a tie keeps this order, so the
+# app and a headless render pick the same corner.
+SELF_LOOP_SIDES = (("n", "e"), ("e", "s"), ("s", "w"), ("w", "n"))
+# How close to the shared corner each end of the loop sits, along its side.
+# Close enough that the loop reads as a loop rather than as a connector
+# wandering around the element, clear enough that it isn't a kink in the corner.
+SELF_LOOP_T = 0.72
+# How far the loop bulges past the corner, as a fraction of the element's
+# smaller side, clamped so a tiny note still gets a visible loop and a large
+# container doesn't get a balloon.
+SELF_LOOP_REACH = 0.62
+SELF_LOOP_REACH_MIN = 40.0
+SELF_LOOP_REACH_MAX = 120.0
+
+# How far apart a fan pushes the middles of two connectors between the same
+# pair. The anchor pass has already separated their ends, so the fan only has to
+# open up the run between them — where the labels sit. Modest on purpose: a wide
+# bow reads as a detour rather than as a second connector.
+PARALLEL_FAN_STEP = 22.0
+PARALLEL_FAN_MAX_SPAN = 110.0
+
+# Which way "further along the side" points. Anchors are spread by increasing
+# ``t`` (see relax_positions), so a fan measured against this direction puts
+# every connector's bow on the same side as its own anchor — bowing the other
+# way would send it across the sibling it is being separated from.
+_SIDE_ALONG = {"n": (1.0, 0.0), "s": (1.0, 0.0), "e": (0.0, 1.0), "w": (0.0, 1.0)}
+
+
+def pick_self_loop_sides(load: dict[str, int]) -> tuple[str, str]:
+    """The adjacent side pair a self-connector loops over.
+
+    ``load`` counts the connectors already attached to each side, so the loop
+    settles on the emptiest corner of the element instead of landing on top of
+    its neighbours.
+    """
+    return min(SELF_LOOP_SIDES,
+               key=lambda pair: load.get(pair[0], 0) + load.get(pair[1], 0))
+
+
+def pinned_self_loop_sides(out_pin: str, in_pin: str,
+                           load: dict[str, int]) -> tuple[str, str]:
+    """The sides a self-connector with one or both sides pinned loops over.
+
+    A pinned side is kept; an unpinned one takes the adjacent side that the
+    loop pairs it with in ``SELF_LOOP_SIDES``, as the emptiest corner would.
+    """
+    if out_pin and in_pin:
+        return out_pin, in_pin
+    if out_pin:
+        return next(p for p in SELF_LOOP_SIDES if p[0] == out_pin)
+    return next(p for p in SELF_LOOP_SIDES if p[1] == in_pin)
+
+
+def self_loop_ts(out_side: str, in_side: str) -> tuple[float, float]:
+    """Where the two ends of a self-loop sit on their sides, as 0..1.
+
+    Both sit near the corner the two sides share; which end of a side that is
+    depends on the corner, since ``t`` always runs left-to-right or top-to-bottom.
+    """
+    if out_side == in_side:                  # a pinned loop on one side
+        return 1.0 - SELF_LOOP_T, SELF_LOOP_T
+    corner = {out_side, in_side}
+    if corner in ({"n", "s"}, {"e", "w"}):
+        return 0.5, 0.5                      # pinned to opposite sides
+
+    def near(side: str) -> float:
+        at_high_end = ("e" in corner) if side in ("n", "s") else ("s" in corner)
+        return SELF_LOOP_T if at_high_end else 1.0 - SELF_LOOP_T
+
+    return near(out_side), near(in_side)
+
+
+def self_loop_path(rect: tuple, start: QPointF, start_side: str,
+                   end: QPointF, end_side: str) -> QPainterPath:
+    """A loop leaving one side of ``rect`` and re-entering an adjacent one.
+
+    Same construction as a spline — leave along each side's normal — with the
+    bulge derived from the element's own size rather than from the distance
+    between the two ends, which on a loop is only ever a corner apart.
+    """
+    _x, _y, w, h = rect
+    reach = max(SELF_LOOP_REACH_MIN,
+                min(SELF_LOOP_REACH_MAX, min(w, h) * SELF_LOOP_REACH))
+    sx, sy = _NORMALS[start_side]
+    ex, ey = _NORMALS[end_side]
+    path = QPainterPath(start)
+    path.cubicTo(
+        QPointF(start.x() + sx * reach, start.y() + sy * reach),
+        QPointF(end.x() + ex * reach, end.y() + ey * reach),
+        end,
+    )
+    return path
+
+
+def fan_offsets(n: int) -> list[float]:
+    """Lateral offsets for ``n`` connectors between the same pair.
+
+    Symmetric about the straight run, so a fan grows outward from where the
+    single connector would have been. The span is capped, so a pair with many
+    connectors tightens rather than sweeping across the board.
+    """
+    if n < 2:
+        return [0.0] * n
+    step = min(PARALLEL_FAN_STEP, PARALLEL_FAN_MAX_SPAN / (n - 1))
+    return [(i - (n - 1) / 2) * step for i in range(n)]
+
+
+def fan_normal(start: QPointF, end: QPointF,
+               start_side: str) -> tuple[float, float]:
+    """Unit vector a positive fan offset bows toward."""
+    dx, dy = end.x() - start.x(), end.y() - start.y()
+    length = math.hypot(dx, dy)
+    if length < 1e-9:
+        return 0.0, 0.0
+    nx, ny = -dy / length, dx / length
+    ax, ay = _SIDE_ALONG[start_side]
+    along = nx * ax + ny * ay
+    # A connector running along its own side has no ordering to agree with, so
+    # break the tie on the vector itself and keep the choice deterministic.
+    if along < 0 or (along == 0 and (nx < 0 or (nx == 0 and ny < 0))):
+        nx, ny = -nx, -ny
+    return nx, ny
+
+
+def bowed_path(start: QPointF, end: QPointF, start_side: str,
+               offset: float) -> QPainterPath:
+    """The run between two anchors, bowed sideways by ``offset`` at its middle.
+
+    A zero offset gives back the straight line, so the only boards this touches
+    are the ones that actually have connectors to separate.
+    """
+    path = QPainterPath(start)
+    if abs(offset) < 1e-9:
+        path.lineTo(end)
+        return path
+    nx, ny = fan_normal(start, end, start_side)
+    # A quadratic passes through (P0 + 2C + P1) / 4 at its middle, so the
+    # control point carries twice the offset the apex should show.
+    path.quadTo(
+        QPointF((start.x() + end.x()) / 2 + nx * offset * 2,
+                (start.y() + end.y()) / 2 + ny * offset * 2),
+        end,
+    )
+    return path
 

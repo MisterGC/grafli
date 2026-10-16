@@ -40,6 +40,8 @@ _COLOR_VALUES = [c for _, c in COLOR_PALETTE]
 
 FONT_FAMILY = "JetBrainsMono Nerd Font"
 NOTE_FONT_FAMILY = "Patrick Hand"
+# `!sans` boxes: the bundled proportional face (Inter, OFL).
+SANS_FONT_FAMILY = "Inter"
 
 BOX_FONT = QFont(FONT_FAMILY, 13)
 NOTE_FONT = QFont(NOTE_FONT_FAMILY, 15)
@@ -86,6 +88,8 @@ MINIMAP_STATS_FONT_SIZE = 10
 HEATMAP_COLD_ALPHA = 0.30
 HEATMAP_HOT_ALPHA = 0.95
 HEATMAP_NOTE_OPACITY = 0.15
+HEATMAP_CATEGORY_ALPHA = 0.85  # fill of a box an overlay gives a category colour
+HEATMAP_NO_DATA_ALPHA = 0.30   # hatch and border of a box with no overlay entry
 HEATMAP_BORDER_DARKEN = 125
 HEATMAP_GLOW_THRESHOLD = 0.5
 HEATMAP_GLOW_BLUR = 15

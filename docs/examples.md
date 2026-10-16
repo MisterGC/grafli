@@ -55,6 +55,42 @@ grafli render grafli/examples/presentation-demo.grafli /tmp/stop.png --step show
 grafli render grafli/examples/presentation-demo.grafli /tmp/stop.png --step showcase:5
 ```
 
+## Explanation map demo
+
+`examples/navigation-map.grafli` is a map you read level by level: grafli's
+own path from <kbd>Return</kbd> on a box to the board behind it. Its boxes
+rest in one colour per layer of grafli — format, canvas, app shell, exports —
+from `navigation-map-res/palette.json`, the same on every level;
+<kbd>Shift</kbd>+<kbd>M</kbd> shows the legend. Select
+**Open dispatch** and press <kbd>g</kbd><kbd>d</kbd> to zoom into its level,
+again on **_enter_board** to reach the algorithm and its source refs, and
+<kbd>g</kbd><kbd>u</kbd> to come back out. <kbd>g</kbd><kbd>v</kbd> peeks at a
+box's doc, the `enter` tour crosses all three levels, and <kbd>A</kbd> cycles
+to the **Tests** overlay, which `examples/navigation-map-overlay.py` writes.
+To share it with someone without grafli:
+
+```bash
+grafli export-html grafli/examples/navigation-map.grafli map.html
+```
+
+## Slide-grade map demo
+
+`examples/layers-map.grafli` explains grafli's own layers — format, view,
+exports — the way a slide would: the problem first, then the layers as a
+stack of bands in their colours from `layers-map-res/palette.json`. Each
+part shows its doc's first sentence under its label and a status label
+(`live` in the app, `snapshot` outside it). Select **Parser** or
+**PDF / PPTX** and press <kbd>g</kbd><kbd>d</kbd> for a level with a claim
+headline, one emphasised part and a numbered path; <kbd>Shift</kbd>+<kbd>M</kbd>
+shows the legend and <kbd>A</kbd> cycles to the **Tests** overlay, which
+`examples/layers-map-overlay.py` writes. The `entry` tour crosses both
+levels and exports as a deck, one headline per stop:
+
+```bash
+grafli export grafli/examples/layers-map.grafli deck.pdf --legend
+grafli render grafli/examples/layers-map.grafli tests.png --overlay tests
+```
+
 ## Try it yourself
 
 The format is small enough that the fastest way to learn is to read a

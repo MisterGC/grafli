@@ -1,0 +1,40 @@
+#!grafli v4
+# Every export draws the canvas's own scene — the Exports level of layers-map.grafli
+# source: ../..
+
+@ note claim 0,-200 "Every export draws the scene the canvas draws, legend and overlay included" ~xlarge !flat !sans !bold
+@ note question 0,-140 "What carries a board out of the app?" ~small
+
+@ box board "Board" 0,0 200x80 %format ^topcenter *lead:solid-1 &doc:board
+@ box palette "palette.json" 0,130 200x60 %format ^topcenter ~small &doc:palette
+@ box overlay "tests.overlay.json" 0,230 200x60 %format ^topcenter ~small &doc:overlay
+@ box scene "View without a window" 340,40 260x140 %primary ^topcenter !ink !sans *lead:solid-2 &doc:scene
+
+@ box render "render" 760,-40 240x70 %export ^topcenter &doc:render ~status=snapshot
+@ box plan "Slide plan" 760,80 240x70 %export ^topcenter *lead:solid-3 &doc:plan
+@ box pdf "PDF / PPTX" 760,290 240x70 %export ^topcenter *lead:solid-4 &doc:pdf ~status=snapshot
+@ box html "HTML page" 760,410 240x70 %export ^topcenter &doc:html ~status=snapshot
+
+@ arrow board -> scene "data: Board" ~id=load
+@ arrow palette -> scene %muted !thin
+@ arrow overlay -> scene %muted !thin
+@ arrow scene -> render %export !dot ~from=right ~to=left
+@ arrow scene -> plan %export !dot ~from=right ~to=left ~id=plan_it
+@ arrow scene -> html %export !dot ~from=right ~to=left
+@ arrow plan -> pdf "data: slides" ~id=deck
+
+@ note evidence 0,530 """
+code:
+split by the function each export starts from
+  @grafli/view/selection.py:263 load_board
+  @grafli/app.py:1915 _cmd_render
+  @grafli/slideplan.py:74 build_slide_plan
+  @grafli/pdfexport.py:115 export_flow_to_pdf
+  @grafli/pptxexport.py:140 export_flow_to_pptx
+  @grafli/htmlexport.py:503 export_html
+""" ~small
+
+@ bookmark b_in "A board, its palette, its overlay" @board,palette,overlay,load ~iso
+@ bookmark b_same "Every export draws the same scene" @scene,render,plan,pdf,html ~iso
+@ bookmark b_deck "A tour becomes a deck" @plan_it,deck
+@ flow out "Out of the app" b_in b_same b_deck

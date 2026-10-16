@@ -32,15 +32,23 @@ from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.oxml.ns import qn
+from pptx.dml.color import RGBColor
 from pptx.util import Pt
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRectF, Qt
-from PySide6.QtGui import QFont, QImage, QPainter, QTextDocument
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QTextDocument
 
-from grafli.constants import FONT_FAMILY, resolve_textsize_px
+from grafli import theme as grafli_theme
+from grafli.constants import FONT_FAMILY, SANS_FONT_FAMILY, resolve_textsize_px
 from grafli.flows import isolate_focus, render_thumbnail_art
+from grafli.items import note_ink
+from grafli.legend import legend_chips
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
+from grafli.overlay_legend import SLIDE_CARD_W, card_image, measure_card
 from grafli.slideplan import (SlidePlan, build_slide_plan, live_overlays,
-                              playback_text_fit, slide_presentation)
+                              note_text_face, overload_finding,
+                              playback_text_fit,
+                              slide_doc_lines, slide_overlay,
+                              slide_presentation)
 
 # PowerPoint 16:9 canvas in points — same fixed geometry as the PDF exporter, so
 # the fractional layout math below mirrors pdfexport on a 960x540 pt page. When
@@ -58,6 +66,9 @@ _EMU_PER_PT = 12700.0
 _TITLE_PT = 27.0          # slide title bar
 _PROGRESS_PT = 18.0       # "i / n"
 _FOOTER_PT = 12.0
+# The map palette's legend: a band of swatches and labels at the bottom of a
+# diagram slide while the legend is on (``grafli.legend``), as in the PDF.
+_LEGEND_PT = 14.0
 _COVER_TITLE_PT = 46.0
 
 # Area-filling text uses a (min, ideal, max) point band and a grow-to-fill rule,
@@ -118,6 +129,7 @@ class _Ctx:
     theme: _Theme
     footer: str
     template: bool = False
+    legend: bool = False   # the map palette's legend on diagram slides
 
 # Theme-font reference tokens — resolve to the deck's major/minor latin fonts, so
 # a font-theme change in PowerPoint cascades onto the text.
@@ -128,7 +140,9 @@ _FONT_MINOR = "+mn-lt"
 def export_flow_to_pptx(view, flow, out_path: str | Path,
                         theme: str = "grafli", template: str | Path | None = None,
                         title_layout: str | None = None,
-                        content_layout: str | None = None) -> tuple[int, list]:
+                        content_layout: str | None = None,
+                        board_path: str | Path | None = None
+                        ) -> tuple[int, list]:
     """Render ``flow`` to a .pptx at ``out_path``.
 
     Two modes:
@@ -143,8 +157,11 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
       run already references theme fonts/colours.
 
     Returns ``(slide_count, overloaded)`` — same contract as the PDF exporter —
-    where ``overloaded`` lists ``(step_index, title)`` for slides whose in-place
-    notes fall below the readable floor, so the caller can warn the author.
+    where ``overloaded`` lists ``(step_index, title, findings)`` for slides
+    whose in-place notes fall below the readable floor, each such note named in
+    ``findings`` (:func:`overload_finding`), so the caller can warn the author.
+    ``board_path`` is the flow's board file; stops in other boards resolve
+    from it.
     """
     board = view.board
     out_path = Path(out_path)
@@ -155,7 +172,8 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
         _strip_slides(prs)
         th = _THEMES["template"]
         ctx = _Ctx(prs.slide_width / _EMU_PER_PT, prs.slide_height / _EMU_PER_PT,
-                   th, board.footer or "", template=True)
+                   th, board.footer or "", template=True,
+                   legend=view._legend_visible)
         tlayout = _resolve_layout(prs, title_layout, "title")
         clayout = _resolve_layout(prs, content_layout, "content")
     else:
@@ -165,10 +183,12 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
         prs.slide_height = Pt(_DEFAULT_PAGE_H)
         if th.inject_grafli:
             _apply_grafli_theme(prs)
-        ctx = _Ctx(_DEFAULT_PAGE_W, _DEFAULT_PAGE_H, th, board.footer or "")
+        ctx = _Ctx(_DEFAULT_PAGE_W, _DEFAULT_PAGE_H, th, board.footer or "",
+                   legend=view._legend_visible)
         tlayout = clayout = prs.slide_layouts[6]   # the built-in blank layout
 
-    plans = build_slide_plan(view, flow)
+    plans = build_slide_plan(view, flow,
+                             Path(board_path) if board_path else None)
 
     # Clear selection and suppress the paper background so rasterized regions are
     # transparent outside their items (they then blend onto the slide), restoring
@@ -184,8 +204,10 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
         _build_title_slide(prs.slides.add_slide(tlayout), view, board, flow, ctx)
         for plan in plans[1:]:
             slide = prs.slides.add_slide(clayout)
-            if _build_content_slide(slide, view, plan, ctx):
-                overloaded.append((plan.index, plan.title))
+            findings = _build_content_slide(slide, plan.view or view, plan,
+                                            ctx)
+            if findings:
+                overloaded.append((plan.index, plan.title, findings))
     finally:
         view._scene.setBackgroundBrush(old_bg)
         for item in sel:
@@ -386,7 +408,8 @@ def _build_title_slide_template(slide, flow, ctx: _Ctx) -> None:
                font_ref=_FONT_MINOR, color=MSO_THEME_COLOR.TEXT_1, autosize=False)
 
 
-def _build_content_slide(slide, view, plan: SlidePlan, ctx: _Ctx) -> bool:
+def _build_content_slide(slide, view, plan: SlidePlan,
+                         ctx: _Ctx) -> list[dict]:
     if ctx.template:
         return _build_content_slide_template(slide, view, plan, ctx)
 
@@ -425,7 +448,7 @@ def _build_content_slide(slide, view, plan: SlidePlan, ctx: _Ctx) -> bool:
 
 
 def _build_content_slide_template(slide, view, plan: SlidePlan,
-                                  ctx: _Ctx) -> bool:
+                                  ctx: _Ctx) -> list[dict]:
     """Content slide on a template: the title fills the template's title/heading
     placeholder, the diagram fits the body placeholder's region (so it respects
     the template's margins, header and footer), and grafli's own chrome, footer
@@ -448,13 +471,29 @@ def _build_content_slide_template(slide, view, plan: SlidePlan,
 
 
 def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
-                 cap_bottom: float) -> bool:
+                 cap_bottom: float) -> list[dict]:
     """Render a content plan into ``hero``: a text note as native centred text, a
     'no anchor' note, or the rasterized diagram with live note overlays. A caption
-    card, when present, floats above ``cap_bottom``. Shared by both modes."""
+    card, when present, floats above ``cap_bottom``. Returns the overload
+    findings of the notes too small to read at the slide's frame. A view showing an overlay
+    file puts the diagram on the overlay's canvas and its legend card, as a
+    picture, in a column on the right. Shared by both modes."""
     # Text slide: the single note as native, editable, centred text.
     if plan.kind == "text":
-        return _build_text_hero(slide, hero, plan)
+        _build_text_hero(slide, hero, plan)
+        return []
+
+    reading = slide_overlay(view, plan)
+    if reading is not None:
+        laid, card_h = measure_card(reading, SLIDE_CARD_W)
+        gap = ctx.page_h * 0.06 * 0.5
+        card = card_image(reading, laid, card_h, 4)
+        slide.shapes.add_picture(_png_stream(card),
+                                 Pt(hero.right() - SLIDE_CARD_W),
+                                 Pt(hero.bottom() - card_h),
+                                 Pt(SLIDE_CARD_W), Pt(card_h))
+        hero = QRectF(hero.left(), hero.top(),
+                      hero.width() - SLIDE_CARD_W - gap, hero.height())
 
     source = plan.source
     if source is None:
@@ -463,7 +502,15 @@ def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
         _fill_text(box.text_frame, "no anchor to render", is_md=False,
                    base_pt=_DESC_BAND[1], font_ref=_FONT_MINOR,
                    color=MSO_THEME_COLOR.TEXT_1, anchor=MSO_ANCHOR.MIDDLE)
-        return False
+        return []
+
+    # The legend keeps a band at the hero's bottom; the caption floats above it.
+    entries = view.legend_entries() if ctx.legend else []
+    if entries:
+        reserve = _build_legend(slide, entries, hero, ctx)
+        hero = QRectF(hero.left(), hero.top(), hero.width(),
+                      hero.height() - reserve)
+        cap_bottom -= reserve
 
     # Fit the framed region into the hero, preserving aspect ratio.
     scale = min(hero.width() / source.width(), hero.height() / source.height())
@@ -473,26 +520,30 @@ def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
 
     # The step's detail/focus settings apply for the raster's duration; notes
     # they hide or fade stay in the raster instead of overlaying as text.
-    with slide_presentation(view, plan):
+    # Doc lines show where the slide's frame keeps them legible.
+    with slide_presentation(view, plan), slide_doc_lines(view, scale):
         overlays = live_overlays(view, plan)
-        img = _render_region(view, plan, fitted, overlays)
+        img = _render_region(view, plan, fitted, overlays,
+                             grafli_theme.HEATMAP_BG if reading is not None
+                             else None)
     slide.shapes.add_picture(_png_stream(img), Pt(fitted.left()),
                              Pt(fitted.top()), Pt(fitted.width()),
                              Pt(fitted.height()))
 
     # Overlay each note as an editable textbox at its mapped position, sized to
     # the same scene scale the diagram was scaled by so it reads in place.
-    overloaded = False
+    findings = []
     for item in overlays:
-        if _build_note_overlay(slide, item, source, fitted, scale):
-            overloaded = True
+        finding = _build_note_overlay(slide, item, source, fitted, scale)
+        if finding is not None:
+            findings.append(finding)
 
     if plan.caption:
         _build_caption(slide, plan.caption, ctx, hero, cap_bottom)
-    return overloaded
+    return findings
 
 
-def _build_text_hero(slide, hero: QRectF, plan: SlidePlan) -> bool:
+def _build_text_hero(slide, hero: QRectF, plan: SlidePlan) -> None:
     """The slide's single note as native text, sized at playback parity: the
     note block fitted into the hero like ``fitInView`` frames it in the app,
     its font scaled by the same factor (capped at ``_BODY_MAX_PT``). A note too
@@ -501,6 +552,7 @@ def _build_text_hero(slide, hero: QRectF, plan: SlidePlan) -> bool:
     is_md = note_is_md(note)
     body = (md_hard_quote_breaks(note_md_body(note)) if is_md
             else note.text)
+    face = _note_face(note)
     fit = playback_text_fit(resolve_textsize_px(note.textsize, ""),
                             plan.text_rect, hero, _BODY_BAND[0], _BODY_MAX_PT)
     if fit is not None:
@@ -508,17 +560,17 @@ def _build_text_hero(slide, hero: QRectF, plan: SlidePlan) -> bool:
     else:
         rect = hero
         base = _fit_body_pt(body, is_md, hero.width() - _TF_MARGIN_W * 2,
-                            hero.height() - _TF_MARGIN_H * 2, _BODY_BAND)
+                            hero.height() - _TF_MARGIN_H * 2, _BODY_BAND,
+                            family=face or FONT_FAMILY)
     box = slide.shapes.add_textbox(Pt(rect.left()), Pt(rect.top()),
                                    Pt(rect.width()), Pt(rect.height()))
     _fill_text(box.text_frame, body, is_md=is_md, base_pt=base,
-               font_ref=_FONT_MINOR, color=MSO_THEME_COLOR.TEXT_1,
+               font_ref=face or _FONT_MINOR, color=_note_color(note),
                anchor=MSO_ANCHOR.MIDDLE, autosize=False)
-    return False
 
 
 def _build_note_overlay(slide, item, source: QRectF, fitted: QRectF,
-                        scale: float) -> bool:
+                        scale: float) -> dict | None:
     note = item.note
     nr = item.sceneBoundingRect()
     # The PDF clips note overlays to the diagram region, so a note hanging mostly
@@ -529,7 +581,7 @@ def _build_note_overlay(slide, item, source: QRectF, fitted: QRectF,
     inter = nr.intersected(source)
     nr_area = (nr.width() * nr.height()) or 1.0
     if inter.isEmpty() or (inter.width() * inter.height()) < 0.55 * nr_area:
-        return False
+        return None
     is_md = note_is_md(note)
     body = (md_hard_quote_breaks(note_md_body(note)) if is_md
             else note.text)
@@ -546,9 +598,26 @@ def _build_note_overlay(slide, item, source: QRectF, fitted: QRectF,
         Pt(max(1.0, mapped.width() - pad * 2)),
         Pt(max(1.0, mapped.height() - pad * 2)))
     _fill_text(box.text_frame, body, is_md=is_md, base_pt=base_pt,
-               font_ref=_FONT_MINOR, color=MSO_THEME_COLOR.TEXT_1,
-               autosize=False)
-    return base_pt < _READABLE_MIN_PT
+               font_ref=_note_face(note) or _FONT_MINOR,
+               color=_note_color(note), autosize=False)
+    if base_pt >= _READABLE_MIN_PT:
+        return None
+    return overload_finding(note, base_pt, _READABLE_MIN_PT)
+
+
+def _note_face(note) -> str:
+    """A ``!sans`` note's text names Inter on its runs (#206); "" keeps the
+    theme's minor font, which the grafli theme sets to mono."""
+    face = note_text_face(note)
+    return face if face != FONT_FAMILY else ""
+
+
+def _note_color(note):
+    """An ``!ink`` note's text in its colour as RGB (#206), else the theme's
+    text colour, so a theme swap restyles it."""
+    ink = note_ink(note)
+    return RGBColor(ink.red(), ink.green(), ink.blue()) if ink else \
+        MSO_THEME_COLOR.TEXT_1
 
 
 def _build_caption(slide, text: str, ctx: _Ctx, hero: QRectF,
@@ -577,6 +646,41 @@ def _build_caption(slide, text: str, ctx: _Ctx, hero: QRectF,
     _fill_text(tf, text, is_md=True, base_pt=base, font_ref=_FONT_MINOR,
                color=MSO_THEME_COLOR.BACKGROUND_1, anchor=MSO_ANCHOR.MIDDLE,
                clear=True, autosize=False)
+
+
+def _build_legend(slide, entries: list, hero: QRectF, ctx: _Ctx) -> float:
+    """The map palette's legend along the bottom of ``hero``: a swatch shape
+    and an editable label per entry, laid out as the PDF lays it out. Returns
+    the height it takes from the hero."""
+    from pptx.enum.shapes import MSO_SHAPE
+    placed, height = legend_chips(entries, _LEGEND_PT, hero.width())
+    row_h = height / len({y for _, y, _ in placed})
+    top = hero.bottom() - height
+    for x, y, entry in placed:
+        left, row_top = hero.left() + x, top + y
+        swatch = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE, Pt(left),
+            Pt(row_top + (row_h - _LEGEND_PT) / 2), Pt(_LEGEND_PT),
+            Pt(_LEGEND_PT))
+        color = QColor(grafli_theme.resolve_color(f"%{entry.name}")
+                       or grafli_theme.INK_FAINT)
+        swatch.fill.solid()
+        swatch.fill.fore_color.rgb = RGBColor(color.red(), color.green(),
+                                              color.blue())
+        swatch.line.fill.background()
+        swatch.shadow.inherit = False
+        label_x = left + _LEGEND_PT * 1.45
+        box = slide.shapes.add_textbox(
+            Pt(label_x), Pt(row_top), Pt(max(1.0, hero.right() - label_x)),
+            Pt(row_h))
+        tf = box.text_frame
+        tf.word_wrap = False
+        tf.margin_left = tf.margin_right = 0
+        tf.margin_top = tf.margin_bottom = 0
+        _fill_text(tf, entry.label, is_md=False, base_pt=_LEGEND_PT,
+                   font_ref=_FONT_MINOR, color=MSO_THEME_COLOR.TEXT_1,
+                   anchor=MSO_ANCHOR.MIDDLE)
+    return height + ctx.page_h * 0.06 * 0.4
 
 
 def _build_footer(slide, footer: str, ctx: _Ctx) -> None:
@@ -625,7 +729,8 @@ def _fill_background(slide, theme_color) -> None:
 # ── text ─────────────────────────────────────────────────────────────────────
 
 def _fit_body_pt(body: str, is_md: bool, w_pt: float, h_pt: float,
-                 band, fill_floor: float = _FILL_FLOOR) -> float:
+                 band, fill_floor: float = _FILL_FLOOR,
+                 family: str = FONT_FAMILY) -> float:
     """Largest point size from ``band`` (min, ideal, max) at which ``body``,
     reflowed to ``w_pt``, fits ``h_pt`` — grown toward max until it fills
     ``fill_floor`` of the height, shrunk toward min on overflow. Same grow-to-
@@ -636,7 +741,7 @@ def _fit_body_pt(body: str, is_md: bool, w_pt: float, h_pt: float,
         doc.setMarkdown(body, QTextDocument.MarkdownFeature.MarkdownDialectGitHub)
     else:
         doc.setPlainText(body)
-    f = QFont(FONT_FAMILY)
+    f = QFont(family)
 
     def h_at(pt: float) -> float:
         f.setPointSizeF(pt)
@@ -669,9 +774,11 @@ def _fill_text(tf, body: str, *, is_md: bool, base_pt: float, font_ref: str,
 
     Markdown (when ``is_md``) is parsed once via ``QTextDocument`` — the same
     engine the canvas and PDF use — and translated into PowerPoint paragraphs and
-    runs: bold/italic, inline code (monospace), links (real hyperlinks), headings
+    runs: bold/italic, inline code (the bundled mono face), links (real hyperlinks), headings
     (scaled + bold) and bullet/ordered lists (hand-prefixed markers, like the PDF
-    draws). Runs reference the theme font/colour so a theme swap restyles them.
+    draws). Runs reference the theme font/colour so a theme swap restyles them;
+    ``font_ref`` may name a face instead (Inter, for a ``!sans`` note) and
+    ``color`` be an ``RGBColor`` (an ``!ink`` note's colour).
     """
     from pptx.enum.text import PP_ALIGN
     tf.word_wrap = True
@@ -681,7 +788,7 @@ def _fill_text(tf, body: str, *, is_md: bool, base_pt: float, font_ref: str,
 
     doc = QTextDocument()
     doc.setDocumentMargin(0)
-    f = QFont(FONT_FAMILY)
+    f = QFont(font_ref if font_ref == SANS_FONT_FAMILY else FONT_FAMILY)
     f.setPointSizeF(base_pt)
     doc.setDefaultFont(f)
     if is_md:
@@ -741,10 +848,14 @@ def _add_run(para, text: str, size_pt: float, font_ref: str, color, *,
     font.size = Pt(max(1.0, size_pt))
     font.bold = bold
     font.italic = italic
-    font.name = "Consolas" if code else font_ref
+    # Inline code names the bundled mono face, as a ``!sans`` run names
+    # Inter; the font is named, not embedded (#219).
+    font.name = FONT_FAMILY if code else font_ref
     if href:
         run.hyperlink.address = href
         font.color.theme_color = MSO_THEME_COLOR.HYPERLINK
+    elif isinstance(color, RGBColor):
+        font.color.rgb = color
     else:
         font.color.theme_color = color
 
@@ -752,12 +863,13 @@ def _add_run(para, text: str, size_pt: float, font_ref: str, color, *,
 # ── raster ───────────────────────────────────────────────────────────────────
 
 def _render_region(view, plan: SlidePlan, fitted: QRectF,
-                   overlays: list | None = None) -> QImage:
+                   overlays: list | None = None,
+                   background=None) -> QImage:
     """Rasterize the plan's framed scene region to a transparent QImage at the
     fitted size (capped), with overlay notes and container chrome hidden and an
     isolate scope applied — identical to the PDF exporter's diagram raster.
     ``overlays`` narrows which notes are kept out of the raster (defaults to
-    all of the plan's)."""
+    all of the plan's); a *background* colour fills it instead."""
     source = plan.source
     if overlays is None:
         overlays = list(plan.overlays)
@@ -772,13 +884,15 @@ def _render_region(view, plan: SlidePlan, fitted: QRectF,
         k = cap / max(iw, ih)
         iw, ih = max(1, round(iw * k)), max(1, round(ih * k))
     img = QImage(iw, ih, QImage.Format.Format_ARGB32_Premultiplied)
-    img.fill(Qt.GlobalColor.transparent)
+    img.fill(background if background is not None
+             else Qt.GlobalColor.transparent)
     ip = QPainter(img)
     ip.setRenderHint(QPainter.RenderHint.Antialiasing)
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     ip.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     from grafli.pdfexport import _hidden
-    with _hidden(list(overlays) + list(plan.chrome_suppress)):
+    with view.miniatures_held(), \
+            _hidden(list(overlays) + list(plan.chrome_suppress)):
         if plan.isolate:
             with isolate_focus(view, plan.isolate):
                 view._scene.render(ip, QRectF(0, 0, iw, ih), source)

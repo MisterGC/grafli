@@ -14,15 +14,16 @@ from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPen,
     QPolygonF,
 )
-from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem
+from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem, QInputDialog
 from grafli import theme
 from grafli.constants import (
     COLOR_PALETTE,
     FONT_FAMILY,
     resolve_textsize_px,
 )
-from grafli.format import emphasis_from_flags
-from grafli.iconset import EMPHASIS_NAMES, ICON_NAMES, has_icon, icon_pixmap
+from grafli.format import SOLID_NUMBER_PREFIX, emphasis_from_flags
+from grafli.iconset import (EMPHASIS_NAMES, ICON_NAMES, has_icon, icon_pixmap,
+                             number_badge)
 from grafli.items import BoxItem, ImageItem, NoteItem
 
 
@@ -90,15 +91,23 @@ class StyleModeMixin:
         self._animate_scale(items, 0.86, 1.0)
 
     def _set_box_mode(self, mode: str):
+        # Dimension mode only has boxes to work on (hjkl resizes boxes, r
+        # snaps a box to the slide ratio): entering it on a note/image
+        # selection would badge a mode whose every key then refuses.
+        if mode == "dimension" and not any(
+                isinstance(it, BoxItem) for it in self._scene.selectedItems()):
+            self.toast("Only boxes resize with hjkl", "warn")
+            return
         self._box_mode = mode
         if not mode:
             self._clear_mode_badge(fade=True)
             return
         self._clear_mode_badge()
-        # Create badge above the first selected box
+        # Create badge above the first selected element — images carry styles
+        # too (#147), so they get the badge like boxes and notes.
         target = None
         for item in self._scene.selectedItems():
-            if isinstance(item, (BoxItem, NoteItem)):
+            if isinstance(item, (BoxItem, NoteItem, ImageItem)):
                 target = item
                 break
         if not target:
@@ -129,7 +138,7 @@ class StyleModeMixin:
             return
         target = None
         for item in self._scene.selectedItems():
-            if isinstance(item, (BoxItem, NoteItem)):
+            if isinstance(item, (BoxItem, NoteItem, ImageItem)):
                 target = item
                 break
         if not target:
@@ -153,6 +162,18 @@ class StyleModeMixin:
     # ── Colour-grid picker (style mode -> c) ──
 
     _COLOR_GRID_COLS = 5
+    # Set while the grid colours the selected boxes' status pills (s s).
+    _color_picker_status = False
+
+    def _color_choices(self) -> list[tuple[str, str]]:
+        """The grid's ``(label, value)`` cells: the theme's tokens, then the
+        map palette's entries (``map_palette``) on rows of their own."""
+        choices = list(COLOR_PALETTE)
+        if self._map_palette:
+            cols = self._COLOR_GRID_COLS
+            choices += [("", None)] * (-len(choices) % cols)
+            choices += [(e.label, f"%{e.name}") for e in self._map_palette]
+        return choices
 
     def _color_picker_boxes(self):
         return [it for it in self._scene.selectedItems()
@@ -175,6 +196,8 @@ class StyleModeMixin:
         to open the plate toggle instead, which now lives in ``s`` ``e`` (#144).
         """
         boxes = self._color_picker_boxes()
+        if self._color_picker_status:
+            return "status", [b for b in boxes if b.box.status]
         if boxes:
             return "box", boxes
         notes = self._color_picker_notes()
@@ -188,6 +211,8 @@ class StyleModeMixin:
     def _target_color(mode: str, target) -> str:
         if mode == "box":
             return target.box.color
+        if mode == "status":
+            return target.box.status_color
         if mode == "note":
             return target.note.color
         return target.color
@@ -196,18 +221,22 @@ class StyleModeMixin:
     def _set_target_color(mode: str, target, value: str):
         if mode == "arrow":
             target.color = value
+        elif mode == "status":
+            target.set_status(target.box.status, value)
         else:
             target.set_color(value)
 
-    def _open_color_picker(self):
+    def _open_color_picker(self, status: bool = False):
+        self._color_picker_status = status
         mode, targets = self._color_picker_targets()
         if not targets:
+            self._color_picker_status = False
             self.toast("Select a box, note, or connector", kind="warn")
             return
         self._color_picker_mode = mode
         self._color_picker_original = {id(t): self._target_color(mode, t)
                                        for t in targets}
-        values = [v for _, v in COLOR_PALETTE]
+        values = [v for _, v in self._color_choices()]
         cur = self._target_color(mode, targets[0])
         self._color_picker_index = values.index(cur) if cur in values else 0
         self._color_picker_active = True
@@ -216,7 +245,7 @@ class StyleModeMixin:
     def _apply_color_picker_live(self):
         """Preview the highlighted choice on the selection (no undo/dirty)."""
         mode, targets = self._color_picker_targets()
-        value = COLOR_PALETTE[self._color_picker_index][1]
+        value = self._color_choices()[self._color_picker_index][1]
         for t in targets:
             self._set_target_color(mode, t, value)
         if mode == "arrow":
@@ -226,13 +255,16 @@ class StyleModeMixin:
 
     def _color_picker_move(self, dcol: int, drow: int):
         cols = self._COLOR_GRID_COLS
-        n = len(COLOR_PALETTE)
+        choices = self._color_choices()
+        n = len(choices)
         rows = (n + cols - 1) // cols
         col = self._color_picker_index % cols
         row = self._color_picker_index // cols
         col = max(0, min(cols - 1, col + dcol))
         row = max(0, min(rows - 1, row + drow))
         idx = min(row * cols + col, n - 1)
+        while choices[idx][1] is None:   # a gap before the palette rows
+            idx -= 1
         if idx != self._color_picker_index:
             self._color_picker_index = idx
             self._apply_color_picker_live()
@@ -255,7 +287,7 @@ class StyleModeMixin:
 
     def _commit_color_picker(self):
         mode, targets = self._color_picker_targets()
-        value = COLOR_PALETTE[self._color_picker_index][1]
+        value = self._color_choices()[self._color_picker_index][1]
         # Restore the pre-picker colours so the undo snapshot captures the
         # original state, then apply the chosen colour as one undoable step.
         for t in targets:
@@ -286,6 +318,7 @@ class StyleModeMixin:
 
     def _close_color_picker(self):
         self._color_picker_active = False
+        self._color_picker_status = False
         self._color_picker_original = {}
         self.viewport().update()
 
@@ -313,7 +346,8 @@ class StyleModeMixin:
         anchor = self.mapFromScene(scene_rect).boundingRect()
 
         cols = self._COLOR_GRID_COLS
-        rows = (len(COLOR_PALETTE) + cols - 1) // cols
+        choices = self._color_choices()
+        rows = (len(choices) + cols - 1) // cols
         sw, gap, pad, label_h = 26, 6, 10, 18
         grid_w = cols * sw + (cols - 1) * gap
         grid_h = rows * sw + (rows - 1) * gap
@@ -339,7 +373,9 @@ class StyleModeMixin:
 
         gx0, gy0 = px + pad, py + pad
         cyan = QColor(0, 209, 224)
-        for i, (_name, value) in enumerate(COLOR_PALETTE):
+        for i, (_name, value) in enumerate(choices):
+            if value is None:
+                continue
             sx = gx0 + (i % cols) * (sw + gap)
             sy = gy0 + (i // cols) * (sw + gap)
             cell = QRectF(sx, sy, sw, sw)
@@ -361,14 +397,49 @@ class StyleModeMixin:
         painter.setFont(QFont(FONT_FAMILY, 9))
         painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter,
-                         COLOR_PALETTE[self._color_picker_index][0])
+                         choices[self._color_picker_index][0])
         painter.restore()
+
+    # ── Status label (style mode -> s), boxes ──
+
+    def _status_dialog(self, current: str) -> tuple[str, bool]:
+        """Ask for the status text (a seam tests replace)."""
+        return QInputDialog.getText(
+            self, "Status label",
+            "Short status shown on the box's edge (empty clears):",
+            text=current)
+
+    @staticmethod
+    def _status_token(text: str) -> str:
+        """The typed text as one ``~status=`` token: spaces and colons
+        become dashes (a colon starts the colour)."""
+        return "-".join(text.replace(":", " ").split())
+
+    def _edit_status(self):
+        """Type the selected boxes' status label, then pick its colour in
+        the colour grid (Esc there keeps the colour it had)."""
+        boxes = self._color_picker_boxes()
+        if not boxes:
+            self.toast("Only boxes carry a status label", "warn")
+            return
+        raw, ok = self._status_dialog(boxes[0].box.status)
+        if not ok:
+            return
+        status = self._status_token(raw)
+        self._push_undo()
+        for item in boxes:
+            item.set_status(status, item.box.status_color)
+        self.mark_dirty()
+        if status:
+            self._open_color_picker(status=True)
+            self.toast("Status colour: hjkl pick, \u23ce apply, Esc keeps it")
 
     # ── Icon-grid picker (style mode -> i), boxes and notes ──
 
     _ICON_GRID_COLS = 6
     _ICON_ENTRIES = [""] + ICON_NAMES   # "" = clear/none
-    _icon_picker_digit = ""             # typed number badge ("", "1".."99")
+    _icon_picker_digit = ""             # typed number badge ("", "0".."99")
+    _icon_picker_solid = False          # f: the number badge is filled
     # Captioned category blocks: (header, first entry index, count). The
     # "none" cell leads the semantic block; emphasis symbols follow.
     _ICON_BLOCKS = (
@@ -413,7 +484,8 @@ class StyleModeMixin:
             self._el_id(it): (self._el_icon(it), self._el_placement(it))
             for it in targets}
         cur = self._el_icon(targets[0])
-        self._icon_picker_digit = cur if cur.isdigit() else ""
+        number = number_badge(cur)
+        self._icon_picker_digit, self._icon_picker_solid = number or ("", False)
         self._icon_picker_index = (self._ICON_ENTRIES.index(cur)
                                    if cur in self._ICON_ENTRIES else 0)
         self._icon_picker_placement = self._el_placement(targets[0])
@@ -422,8 +494,10 @@ class StyleModeMixin:
 
     def _icon_picker_name(self) -> str:
         """The live choice — a typed number badge wins over the grid cell."""
-        return self._icon_picker_digit or self._ICON_ENTRIES[
-            self._icon_picker_index]
+        if self._icon_picker_digit:
+            prefix = SOLID_NUMBER_PREFIX if self._icon_picker_solid else ""
+            return prefix + self._icon_picker_digit
+        return self._ICON_ENTRIES[self._icon_picker_index]
 
     def _apply_icon_picker_live(self):
         name = self._icon_picker_name()
@@ -459,11 +533,17 @@ class StyleModeMixin:
             self._commit_icon_picker()
         elif key == Qt.Key.Key_Tab:
             self._toggle_icon_placement()
-        elif Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
-            # number badge: 1-9 direct; a second digit press appends (12, 99…)
-            digit = chr(ord("1") + key - Qt.Key.Key_1)
+        elif Qt.Key.Key_0 <= key <= Qt.Key.Key_9:
+            # number badge: 0-9 direct; a second digit press appends (12, 99…)
+            digit = chr(ord("0") + key - Qt.Key.Key_0)
             cur = self._icon_picker_digit
-            self._icon_picker_digit = cur + digit if len(cur) == 1 else digit
+            self._icon_picker_digit = (str(int(cur + digit)) if len(cur) == 1
+                                       else digit)
+            self._apply_icon_picker_live()
+            self.viewport().update()
+        elif key == Qt.Key.Key_F:
+            # filled number badge on/off; applies to the typed number
+            self._icon_picker_solid = not self._icon_picker_solid
             self._apply_icon_picker_live()
             self.viewport().update()
         elif key == Qt.Key.Key_H:
@@ -516,7 +596,7 @@ class StyleModeMixin:
 
         cols = self._ICON_GRID_COLS
         rows = self._icon_grid_rows()
-        sw, gap, pad, label_h, head_h = 30, 6, 10, 18, 16
+        sw, gap, pad, label_h, head_h = 30, 6, 10, 34, 16
         grid_w = cols * sw + (cols - 1) * gap
         grid_h = (len(rows) * sw + (len(rows) - 1) * gap
                   + len(self._ICON_BLOCKS) * head_h)
@@ -580,11 +660,11 @@ class StyleModeMixin:
         painter.setFont(QFont(FONT_FAMILY, 9))
         name = self._icon_picker_name()
         if name:
-            shown = f"*{name}" if name.isdigit() else name
+            shown = f"*{name}" if number_badge(name) else name
             place = self._icon_picker_placement or "fill"
-            cur = f"{shown} · {place}   ⇥ placement · 1-9 number"
+            cur = f"{shown} · {place}\n⇥ placement · 0-9 number · f filled"
         else:
-            cur = "none   1-9 number badge"
+            cur = "none\n0-9 number · f filled"
         painter.drawText(QRectF(px, sy - gap + 2, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter, cur)
         painter.restore()
@@ -601,6 +681,8 @@ class StyleModeMixin:
                             "xxxxlarge": "4xl"}
     _TYPE_EMPH = ["", "bold", "italic", "bold italic"]
     _TYPE_EMPH_LABELS = ["regular", "bold", "italic", "bold italic"]
+    # A note's faces, in the order Tab cycles them: hand, mono, sans.
+    _NOTE_FACES = ["", "mono", "sans"]
 
     def _type_picker_targets(self):
         return [it for it in self._scene.selectedItems()
@@ -624,7 +706,8 @@ class StyleModeMixin:
         self._type_picker_original = {
             self._el_id(it): (
                 self._el_textsize(it), self._el_emphasis(it),
-                it.note.style if isinstance(it, NoteItem) else None)
+                it.note.style if isinstance(it, NoteItem) else None,
+                it.box.sans if isinstance(it, BoxItem) else None)
             for it in targets}
         size = self._el_textsize(targets[0])
         size = self._TYPE_SIZE_NORMALIZE.get(size, size)
@@ -638,6 +721,9 @@ class StyleModeMixin:
                                       if base in self._TYPE_EMPH else 0)
         notes = [it for it in targets if isinstance(it, NoteItem)]
         self._type_picker_font = notes[0].note.style if notes else ""
+        # A box's face is mono, or the proportional face with `!sans` (#205).
+        boxes = [it for it in targets if isinstance(it, BoxItem)]
+        self._type_picker_sans = boxes[0].box.sans if boxes else False
         first_emph = notes[0].note.emphasis if notes else ""
         self._type_picker_outline = "outline" in first_emph
         self._type_picker_shadow = "shadow" in first_emph
@@ -646,6 +732,10 @@ class StyleModeMixin:
 
     def _type_picker_has_note(self) -> bool:
         return any(isinstance(it, NoteItem)
+                   for it in self._type_picker_targets())
+
+    def _type_picker_has_box(self) -> bool:
+        return any(isinstance(it, BoxItem)
                    for it in self._type_picker_targets())
 
     def _compose_note_emphasis(self, base: str) -> str:
@@ -665,9 +755,10 @@ class StyleModeMixin:
             it.set_textsize(size)
             if isinstance(it, NoteItem):
                 it.set_emphasis(self._compose_note_emphasis(emph))
-                it.set_text_mono(self._type_picker_font == "mono")
+                it.set_face(self._type_picker_font)
             else:
                 it.set_emphasis(emph)
+                it.set_sans(self._type_picker_sans)
 
     def _type_picker_move(self, dcol: int, drow: int):
         self._type_picker_emph_idx = max(
@@ -678,8 +769,13 @@ class StyleModeMixin:
         self.viewport().update()
 
     def _toggle_type_font(self):
-        # hand ("") <-> mono; only meaningful for notes.
-        self._type_picker_font = "mono" if self._type_picker_font == "" else ""
+        # Notes cycle hand ("") -> mono -> sans (#206); boxes: mono <-> sans.
+        if self._type_picker_has_note():
+            self._type_picker_font = self._NOTE_FACES[
+                (self._NOTE_FACES.index(self._type_picker_font) + 1)
+                % len(self._NOTE_FACES)]
+        if self._type_picker_has_box():
+            self._type_picker_sans = not self._type_picker_sans
         self._apply_type_picker_live()
         self.viewport().update()
 
@@ -727,7 +823,9 @@ class StyleModeMixin:
         it.set_textsize(orig[0])
         it.set_emphasis(orig[1])
         if isinstance(it, NoteItem) and orig[2] is not None:
-            it.set_text_mono(orig[2] == "mono")
+            it.set_face(orig[2])
+        if isinstance(it, BoxItem) and orig[3] is not None:
+            it.set_sans(orig[3])
 
     def _commit_type_picker(self):
         targets = self._type_picker_targets()
@@ -740,9 +838,10 @@ class StyleModeMixin:
             it.set_textsize(size)
             if isinstance(it, NoteItem):
                 it.set_emphasis(self._compose_note_emphasis(emph))
-                it.set_text_mono(self._type_picker_font == "mono")
+                it.set_face(self._type_picker_font)
             else:
                 it.set_emphasis(emph)
+                it.set_sans(self._type_picker_sans)
         self.mark_dirty()
         self._close_type_picker()
 
@@ -770,13 +869,15 @@ class StyleModeMixin:
         anchor = self.mapFromScene(scene_rect).boundingRect()
 
         has_note = self._type_picker_has_note()
+        has_box = self._type_picker_has_box()
         rows, cols = len(self._TYPE_SIZES), len(self._TYPE_EMPH)
         cell_w, cell_h, rowlab_w, pad, label_h = 52, 38, 30, 10, 18
         grid_w = rowlab_w + cols * cell_w
         grid_h = rows * cell_h
         panel_w = grid_w + pad * 2
-        # Notes get a second line for the outline / shadow / font toggle hints.
-        panel_h = grid_h + pad * 2 + label_h + (label_h if has_note else 0)
+        # A second line for the toggle hints: the face for boxes and notes,
+        # outline / shadow for notes.
+        panel_h = grid_h + pad * 2 + label_h * 2
         margin = 14
         vw, vh = self.viewport().width(), self.viewport().height()
         px = anchor.right() + margin
@@ -829,21 +930,26 @@ class StyleModeMixin:
         el = self._TYPE_EMPH_LABELS[self._type_picker_emph_idx]
         status = f"{sl} · {el}"
         status_y = gy0 + grid_h + 4
+        faces = []
+        if has_box:
+            faces.append("sans" if self._type_picker_sans else "mono")
         if has_note:
-            font = "mono" if self._type_picker_font == "mono" else "hand"
-            status += f" · {font}"
+            faces.append(self._type_picker_font or "hand")
+        if faces:
+            status += " · " + "/".join(dict.fromkeys(faces))
+        if has_note:
             for name, on in (("outline", self._type_picker_outline),
                              ("shadow", self._type_picker_shadow)):
                 if on:
                     status += f" · {name}"
         painter.drawText(QRectF(px, status_y, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter, status)
-        if has_note:
-            painter.setPen(QPen(theme.overlay_ink(0.59)))
-            painter.setFont(QFont(FONT_FAMILY, 8))
-            painter.drawText(QRectF(px, status_y + label_h, panel_w, label_h),
-                             Qt.AlignmentFlag.AlignCenter,
-                             "⇥ font   o outline   s shadow")
+        painter.setPen(QPen(theme.overlay_ink(0.59)))
+        painter.setFont(QFont(FONT_FAMILY, 8))
+        painter.drawText(QRectF(px, status_y + label_h, panel_w, label_h),
+                         Qt.AlignmentFlag.AlignCenter,
+                         "⇥ font   o outline   s shadow" if has_note
+                         else "⇥ font")
         painter.restore()
 
     # ── Arrow mode (vim-like style) ──
@@ -929,17 +1035,24 @@ class StyleModeMixin:
         ("← From", (True, False)),
         ("↔ Both", (True, True)),
     )
+    # What each headed end draws: an arrowhead, or a dot (`!dot`, #210).
+    _CONN_END_OPTIONS = (("Arrow", ""), ("Dot", "dot"))
     _CONN_LINE_OPTIONS = (("Solid", ""), ("Dashed", "dashed"), ("Dotted", "dotted"))
     _CONN_THICK_OPTIONS = (("Thin", "thin"), ("Normal", ""), ("Thick", "thick"))
     _CONN_ROUTING_OPTIONS = (("Direct", ""), ("Spline", "spline"),
                              ("Stair", "ortho"))
+    # The side a connector leaves or enters by: "Auto" picks it from the
+    # geometry, as every connector did before `~from=` / `~to=` (#209).
+    _CONN_SIDE_OPTIONS = (("Auto", ""), ("Top", "top"), ("Right", "right"),
+                          ("Bottom", "bottom"), ("Left", "left"))
     _CONN_SIZE_OPTIONS = (
         ("S", "small"), ("M", ""), ("L", "large"), ("XL", "xlarge"),
         ("2XL", "xxlarge"), ("3XL", "xxxlarge"), ("4XL", "4xl"),
     )
     # Fields snapshotted for undo/restore across the overlay's lifetime.
-    _CONN_OVERLAY_FIELDS = ("head_from", "head_to", "style", "thickness",
-                            "routing", "color", "textsize")
+    _CONN_OVERLAY_FIELDS = ("head_from", "head_to", "head_shape", "style",
+                            "thickness", "routing", "from_side", "to_side",
+                            "color", "textsize")
 
     def _set_all_arrows(self, field: str, value):
         for a in self._selected_arrows:
@@ -964,6 +1077,10 @@ class StyleModeMixin:
             {"label": "Heads", "kind": "heads", "options": list(self._CONN_HEAD_OPTIONS),
              "get": lambda: (primary.head_from, primary.head_to),
              "set": set_heads},
+            {"label": "Ends", "kind": "endshape",
+             "options": list(self._CONN_END_OPTIONS),
+             "get": lambda: primary.head_shape,
+             "set": lambda v: self._set_all_arrows("head_shape", v)},
             {"label": "Line", "kind": "line", "options": list(self._CONN_LINE_OPTIONS),
              "get": lambda: primary.style,
              "set": lambda v: self._set_all_arrows("style", v)},
@@ -973,6 +1090,14 @@ class StyleModeMixin:
             {"label": "Routing", "kind": "routing", "options": list(self._CONN_ROUTING_OPTIONS),
              "get": lambda: primary.routing,
              "set": lambda v: self._set_all_arrows("routing", v)},
+            {"label": "Leaves from", "kind": "side",
+             "options": list(self._CONN_SIDE_OPTIONS),
+             "get": lambda: primary.from_side,
+             "set": lambda v: self._set_all_arrows("from_side", v)},
+            {"label": "Enters at", "kind": "side",
+             "options": list(self._CONN_SIDE_OPTIONS),
+             "get": lambda: primary.to_side,
+             "set": lambda v: self._set_all_arrows("to_side", v)},
             {"label": "Colour", "kind": "color", "options": list(COLOR_PALETTE),
              "get": lambda: primary.color,
              "set": lambda v: self._set_all_arrows("color", v)},
@@ -983,17 +1108,28 @@ class StyleModeMixin:
     # "Plate" is the ordinary node: a border, a solid fill, rounded corners.
     # "Flat" is what `!flat` has always meant — no border, translucent fill,
     # sharp corners — which is also the look a container gets for free. Pairing
-    # it with a top-left label is how a layer band is drawn (#144).
-    _BOX_BG_OPTIONS = (("Plate", ""), ("Flat", "flat"))
+    # it with a top-left label is how a layer band is drawn (#144). "Card" is
+    # `!card`: the plate kept while the box holds children (#203).
+    _BOX_BG_OPTIONS = (("Plate", ""), ("Flat", "flat"), ("Card", "card"))
+    # "Left" is `^left`: top left here, and zoomed out a container stays a
+    # band with its children's colours and its title on the left (#212).
     _BOX_LABEL_OPTIONS = (("Center", ""), ("Top left", "topleft"),
-                          ("Top center", "topcenter"))
+                          ("Top center", "topcenter"), ("Left", "left"))
     _NOTE_BG_AXIS_OPTIONS = (("Plate", False), ("None", True))
+    # "Plain" is the board ink (on a light plate on a coloured box, note blue
+    # on a note); "On fill" is `!ink`: ink picked from the fill, or a note's
+    # own %color (#204).
+    _INK_OPTIONS = (("Plain", False), ("On fill", True))
+    # The outline's pattern: `!dashed` / `!dotted`, which also rings a flat
+    # box or a container that otherwise has no outline (#207).
+    _BOX_BORDER_OPTIONS = (("Solid", ""), ("Dashed", "dashed"),
+                           ("Dotted", "dotted"))
     # "Auto" follows the file type — raster framed, .svg frameless (#147).
     _IMAGE_FRAME_OPTIONS = (("Auto", ""), ("Frame", "on"), ("None", "off"))
 
     # Fields snapshotted per target so commit/cancel are exact.
-    _BOX_OVERLAY_FIELDS = ("style", "anchor")
-    _NOTE_OVERLAY_FIELDS = ("flat",)
+    _BOX_OVERLAY_FIELDS = ("style", "anchor", "ink", "border")
+    _NOTE_OVERLAY_FIELDS = ("flat", "ink")
     _IMAGE_OVERLAY_FIELDS = ("frame",)
 
     def _set_all_boxes(self, field: str, value):
@@ -1024,6 +1160,14 @@ class StyleModeMixin:
              "enabled": self._label_axis_enabled(),
              "get": lambda: primary.anchor,
              "set": lambda v: self._set_all_boxes("anchor", v)},
+            {"label": "Label ink", "kind": "ink",
+             "options": list(self._INK_OPTIONS),
+             "get": lambda: primary.ink,
+             "set": lambda v: self._set_all_boxes("ink", v)},
+            {"label": "Outline", "kind": "boxborder",
+             "options": list(self._BOX_BORDER_OPTIONS),
+             "get": lambda: primary.border,
+             "set": lambda v: self._set_all_boxes("border", v)},
         ]
 
     def _note_axes(self) -> list:
@@ -1033,11 +1177,19 @@ class StyleModeMixin:
             for it in self._color_picker_notes():
                 it.note.flat = v
 
+        def set_ink(v):
+            for it in self._color_picker_notes():
+                it.note.ink = v
+
         return [
             {"label": "Background", "kind": "notebg",
              "options": list(self._NOTE_BG_AXIS_OPTIONS),
              "get": lambda: primary.flat,
              "set": set_flat},
+            {"label": "Label ink", "kind": "ink",
+             "options": list(self._INK_OPTIONS),
+             "get": lambda: primary.ink,
+             "set": set_ink},
         ]
 
     def _image_axes(self) -> list:
@@ -1127,11 +1279,12 @@ class StyleModeMixin:
         """
         if self._elem_overlay_target == "box":
             for it in self._color_picker_boxes():
-                it._apply_color()          # border and fill follow !flat
+                it._apply_color()          # border, its pattern, fill, label ink
                 it.refresh_auto_layout()   # label position follows ^anchor
                 it.update()
         elif self._elem_overlay_target == "note":
             for it in self._color_picker_notes():
+                it.set_ink(it.note.ink)
                 it.set_flat(it.note.flat)
         elif self._elem_overlay_target == "image":
             for it in self._selected_image_items():
@@ -1269,7 +1422,8 @@ class StyleModeMixin:
             return 18.0, 18.0, 4.0
         if kind == "size":
             return 26.0, 22.0, 4.0
-        if kind in ("boxbg", "boxlabel", "notebg", "imgframe"):
+        if kind in ("boxbg", "boxlabel", "notebg", "imgframe", "ink",
+                    "boxborder", "side"):
             return 30.0, 22.0, 6.0   # miniature box previews
         return 44.0, 22.0, 6.0   # heads / line / thickness sample strips
 
@@ -1378,7 +1532,8 @@ class StyleModeMixin:
             return
         if kind in ("boxbg", "notebg"):
             # A miniature of the thing itself: plate keeps its border and
-            # rounded corners, flat drops both and washes the fill out.
+            # rounded corners, flat drops both and washes the fill out, card
+            # is a plate holding a child.
             body = cell.adjusted(3, 3, -3, -3)
             flat = bool(val) if kind == "notebg" else val == "flat"
             fill = QColor(theme.BOX_FILL)
@@ -1389,6 +1544,42 @@ class StyleModeMixin:
                 painter.setPen(QPen(ink, 1.4))
             painter.setBrush(QBrush(fill))
             painter.drawRoundedRect(body, 0 if flat else 4, 0 if flat else 4)
+            if kind == "boxbg" and val == "card":
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(theme.OVERLAY_BG))
+                painter.drawRoundedRect(body.adjusted(5, body.height() / 2,
+                                                      -5, -3), 1.5, 1.5)
+            return
+        if kind == "boxborder":
+            # A plate ringed in the pattern it picks.
+            body = cell.adjusted(3, 3, -3, -3)
+            pen = QPen(ink, 1.6)
+            if val == "dashed":
+                pen.setStyle(Qt.PenStyle.DashLine)
+            elif val == "dotted":
+                pen.setStyle(Qt.PenStyle.DotLine)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.setBrush(QBrush(theme.BOX_FILL))
+            painter.drawRoundedRect(body, 4, 4)
+            return
+        if kind == "ink":
+            # A letter on a dark fill: on a light plate in the board ink
+            # ("Plain"), or straight on the fill in the ink it picks.
+            body = cell.adjusted(3, 3, -3, -3)
+            fill = QColor(theme.resolve_color("%primary"))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(fill))
+            painter.drawRoundedRect(body, 4, 4)
+            letter = theme.ink_on(fill) if val else QColor(theme.INK)
+            if not val:
+                plate = QColor(theme.SURFACE)
+                plate.setAlphaF(0.6)
+                painter.setBrush(QBrush(plate))
+                painter.drawRoundedRect(body.adjusted(5, 3, -5, -3), 2, 2)
+            painter.setPen(QPen(letter))
+            painter.setFont(QFont(FONT_FAMILY, 10))
+            painter.drawText(body, Qt.AlignmentFlag.AlignCenter, "A")
             return
         if kind == "imgframe":
             # A tiny picture (circle sun + mountain line); the frame variant
@@ -1416,7 +1607,20 @@ class StyleModeMixin:
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(body, 3, 3)
             bar_w = body.width() * 0.55
-            if val == "topleft":
+            if val == "left":
+                # A short title on the left over a strip of colours: the
+                # band it stays when zoomed out.
+                bar_w = body.width() * 0.35
+                bx, by = body.left() + 2.5, body.top() + 4
+                strip = QRectF(body.left() + 2.5, body.bottom() - 5,
+                               body.width() - 5, 2.5)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(ink))
+                for i in range(3):
+                    seg_w = (strip.width() - 4) / 3
+                    painter.drawRect(QRectF(strip.left() + i * (seg_w + 2),
+                                            strip.top(), seg_w, strip.height()))
+            elif val == "topleft":
                 bx, by = body.left() + 2.5, body.top() + 4
             elif val == "topcenter":
                 bx, by = body.center().x() - bar_w / 2, body.top() + 4
@@ -1456,6 +1660,47 @@ class StyleModeMixin:
                 painter.drawPolygon(QPolygonF([
                     QPointF(x1, mid_y), QPointF(x1 + 1.7 * s, mid_y - s),
                     QPointF(x1 + 1.7 * s, mid_y + s)]))
+            return
+        if kind == "endshape":
+            # A line ending in the shape the cell picks, at the "to" end.
+            painter.setPen(QPen(ink, 1.6))
+            painter.drawLine(QPointF(x1, mid_y), QPointF(x2, mid_y))
+            painter.setBrush(QBrush(ink))
+            painter.setPen(QPen(ink, 1))
+            s = 3.6
+            if val == "dot":
+                painter.drawEllipse(QPointF(x2 - s, mid_y), s, s)
+            else:
+                painter.drawPolygon(QPolygonF([
+                    QPointF(x2, mid_y), QPointF(x2 - 1.7 * s, mid_y - s),
+                    QPointF(x2 - 1.7 * s, mid_y + s)]))
+            return
+        if kind == "side":
+            # A small box with the connector stepping out of the side it
+            # picks; "Auto" leaves every side open, drawn faint.
+            body = cell.adjusted(8, 6, -8, -6)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(ink, 1.2))
+            painter.drawRect(body)
+            c = body.center()
+            stubs = {"top": (QPointF(c.x(), body.top()),
+                             QPointF(c.x(), cell.top() + 1)),
+                     "bottom": (QPointF(c.x(), body.bottom()),
+                                QPointF(c.x(), cell.bottom() - 1)),
+                     "left": (QPointF(body.left(), c.y()),
+                              QPointF(cell.left() + 1, c.y())),
+                     "right": (QPointF(body.right(), c.y()),
+                               QPointF(cell.right() - 1, c.y()))}
+            pen = QPen(ink, 2.2)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            if not val:
+                faint = QColor(ink)
+                faint.setAlphaF(0.35)
+                pen = QPen(faint, 1.2)
+            painter.setPen(pen)
+            for name, (a, b) in stubs.items():
+                if not val or name == val:
+                    painter.drawLine(a, b)
             return
         if kind == "routing":
             # Each cell draws the shape it picks — a routing is easier to

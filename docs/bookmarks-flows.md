@@ -45,6 +45,25 @@ author scoped steps directly; see the [format reference](format.md#bookmarks-and
 `grafli render <file> out.png --bookmark bm` renders a stop exactly as
 framed, honouring the scope.
 
+### Path stops: framing an arrow
+
+A runtime flow or a request path is a sequence of arrows, so a stop can be
+one. Give the arrow an id (`~id=<id>` on its line) and list that id in a
+bookmark's focus:
+
+```
+@ arrow client -> server "request" ~id=call
+@ bookmark b_call "The call" @call "The client sends the request."
+```
+
+The stop frames the arrow's two ends. While a tour shows it, the arrow draws
+in the tour accent, twice as thick, and everything but the arrow, its two
+ends and the bookmark's other focus elements dims. `grafli render <file>
+out.png --bookmark b_call` and the PDF/PPTX export render the stop the same
+way. A focus may mix
+arrows and elements (`@call,db`); an element id wins over an arrow carrying
+the same id.
+
 ### Text slides (clickable links)
 
 Select a **single text note** and capture it with **no description**, and that
@@ -126,7 +145,10 @@ one slide per node:
 
 ## Playback
 
-Launch a flow with the ▶ button on its header (or present it, below). During
+Launch a flow with the ▶ button on its header (or present it, below), or
+start from a box: select it and press <kbd>g</kbd><kbd>t</kbd> to pick one of
+the tours with a stop that frames the box or a box it sits in — the tour
+plays from the first such stop. During
 playback an on-canvas caption shows the current stop and its description —
 **in full, word-wrapped** over as many lines as it needs. To keep a caption a
 caption, descriptions are budgeted at **280 characters**: the inline editor
@@ -139,7 +161,29 @@ stops there, and `grafli export --check` flags older files past the budget
 | <kbd>←</kbd> | Previous stop |
 | <kbd>t</kbd> | Toggle **smooth** camera ↔ **instant** cuts (flip mid-flow to step quickly, then settle) |
 | <kbd>p</kbd> | Cycle **paused → playing → playing (loop)** — looping wraps to the first stop |
+| <kbd>g</kbd><kbd>d</kbd> / <kbd>Return</kbd> | On a selected box with a level: leave the tour into it; <kbd>g</kbd><kbd>u</kbd> back resumes the tour at the same stop |
 | <kbd>Esc</kbd> | Exit playback |
+
+### Stops in other boards
+
+A step `<board>#<bookmark>` is a stop in another board: `<board>` is the
+name of a sub-board of the flow's own board (as in `&graph:<name>`) or a path
+ending in `.grafli`, relative to the flow's board file. A sub-board deeper
+down needs the path, since a name only reaches the flow board's own vault. A
+tour on `System.grafli` can so walk down the levels of a map —
+
+```
+@ flow blow "A blow lands" overview combat#lunge System-res/combat-res/impact.grafli#hit
+```
+
+Playing such a stop enters that board as a link would — the breadcrumb shows
+the path, and stepping back climbs out again — and frames the bookmark with
+its caption. The flow stays on the board it starts on; <kbd>Esc</kbd> ends
+the tour back there. To dig into a stop, select a box with a level and press
+<kbd>g</kbd><kbd>d</kbd> or <kbd>Return</kbd>: the tour waits, the Flows tab
+says at which stop, and <kbd>g</kbd><kbd>u</kbd> back to the board of that
+stop resumes it there. A board with such a step is written with a
+`#!grafli v3` header.
 
 ## Per-stop detail & focus
 
@@ -204,7 +248,25 @@ floor.
 grafli export diagram.grafli tour.pdf --flow tour
 ```
 
-`--flow` is optional when the file has a single flow.
+`--flow` is optional when the file has a single flow. A stop in another
+board renders from that board, framed as `grafli render <that board>
+--bookmark <id>` frames it.
+
+`--check` dry-runs the export without writing it and exits 1 on findings:
+overloaded slides, over-long captions, dangling refs and missing vault docs.
+An overloaded slide names each note that renders under the 11 pt floor at
+that slide's frame:
+
+```text
+$ grafli export diagram.grafli --check --all-flows
+flow 'tour': 3 slides
+[overloaded] slide #2 Overview: note 'evidence' at 2.2 pt (floor 11 pt) — trim the text or split the slide
+flow 'intro': 2 slides
+No findings.
+```
+
+`--all-flows` checks every flow of the board in one run; `--json` emits the
+report as JSON (with `--all-flows`, a list of one report per flow).
 
 ### Composing slides
 

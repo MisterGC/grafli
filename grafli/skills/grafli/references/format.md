@@ -7,12 +7,12 @@ element beyond it.
 ## Box syntax
 
 ```
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat !bold !italic] [*icon] [&attach] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent]
 ```
 
 **Modifier order is enforced** — write them in exactly this sequence:
 `%color` → `^anchor` → `~size` → `!`-flags → `*icon` → `&attach` →
-`>parent` → `# annotation`. The `!`-flags (`!flat` / `!bold` / `!italic`)
+`~status=` → `>parent` → `# annotation`. The `!`-flags (`!flat` / `!bold` / `!italic`)
 are one group and may appear in any order *among themselves*, but the
 whole group must sit **after `~size` and before `*icon`**. Putting a flag
 out of place (e.g. `*lead:gear !bold`) makes the line fail to parse and
@@ -21,15 +21,21 @@ class as a misplaced triple-quote modifier.
 
 | Modifier | Values | Effect |
 |----------|--------|--------|
-| `%color` | color token or `#RRGGBB` | fill color |
-| `^anchor` | `^topleft`, `^topcenter` | label alignment (default: center) |
+| `%color` | color token, map palette `%name` or `#RRGGBB` | fill color; a palette name is `#!grafli v4` |
+| `^anchor` | `^topleft`, `^topcenter`, `^left` | label alignment (default: center); `^left` is top left and, zoomed out, keeps a container a band with its children's colours and its title on the left; `#!grafli v4` |
 | `~size` | named `~small`…`~xxxlarge`, `~4xl` (hero), short aliases `~2xl`/`~3xl`, or numeric `~16` | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |
+| `!card` | `!card` | keep the node look (fill, border, centred title) while the box holds children; `#!grafli v4` |
+| `!ink` | `!ink` | label and fill/lead icon in the ink that reads on the fill, no light plate — for dark fills; `#!grafli v4` |
+| `!sans` | `!sans` | label and doc line in the bundled proportional face (Inter) instead of mono; on a note, text in Inter instead of handwriting; `#!grafli v4` |
+| `!dashed` / `!dotted` | `!dashed`, `!dotted` | outline drawn dashed or dotted, for later or optional; adds an outline to a flat box or container; `#!grafli v4` |
 | `!bold` / `!italic` | `!bold`, `!italic` | text emphasis, in the `!`-flag group (combine for headings/asides) |
 | `!outline` / `!shadow` | `!outline`, `!shadow` | **note** display lettering — hollow letters / drop-shadow depth, for sketchnote headers (layer with `~size` + `!bold`); render on notes, not boxes |
 | `!flat` (note) | `!flat` | drop the beige background plate — the note's text sits directly on the canvas (for a hand-lettered title/header) |
-| `*symbol` | `*lightbulb` (fill), `*lead:gear` (lead), `*badge:star` (badge), `*3` (number) | sketchnote symbol — fill: big symbol + caption; lead: small symbol left of the label; badge: compact top-right overlay; digits 1–99 render as circled number badges |
-| `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>` | typed attachment (see "Attachments") |
+| `!ink` (note) | `!ink` | draw the note's text in its `%color` (without it, `%color` only tints the icon and the text stays blue); `#!grafli v4` |
+| `*symbol` | `*lightbulb` (fill), `*lead:gear` (lead), `*badge:star` (badge), `*3` (number) | sketchnote symbol — fill: big symbol + caption; lead: small symbol left of the label; badge: compact top-right overlay; digits 1–99 render as circled number badges; `*0` and filled `*solid-<n>` (0–99) are `#!grafli v4` |
+| `&attach` | `&link:<url>`, `&doc:<name>`, `&graph:<name>[#<id>]` | typed attachment (see "Attachments"; `#<id>` see "Board links into a bookmark or element") |
+| `~status=` | `~status=open`, `~status=designed:%rose` | a short status label as a pill on the box's bottom edge, in every view; one word (no spaces or colons), `:%color` / `:#RRGGBB` colours it; `#!grafli v4` |
 | `>parent` | `>parent_id` | nest inside parent box |
 
 ## Sketchnote symbols (`*name`, on boxes and notes)
@@ -77,7 +83,10 @@ stays primary — for labeled items (`*lead:database` → a "Postgres" node).
 `*badge:name` overlays a *compact* symbol in the top-right corner and leaves
 the label/text layout untouched — the emphasis layer (`*badge:flame` on the
 hot topic, `*badge:2` as step two of a sequence). Number badges accept any
-placement (`*3` fill, `*lead:3`, `*badge:3`). Legacy `bulb`/`doc` parse as
+placement (`*3` fill, `*lead:3`, `*badge:3`). `*solid-3` fills the disc and
+knocks the digit out — for the numbered path the reader follows, outlined
+numbers for side notes; `*0` numbers a step zero. Both need `#!grafli v4`.
+Legacy `bulb`/`doc` parse as
 aliases of `lightbulb`/`document` and normalize on save.
 
 Container behavior: when a box has children, its anchor auto-switches
@@ -91,15 +100,17 @@ shortest phrase that names the node — typically one line, two at
 most. If you're tempted to add bullet points, pseudocode,
 behavioral detail, or a multi-paragraph description inside a box
 label, that content belongs in a `code:` or plain note next to the
-box — not inside it. Notes carry distinct visual affordances (badge
-colours for `T:` / `Q:`, handwriting font, syntax-styled `code:`
-rendering) that you forfeit by inlining the detail. The shape of
-your diagram is the graph; the detail lives in notes adjacent to it.
+box, or in the box's own `&doc` (its first sentence shows on one line
+under the label, `gv` peeks the rest) — not inside the label. Notes
+carry distinct visual affordances (badge colours for `T:` / `Q:`,
+handwriting font, syntax-styled `code:` rendering) that you forfeit
+by inlining the detail. The shape of your diagram is the graph; the
+detail lives in notes adjacent to it or in the box's own `&doc`.
 
 ## Arrow syntax
 
 ```
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [~size] [~kind=graph|annotation] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [!dot] [~size] [~kind=graph|annotation] [~from=<side>] [~to=<side>] [~id=<id>] [# annotation]
 ```
 
 | Feature | Syntax | Effect |
@@ -116,18 +127,54 @@ your diagram is the graph; the detail lives in notes adjacent to it.
 | Thickness | (default) | width tracks the linked nodes' size |
 | Thickness | `!thin` | half-width line |
 | Thickness | `!thick` | double-width line |
+| Dot ends | `!dot` | each headed end draws a dot instead of an arrowhead; `#!grafli v4` |
 | Text size | `~size` | as for boxes |
 | Connector kind | `~kind=graph` / `~kind=annotation` | override the endpoint default (see below) |
+| Pinned sides | `~from=right`, `~to=left` | the side the arrow leaves / enters by: `top`, `right`, `bottom`, `left` (see below); `#!grafli v4` |
+| Arrow id | `~id=<id>` | stable name for the arrow (see below) |
 | Annotation | `# text` | authoring metadata (indicator dot, not visible text) |
 
-Arrows auto-route from box edge to box edge. Opposite arrows
-(`A->B` and `B->A`) merge into a single bidirectional line.
+Arrows auto-route from box edge to box edge: an arrow runs
+centre-to-centre, clipped to both edges, and attaches in the middle
+half of the side facing the other element — never in a corner. Two
+elements whose ranges overlap enough to read as a deliberate row or
+column (the shared range covers at least one of the two centres) get a
+straight horizontal or vertical segment instead. Opposite arrows
+(`A->B` and `B->A`) merge into a single bidirectional line. An arrow
+onto its own source (`A->A`) draws a loop over the emptiest corner of
+the element — use it for retries, recursion, and self-transitions.
+Several arrows between the same two elements fan apart, one line and
+one label each, in the order they appear in the file; a third arrow
+between a merged pair fans against the merged line.
 
 **Connector kind.** An arrow touching a note or image defaults to an
 *annotation* link (muted, "just extra text"); box↔box arrows are *graph*
 edges. `~kind=graph` promotes a note/image connector to a first-class
 graph edge — auto-flows and graph navigation then follow it (see
 `references/presenting.md`); `~kind=annotation` demotes the other way.
+
+**Pinned sides.** `~from=<side>` and `~to=<side>` fix the side an arrow
+leaves its source by and enters its target at (`top` / `right` /
+`bottom` / `left`), overriding the facing side the geometry would pick.
+Use them where the side carries meaning — every input enters from the
+left, a feedback arrow `~from=right ~to=right` U-turns back up a column —
+instead of adding waypoint boxes. A pinned end sits mid-side; an end that
+faces away steps out of its side before turning. Either token works on
+its own. A pinned `A->B` / `B->A` pair is not merged into one line. A
+file using either token carries a `#!grafli v4` header.
+
+**Dot ends.** `!dot` swaps every arrowhead of an arrow for a filled dot;
+the operator still picks the ends, so `a <-> b !dot` joins two rows with
+a dot on each, the usual look of a mapping between columns, and
+`a -> b !dot` marks only `b`. A file using it carries a `#!grafli v4`
+header.
+
+**Arrow id.** `~id=<id>` names one arrow, so something else can point
+at it and two arrows between the same elements stay apart when a
+board is merged. Add it only to an arrow something references; a plain
+arrow carries no id. Keep it unique on the board. A file with an arrow
+id carries a `#!grafli v3` header — bump it yourself when you add the
+first one.
 
 ### Semantic edge labels
 
@@ -189,7 +236,7 @@ regardless of how it was typed.
 |----------|--------|--------|
 | `~size` | `~small`…`~xxxlarge`, `~4xl`; aliases `~2xl`/`~3xl` | text size |
 | `~width=N` | integer, `N` chars per line | soft-wrap width (default 80) |
-| `&attach` | `&link:<url>`, `&doc[:<name>]`, `&graph:<name>` | typed attachment; `&doc` makes the note doc-bodied |
+| `&attach` | `&link:<url>`, `&doc[:<name>]`, `&graph:<name>[#<id>]` | typed attachment; `&doc` makes the note doc-bodied |
 | `>parent` | `>parent_id` | nest inside parent box |
 
 **Auto-wrap.** Plain-text and code-mode notes wrap at `~width` chars
@@ -214,8 +261,9 @@ Goal: a reviewer can verify in seconds that an implementation covers
 the expected steps, branches, and side effects — without opening the
 source.
 
-`code:` notes are the right home for any multi-line detail you might
-otherwise be tempted to cram into a box label: assertion lists,
+`code:` notes (or, for prose, the box's own `&doc`) are the right home
+for any multi-line detail you might otherwise be tempted to cram into a
+box label: assertion lists,
 phase checklists, configuration snippets, behavioral specs, sequence
 sketches. The syntax-styled rendering (bold signature line, indent
 guides, coloured keywords) gives that content a distinct visual voice
@@ -259,6 +307,17 @@ spot first.
 | `"..."`, `#FFF`, `42`, `true` | Literal values render as plain text | — |
 
 Plain assignments need no keyword: `out = []` is unambiguous.
+
+A relative `@path` resolves against the repo of the board's
+`# source: <repo> @ <rev>` comment (a relative repo taken from the board's
+folder), else against the board's folder — in the app and in
+`grafli diagnose`. When `<rev>` is not that repo's `HEAD` (a short hash
+matches the full one), `grafli diagnose` warns `stale-source` and the app
+shows the same notice when the board opens; a `HEAD` git cannot read is an
+info finding.
+`~` in a ref or in the `# source:` repo is your home folder. `grafli diagnose`
+reports a ref whose file does not exist, or whose line is past the file's
+end, as an error (`dangling-code-ref`).
 
 #### Style guidance — the most important thing
 
@@ -531,12 +590,37 @@ so you must position them inside the parent's rect manually.
 The `!flat` style is recommended for container boxes — they recede
 visually so children stand out.
 
+## Board links into a bookmark or element (`#<id>`)
+
+A board link may end in `#<id>` to open the board framed on one place in
+it, with that place selected:
+
+```
+@ box combat "Combat" 0,0 160x60 &graph:combat#impact
+@ box spec "Spec" 0,100 160x60 &link:../schema/schema.grafli#request-path
+```
+
+`<id>` is looked up as a bookmark of the target board first (framed as
+the bookmark frames, its focus elements selected), then as a box, note or
+image id (framed with a bookmark's default padding). If the board has
+neither, it opens fitted and the app toasts `No element '<id>' in <file>`;
+`grafli diagnose` reports that, and a link to a board that does not exist,
+as an error (`dangling-board-link`).
+<kbd>g</kbd><kbd>u</kbd> comes back as from any board link. Prefer a
+bookmark as the target: it is named for the reader and survives the
+target board's layout changing. A file using a `#<id>` board link carries
+a `#!grafli v3` header — bump it yourself when you add the first one.
+(`.md` links already honour `#anchor`; that is not a board link and needs
+no header change.)
+
 ## Bookmarks, flows, and board-global directives
 
 Full syntax; see `references/presenting.md` for how to compose them into
 tours and slide decks. A file using any of these carries a `#!grafli v2`
 header — when you add the first one to a v1 file, bump the header line
-yourself.
+yourself. Never lower a header: a grafli build opens a board whose header
+is newer than it knows read-only, and keeps flow tokens it does not know
+unchanged.
 
 ```
 @ bookmark <id> "<label>" @<focus_id>[,<focus_id>...] [~pad=<n>] [~iso] ["<description>"]
@@ -549,12 +633,24 @@ yourself.
 A flow `<step>` is `<bookmark_ref>` plus optional `:`-separated segments in
 any order: a bare number is the dwell, `detail=<v>` / `focus=<v>` override
 the flow's presentation settings for that stop —
-`bm_all:6:detail=summary`, `bm_api:focus=complete`.
+`bm_all:6:detail=summary`, `bm_api:focus=complete`. A
+`<bookmark_ref>` of the form `<board>#<bookmark>` is a stop in another
+board — `<board>` is the name of a sub-board of the flow's own board, or a
+path ending in `.grafli` relative to the flow's board file, which a
+sub-board deeper down needs (`combat#lunge`,
+`System-res/combat-res/impact.grafli#hit`, `../engine.grafli#loop`; never
+`graph:…`, the `:` would split the step). The flow stays on its own board; playback
+enters the other board for that stop and export renders it from there. A
+board with such a step carries a `#!grafli v3` header — bump it yourself.
 
 * `@<ids>` is the **semantic anchor** — the item ids the view frames; the
   pan/zoom is computed at display time by fitting them, so a bookmark
   survives layout edits. Always anchor on ids, never raw coordinates
   (`~view` exists only for hand-tuned or node-less viewpoints).
+* An anchor id may name an **arrow** by its `~id=` — a path stop: it frames
+  the arrow's two ends, and playback, `grafli render --bookmark` and the
+  slide export draw the arrow in the tour accent, thicker, with the rest
+  dimmed.
 * `~pad=<n>` overrides the framing padding.
 * `~iso` makes the anchor a **narrowed selection**: thumbnails and the
   exported slide render *only* the anchored items (and the arrows between
@@ -576,6 +672,77 @@ the flow's presentation settings for that stop —
 * `@ footer` is a board-global markdown branding line rendered at the
   bottom of every exported content slide; `@ title-bg thumbnail-art`
   gives the export's title slide a faint thumbnail-collage backdrop.
+
+## Map palette (`<stem>-res/palette.json`)
+
+When colours mean something across a map (layers, owners, states), name
+them once in the vault of the map's top board instead of repeating tokens
+on every board. Every board of the map — the top board and the sub-boards
+in its vault — resolves `%name` against it; changing an entry recolours
+them all, in the app, `render` and the exports.
+
+```json
+{
+  "entries": {
+    "core": {"color": "%primary", "label": "Core"},
+    "view": {"color": "%teal", "label": "View layer"}
+  }
+}
+```
+
+* A name is lowercase letters and must not be a theme token's name
+  (`teal`, `rose`, …): such an entry is ignored and `diagnose` reports it
+  as `palette-shadows-token`.
+* `color` is a theme token (follows light/dark) or `#RRGGBB`; `label` is
+  what the colour grid (`s` `c`) shows.
+* A board using a palette name is written `#!grafli v4`.
+* The palette is the map's legend — don't hand-draw a key note. The user
+  toggles it with `Shift+M`; for a picture or a deck pass `--legend` to
+  `grafli render` or `grafli export` (PDF or PPTX). It lists the entries the board
+  uses, by `label`, so write labels a reader understands.
+
+## Overlay files (`<stem>-res/<name>.overlay.json`)
+
+To colour a board with analysis data (tests, churn, review state, what a
+reader understood), write one JSON file per overlay into the vault — never
+into the `.grafli`. The user presses `A` to cycle off → Connectivity → each
+overlay file by name → off; the file is watched, so rewriting it recolours
+the open board. For a picture or a deck that shows it, pass
+`--overlay <name>` to `grafli render` or `grafli export` (PDF or PPTX): the
+board is coloured as `A` shows it, with the overlay's legend.
+
+```json
+{
+  "title": "Tests",
+  "producer": "scripts/overlay_tests.py (pytest 8.3)",
+  "created": "2026-10-09T14:00:00Z",
+  "source": {"repo": "~/dev/shapes-and-stone", "revision": "a1b2c3d"},
+  "kind": "category",
+  "categories": [
+    {"id": "pass", "label": "Passing", "color": "%forest"},
+    {"id": "fail", "label": "Failing", "color": "%rose"},
+    {"id": "none", "label": "No tests", "color": "%subtle"}
+  ],
+  "entries": {
+    "impact": {"category": "fail", "note": "fight bench --answer drifts", "refs": ["@Game.qml:2233"]},
+    "camera": {"category": "pass"}
+  }
+}
+```
+
+* `kind` is `category` (with `categories`) or `value` (with
+  `"scale": {"min": 0, "max": 30, "low": "Low", "high": "High"}` and a
+  numeric `value` per entry).
+* `entries` keys are element ids: boxes, notes, and arrows that carry
+  `~id=`. Every `category` must be declared. An element without an entry
+  draws as **no data** — declare states like "unexamined" as categories.
+* Give `source` (repo + the revision you analysed) when the data comes from
+  a repo: the legend then says **stale** once the repo's `HEAD` moves on.
+  Relative `refs` resolve against that repo.
+* Keep `note` to a line or two; the legend shows three lines at most.
+* Run `grafli diagnose` on the board after writing an overlay: a file that
+  does not parse is `bad-overlay`, an entry id that is not on the board is
+  `overlay-unknown-id` (with the nearest id).
 
 ## Quoted-text escaping
 

@@ -28,6 +28,19 @@ v1 file? Bump the header to `#!grafli v2` yourself.)
 * A **flow** lists bookmark ids in order. `:<dwell>` is that stop's auto-play
   time in seconds (omit for the default); it only matters for auto-play /
   booth playback.
+* A stop may lie in **another board**: `<board>#<bookmark>`, with `<board>`
+  the name of a sub-board of the flow's own board, or a `.grafli` path
+  relative to the flow's board file for anything deeper — on
+  `System.grafli`: `combat#lunge`, `System-res/combat-res/impact.grafli#hit`. Use it for a tour that
+  crosses levels (a request path, "a blow lands"); author the bookmark in
+  that board, keep the flow on the board the tour starts on, and bump its
+  header to `#!grafli v3`. Playback enters the board for that stop; the
+  slide export renders it from there.
+* A stop may frame an **arrow**: give it `~id=<id>` and list that id in the
+  bookmark's focus (`@ bookmark b_call "The call" @call`). Playback frames
+  its two ends and draws the arrow in the tour accent, thicker, with the
+  rest dimmed — use it for a step of a runtime flow or pipeline ("this step
+  is this call"). An arrow id makes the board `#!grafli v3`.
 * `@ footer` (board-global, one per file) brands the bottom of every exported
   content slide with a small muted markdown line; the title slide stays a
   clean cover. `@ title-bg thumbnail-art` backs the title slide with a faint
@@ -71,6 +84,10 @@ PDF/PPTX export, and `grafli render`.
 @ flow tour "Demo" bm_wide:6:detail=summary bm_svc:detail=full bm_api:focus=complete ~focus=none
 ```
 
+A `&doc` box's first sentence shows on a slide when the slide's frame keeps
+it legible (judged on the slide shown 1280 px wide, the canvas's floor);
+a wide opening stop drops it, a close stop on the box keeps it.
+
 ## Text slides
 
 A bookmark that anchors a **single note** and has **no description** exports
@@ -109,7 +126,9 @@ without letterboxing. For 16:9, height = width × 9/16, plus ~40 px if a
 board-global footer is set (the in-app `d`+`r` keybind does exactly this
 math). E.g. a 960-wide slide container: `960x540` (no footer) or `960x580`.
 Content that spills past the frame is your cue to trim the text or split
-the slide.
+the slide. Shape containers to the slide only in a slide region you build
+for the deck; on a map, frame the stop with a bookmark instead (see
+"Slides from a map" below).
 
 ## Dedicated slide regions
 
@@ -120,6 +139,88 @@ small focused diagrams, plus text-slide notes for agenda/summary. The flow
 then mixes stops on the *live* diagram (the system as drawn) with the
 purpose-built frames. The deck is a view of the board — the board doesn't
 become the deck.
+
+## Slides from a map — frame, legibility, headline
+
+A map (an explanation map, an architecture board) is laid out for the
+canvas, not for 16:9. A tour of it comes out as slides that are
+overloaded (text too small to read) or thin strips (a wide row with
+empty page above and below) when its stops frame the wrong region. Three
+rules make a map's tour export as slides without touching the map.
+
+* **Frame each stop with a bookmark, not by sizing containers.** Don't
+  reshape a layer or a group to 16:9 to make it a slide: the map's
+  layout serves every other view, and a container with its contents
+  framed whole is usually too big for one slide anyway. Anchor the stop
+  on the 2–6 ids the slide is about, `~pad=<n>` for room around them,
+  `~iso` to drop the neighbours that would bleed in at the edges. Put a
+  note that explains a part next to that part, so the stop that frames
+  both stays small. A wide row is several stops, one per cluster, not
+  one strip. GUI: select the ids, <kbd>g</kbd><kbd>b</kbd>.
+* **Do the legibility arithmetic.** A slide's diagram area is about
+  895 pt wide and, under a headline, about 425 pt high; the stop's frame
+  (the anchored items plus `~pad` on each side, 60 px by default) is
+  scaled to fit it. A note is legible on the slide when it lands at
+  11 pt or more, so the frame may be at most `895 × size / 11` px wide
+  and `425 × size / 11` px high, with `size` the note's text size in
+  px:
+
+  | Note size | px | Widest frame | Tallest frame (with headline) |
+  |---|---|---|---|
+  | `~small` | 10 | ≈ 810 px | ≈ 390 px |
+  | default | 13 | ≈ 1,060 px | ≈ 500 px |
+  | `~large` | 18 | ≈ 1,460 px | ≈ 700 px |
+
+  A stop without a headline gets about a fifth more height. A frame much
+  wider than 2:1 fills the width and leaves the page empty above and
+  below — the strip; much narrower than 16:9 fills the height and leaves
+  the sides empty. Aim the frame between 16:9 and 2:1. Only notes over
+  80 characters count (a shorter note is an annotation on the picture),
+  and `export --check` measures every one, so let the check judge the
+  edge cases.
+* **A headline per stop.** The bookmark's label is the slide's title:
+  write it as a claim the slide shows ("Every view draws the same
+  Board"), not a topic ("Views"), short enough for one line (about 35
+  characters). The tour's stops read in order as the argument; the
+  description stays for what the picture and the headline don't say,
+  and is often empty.
+
+### Example — a tour of grafli's pipeline
+
+```
+#!grafli v2
+@ box file ".grafli file" 0,0 180x80
+@ box parse "parse()" 280,0 180x80
+@ box board "Board" 560,0 180x80
+@ box canvas "Canvas" 880,-110 180x70
+@ box render "render" 880,0 180x70
+@ box slides "PDF / PPTX" 880,110 180x70
+@ arrow file -> parse "text"
+@ arrow parse -> board "Board"
+@ arrow board -> canvas
+@ arrow board -> render
+@ arrow board -> slides
+
+@ note why_text 0,140 "One plain-text file is the whole board: a diff shows every change, and git keeps its history without a save button."
+@ note why_same 560,200 "Every view reads the same Board, so a slide can never show a different diagram than the canvas does."
+
+@ bookmark b_all "One parse feeds every view" @file,parse,board,canvas,render,slides ~iso
+@ bookmark b_text "The board is a text file" @file,parse,why_text ~iso
+@ bookmark b_views "Every view draws the same Board" @board,canvas,render,slides,why_same ~iso
+@ flow tour "From text to every view" b_all b_text b_views "How one file becomes the canvas, the renders and the slides."
+```
+
+The opening stop frames the whole pipeline, about 1,180 × 410 px — too
+wide for a default note, so it is `~iso` on the boxes and the notes stay
+out of it. The next two stops each frame one cluster with the note that
+explains it, both inside 1,060 × 500 px. Every headline is a claim and
+no stop needs a description. `grafli export map.grafli --check` prints
+`No findings.` With the third stop unscoped and `why_same` 40 px lower,
+its frame grows past 500 px high and pulls in `why_text`:
+
+```
+[overloaded] slide #3 Every view draws the same Board: note 'why_text' at 10.6 pt (floor 11 pt); note 'why_same' at 10.6 pt (floor 11 pt) — trim the text or split the slide
+```
 
 ## Compose the narrative deliberately
 
@@ -202,13 +303,18 @@ grafli export deck.grafli tour.pptx --flow tour \
 
 ## Verify — the deck has a check loop too
 
-* `grafli export <file> --check [--flow <id>] [--json]` dry-runs the export
-  and reports: slide count, **overloaded slides** (text that can't fit at
-  the legible floor — an overloaded slide is hard for an audience anyway),
-  **over-long captions** (a description past the 280-char budget),
-  **dangling refs** (a flow step naming a missing bookmark, a bookmark
-  anchoring a deleted id), and missing vault docs. Exit 1 means fix and
-  re-check.
+* `grafli export <file> --check [--flow <id> | --all-flows] [--json]`
+  dry-runs the export and reports: slide count, **overloaded slides** (text
+  that can't fit at the legible floor — an overloaded slide is hard for an
+  audience anyway), **over-long captions** (a description past the 280-char
+  budget), **dangling refs** (a flow step naming a missing bookmark, a
+  bookmark anchoring a deleted id), and missing vault docs. Exit 1 means fix
+  and re-check. An overloaded slide names each note under the floor with
+  its size at that slide's frame —
+  `[overloaded] slide #2 Overview: note 'evidence' at 2.2 pt (floor 11 pt)`
+  — so fix that note: give it its own stop, frame it tighter, or trim it.
+  `--all-flows` checks every tour of the board in one run (`--json` then
+  emits a list, one report per flow).
 * `grafli render <file> stop.png --step <flow>:<n>` renders step *n*
   (1-based) exactly as playback shows it — framing plus the step's resolved
   `detail`/`focus`. `--bookmark <id>` renders a bare bookmark (honouring

@@ -51,6 +51,43 @@ When boxes are nested, walk the tree directly instead of hunting visually:
 The status bar shows a breadcrumb of where you are, so you always know your
 depth.
 
+## Go into a board and back out
+
+A box whose `&graph` sub-board or `.grafli` `&link` you open with
+<kbd>Return</kbd> or <kbd>g</kbd><kbd>d</kbd> takes you one board down: the
+view zooms into the box and hands over to the board it opens.
+<kbd>g</kbd><kbd>u</kbd> zooms back out to the board you came from, exactly as
+you left it — same zoom, scroll and selection, no re-fit. While you are inside, the breadcrumb starts with the
+boards you came through, for example `System › Combat › impact()`. On a board
+you did not enter that way, <kbd>g</kbd><kbd>u</kbd> says "Already at the top".
+<kbd>Ctrl</kbd>+<kbd>O</kbd> / <kbd>Ctrl</kbd>+<kbd>I</kbd> walk the view
+history of the board you are on only.
+
+A link can point at one place in the board it opens: `&graph:combat#impact`
+or `&link:../System.grafli#impact` opens the board framed on the bookmark
+`impact` — or, if there is no such bookmark, on the element `impact` — with it
+selected. If the board has neither, it opens fitted and says
+"No element 'impact' in combat.grafli". `grafli diagnose` reports such a link,
+and a link to a board that does not exist, as an error
+(`dangling-board-link`).
+
+Once a box with a `&graph` sub-board is large enough on screen, it shows a
+miniature of that board filling the box, so you can see what is inside before
+you go in. The label and the sub-board icon sit on a band across the top of
+the box, in the box's own fill, so they stay readable over the miniature. The miniature follows the sub-board file: change the file and the
+miniature updates. Zooming in on it never switches boards on its own — only
+<kbd>Return</kbd> or <kbd>g</kbd><kbd>d</kbd> does. Exports show the box
+without the miniature.
+
+A box with a `&doc` shows the first sentence of its doc on one line below its
+label, once you are close enough to read it. To read the whole doc without
+leaving the board, select the box and press <kbd>g</kbd><kbd>v</kbd>: a
+read-only panel opens beside the box, scrollable when the doc is long, and
+<kbd>Esc</kbd> closes it. <kbd>E</kbd> opens the doc for editing. When the doc
+file changes, the line and an open panel follow. Renders and exports show the
+line too; a PDF or PPTX slide shows it only where the slide's frame keeps it
+large enough to read, as the canvas does at its zoom.
+
 To *build* that hierarchy, select one or more elements and press
 <kbd>Ctrl</kbd>+<kbd>G</kbd> — grafli wraps them in a new parent box sized to
 contain them, then opens its label editor so you can name the group. Inner
@@ -93,8 +130,13 @@ looked.
 
 - <kbd>M</kbd> — toggle the **minimap**: a corner overview with your viewport
   rectangle, so you never lose your bearings in a large graph.
-- <kbd>A</kbd> — **complexity heatmap**: colours nodes by how connected/busy
-  they are, to spot where the density is.
+- <kbd>A</kbd> — **connectivity heatmap**: colours boxes by how many graph
+  arrows touch them (arrows to and from notes or images don't count), to
+  spot where the density is. When the board has
+  [overlay files](format.md#overlay-files) beside it, further presses show
+  each of them in turn — test results, churn, whatever a script wrote — with
+  a legend card that shows the selected element's note and refs. The overlay
+  on screen goes into the SVG/PNG and PDF/PPTX exports with its legend.
 
 ## Read a board zoomed out (semantic zoom)
 
@@ -142,6 +184,54 @@ A node can link to a deeper diagram in its own `.grafli` file (a *sub-grafli*).
 Click through to descend into it, edit, and come back — so a large system can
 be a shallow top-level map plus focused drill-downs instead of one giant
 canvas.
+
+## Share the map as one page
+
+`grafli export-html board.grafli board.html` (or **HTML** in the side panel's
+Export section) writes the board and every board reachable from it through
+`&graph`, `.grafli` `&link` and tour stops in other boards into one HTML
+file. It needs no server and no
+internet: drawings, script, styles, fonts and images are all inside, so it
+opens from a mail attachment or a shared folder in any current browser. It
+prints its size and warns above 20 MB.
+
+Each board is drawn by grafli's own SVG export, so the page looks like the
+app. On the page:
+
+| Do | What happens |
+|----|--------------|
+| Drag, wheel, <kbd>+</kbd> / <kbd>-</kbd>, arrow keys | Pan and zoom; <kbd>Shift</kbd>+<kbd>Z</kbd> fits the board |
+| Click a box with a level, or select it and <kbd>Return</kbd> / <kbd>g</kbd><kbd>d</kbd> | Zoom into its board |
+| **↑ Back**, <kbd>Backspace</kbd> or <kbd>g</kbd><kbd>u</kbd> | Back up, to where you were; the breadcrumb jumps several levels |
+| Click a box with a doc, or <kbd>g</kbd><kbd>v</kbd> | Read the doc in a panel beside it; <kbd>Esc</kbd> closes it |
+| **Overlay** selector or <kbd>A</kbd> | Switch between no overlay and each overlay file, with its legend and the selected element's note |
+| <kbd>Return</kbd> on a box with a web link | Open the link in a new tab |
+| **Tour** selector | Play one of the board's tours in the player card |
+
+The tour player shows the stop's caption, a progress bar and **‹ Prev**,
+**▶ Play** / **❚❚ Pause**, **Next ›** and **✕**. The camera glides between
+stops on one board; a stop in another board shows that board, with the
+breadcrumb, and **↑ Back** leads back out. Auto-play rests on each stop for
+its dwell (4 s when the stop sets none) and stops at the last one. A stop
+dims the rest as the app does: a stop with `focus=complete` everything its
+frame does not hold whole, a stop framing an arrow everything but that arrow
+and its two ends. While a
+tour plays, the keys are the app's playback keys:
+
+| Key | What happens |
+|-----|--------------|
+| <kbd>Space</kbd>, <kbd>→</kbd>, <kbd>l</kbd>, <kbd>j</kbd> | Next stop |
+| <kbd>←</kbd>, <kbd>h</kbd>, <kbd>k</kbd> | Previous stop |
+| <kbd>p</kbd> | Cycle paused / playing / loop |
+| <kbd>t</kbd> | Smooth or instant camera |
+| <kbd>Return</kbd> or <kbd>g</kbd><kbd>d</kbd> on a box with a level | Leave the tour into the level; going back up resumes it |
+| <kbd>Backspace</kbd> or <kbd>g</kbd><kbd>u</kbd> | End the tour and go back up |
+| <kbd>Esc</kbd>, <kbd>q</kbd> | End the tour, back on its own board |
+
+The page is for reading: code refs (`@path:line`) show as plain text,
+because the people you send it to don't have the checkout, and there are no
+miniatures and no editing. A link to a board that does not exist is reported
+when exporting and left out. `--theme dark` exports the dark theme.
 
 ## When you want to *explain* the path
 

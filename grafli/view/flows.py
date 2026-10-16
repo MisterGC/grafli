@@ -12,8 +12,9 @@ from __future__ import annotations
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QTransform
 from PySide6.QtWidgets import QInputDialog
-from grafli.flows import FlowPlayer
+from grafli.flows import FlowPlayer, tours_through
 from grafli.format import Arrow, Bookmark, Flow, FlowStep
+from grafli.fuzzy import FuzzyItem, FuzzyOverlay
 from grafli.items import BoxItem, ImageItem, NoteItem
 from pathlib import Path
 
@@ -42,23 +43,124 @@ class FlowsMixin:
             return
         bm = self._board.bookmark_by_id(bookmark_id)
         if bm is None:
+            self.toast("Bookmark not found on this board", "warn")
             return
         from grafli.flows import bookmark_target_rect
         target = bookmark_target_rect(self, bm)
+        if target.isNull():
+            # All focus elements deleted and no stored view: no rect to fly to.
+            self.toast("This bookmark's elements are gone from the board",
+                       "warn")
+            return
         self.goto_rect(target, animate=animate)
         self.flash_anchor(target)
 
-    def play_flow(self, flow_id: str):
-        """Enter modal playback for a flow, starting at its first stop."""
+    def frame_fragment(self, target_id: str) -> bool:
+        """Frame and select what a board link's ``#<id>`` names: a bookmark
+        first, else an element framed as a one-element bookmark would be.
+        False when the board has neither."""
+        if not self._board:
+            return False
+        from grafli.flows import bookmark_target_rect
+        bm = self._board.bookmark_by_id(target_id)
+        if bm is None or bookmark_target_rect(self, bm).isNull():
+            bm = Bookmark(id=target_id, label="", focus=[target_id])
+        rect = bookmark_target_rect(self, bm)
+        if rect.isNull():
+            return False
+        self._deselect_arrow()
+        self._scene.clearSelection()
+        for fid in bm.focus:
+            item = (self._box_items.get(fid) or self._note_items.get(fid)
+                    or self._image_items.get(fid))
+            if item is not None:
+                item.setSelected(True)
+        if not self._scene.selectedItems():
+            # An arrow id (a path stop's or a link's #<arrow-id>) selects the
+            # arrow; selecting one clears element selection, so arrows are
+            # selected only when no element is.
+            from grafli.flows import focus_arrows
+            for i, arrow in enumerate(focus_arrows(self._board, bm.focus)):
+                self._select_arrow(arrow, additive=i > 0)
+        self.goto_rect(rect, animate=False)
+        self.flash_anchor(rect)
+        return True
+
+    def play_flow(self, flow_id: str, start: int = 0):
+        """Enter modal playback for a flow, starting at stop *start* (its
+        first unless told otherwise)."""
         if not self._board:
             return
         flow = self._board.flow_by_id(flow_id)
-        if flow is None or not flow.steps:
+        if flow is None:
+            return
+        if not flow.steps:
+            self.toast("This flow has no stops yet", "warn")
             return
         if self._flow_player is not None:
             self._flow_player.stop()
-        self._flow_player = FlowPlayer(self, flow)
-        self._flow_player.start()
+        home = getattr(self.window(), "_file_path", None)
+        self._flow_player = FlowPlayer(self, flow,
+                                       Path(home) if home else None)
+        self._flow_player.start(start)
+        self.setFocus()
+
+    def _tours_through_selection(self):
+        """`gt`: pick one of the tours through the selected box and play it
+        from the first stop that frames the box or one of its containers."""
+        if not self._board or self._fuzzy_overlay:
+            return
+        item = self._selected_box_item()
+        if item is None:
+            self.toast("Select a box to find the tours through it", "info")
+            return
+        label = " ".join(item.box.label.split()) or item.box.id
+        tours = tours_through(self._board, item.box.id)
+        if not tours:
+            self.toast(f"no tour passes through {label}", "info")
+            return
+        items = []
+        for flow, index in tours:
+            bookmark = self._board.bookmark_by_id(flow.steps[index].ref)
+            items.append(FuzzyItem(
+                display=flow.label or flow.id,
+                detail=f"stop {index + 1}/{len(flow.steps)} · "
+                       f"{bookmark.label or bookmark.id}",
+                data=(flow.id, index),
+            ))
+        overlay = FuzzyOverlay(f"Tours through {label}", items,
+                               self.viewport())
+        overlay.selected.connect(self._on_tour_picked)
+        overlay.cancelled.connect(self._on_tour_pick_cancelled)
+        self._fuzzy_overlay = overlay
+
+    def _on_tour_picked(self, item):
+        self._fuzzy_overlay = None
+        flow_id, index = item.data
+        self.play_flow(flow_id, index)
+
+    def _on_tour_pick_cancelled(self):
+        self._fuzzy_overlay = None
+        self.setFocus()
+
+    def tour_position(self):
+        """Where the playing tour stands, or None when none plays."""
+        player = self._flow_player
+        if player is None or not player.active:
+            return None
+        return player.position()
+
+    def resume_flow(self, flow, position):
+        """Pick a tour up at the stop it was left at, keeping the view."""
+        if not flow.steps:
+            return
+        if self._flow_player is not None:
+            self._flow_player.stop()
+        player = FlowPlayer(self, flow, position.home)
+        player.mode = position.mode
+        player.smooth = position.smooth
+        self._flow_player = player
+        player.goto(position.index, move=False)
         self.setFocus()
 
     def export_flow(self, flow, fmt: str = "pdf"):
@@ -177,8 +279,10 @@ class FlowsMixin:
             flow = self._recording_flow
             self._recording_flow = None
             if not flow.steps:
-                # An empty recording is noise — drop it.
+                # An empty recording is noise — drop it, but say so: the
+                # recording badge vanishing is not an explanation.
                 self._board.remove_flow(flow)
+                self.toast("Recording discarded — no stops captured", "warn")
             self.mark_dirty()
             self.flows_changed.emit()
             self._update_recording_status()
@@ -333,16 +437,21 @@ class FlowsMixin:
         flow.steps = [FlowStep(ref=self._make_auto_bookmark(nid).id)
                       for nid in path]
         n = len(path)
+        steps = f"{n} stop{'s' if n != 1 else ''}"
         if reason == "branch":
             box = self._board.box_by_id(path[-1])
             where = (box.label.replace("\n", " ") if box and box.label
                      else path[-1])
             self._record_shortcut(
                 f"auto-flow: {n} step(s), stopped at branch '{where}'")
+            self.toast(f"Auto-flow: {steps}, stopped at the branch “{where}”",
+                       "info")
         elif reason == "cycle":
             self._record_shortcut(f"auto-flow: {n} step(s), stopped (cycle)")
+            self.toast(f"Auto-flow: {steps}, stopped at a cycle", "info")
         else:
             self._record_shortcut(f"auto-flow: {n} step(s)")
+            self.toast(f"Auto-flow: {steps}", "info")
 
     def _discard_auto_bookmarks(self, flow: Flow) -> None:
         """Remove the bookmarks this flow's steps own (not used by any other
@@ -369,6 +478,7 @@ class FlowsMixin:
         """Create a flow by walking forward arrows from ``start_id``."""
         if not self._node_exists(start_id):
             self._record_shortcut("auto-flow needs a node")
+            self.toast("Auto-flow needs a node to start from", "warn")
             return None
         self._push_undo()
         flow = Flow(id=self._board.next_flow_id(), label=label,
@@ -385,6 +495,7 @@ class FlowsMixin:
             return
         if not self._node_exists(flow.auto_start):
             self._record_shortcut("auto-flow: start node is gone")
+            self.toast("Auto-flow start node is gone from the board", "warn")
             return
         self._push_undo()
         self._discard_auto_bookmarks(flow)
@@ -397,6 +508,7 @@ class FlowsMixin:
                  if isinstance(i, (BoxItem, NoteItem, ImageItem))]
         if len(nodes) != 1:
             self._record_shortcut("auto-flow: select exactly one node first")
+            self.toast("Select exactly one node to auto-flow from", "warn")
             return None
         item = nodes[0]
         if isinstance(item, BoxItem):
@@ -459,6 +571,19 @@ class FlowsMixin:
         self._apply_presentation_focus()
         self.viewport().update()
 
+    def _set_presentation_emphasis(
+            self, emphasis: tuple[set[str], set[str]] | None):
+        """Set (or clear, with None) a path stop's emphasis: (arrow ids, kept
+        element ids). The arrows redraw in the tour accent, thicker; every
+        other arrow and every element not kept dims as "complete" focus
+        does."""
+        if emphasis is None and self._present_emphasis is None:
+            return
+        self._present_emphasis = emphasis
+        self._redraw_arrows()
+        self._apply_presentation_focus()
+        self.viewport().update()
+
     def _presentation_focus_contained(self) -> set[str]:
         """Ids of the visible boxes/notes/images completely inside the focus
         frame. Only meaningful while a focus frame is set."""
@@ -475,7 +600,11 @@ class FlowsMixin:
     def _apply_presentation_focus(self):
         """(Re)apply the focus fade — or restore the resting opacities, which
         must respect the standing dim toggles (⇧N notes, "," arrows) and the
-        subgraph-focus / complexity filters when clearing."""
+        subgraph-focus / complexity filters when clearing. A path stop's
+        emphasis, when set, decides the fade instead of the focus frame."""
+        if self._present_emphasis is not None:
+            self._apply_presentation_emphasis()
+            return
         if self._present_focus_rect is None:
             for item in self._box_items.values():
                 item.setOpacity(1.0)
@@ -516,4 +645,33 @@ class FlowsMixin:
             to_id = self._lod_reroute(arrow.to_id)
             both_in = from_id in contained and to_id in contained
             gfx.setOpacity(1.0 if both_in else 0.08)
+
+    def _apply_presentation_emphasis(self):
+        """Fade everything but a path stop's arrows and kept elements to the
+        standard 0.08 blend level. A kept element inside a collapsed
+        container is shown by that container's tile, so the tile stays."""
+        arrow_ids, keep = self._present_emphasis
+        keep = keep | {self._lod_reroute(eid) for eid in keep}
+        for bid, item in self._box_items.items():
+            opacity = 1.0 if bid in keep else 0.08
+            item.setOpacity(opacity)
+            item._label.setOpacity(opacity)
+        for nid, item in self._note_items.items():
+            item.setOpacity(1.0 if nid in keep else 0.08)
+        for iid, item in self._image_items.items():
+            item.setOpacity(1.0 if iid in keep else 0.08)
+        for gfx in self._arrow_items:
+            gfx.setOpacity(1.0 if self._arrow_emphasised(gfx.data(0))
+                           else 0.08)
+
+    def _arrow_emphasised(self, arrow) -> bool:
+        """Whether a drawn connector shows an arrow a path stop emphasises:
+        its own, or the reverse arrow merged into the same line."""
+        if self._present_emphasis is None or arrow is None:
+            return False
+        arrow_ids = self._present_emphasis[0]
+        if arrow.id and arrow.id in arrow_ids:
+            return True
+        merged = self._merged_reverse.get(id(arrow))
+        return merged is not None and merged.id in arrow_ids
 

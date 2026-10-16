@@ -358,3 +358,94 @@ def test_color_picker_box_uses_palette_mode():
     view._box_items["a"].setSelected(True)
     view._open_color_picker()
     assert view._color_picker_mode == "box"
+
+
+# ── box face (mono by default, !sans = Inter, #205) ─────────────
+
+def _press(view, *keys):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    for key in keys:
+        QTest.keyClick(view, getattr(Qt.Key, f"Key_{key}"))
+
+
+def test_s_t_tab_toggles_a_box_to_sans_and_saves_v4():
+    from grafli.constants import SANS_FONT_FAMILY
+    view = _view('@ box a "Title" 0,0 160x60\n')
+    a = view._box_items["a"]
+    a.setSelected(True)
+    undo_before = len(view._undo_stack)
+    _press(view, "S", "T")
+    assert view._type_picker_active
+    assert not view._type_picker_sans
+    _press(view, "Tab")
+    assert a.box.sans                                    # live preview
+    assert a._label.font().family() == SANS_FONT_FAMILY
+    _press(view, "Return")
+    assert view.board.box_by_id("a").sans
+    assert len(view._undo_stack) == undo_before + 1
+    out = serialize(view.board)
+    assert '160x60 !sans' in out and out.startswith("#!grafli v4\n")
+    view._undo()
+    assert not view.board.box_by_id("a").sans
+
+
+def test_tab_on_a_sans_box_goes_back_to_mono_and_cancel_restores():
+    view = _view('@ box a "Title" 0,0 160x60 !sans\n')
+    a = view._box_items["a"]
+    a.setSelected(True)
+    _press(view, "S", "T")
+    assert view._type_picker_sans
+    _press(view, "Tab")
+    assert not a.box.sans
+    assert a._label.font().family() == FONT_FAMILY
+    _press(view, "Escape")
+    assert view._box_items["a"].box.sans                 # reverted
+
+
+def test_tab_toggles_both_faces_on_a_box_and_a_note():
+    view = _view('@ box a "Title" 0,0 160x60\n@ note n 0,100 "aside"\n')
+    view._box_items["a"].setSelected(True)
+    view._note_items["n"].setSelected(True)
+    view._open_type_picker()
+    view._toggle_type_font()
+    view._commit_type_picker()
+    assert view.board.box_by_id("a").sans
+    assert view.board.notes[0].style == "mono"
+
+
+# ── note face (hand / mono / !sans, #206) ───────────────────────
+
+def test_s_t_tab_cycles_a_note_through_hand_mono_sans_and_saves_v4():
+    from grafli.constants import NOTE_FONT_FAMILY, SANS_FONT_FAMILY
+    view = _view('@ note n 0,0 "aside"\n')
+    n = view._note_items["n"]
+    n.setSelected(True)
+    undo_before = len(view._undo_stack)
+    _press(view, "S", "T")
+    assert view._type_picker_font == ""
+    _press(view, "Tab")
+    assert n.note.style == "mono"
+    _press(view, "Tab")
+    assert n.note.style == "sans"                        # live preview
+    assert n._note_font().family() == SANS_FONT_FAMILY
+    _press(view, "Return")
+    assert view.board.notes[0].style == "sans"
+    assert len(view._undo_stack) == undo_before + 1
+    out = serialize(view.board)
+    assert '"aside" !sans' in out and out.startswith("#!grafli v4\n")
+    view._undo()
+    assert view.board.notes[0].style == ""
+    assert view._note_items["n"]._note_font().family() == NOTE_FONT_FAMILY
+
+
+def test_tab_on_a_sans_note_goes_back_to_hand_and_cancel_restores():
+    view = _view('#!grafli v4\n@ note n 0,0 "aside" !sans\n')
+    n = view._note_items["n"]
+    n.setSelected(True)
+    _press(view, "S", "T")
+    assert view._type_picker_font == "sans"
+    _press(view, "Tab")
+    assert n.note.style == ""
+    _press(view, "Escape")
+    assert view._note_items["n"].note.style == "sans"    # reverted

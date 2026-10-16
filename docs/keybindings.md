@@ -140,7 +140,7 @@ section.
 |-----|--------|
 | <kbd>#</kbd> | Toggle grid |
 | <kbd>M</kbd> | Toggle minimap |
-| <kbd>Shift</kbd>+<kbd>M</kbd> | Toggle the legend of the map's [palette](format.md#map-palette) — also drawn into the SVG/PNG exports and PDF diagram slides while on |
+| <kbd>Shift</kbd>+<kbd>M</kbd> | Toggle the legend of the map's [palette](format.md#map-palette) — also drawn into the SVG/PNG exports and PDF/PPTX diagram slides while on |
 | <kbd>\\</kbd> | Toggle tools panel |
 | <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Toggle light / dark theme — or click the sun/moon button next to the tools button |
 

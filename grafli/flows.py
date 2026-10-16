@@ -246,7 +246,7 @@ def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-    with view.miniatures_held():
+    with view.miniatures_held(), view.doc_lines_held():
         if bookmark.isolate and bookmark.focus:
             with isolate_focus(view, bookmark.focus):
                 view._scene.render(p, QRectF(0, 0, iw, ih), rect)

@@ -49,6 +49,7 @@ from grafli.slideplan import (  # noqa: F401
     build_slide_plan,
     live_overlays,
     playback_text_fit,
+    slide_doc_lines,
     slide_presentation,
 )
 
@@ -444,7 +445,9 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     # bar. The step's detail/focus settings apply for the raster's duration;
     # notes they hide or fade stay in the raster instead of overlaying as text.
     # Sub-board miniatures are a canvas aid: the slide shows the box plain.
-    with view.miniatures_held(), slide_presentation(view, plan):
+    # Doc lines show where the slide's frame keeps them legible.
+    with view.miniatures_held(), slide_presentation(view, plan), \
+            slide_doc_lines(view, scale / _px_per_pt(page)):
         overlays = live_overlays(view, plan)
         with _hidden(overlays + list(plan.chrome_suppress)):
             if plan.isolate:

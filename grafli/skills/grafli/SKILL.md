@@ -539,7 +539,10 @@ grafli export-html input.grafli out.html  # the board + every reachable board as
 
 The render draws what the canvas draws at that zoom — 100% by default,
 the fitted board with `--lod` — including a `&graph` box's miniature and
-a `&doc` box's first sentence when the box has room for them.
+a `&doc` box's first sentence when the box has room for them. The PDF,
+PPTX and HTML exports show that sentence too; a slide drops it when its
+frame makes it too small to read, so frame a stop close enough for the
+lines you want seen.
 
 Workflow:
 

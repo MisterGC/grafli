@@ -2201,6 +2201,8 @@ def _cmd_export(argv: list[str]) -> int:
     from grafli.view import GrafliView
     view = GrafliView()
     view.base_dir = str(args.input.resolve().parent)
+    # `&doc` boxes resolve their docs against the board, as in the app.
+    view.render_headless(args.input.resolve())
     view.load_board(board)
 
     if args.check:

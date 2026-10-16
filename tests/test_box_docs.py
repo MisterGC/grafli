@@ -183,7 +183,7 @@ def test_missing_doc_shows_no_doc_line(tmp_path: Path):
     win.close()
 
 
-def test_exports_draw_the_box_without_its_doc_line(tmp_path: Path):
+def test_thumbnails_draw_the_box_without_its_doc_line(tmp_path: Path):
     root, _ = _system(tmp_path)
     win = _window(root)
     _zoom(win, 1.0)
@@ -191,6 +191,8 @@ def test_exports_draw_the_box_without_its_doc_line(tmp_path: Path):
     item = view._box_items["combat"]
     shown_pos = item._label.pos()
     with view.miniatures_held():
+        assert item._doc_line
+    with view.doc_lines_held():
         assert item._doc_line == ""
         view._refresh_lod()
         assert item._doc_line == ""
@@ -295,6 +297,148 @@ def test_render_lod_keeps_the_zoomed_out_look(tmp_path: Path):
     before = tmp_path / "before.png"
     assert _cmd_render([str(root), str(before), "--lod"]) == 0
     assert QImage(str(zoomed_out)) == QImage(str(before))
+
+
+# ── Exports ──
+
+def _tour_system(tmp_path: Path) -> Path:
+    """The system board with two one-stop tours: one framing the `&doc` box
+    close, one framing it with a box far away, so small on the slide."""
+    root, _ = _system(tmp_path)
+    root.write_text(root.read_text()
+                    + '@ box far "Far" 20000,20000 240x80\n'
+                    '@ bookmark near "Combat" @combat\n'
+                    '@ bookmark wide "Everything" @combat,far\n'
+                    '@ flow close "Close" near\n'
+                    '@ flow distant "Distant" wide\n')
+    return root
+
+
+def _painted_doc_lines(monkeypatch) -> list:
+    """Record each doc line a box paints, as (box id, text)."""
+    from grafli.items import BoxItem
+    painted = []
+    paint = BoxItem._paint_doc_line
+
+    def spy(self, painter):
+        painted.append((self.box.id, self._doc_line))
+        paint(self, painter)
+    monkeypatch.setattr(BoxItem, "_paint_doc_line", spy)
+    return painted
+
+
+LINE = ("combat", "A blow lands and impact() shakes the camera.")
+
+
+def test_pdf_and_pptx_slides_draw_the_doc_line(tmp_path: Path, monkeypatch):
+    from grafli.app import _cmd_export
+    root = _tour_system(tmp_path)
+    _app()
+    painted = _painted_doc_lines(monkeypatch)
+    for out in ("close.pdf", "close.pptx"):
+        painted.clear()
+        assert _cmd_export([str(root), str(tmp_path / out),
+                            "--flow", "close"]) == 0
+        assert LINE in painted
+
+
+def test_a_slide_too_wide_to_read_the_line_leaves_it_out(tmp_path: Path,
+                                                         monkeypatch):
+    from grafli.app import _cmd_export
+    root = _tour_system(tmp_path)
+    _app()
+    painted = _painted_doc_lines(monkeypatch)
+    for out in ("distant.pdf", "distant.pptx"):
+        painted.clear()
+        assert _cmd_export([str(root), str(tmp_path / out),
+                            "--flow", "distant"]) == 0
+        assert painted == []
+
+
+def test_a_slide_judges_the_line_at_its_scale_not_the_canvas_zoom(
+        tmp_path: Path, monkeypatch):
+    # The canvas is zoomed out past the line but not the label, the slide
+    # frames the box close: the slide keeps the line, and the canvas is as
+    # it was afterwards.
+    from grafli.pdfexport import export_flow_to_pdf
+    root = _tour_system(tmp_path)
+    win = _window(root)
+    view = win._view
+    _zoom(win, 1.0)
+    _zoom(win, 0.7)
+    item = view._box_items["combat"]
+    assert "combat" not in view._lod_skip_set()
+    assert item._doc_line == ""
+    painted = _painted_doc_lines(monkeypatch)
+    export_flow_to_pdf(view, view.board.flow_by_id("close"),
+                       tmp_path / "close.pdf", root)
+    assert LINE in painted
+    assert item._doc_line == ""
+    _zoom(win, 1.0)
+    painted.clear()
+    export_flow_to_pdf(view, view.board.flow_by_id("distant"),
+                       tmp_path / "distant.pdf", root)
+    assert painted == []
+    assert item._doc_line == LINE[1]
+    win.close()
+
+
+def test_a_stop_in_another_board_draws_its_doc_lines(tmp_path: Path,
+                                                     monkeypatch):
+    from grafli.app import _cmd_export
+    _system(tmp_path / "sub")
+    root = _write(tmp_path / "Tour.grafli",
+                  '#!grafli v3\n'
+                  '@ box start "Start" 0,0 240x80\n'
+                  '@ flow tour "Tour" sub/System.grafli#near\n')
+    sub = tmp_path / "sub" / "System.grafli"
+    sub.write_text(sub.read_text() + '@ bookmark near "Combat" @combat\n')
+    _app()
+    painted = _painted_doc_lines(monkeypatch)
+    assert _cmd_export([str(root), str(tmp_path / "tour.pdf")]) == 0
+    assert LINE in painted
+
+
+def test_the_html_page_draws_the_doc_line(tmp_path: Path, monkeypatch):
+    from grafli.htmlexport import export_html
+    root, _ = _system(tmp_path)
+    _app()
+    painted = _painted_doc_lines(monkeypatch)
+    export_html(root, tmp_path / "page.html")
+    assert LINE in painted
+
+
+def test_a_bookmark_thumbnail_leaves_the_doc_line_out(tmp_path: Path,
+                                                      monkeypatch):
+    from grafli.flows import render_bookmark_pixmap
+    root = _tour_system(tmp_path)
+    win = _window(root)
+    _zoom(win, 1.0)
+    view = win._view
+    painted = _painted_doc_lines(monkeypatch)
+    assert render_bookmark_pixmap(view, view.board.bookmark_by_id("near"),
+                                  400, 300) is not None
+    assert painted == []
+    assert view._box_items["combat"]._doc_line == LINE[1]
+    win.close()
+
+
+def test_exports_of_a_board_without_box_docs_paint_no_doc_line(
+        tmp_path: Path, monkeypatch):
+    from grafli.app import _cmd_export
+    from grafli.htmlexport import export_html
+    root = _write(tmp_path / "Plain.grafli",
+                  '#!grafli v2\n'
+                  '@ box a "Alpha" 0,0 240x80\n'
+                  '@ box b "Beta" 300,0 240x80 &link:https://example.org\n'
+                  '@ bookmark ab "Both" @a,b\n'
+                  '@ flow tour "Tour" ab\n')
+    _app()
+    painted = _painted_doc_lines(monkeypatch)
+    assert _cmd_export([str(root), str(tmp_path / "plain.pdf")]) == 0
+    assert _cmd_export([str(root), str(tmp_path / "plain.pptx")]) == 0
+    export_html(root, tmp_path / "plain.html")
+    assert painted == []
 
 
 # ── The peek ──

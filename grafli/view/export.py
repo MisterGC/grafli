@@ -107,8 +107,8 @@ class ExportMixin:
                 item.setVisible(True)
 
     def _export_extras_held(self):
-        """Hold miniatures and doc lines back for an export; a headless render
-        keeps them, as the canvas shows them."""
+        """Hold miniatures back for an export; a headless render keeps them,
+        as the canvas shows them. Doc lines stay as the canvas shows them."""
         if self._headless_board is not None:
             return nullcontext()
         return self.miniatures_held()

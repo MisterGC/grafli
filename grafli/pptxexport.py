@@ -40,7 +40,8 @@ from grafli.constants import FONT_FAMILY, resolve_textsize_px
 from grafli.flows import isolate_focus, render_thumbnail_art
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
 from grafli.slideplan import (SlidePlan, build_slide_plan, live_overlays,
-                              playback_text_fit, slide_presentation)
+                              playback_text_fit, slide_doc_lines,
+                              slide_presentation)
 
 # PowerPoint 16:9 canvas in points — same fixed geometry as the PDF exporter, so
 # the fractional layout math below mirrors pdfexport on a 960x540 pt page. When
@@ -478,7 +479,8 @@ def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
 
     # The step's detail/focus settings apply for the raster's duration; notes
     # they hide or fade stay in the raster instead of overlaying as text.
-    with slide_presentation(view, plan):
+    # Doc lines show where the slide's frame keeps them legible.
+    with slide_presentation(view, plan), slide_doc_lines(view, scale):
         overlays = live_overlays(view, plan)
         img = _render_region(view, plan, fitted, overlays)
     slide.shapes.add_picture(_png_stream(img), Pt(fitted.left()),

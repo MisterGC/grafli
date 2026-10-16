@@ -122,6 +122,8 @@ def _stop_view(board_path: Path | None, target: str, views: dict):
             load_docs(path, board)
             stop_view = GrafliView()
             stop_view.base_dir = str(path.parent)
+            # Its `&doc` boxes resolve their docs against that board.
+            stop_view.render_headless(path)
             stop_view.load_board(board)
             stop_view._scene.setBackgroundBrush(Qt.GlobalColor.transparent)
             views[path] = stop_view
@@ -142,6 +144,18 @@ def slide_presentation(view, plan: SlidePlan):
         with presentation_focus(view, rect), \
                 presentation_emphasis(view, plan.emphasis):
             yield
+
+
+# A slide is judged as shown 1280 px wide, the screen `render --lod` fits a
+# board to: 960 pt across the page, so 4/3 screen pixels per point.
+SLIDE_SCREEN_PX_PER_PT = 1280 / 960
+
+
+def slide_doc_lines(view, scale_pt: float):
+    """Show the doc lines a slide frame keeps legible for the duration of
+    its raster, as the canvas does at that zoom; *scale_pt* is the raster's
+    slide points per scene pixel. Call inside :func:`slide_presentation`."""
+    return view.doc_lines_at(scale_pt * SLIDE_SCREEN_PX_PER_PT)
 
 
 def live_overlays(view, plan: SlidePlan) -> list:

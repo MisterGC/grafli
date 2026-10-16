@@ -10,13 +10,13 @@ a note and code refs per element, and where the data came from. Nothing in the
 from __future__ import annotations
 
 import json
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from grafli.format import Board
 from grafli.heat import HeatDetail, HeatLegend, HeatReading
 from grafli.resources import res_dir
+from grafli.revision import head_revision, revisions_match
 
 SUFFIX = ".overlay.json"
 
@@ -69,6 +69,17 @@ def overlay_paths(grafli_path: Path) -> list[Path]:
 
 def overlay_name(path: Path) -> str:
     return path.name[:-len(SUFFIX)]
+
+
+def overlay_named(grafli_path: Path, name: str) -> Path:
+    """The board's overlay file called *name* (``<name>.overlay.json``);
+    ValueError naming the overlays the board has when it has none such."""
+    for path in overlay_paths(grafli_path):
+        if overlay_name(path) == name:
+            return path
+    names = ", ".join(overlay_name(p) for p in overlay_paths(grafli_path))
+    raise ValueError(f"no overlay '{name}' for {grafli_path.name} "
+                     f"(available: {names or 'none'})")
 
 
 def _str(data: dict, key: str, where: str) -> str:
@@ -174,15 +185,6 @@ def repo_path(overlay: Overlay, base_dir: Path) -> Path | None:
     return path if path.is_absolute() else base_dir / path
 
 
-def head_revision(repo: Path) -> str | None:
-    try:
-        out = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
-                             capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return out.stdout.strip() if out.returncode == 0 else None
-
-
 def stale_line(overlay: Overlay, base_dir: Path) -> str:
     """The legend's stale line, or "" while the data matches the repo.
 
@@ -195,8 +197,7 @@ def stale_line(overlay: Overlay, base_dir: Path) -> str:
     head = head_revision(repo)
     if head is None:
         return f"stale? cannot read the HEAD of {overlay.repo}"
-    rev = overlay.revision.lower()
-    if head.startswith(rev) or rev.startswith(head):
+    if revisions_match(overlay.revision, head):
         return ""
     return f"stale: analysed at {overlay.revision[:7]}, repo is at {head[:7]}"
 
@@ -219,10 +220,12 @@ class OverlayProvider:
     def analysable(self, board: Board) -> bool:
         return True
 
-    def ref_base(self) -> Path:
+    def ref_base(self, board_root: Path | None = None) -> Path:
         """Where an entry's relative ``@ref`` points into: the source repo
-        when the file names one, else the board's directory."""
-        return repo_path(self.overlay, self.base_dir) or self.base_dir
+        when the file names one, else *board_root* (where the board's own
+        refs point) or the board's directory."""
+        return (repo_path(self.overlay, self.base_dir) or board_root
+                or self.base_dir)
 
     def read(self, board: Board) -> HeatReading:
         ov = self.overlay

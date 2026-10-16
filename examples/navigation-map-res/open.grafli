@@ -1,23 +1,23 @@
-#!grafli v3
+#!grafli v4
 # How does an attachment pick where it goes?
 # Level 2 of navigation-map.grafli.
-# source: grafli @ 1bddca7
+# source: ../..
 
 @ note question 0,-120 "How does an attachment pick where it goes?" ~small
-@ box dispatch "_open_attachment" 0,130 240x80 &doc:dispatch
-@ box doc "doc → zen editor" 480,0 240x80 &doc:doc
-@ box graph "graph → sub-board" 480,130 240x80 &doc:graph
-@ box url "_open_url_string" 480,260 240x80 &doc:url
-@ box enter "_enter_board" 980,70 300x200 &graph:enter#b_algo
-@ box system "System opener" 980,380 240x80 &doc:system
+@ box dispatch "_open_attachment" 0,130 240x80 %canvas ^topcenter &doc:dispatch
+@ box doc "doc → zen editor" 480,0 240x80 %canvas ^topcenter &doc:doc
+@ box graph "graph → sub-board" 480,130 240x80 %canvas ^topcenter &doc:graph
+@ box url "_open_url_string" 480,260 240x80 %canvas ^topcenter &doc:url
+@ box enter "_enter_board" 980,70 300x200 %shell ^topcenter &graph:enter#b_algo
+@ box system "System opener" 980,380 240x80 %canvas ^topcenter &doc:system
 @ note evidence 0,420 """
 code:
 split by the branches of the dispatch
-  @../../grafli/view/resources.py:106 _open_attachment
-  @../../grafli/view/resources.py:116 doc_name
-  @../../grafli/view/resources.py:121 split_board_fragment
-  @../../grafli/view/resources.py:221 _open_url_string
-  @../../grafli/app.py:734 _enter_board
+  @grafli/view/resources.py:106 _open_attachment
+  @grafli/view/resources.py:116 doc_name
+  @grafli/view/resources.py:121 split_board_fragment
+  @grafli/view/resources.py:213 _open_url_string
+  @grafli/app.py:743 _enter_board
 """ ~small
 
 @ arrow dispatch -> doc "call: _open_md_zen"

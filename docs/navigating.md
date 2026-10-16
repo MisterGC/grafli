@@ -67,11 +67,14 @@ A link can point at one place in the board it opens: `&graph:combat#impact`
 or `&link:../System.grafli#impact` opens the board framed on the bookmark
 `impact` — or, if there is no such bookmark, on the element `impact` — with it
 selected. If the board has neither, it opens fitted and says
-"No element 'impact' in combat.grafli".
+"No element 'impact' in combat.grafli". `grafli diagnose` reports such a link,
+and a link to a board that does not exist, as an error
+(`dangling-board-link`).
 
 Once a box with a `&graph` sub-board is large enough on screen, it shows a
-miniature of that board below its label, so you can see what is inside before
-you go in. The miniature follows the sub-board file: change the file and the
+miniature of that board filling the box, so you can see what is inside before
+you go in. The label and the sub-board icon sit on a band across the top of
+the box, in the box's own fill, so they stay readable over the miniature. The miniature follows the sub-board file: change the file and the
 miniature updates. Zooming in on it never switches boards on its own — only
 <kbd>Return</kbd> or <kbd>g</kbd><kbd>d</kbd> does. Exports show the box
 without the miniature.
@@ -132,7 +135,8 @@ looked.
   spot where the density is. When the board has
   [overlay files](format.md#overlay-files) beside it, further presses show
   each of them in turn — test results, churn, whatever a script wrote — with
-  a legend card that shows the selected element's note and refs.
+  a legend card that shows the selected element's note and refs. The overlay
+  on screen goes into the SVG/PNG and PDF/PPTX exports with its legend.
 
 ## Read a board zoomed out (semantic zoom)
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QFontMetricsF, QTransform
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QTextBrowser
@@ -144,6 +144,46 @@ def test_doc_line_is_one_line_cut_to_the_box(tmp_path: Path):
     rect = item.doc_line_rect()
     assert rect.height() == QFontMetricsF(item._doc_line_font()).height()
     assert rect.width() <= item.box.w
+    win.close()
+
+
+def test_a_number_badge_on_a_doc_box_draws_its_whole_disc(tmp_path: Path):
+    """The badge steps aside for the attachment glyph; the label plate steps
+    aside with it, so it never covers a quarter of the disc (#220)."""
+    from PySide6.QtGui import QColor, QImage, QPainter
+    root = _write(tmp_path / "Badge.grafli",
+                  '#!grafli v4\n'
+                  '@ box doc "Alpha" 0,0 200x90 %highlight *badge:solid-1 '
+                  '&doc:combat\n'
+                  '@ box link "Gamma" 300,0 200x90 %highlight ^topcenter '
+                  '*badge:solid-3 &link:https://example.org\n')
+    _write(tmp_path / "Badge-res" / "combat.md", COMBAT_DOC)
+    win = _window(root)
+    _zoom(win, 1.0)
+    view = win._view
+    assert view._box_items["doc"]._doc_line
+    for bid in ("doc", "link"):
+        item = view._box_items[bid]
+        (badge, _glyph) = item.corner_icon_rects()
+        label = item._label
+        plate = label.mapRectToScene(label._plate_rect())
+        disc = item.mapRectToScene(badge)
+        assert not plate.intersects(disc), bid
+        # The filled disc reads the same ink in all four quarters.
+        img = QImage(int(disc.width()), int(disc.height()),
+                     QImage.Format.Format_ARGB32)
+        img.fill(QColor("white"))
+        p = QPainter(img)
+        view._scene.render(p, QRectF(img.rect()), disc)
+        p.end()
+        c, q = disc.width() / 2, disc.width() * 0.22
+        inks = {img.pixelColor(int(c + dx), int(c + dy)).name()
+                for dx in (-q, q) for dy in (-q, q)}
+        assert len(inks) == 1, (bid, inks)
+    # The doc line runs below the badge and keeps its width.
+    item = view._box_items["doc"]
+    assert item.doc_line_rect().width() == (
+        item.box.w - 2 * (item._badge_icon_side() + 14.0))
     win.close()
 
 
@@ -439,6 +479,85 @@ def test_exports_of_a_board_without_box_docs_paint_no_doc_line(
     assert _cmd_export([str(root), str(tmp_path / "plain.pptx")]) == 0
     export_html(root, tmp_path / "plain.html")
     assert painted == []
+
+
+# ── Boxes that hold other items ──
+
+APP_DOC = "# App\n\nThe window that hosts the canvas.\n"
+FMT_DOC = "# Format\n\nReads and writes the board text.\n"
+NOTE_DOC = "# Notes\n\nA box whose only child is a note.\n"
+
+
+def _parents(tmp_path: Path) -> Path:
+    """A `!card` and a container with child boxes, a box holding only a
+    note, each with a `&doc`, and one tour stop per parent."""
+    root = _write(tmp_path / "Parents.grafli",
+                  '#!grafli v4\n'
+                  '@ box app "App" 0,0 420x260 !card &doc:app\n'
+                  '@ box view "View" 20,90 170x70 >app\n'
+                  '@ box fmt "Format" 480,0 420x260 &doc:fmt\n'
+                  '@ box parser "Parser" 500,90 170x70 >fmt\n'
+                  '@ box ov "Notes" 0,320 420x200 &doc:ov\n'
+                  '@ note n1 20,400 "inside" >ov\n'
+                  '@ bookmark bm_app "App" @app\n'
+                  '@ bookmark bm_fmt "Format" @fmt\n'
+                  '@ flow card "Card" bm_app\n'
+                  '@ flow cont "Container" bm_fmt\n')
+    _write(tmp_path / "Parents-res" / "app.md", APP_DOC)
+    _write(tmp_path / "Parents-res" / "fmt.md", FMT_DOC)
+    _write(tmp_path / "Parents-res" / "ov.md", NOTE_DOC)
+    return root
+
+
+def test_card_and_containers_show_their_doc_line_under_the_title(
+        tmp_path: Path):
+    win = _window(_parents(tmp_path))
+    _zoom(win, 1.0)
+    view = win._view
+    expected = {"app": "The window that hosts the canvas.",
+                "fmt": "Reads and writes the board text.",
+                "ov": "A box whose only child is a note."}
+    for bid, text in expected.items():
+        item = view._box_items[bid]
+        assert item._is_parent
+        assert item._doc_line == text
+        line = item.doc_line_rect()
+        label_top = item._label.pos().y() - item.pos().y()
+        label_bottom = label_top + item._label.boundingRect().height()
+        # Right under the title, which stays at the top of the box.
+        assert label_bottom <= line.top() <= label_bottom + 4
+        assert label_top <= 12
+    assert view._box_items["fmt"]._get_effective_anchor() == "topleft"
+    assert view._box_items["fmt"].doc_line_rect().left() == 8.0
+    win.close()
+
+
+def test_render_draws_a_containers_doc_line(tmp_path: Path):
+    from PySide6.QtGui import QImage
+    from grafli.app import _cmd_render
+    root = _parents(tmp_path)
+    with_lines = tmp_path / "with.png"
+    assert _cmd_render([str(root), str(with_lines)]) == 0
+    for name in ("app", "fmt", "ov"):
+        (tmp_path / "Parents-res" / f"{name}.md").unlink()
+    without = tmp_path / "without.png"
+    assert _cmd_render([str(root), str(without)]) == 0
+    assert QImage(str(with_lines)) != QImage(str(without))
+
+
+def test_slides_draw_a_card_and_a_containers_doc_line(
+        tmp_path: Path, monkeypatch):
+    from grafli.app import _cmd_export
+    root = _parents(tmp_path)
+    _app()
+    painted = _painted_doc_lines(monkeypatch)
+    for flow, line in (("card", ("app", "The window that hosts the canvas.")),
+                       ("cont", ("fmt", "Reads and writes the board text."))):
+        for ext in ("pdf", "pptx"):
+            painted.clear()
+            assert _cmd_export([str(root), str(tmp_path / f"{flow}.{ext}"),
+                                "--flow", flow]) == 0
+            assert line in painted
 
 
 # ── The peek ──

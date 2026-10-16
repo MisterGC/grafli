@@ -1,29 +1,30 @@
-#!grafli v3
+#!grafli v4
 # What happens between Return on a box and the board behind it?
 # Worked example of an explanation map (skill: references/explaining.md):
 # three levels of grafli's own attachment-and-navigation path, box docs,
-# deep links, a tour across the levels with path stops, and an overlay a
-# script generates (navigation-map-overlay.py).
-# source: grafli @ 1bddca7
+# deep links, a tour across the levels with path stops, a resting colour
+# per layer from navigation-map-res/palette.json, and an overlay a script
+# generates (navigation-map-overlay.py).
+# source: ..
 
 @ note question 0,-240 "What happens between Return on a box and the board behind it?" ~small
-@ box keys "Keys" 380,-100 200x80 &doc:keys
-@ box parse "Parser" -140,170 200x80 &doc:parse
-@ box open "Open dispatch" 330,100 300x220 &graph:open
-@ box stack "Board stack" 900,170 220x80 &doc:stack
-@ box tours "Tours" 900,420 220x80 &doc:tours
-@ box peek "Box doc peek" 0,-100 200x80 &doc:peek
-@ box export "HTML export" 370,460 220x80 &doc:export
+@ box keys "Keys" 380,-100 200x80 %canvas ^topcenter &doc:keys
+@ box parse "Parser" -140,170 200x80 %format ^topcenter &doc:parse
+@ box open "Open dispatch" 330,100 300x220 %canvas ^topcenter &graph:open
+@ box stack "Board stack" 900,170 220x80 %shell ^topcenter &doc:stack
+@ box tours "Tours" 900,420 220x80 %canvas ^topcenter &doc:tours
+@ box peek "Box doc peek" 0,-100 200x80 %canvas ^topcenter &doc:peek
+@ box export "HTML export" 370,460 220x80 %export ^topcenter &doc:export
 @ note evidence 740,580 """
 code:
 split by the files that own each step
-  @../grafli/view/core.py:1748 _open_resource
-  @../grafli/format.py:451 split_attach
-  @../grafli/view/resources.py:106 _open_attachment
-  @../grafli/buffers.py:146 push_frame
-  @../grafli/view/flows.py:89 play_flow
-  @../grafli/view/boxdocs.py:177 _peek_doc
-  @../grafli/htmlexport.py:128 reachable_boards
+  @grafli/view/resources.py:142 _open_resource
+  @grafli/format.py:493 split_attach
+  @grafli/view/resources.py:106 _open_attachment
+  @grafli/buffers.py:146 push_frame
+  @grafli/view/flows.py:89 play_flow
+  @grafli/view/boxdocs.py:223 _peek_doc
+  @grafli/htmlexport.py:114 reachable_boards
 """ ~small
 
 @ arrow keys -> open "call: _open_attachment" ~id=enter

@@ -40,6 +40,8 @@ _COLOR_VALUES = [c for _, c in COLOR_PALETTE]
 
 FONT_FAMILY = "JetBrainsMono Nerd Font"
 NOTE_FONT_FAMILY = "Patrick Hand"
+# `!sans` boxes: the bundled proportional face (Inter, OFL).
+SANS_FONT_FAMILY = "Inter"
 
 BOX_FONT = QFont(FONT_FAMILY, 13)
 NOTE_FONT = QFont(NOTE_FONT_FAMILY, 15)

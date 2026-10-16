@@ -68,6 +68,7 @@ from grafli.view.minimap import MinimapMixin
 from grafli.view.export import ExportMixin
 from grafli.view.flows import FlowsMixin
 from grafli.view.boxdocs import BoxDocsMixin
+from grafli.view.legend import LegendMixin
 from grafli.view.levels import LevelsMixin
 from grafli.view.navigation import NavigationMixin
 from grafli.view.overlay_files import OverlayFilesMixin
@@ -117,7 +118,8 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
                  MinimapMixin, StyleModeMixin,
                  SelectionMixin, StructureMixin, ResourcesMixin,
                  NavigationMixin, ViewportMixin, FlowsMixin, OverlaysMixin,
-                 ExportMixin, LevelsMixin, BoxDocsMixin, QGraphicsView):
+                 ExportMixin, LevelsMixin, BoxDocsMixin, LegendMixin,
+                 QGraphicsView):
     """QGraphicsView with pan/zoom and file-backed board rendering."""
 
     arrow_update_needed = Signal()
@@ -325,10 +327,12 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         self._type_picker_active: bool = False
         self._type_picker_size_idx: int = 1   # "" (medium)
         self._type_picker_emph_idx: int = 0
-        self._type_picker_font: str = ""      # "" hand / "mono" — notes only
+        self._type_picker_font: str = ""      # "" hand / "mono" / "sans" — notes
+        self._type_picker_sans: bool = False  # mono / `!sans` — boxes only
         self._type_picker_outline: bool = False   # display styles — notes only
         self._type_picker_shadow: bool = False
-        # id -> (textsize, emphasis, note_style|None); style restored for notes.
+        # id -> (textsize, emphasis, note_style|None, box_sans|None); the face
+        # is restored for notes and boxes.
         self._type_picker_original: dict[str, tuple] = {}
         self._mode_badge: QGraphicsTextItem | None = None
         self._mode_badge_bg: QGraphicsRectItem | None = None
@@ -341,6 +345,8 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         self._minimap_dragging: bool = False
         self._minimap_drag_offset: QPointF = QPointF()
         self._minimap_info_rect: QRectF | None = None
+        # The map palette's legend (Shift+M), on the canvas and in exports.
+        self._legend_visible: bool = False
         self._graph_stats: dict = {}
 
         # Animated zoom
@@ -395,6 +401,8 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         # app: it stands in for the window's file, so `&graph` miniatures and
         # `&doc` lines resolve and paint into the render as on the canvas.
         self._headless_board: Path | None = None
+        # The shown map's palette entries (``map_palette``), for the colour grid.
+        self._map_palette: list = []
         # Forward arrow (by id()) -> the reverse arrow merged into its line.
         self._merged_reverse: dict[int, Arrow] = {}
         # Flows-panel edit target: a captured bookmark is inserted after the
@@ -519,6 +527,7 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         self._draw_complexity_legend(painter)
         self._draw_minimap(painter)
         self._draw_overlay_legend(painter)
+        self._draw_palette_legend(painter)
         self._draw_search_badge(painter)
         self._draw_flow_overlay(painter)
         self._draw_debug_overlay(painter)
@@ -1644,6 +1653,11 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
                     self._open_icon_picker()
                     event.accept()
                     return
+                # s — the box's status label: its text, then its colour.
+                if event.key() == Qt.Key.Key_S and no_mod:
+                    self._edit_status()
+                    event.accept()
+                    return
                 if event.key() == Qt.Key.Key_T and no_mod:
                     self._open_type_picker()
                     event.accept()
@@ -1840,6 +1854,12 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         # M — toggle minimap
         if event.key() == Qt.Key.Key_M and no_mod:
             self._toggle_minimap()
+            event.accept()
+            return
+
+        # Shift+M — toggle the map palette's legend
+        if event.key() == Qt.Key.Key_M and shift_only:
+            self._toggle_legend()
             event.accept()
             return
 

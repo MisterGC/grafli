@@ -489,7 +489,8 @@ class ComplexityMixin:
             is_shell = bid in shells
             is_tile = bid in tiles
             item.set_lod_simplified(is_shell)
-            item.set_lod_tile(model.summary(bid) if is_tile else None)
+            item.set_lod_tile(model.summary(bid) if is_tile else None,
+                              self._lod_band_strip(item) if is_tile else ())
             # The tile paints its own counter-scaled headline; a shell shows
             # nothing — so the normal label item is hidden in both cases.
             item._label.setVisible(not is_shell and not is_tile)
@@ -515,6 +516,27 @@ class ComplexityMixin:
             # Tiles appearing / elements hiding change what counts as fully
             # framed — recompute the focus fade against the new composition.
             self._apply_presentation_focus()
+
+    def _lod_band_strip(self, item) -> tuple:
+        """A ``^left`` container's children colours for its collapsed band:
+        one ``(x0, x1, rgba)`` per direct child box, x as fractions of the
+        container's width, in the child's own fill drawn opaque (#212)."""
+        box = item.box
+        if box.anchor != "left" or box.w <= 0 or self._lod is None:
+            return ()
+        out = []
+        for cid in self._lod.children_of(box.id):
+            child = self._box_items.get(cid)
+            if child is None:
+                continue
+            x0 = max(0.0, (child.box.x - box.x) / box.w)
+            x1 = min(1.0, (child.box.x + child.box.w - box.x) / box.w)
+            if x1 <= x0:
+                continue
+            fill = QColor(child.brush().color())
+            fill.setAlpha(255)
+            out.append((x0, x1, fill.rgba()))
+        return tuple(sorted(out))
 
     def _cluster_compact(self, comp, hidden=frozenset()) -> bool:
         """A component is compact when no *visible* non-member box centre falls

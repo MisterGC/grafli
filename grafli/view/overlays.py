@@ -431,10 +431,11 @@ class OverlaysMixin:
             ]),
             ("Style", [
                 ("s", "Style mode — same keys for box / note / connector:"),
-                ("  e", "Appearance: box background + label spot, note plate"),
-                ("  c", "Color grid (hjkl pick, live, ⏎ apply)"),
-                ("  i", "Symbol grid (⇥ fill/lead/badge, 1-9 number)"),
-                ("  t", "Text grid: size × bold/italic (⇥ font, o outline, s shadow)"),
+                ("  e", "Appearance: plate/flat/card, label spot (left: a band zoomed out), label ink, outline"),
+                ("  c", "Color grid, then the map palette's %names (hjkl pick, live, ⏎ apply)"),
+                ("  i", "Symbol grid (⇥ fill/lead/badge, 0-9 number, f filled)"),
+                ("  t", "Text grid: size × bold/italic (⇥ sans/mono/hand, o outline, s shadow)"),
+                ("  s", "Status label on a box (~status=): type it, then pick its colour"),
                 ("  j / k", "Nudge text size"),
                 ("  d", "Dimension mode (resize)"),
                 ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),
@@ -445,13 +446,14 @@ class OverlaysMixin:
             ("Focus & Analysis", [
                 (",", "Dim arrows"),
                 ("\u21e7N", "Dim notes \u2014 concentrate on the graph"),
-                ("A", "Connectivity heatmap (graph arrows per box), then each overlay file"),
+                ("A", "Connectivity heatmap (graph arrows per box), then each overlay file (also in exports)"),
                 ("B", "Subgraph focus (cycle direction)"),
                 ("\u21e7B", "Toggle focus depth (full/1-hop)"),
             ]),
             ("View", [
                 ("#", "Toggle grid"),
                 ("M", "Toggle minimap"),
+                ("\u21e7M", "Toggle the legend of the map's palette (also in exports)"),
                 ("⇧D", "Toggle level-of-detail (semantic zoom)"),
                 ("Dbl-click tile", "Fly into a collapsed group"),
                 ("\\", "Toggle tools panel"),
@@ -487,7 +489,7 @@ class OverlaysMixin:
             ("Arrow", [
                 ("e", "Edit arrow label"),
                 ("s", "Enter arrow style mode"),
-                ("s then e", "Appearance: heads, line, thickness, routing, colour"),
+                ("s then e", "Appearance: heads, ends, line, thickness, routing, sides, colour"),
                 ("s then c", "Color grid"),
                 ("s then t", "Label text size"),
                 ("h / l", "Toggle arrowheads"),
@@ -730,7 +732,7 @@ class OverlaysMixin:
         <p style='{kw}'>Inline elements</p>
         <table cellpadding='4' style='margin-left:8px'>
           <tr><td style='{mono}'>@path:line</td>
-              <td>clickable reference &mdash; opens the file at that line in your editor</td></tr>
+              <td>clickable reference &mdash; opens the file at that line in your editor; a relative path starts at the board's <span style='{mono}'># source:</span> repo; opening the board warns when that repo moved on from its <span style='{mono}'>@ rev</span></td></tr>
           <tr><td style='{mono}'># &hellip;</td>
               <td>comment (italic, muted)</td></tr>
           <tr><td style='{mono}'>"..."  #FFF  42  true</td>

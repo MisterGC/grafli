@@ -20,15 +20,21 @@ from PySide6.QtWidgets import (
 from grafli import theme
 from grafli.arrows import (
     _arrowhead_polygon,
+    _dot_polygon,
     _line_rect_clip,
+    _rect_centre,
     ANCHOR_MIN_SEP,
     ROUTED_CENTRE_BIAS,
+    SIDE_NAMES,
     bowed_path,
     endpoint_pair,
     fan_offsets,
     path_end_angle,
     pick_self_loop_sides,
+    pinned_direct_points,
+    pinned_self_loop_sides,
     point_on_side,
+    polyline_path,
     relax_positions,
     routed_path,
     self_loop_path,
@@ -61,6 +67,7 @@ from grafli.items import (
     ResizeForeshadow,
 )
 from grafli.lod import LodModel
+from grafli.map_palette import attach_names
 from pathlib import Path
 
 
@@ -257,6 +264,7 @@ class SelectionMixin:
         self._cancel_level_transition()
         self._reset_box_docs()
         self._board = board
+        self.load_map_palette()
         self._lod = LodModel.from_board(board)
         self._lod_simplified = set()
         self._lod_collapsed = set()
@@ -279,6 +287,20 @@ class SelectionMixin:
         self._refresh_lod()
         self._refresh_doc_peek()
         self.flows_changed.emit()
+
+    def load_map_palette(self) -> bool:
+        """Read the shown board's map palette (``%name`` colours) and make it
+        the one colours resolve against; returns whether it changed.
+
+        A view that renders a board for another (a ``&graph`` miniature) has
+        no board file of its own and leaves the palette as it is.
+        """
+        path = self._board_file()
+        if path is None and not hasattr(self.window(), "_file_path"):
+            return False
+        self._map_palette = attach_names(self._board, path)
+        return theme.set_map_palette(
+            {e.name: e.color for e in self._map_palette})
 
     def snapshot_state(self) -> ViewState:
         """Capture view state for buffer switching."""
@@ -498,8 +520,10 @@ class SelectionMixin:
             f_rect = self._elem_rect(f_elem)
             t_rect = self._elem_rect(t_elem)
 
+            pin_s = SIDE_NAMES.get(fwd.from_side, "")
+            pin_e = SIDE_NAMES.get(fwd.to_side, "")
             if f_id == t_id:
-                self_conns.append((idx, f_id, f_rect))
+                self_conns.append((idx, f_id, f_rect, pin_s, pin_e))
                 continue                     # placed once the sides are known
 
             s_pt, e_pt = endpoint_pair(
@@ -519,16 +543,26 @@ class SelectionMixin:
             if fwd.routing:
                 s_want = 0.5 + (s_t - 0.5) * ROUTED_CENTRE_BIAS
                 e_want = 0.5 + (e_t - 0.5) * ROUTED_CENTRE_BIAS
+            # A pinned end sits on the middle of its side (#209), ranked
+            # against its neighbours by where the other element lies along it.
+            if pin_s:
+                s_side, s_want = pin_s, 0.5
+                s_t = t_of_point(f_rect, s_side, _rect_centre(t_rect))
+            if pin_e:
+                e_side, e_want = pin_e, 0.5
+                e_t = t_of_point(t_rect, e_side, _rect_centre(f_rect))
             natural[idx] = [f_rect, s_side, s_want,
                             t_rect, e_side, e_want,
-                            bool(fwd.routing), s_t, e_t]
+                            bool(fwd.routing or pin_s or pin_e), s_t, e_t]
             groups.setdefault((f_id, s_side), []).append((idx, 0))
             groups.setdefault((t_id, e_side), []).append((idx, 1))
 
-        for idx, elem_id, rect in self_conns:
+        for idx, elem_id, rect, pin_s, pin_e in self_conns:
             load = {side: len(groups.get((elem_id, side), ()))
                     for side in ("n", "e", "s", "w")}
-            out_side, in_side = pick_self_loop_sides(load)
+            out_side, in_side = (pinned_self_loop_sides(pin_s, pin_e, load)
+                                 if pin_s or pin_e
+                                 else pick_self_loop_sides(load))
             out_t, in_t = self_loop_ts(out_side, in_side)
             natural[idx] = [rect, out_side, out_t, rect, in_side, in_t,
                             True, out_t, in_t]
@@ -623,6 +657,13 @@ class SelectionMixin:
                 and arrow.from_id != arrow.to_id   # two loops aren't a pair
                 and not (arrow.head_from and arrow.head_to)
                 and not (reverse.head_from and reverse.head_to)
+                # A pinned side belongs to one direction; merging would drop
+                # the reverse's pins or misapply the forward's.
+                and not (arrow.from_side or arrow.to_side
+                         or reverse.from_side or reverse.to_side)
+                # One line draws one end shape; a dot-ended arrow and an
+                # arrowheaded one stay two lines (#210).
+                and arrow.head_shape == reverse.head_shape
                 and id(reverse) not in {id(self._board.arrows[j]) for j in merged}
             ):
                 # Merge: combine head flags from both arrows
@@ -763,20 +804,48 @@ class SelectionMixin:
                     conn_path = routed_path(
                         fwd.routing, start, a_start_side, end, a_end_side,
                         [r for bid, r in obstacle_rects.items()
-                         if bid not in skip])
+                         if bid not in skip],
+                        (QRectF(*self._elem_rect(from_elem)),
+                         QRectF(*self._elem_rect(to_elem)))
+                        if fwd.from_side or fwd.to_side else None)
+                elif fwd.from_side or fwd.to_side:
+                    # A direct connector between pinned sides stays one
+                    # straight run unless an end faces away from the other.
+                    pts = pinned_direct_points(start, a_start_side,
+                                               end, a_end_side)
+                    if len(pts) > 2:
+                        conn_path = polyline_path(pts)
 
             # Connectors sharing a pair leave from anchors the spread pass has
             # already pushed apart, but the run between them still coincides, so
             # each bows aside by its slot in the fan. A routed connector is
-            # already shaped from its own anchors and keeps its route.
+            # already shaped from its own anchors and keeps its route, and so
+            # does a pinned one: its author placed its ends (#209).
             offset = conn_offsets.get(idx, 0.0)
-            if conn_path is None and offset and not fwd.routing:
+            if (conn_path is None and offset and not fwd.routing
+                    and not (fwd.from_side or fwd.to_side)):
                 bow_side = (anchors[1] if anchors and from_hull is None
                             else side_of_point(self._elem_rect(from_elem), start))
                 conn_path = bowed_path(start, end, bow_side, offset)
 
             dx = end.x() - start.x()
             dy = end.y() - start.y()
+
+            # A dot-ended connector (`!dot`, #210) draws a filled dot centred
+            # on each end that would carry a head, wide enough to read past
+            # the line's own width.
+            if fwd.head_shape == "dot":
+                radius = max(head_size * 0.4, pen.widthF() * 1.1)
+                for tip, wanted in ((end, draw_head_to), (start, draw_head_from)):
+                    if not wanted:
+                        continue
+                    dot = QGraphicsPolygonItem(_dot_polygon(tip, radius))
+                    dot.setPen(QPen(arrow_color, 1))
+                    dot.setBrush(QBrush(arrow_color))
+                    dot.setData(0, fwd)
+                    self._scene.addItem(dot)
+                    self._arrow_items.append(dot)
+                draw_head_to = draw_head_from = False
 
             # Forward arrowhead (at to_id end)
             if draw_head_to:

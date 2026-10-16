@@ -149,3 +149,78 @@ def test_a_revision_behind_head_is_stale(tmp_path):
 
 def test_without_a_source_nothing_is_stale(tmp_path):
     assert _read(TESTS, tmp_path).legend.stale == ""
+
+
+# ── diagnose ──────────────────────────────────────────────────────
+
+_DIAG_BOARD = """\
+#!grafli v4
+@ box core "Core" 0,0 120x60
+@ box view "View" 300,0 120x60
+@ note n 0,200 "a remark"
+@ arrow core -> view ~id=call
+"""
+
+
+def _diagnose(tmp_path, overlays: dict[str, str]) -> tuple[int, list[dict]]:
+    import contextlib
+    import io
+    from grafli.app import _cmd_diagnose
+    board = tmp_path / "map.grafli"
+    board.write_text(_DIAG_BOARD)
+    vault = tmp_path / "map-res"
+    vault.mkdir()
+    for name, text in overlays.items():
+        (vault / f"{name}.overlay.json").write_text(text)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = _cmd_diagnose([str(board), "--json"])
+    overlay_codes = ("bad-overlay", "overlay-unknown-id")
+    return code, [f for f in json.loads(out.getvalue())
+                  if f["code"] in overlay_codes]
+
+
+def _tests(entries: dict) -> str:
+    return json.dumps({**TESTS, "entries": entries})
+
+
+def test_diagnose_passes_overlays_whose_entries_are_on_the_board(tmp_path):
+    code, findings = _diagnose(tmp_path, {"tests": _tests({
+        "core": {"category": "pass"}, "n": {"category": "fail"},
+        "call": {"category": "pass"}})})
+    assert findings == []
+
+
+def test_diagnose_reports_an_overlay_file_that_fails_to_parse(tmp_path):
+    code, findings = _diagnose(tmp_path, {
+        "broken": "{ nope", "tests": _tests({"core": {"category": "pass"}})})
+    assert len(findings) == 1
+    assert findings[0]["code"] == "bad-overlay"
+    assert findings[0]["severity"] == "warning"
+    assert findings[0]["message"].startswith(
+        "map-res/broken.overlay.json: not JSON")
+
+
+def test_diagnose_names_what_is_wrong_in_a_json_overlay(tmp_path):
+    code, findings = _diagnose(tmp_path, {
+        "tests": _tests({"core": {"category": "flaky"}})})
+    assert [f["code"] for f in findings] == ["bad-overlay"]
+    assert "entry 'core': unknown category 'flaky'" in findings[0]["message"]
+
+
+def test_diagnose_reports_an_entry_id_not_on_the_board(tmp_path):
+    code, findings = _diagnose(tmp_path, {"tests": _tests({
+        "core": {"category": "pass"}, "veiw": {"category": "fail"}})})
+    assert len(findings) == 1
+    assert findings[0]["code"] == "overlay-unknown-id"
+    assert findings[0]["severity"] == "warning"
+    assert findings[0]["item_ids"] == ["veiw"]
+    assert findings[0]["message"] == (
+        "map-res/tests.overlay.json: entry 'veiw' is no box, note or "
+        "connector on the board — did you mean 'view'?")
+
+
+def test_diagnose_without_overlay_files_reports_none(tmp_path):
+    code, findings = _diagnose(tmp_path, {})
+    assert code == 0
+    assert findings == []

@@ -111,10 +111,11 @@ connector.
 
 | Key | Action |
 |-----|--------|
-| <kbd>e</kbd> | Element appearance overlay — box: background (plate / flat) and label position (center / top-left / top-center); note: background; image: frame (auto / frame / none). `j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels. A **flat** box with a **top-left** label is the container look, which is how you draw a layer band that has no children |
-| <kbd>c</kbd> | Open the color grid — <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> to pick (live preview), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
-| <kbd>i</kbd> | Open the symbol grid (sketchnote vocabulary, semantic + emphasis blocks) — same keys; <kbd>Tab</kbd> cycles placement (fill → lead → badge); <kbd>1</kbd>–<kbd>9</kbd> types a number badge (a second press appends: 1,2 → 12). Fill: big symbol + caption. Lead: small symbol beside the label. Badge: compact top-right corner overlay |
-| <kbd>t</kbd> | Open the text grid — rows = sizes, columns = Regular / Bold / Italic / Bold+Italic; <kbd>hjkl</kbd> to move (live preview), <kbd>Tab</kbd> toggles a note's font (handwritten ↔ monospace), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
+| <kbd>e</kbd> | Element appearance overlay — box: background (plate / flat / card), label position (center / top-left / top-center / left), label ink (plain / on fill) and outline (solid / dashed / dotted); note: background and label ink; image: frame (auto / frame / none). `j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels. A **flat** box with a **top-left** label is the container look, which is how you draw a layer band that has no children; a **card** box keeps its plate, corners and centred label while it holds children (`!card`); label ink **on fill** drops the label plate and picks a light or dark ink from the fill, and on a note draws the text in its colour (`!ink`); a **left** label sits top left and, zoomed out, keeps a container a band with its children's colours and its title on the left (`^left`); a **dashed** or **dotted** outline marks a box as later or optional, and rings a flat box or container too (`!dashed` / `!dotted`) |
+| <kbd>c</kbd> | Open the color grid — <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> to pick (live preview), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel. Below the theme colours it lists the entries of the map's [palette](format.md#map-palette) (`%name`) |
+| <kbd>i</kbd> | Open the symbol grid (sketchnote vocabulary, semantic + emphasis blocks) — same keys; <kbd>Tab</kbd> cycles placement (fill → lead → badge); <kbd>0</kbd>–<kbd>9</kbd> types a number badge (a second press appends: 1,2 → 12), <kbd>f</kbd> toggles it filled (`*solid-12`). Fill: big symbol + caption. Lead: small symbol beside the label. Badge: compact top-right corner overlay |
+| <kbd>t</kbd> | Open the text grid — rows = sizes, columns = Regular / Bold / Italic / Bold+Italic; <kbd>hjkl</kbd> to move (live preview), <kbd>Tab</kbd> changes the font — a note cycles handwritten → monospace → sans, a box toggles monospace ↔ sans (`!sans`), <kbd>Enter</kbd> to confirm, <kbd>Esc</kbd> to cancel |
+| <kbd>s</kbd> | Box status label (`~status=`) — type a short status (spaces become dashes, empty clears it), <kbd>Enter</kbd>; then the color grid picks the pill's colour (<kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd>, <kbd>Enter</kbd> applies, <kbd>Esc</kbd> keeps its colour). The pill sits on the box's bottom edge in every view |
 | <kbd>j</kbd> / <kbd>k</kbd> | Cycle text size (quick nudge) |
 | <kbd>d</kbd> then <kbd>r</kbd> | Snap selected box(es) to the **slide aspect ratio** — a reusable export frame (re-apply after edits; works on a multi-selection) |
 | <kbd>Shift</kbd>+<kbd>G</kbd> | Snap to grid |
@@ -126,7 +127,7 @@ connector.
 |-----|--------|
 | <kbd>,</kbd> | Dim arrows |
 | <kbd>Shift</kbd>+<kbd>N</kbd> | Dim notes (and their connectors) |
-| <kbd>A</kbd> | Connectivity heatmap, then each overlay file |
+| <kbd>A</kbd> | Connectivity heatmap, then each overlay file; the overlay file on screen also goes into the SVG/PNG and PDF/PPTX exports, with its legend |
 | <kbd>B</kbd> | Subgraph focus (cycle direction: all → forward → backward) |
 | <kbd>Shift</kbd>+<kbd>B</kbd> | Toggle focus depth (full / 1-hop) |
 
@@ -139,6 +140,7 @@ section.
 |-----|--------|
 | <kbd>#</kbd> | Toggle grid |
 | <kbd>M</kbd> | Toggle minimap |
+| <kbd>Shift</kbd>+<kbd>M</kbd> | Toggle the legend of the map's [palette](format.md#map-palette) — also drawn into the SVG/PNG exports and PDF/PPTX diagram slides while on |
 | <kbd>\\</kbd> | Toggle tools panel |
 | <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Toggle light / dark theme — or click the sun/moon button next to the tools button |
 
@@ -176,7 +178,7 @@ grafli render board.grafli out.png --theme dark
 | <kbd>Shift</kbd>+click | Add / remove a connector from the selection (format many at once) |
 | <kbd>e</kbd> | Edit arrow label |
 | <kbd>s</kbd> | Arrow style mode |
-| <kbd>s</kbd> then <kbd>e</kbd> | Connector appearance overlay — heads, line pattern, thickness, routing, colour (`j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels) |
+| <kbd>s</kbd> then <kbd>e</kbd> | Connector appearance overlay — heads, **ends** (arrow / dot, `!dot`), line pattern, thickness, routing, the side it **leaves from** and **enters at** (auto / top / right / bottom / left, `~from=` / `~to=`), colour (`j`/`k` pick a row, `h`/`l` cycle it, <kbd>Enter</kbd> commits, <kbd>Esc</kbd> cancels) |
 | <kbd>s</kbd> then <kbd>c</kbd> | Open the color grid — the same picker boxes and notes get |
 | <kbd>s</kbd> then <kbd>t</kbd> | Connector label-text overlay (size) |
 | <kbd>h</kbd> / <kbd>l</kbd> | Toggle arrowheads (in style mode) |
@@ -225,7 +227,7 @@ During playback (in-app or presenting):
 
 | Action | Effect |
 |--------|--------|
-| Click `@path:line` in a code-mode note | Open the file at that line in the configured editor |
+| Click `@path:line` in a code-mode note | Open the file at that line in the configured editor; a relative path starts at the repo of the board's `# source:` comment, else the board's folder. Opening a board whose `# source: <repo> @ <rev>` names a revision that repo's `HEAD` moved on from shows a stale notice |
 | <kbd>Shift</kbd>+click | Toggle selection (on empty space or a node's body) |
 | Drag a **corner handle** | **Scale** the selection — size *and* font, around its bounding box; keeps the aspect ratio. A preview frame shows where it lands and it commits on release. Hold <kbd>Shift</kbd> for a free (non-uniform) scale |
 | Drag an **edge handle** | Stretch that single axis (modifier-agnostic) |

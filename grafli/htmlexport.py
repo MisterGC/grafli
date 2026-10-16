@@ -30,7 +30,8 @@ from PySide6.QtGui import QPainterPath, QTextDocument
 from grafli import theme
 from grafli.flows import DEFAULT_DWELL
 from grafli.format import Arrow, Board, Image, Note, doc_name, parse
-from grafli.format import split_board_fragment, split_step_ref
+from grafli.format import split_step_ref
+from grafli.resources import board_link
 
 # Above this the export still writes the page, and says it is heavy to send.
 SIZE_WARN_BYTES = 20 * 1024 * 1024
@@ -43,6 +44,8 @@ _FONT_FILES = {
     ("JetBrainsMono Nerd Font", False): "JetBrainsMonoNerdFont-Regular.ttf",
     ("JetBrainsMono Nerd Font", True): "JetBrainsMonoNerdFont-Bold.ttf",
     ("Patrick Hand", False): "PatrickHand-Regular.ttf",
+    ("Inter", False): "Inter-Regular.ttf",
+    ("Inter", True): "Inter-Bold.ttf",
 }
 
 _SVG_FONT_RE = re.compile(
@@ -71,23 +74,6 @@ def format_size(size: int) -> str:
 
 # ── Which boards go in ──
 
-def _board_link(board_path: Path, el) -> tuple[Path, str] | None:
-    """The board an element leads into and the ``#<id>`` it frames, or None
-    when its attachment is not a board."""
-    from grafli.resources import graph_path
-    if el.attach_kind == "graph" and el.url:
-        name, target = split_board_fragment(el.url)
-        return graph_path(board_path, name), target
-    if el.attach_kind == "link" and el.url:
-        raw, _, target = el.url.partition("#")
-        if raw.endswith(".grafli") and "://" not in raw:
-            path = Path(raw).expanduser()
-            if not path.is_absolute():
-                path = board_path.parent / path
-            return path, target
-    return None
-
-
 def _elements(board: Board):
     yield from board.boxes
     yield from board.notes
@@ -115,7 +101,7 @@ def _board_refs(board_path: Path, board: Board):
     """Each board *board* leads to — through a level, a link or a tour stop
     in another board — as (path, what names it)."""
     for el in _elements(board):
-        link = _board_link(board_path, el)
+        link = board_link(board_path, el)
         if link is not None:
             yield link[0], f"'{el.id}' links to"
     for flow in board.flows:
@@ -288,7 +274,7 @@ class _Exporter:
         parent = getattr(el, "parent", "")
         if parent:
             entry["parent"] = parent
-        link = _board_link(path, el)
+        link = board_link(path, el)
         if link is not None:
             target = ids.get(link[0].resolve())
             if target is not None:

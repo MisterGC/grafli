@@ -20,6 +20,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
 
+from grafli.constants import FONT_FAMILY, SANS_FONT_FAMILY
 from grafli.flows import (bookmark_target_rect, emphasis_for,
                           presentation_detail, presentation_emphasis,
                           presentation_focus, step_detail, step_focus,
@@ -158,13 +159,44 @@ def slide_doc_lines(view, scale_pt: float):
     return view.doc_lines_at(scale_pt * SLIDE_SCREEN_PX_PER_PT)
 
 
+def overload_finding(note, pt: float, floor: float, *,
+                     overflow: bool = False) -> dict:
+    """One element that overloads a slide: the note by id, its text size in
+    pt at that slide's frame and the floor it misses — the size under the
+    readable floor, or (``overflow``) the band minimum it still overflows at."""
+    return {"element": note.id, "pt": round(pt, 1), "floor": round(floor, 1),
+            "reason": "overflow" if overflow else "below-floor"}
+
+
+def describe_overload(finding: dict) -> str:
+    """A finding as one phrase, e.g. ``note 'cap' at 7.2 pt (floor 11 pt)``."""
+    pt, floor = f"{finding['pt']:g}", f"{finding['floor']:g}"
+    if finding["reason"] == "overflow":
+        return (f"note '{finding['element']}' overflows the slide "
+                f"at {pt} pt (the minimum)")
+    return f"note '{finding['element']}' at {pt} pt (floor {floor} pt)"
+
+
+def slide_overlay(view, plan: SlidePlan):
+    """The reading of the overlay file *view* shows (``A`` in the app,
+    ``--overlay`` on the command line) when *plan* is a diagram slide, so the
+    slide carries it; None otherwise. A stop in another board renders from
+    that board's own view, which shows no overlay."""
+    if plan.kind == "text" or view._overlay_shown() is None:
+        return None
+    return view._complexity_reading
+
+
 def live_overlays(view, plan: SlidePlan) -> list:
     """The plan's overlay notes that should still be drawn as native text
     under its presentation settings — call inside :func:`slide_presentation`.
 
     A note hidden by a "summary" collapse is subsumed by its container's tile;
     a note faded by "complete" focus must keep its faded raster look instead
-    of being re-drawn as full-opacity text."""
+    of being re-drawn as full-opacity text; a shown overlay file dims or
+    recolours every note, so they all keep their raster look."""
+    if slide_overlay(view, plan) is not None:
+        return []
     items = [it for it in plan.overlays if it.isVisible()]
     if plan.emphasis is not None:
         # A path stop fades every note it does not keep.
@@ -237,6 +269,14 @@ def playback_text_fit(textsize: float, text_rect: QRectF | None,
     fitted = QRectF(hero.left() + (hero.width() - w) / 2,
                     hero.top() + (hero.height() - h) / 2, w, h)
     return min(size, hi), fitted
+
+
+def note_text_face(note) -> str:
+    """The face a note's native text goes out in on PDF and PPTX slides: Inter
+    for a ``!sans`` note (#206), else mono, as slides always set note text."""
+    from grafli.items import note_family
+    return (SANS_FONT_FAMILY if note_family(note) == SANS_FONT_FAMILY
+            else FONT_FAMILY)
 
 
 # ── slide-typing helpers (moved from pdfexport; re-exported there) ──────────

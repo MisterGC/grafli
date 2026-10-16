@@ -632,14 +632,40 @@ def overlay_ink(strength: float = 1.0) -> QColor:
     return ink
 
 
+# The shown map's palette entries as ``{name: colour}`` (``map_palette``): a
+# colour is a theme token or a hex. Set by the view for the board it loads.
+_map_palette: dict[str, str] = {}
+
+
+def set_map_palette(colors: dict[str, str]) -> bool:
+    """Make *colors* the palette ``%name`` resolves against; returns whether
+    it changed."""
+    global _map_palette
+    if colors == _map_palette:
+        return False
+    _map_palette = dict(colors)
+    return True
+
+
+def map_palette() -> dict[str, str]:
+    return dict(_map_palette)
+
+
 def resolve_color(color: str) -> str:
     """Resolve a ``%token`` to hex against the active theme.
 
     Literal hex passes through untouched — only semantic tokens follow the
-    theme, so a board that pins an exact colour keeps it.
+    theme, so a board that pins an exact colour keeps it. A ``%name`` that is
+    no theme token resolves through the map's palette entry of that name.
     """
     if color.startswith("%"):
-        return _active.COLOR_TOKENS.get(color[1:], "")
+        token = color[1:]
+        if token in _active.COLOR_TOKENS:
+            return _active.COLOR_TOKENS[token]
+        entry = _map_palette.get(token, "")
+        if entry.startswith("%"):
+            return _active.COLOR_TOKENS.get(entry[1:], "")
+        return entry
     return color
 
 

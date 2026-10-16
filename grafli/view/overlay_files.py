@@ -13,22 +13,25 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
+from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtGui import QPainter
 
-from grafli import theme
-from grafli.constants import FONT_FAMILY, MINIMAP_MARGIN
+from grafli.constants import MINIMAP_MARGIN
+from grafli.format import ref_root
 from grafli.items import BoxItem, NoteItem
 from grafli.overlay_file import (
     OverlayProvider,
     load_overlay,
+    overlay_named,
     overlay_paths,
 )
-
-_LEGEND_W = 260
-_LEGEND_PAD = 10
-_SWATCH = 10
-_NOTE_LINES = 3
+from grafli.overlay_legend import (
+    CARD_W,
+    canvas_fonts,
+    layout_card,
+    legend_rows,
+    paint_card,
+)
 
 
 class OverlayFilesMixin:
@@ -113,6 +116,14 @@ class OverlayFilesMixin:
         self.toast(f"Overlay: {provider.overlay.title}")
         return True
 
+    def show_overlay(self, name: str) -> None:
+        """Show the board's overlay file *name* outside the ``A`` cycle, for a
+        render or an export; ValueError when the board has no such file or
+        it does not parse."""
+        path = overlay_named(Path(self._board_file()), name)
+        self._show_heat(OverlayProvider(load_overlay(path), path.parent.parent,
+                                        path))
+
     # ── Live reload ──
 
     def _watch_overlay_file(self, path: Path):
@@ -167,30 +178,8 @@ class OverlayFilesMixin:
 
     def _overlay_legend_lines(self, provider) -> list[tuple[str, str]]:
         """The legend as (role, text) rows, top to bottom."""
-        reading = self._complexity_reading
-        legend = reading.legend
-        rows = [("title", legend.title)]
-        if legend.producer:
-            rows.append(("dim", legend.producer))
-        if legend.stale:
-            rows.append(("stale", "⚠ " + legend.stale))
-        if legend.categories:
-            rows += [("swatch", label) for label, _ in legend.categories]
-        else:
-            rows.append(("scale", ""))
-        rows.append(("no_data", "no data"))
-        elem_id = self._overlay_selected_id()
-        if elem_id:
-            detail = reading.details.get(elem_id)
-            rows.append(("rule", ""))
-            if detail is None:
-                rows.append(("text", f"{elem_id}: no data"))
-            else:
-                rows.append(("text", f"{elem_id}: {detail.reading}"))
-                if detail.note:
-                    rows.append(("note", detail.note))
-                rows += [("ref", ref) for ref in detail.refs]
-        return rows
+        return legend_rows(self._complexity_reading,
+                           self._overlay_selected_id())
 
     def _draw_overlay_legend(self, painter: QPainter):
         """The legend card, bottom right above the minimap — or in its place
@@ -203,123 +192,19 @@ class OverlayFilesMixin:
         vp = self.viewport().rect()
         right = vp.width() - MINIMAP_MARGIN
         bottom = vp.height() - MINIMAP_MARGIN
-        width = _LEGEND_W
+        width = CARD_W
         panel = getattr(self, "_minimap_panel_rect", None)
         if self._minimap_visible and panel is not None and not panel.isNull():
             bottom = panel.top() - 8
             width = max(width, panel.width())
-        inner = width - 2 * _LEGEND_PAD
-
-        title_font = QFont(FONT_FAMILY, 12, QFont.Weight.Bold)
-        body_font = QFont(FONT_FAMILY, 10)
-        ref_font = QFont(FONT_FAMILY, 10)
-        ref_font.setUnderline(True)
 
         # Lay out first so the card grows upward from its bottom edge.
-        laid: list[tuple[str, str, list[str], QFont, float]] = []
-        for role, text in self._overlay_legend_lines(provider):
-            font = (title_font if role == "title"
-                    else ref_font if role == "ref" else body_font)
-            painter.setFont(font)
-            fm = painter.fontMetrics()
-            if role in ("note", "stale"):
-                lines = self._wrap(fm, text, inner)
-            elif role in ("swatch", "no_data"):
-                lines = [fm.elidedText(text, Qt.TextElideMode.ElideRight,
-                                       inner - _SWATCH - 6)]
-            else:
-                lines = [fm.elidedText(text, Qt.TextElideMode.ElideRight,
-                                       inner)]
-            h = (_SWATCH + 10 if role == "scale"
-                 else 9 if role == "rule"
-                 else fm.height() * len(lines) + 2)
-            if role == "scale":
-                h += fm.height()
-            laid.append((role, text, lines, font, h))
-        height = sum(h for *_, h in laid) + 2 * _LEGEND_PAD
+        laid, height = layout_card(painter,
+                                   self._overlay_legend_lines(provider),
+                                   width, canvas_fonts())
         card = QRectF(right - width, bottom - height, width, height)
-
-        painter.setPen(QPen(theme.MINIMAP_BORDER_COLOR, 1))
-        painter.setBrush(QBrush(theme.OVERLAY_BG))
-        painter.drawRoundedRect(card, 6, 6)
-
-        legend = self._complexity_reading.legend
-        swatches = iter(legend.categories)
-        x = card.left() + _LEGEND_PAD
-        y = card.top() + _LEGEND_PAD
-        for role, text, lines, font, h in laid:
-            painter.setFont(font)
-            fm = painter.fontMetrics()
-            ink = theme.overlay_ink(0.6 if role in ("dim", "no_data") else 1.0)
-            painter.setPen(QPen(ink))
-            if role == "swatch":
-                _label, color = next(swatches)
-                self._draw_swatch(painter, x, y + (fm.height() - _SWATCH) / 2,
-                                  QBrush(QColor(theme.resolve_color(color)
-                                                or theme.HEATMAP_TEXT_COLOR)))
-                painter.setPen(QPen(ink))
-                painter.drawText(QPointF(x + _SWATCH + 6, y + fm.ascent()),
-                                 lines[0])
-            elif role == "no_data":
-                self._draw_swatch(painter, x, y + (fm.height() - _SWATCH) / 2,
-                                  QBrush(theme.overlay_ink(0.6),
-                                         Qt.BrushStyle.BDiagPattern))
-                painter.setPen(QPen(ink))
-                painter.drawText(QPointF(x + _SWATCH + 6, y + fm.ascent()),
-                                 lines[0])
-            elif role == "scale":
-                bar = QRectF(x, y + 4, inner, _SWATCH)
-                grad = QLinearGradient(bar.left(), 0, bar.right(), 0)
-                for pos, color in theme.HEATMAP_STOPS:
-                    grad.setColorAt(pos, color)
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QBrush(grad))
-                painter.drawRoundedRect(bar, 2, 2)
-                painter.setPen(QPen(theme.overlay_ink(0.6)))
-                label_y = bar.bottom() + 4 + fm.ascent()
-                painter.drawText(QPointF(x, label_y), legend.low)
-                painter.drawText(
-                    QPointF(x + inner - fm.horizontalAdvance(legend.high),
-                            label_y), legend.high)
-            elif role == "rule":
-                painter.setPen(QPen(theme.overlay_ink(0.25), 1))
-                painter.drawLine(QPointF(x, y + 4), QPointF(x + inner, y + 4))
-            else:
-                if role == "ref":
-                    painter.setPen(QPen(theme.FLOWS_ACCENT))
-                    self._overlay_ref_rects.append(
-                        (QRectF(x, y, fm.horizontalAdvance(lines[0]),
-                                fm.height()), text))
-                for i, line in enumerate(lines):
-                    painter.drawText(
-                        QPointF(x, y + fm.height() * i + fm.ascent()), line)
-            y += h
-
-    @staticmethod
-    def _draw_swatch(painter: QPainter, x: float, y: float, brush: QBrush):
-        painter.setPen(QPen(theme.overlay_ink(0.4), 1))
-        painter.setBrush(brush)
-        painter.drawRoundedRect(QRectF(x, y, _SWATCH, _SWATCH), 2, 2)
-
-    @staticmethod
-    def _wrap(fm, text: str, width: float) -> list[str]:
-        """Word-wrap ``text`` into at most a few lines, the last elided."""
-        lines: list[str] = []
-        current = ""
-        for word in text.split():
-            trial = f"{current} {word}".strip()
-            if fm.horizontalAdvance(trial) <= width or not current:
-                current = trial
-            else:
-                lines.append(current)
-                current = word
-        if current:
-            lines.append(current)
-        if len(lines) > _NOTE_LINES:
-            rest = " ".join(lines[_NOTE_LINES - 1:])
-            lines = lines[:_NOTE_LINES - 1] + [rest]
-        return [fm.elidedText(line, Qt.TextElideMode.ElideRight, int(width))
-                for line in lines] or [""]
+        paint_card(painter, card, laid, self._complexity_reading.legend,
+                   self._overlay_ref_rects)
 
     def _overlay_legend_press(self, pos: QPointF) -> bool:
         """A click on a ref in the legend opens it like a code-note ``@ref``."""
@@ -332,13 +217,15 @@ class OverlayFilesMixin:
                 return True
         return False
 
-    @staticmethod
-    def _overlay_ref(provider: OverlayProvider, ref: str) -> str:
+    def _overlay_ref(self, provider: OverlayProvider, ref: str) -> str:
         """``ref`` with a relative path taken from the overlay's source repo
-        (or the board's directory when it names none)."""
+        (or, when it names none, the board's ``# source:`` repo or
+        directory)."""
         target = ref[1:] if ref.startswith("@") else ref
         m = re.match(r"^(.+?)(:\d+)?$", target)
         path = Path(m.group(1)).expanduser()
         if not path.is_absolute():
-            path = provider.ref_base() / path
+            board_root = (ref_root(self._board, provider.base_dir)
+                          if self._board is not None else None)
+            path = provider.ref_base(board_root) / path
         return f"@{path}{m.group(2) or ''}"

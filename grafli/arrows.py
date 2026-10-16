@@ -69,6 +69,11 @@ def side_of_point(rect: tuple, pt: QPointF) -> str:
     return min(dists, key=dists.get)
 
 
+# A connector may pin the side it leaves and the side it enters (#209). The file
+# names them as a reader would; the geometry keeps its compass letters.
+SIDE_NAMES = {"top": "n", "right": "e", "bottom": "s", "left": "w"}
+
+
 def t_of_point(rect: tuple, side: str, pt: QPointF) -> float:
     """Where along a side a point sits, as 0..1."""
     x, y, w, h = rect
@@ -255,6 +260,15 @@ def _arrowhead_polygon(tip: QPointF, angle: float,
     return QPolygonF([tip, p1, p2, tip])
 
 
+def _dot_polygon(centre: QPointF, radius: float, steps: int = 24) -> QPolygonF:
+    """A filled dot at a connector end (`!dot`, #210), as a polygon so it is
+    selected, recoloured and hit-tested like an arrowhead."""
+    return QPolygonF([
+        QPointF(centre.x() + radius * math.cos(2 * math.pi * i / steps),
+                centre.y() + radius * math.sin(2 * math.pi * i / steps))
+        for i in range(steps)])
+
+
 # ── Routing (#138) ─────────────────────────────────────────────────
 #
 # A routed connector leaves each endpoint *perpendicular to a box side*
@@ -416,7 +430,8 @@ def _best_mid(start: QPointF, end: QPointF,
 
 def ortho_points(start: QPointF, start_side: str,
                  end: QPointF, end_side: str,
-                 obstacles: list[QRectF] | None = None) -> list[QPointF]:
+                 obstacles: list[QRectF] | None = None,
+                 ends: tuple[QRectF, QRectF] | None = None) -> list[QPointF]:
     """Corner points of a right-angle route between two side anchors.
 
     Two parallel exits give a Z (three segments, turning at a mid-line in the
@@ -427,6 +442,11 @@ def ortho_points(start: QPointF, start_side: str,
     ``obstacles`` are rects the mid-line should avoid; the caller excludes the
     connector's own endpoints. Only the Z case has a free parameter to spend, so
     an L is unaffected.
+
+    ``ends`` — the rects of the two endpoints — marks a connector with pinned
+    sides (#209). Its route must leave and enter along those sides, so where
+    the plain stair would run back across its own box it is replaced by one
+    that steps out first.
     """
     horiz_start = start_side in ("e", "w")
     horiz_end = end_side in ("e", "w")
@@ -442,9 +462,18 @@ def ortho_points(start: QPointF, start_side: str,
     else:
         pts = [start, QPointF(start.x(), end.y()), end]
 
-    # Drop points that coincide, then points that don't actually turn: an
-    # aligned pair collapses a Z into one straight run, and a corner that isn't
-    # a corner would still get handed to the rounding pass.
+    pts = _tidy(pts)
+    if ends is None or _keeps_to_sides(pts, start_side, end_side):
+        return pts
+    return _pinned_stair(start, start_side, end, end_side,
+                         [*ends, *(obstacles or [])])
+
+
+def _tidy(pts: list[QPointF]) -> list[QPointF]:
+    """Drop points that coincide, then points that don't actually turn: an
+    aligned pair collapses a Z into one straight run, and a corner that isn't
+    a corner would still get handed to the rounding pass. A point where the
+    route doubles back is a turn and stays."""
     out: list[QPointF] = []
     for p in pts:
         if not out or (abs(p.x() - out[-1].x()) > 0.01
@@ -455,11 +484,115 @@ def ortho_points(start: QPointF, start_side: str,
         prev, cur, nxt = straightened[-1], out[i], out[i + 1]
         cross = ((cur.x() - prev.x()) * (nxt.y() - cur.y())
                  - (cur.y() - prev.y()) * (nxt.x() - cur.x()))
-        if abs(cross) > 0.01:
+        dot = ((cur.x() - prev.x()) * (nxt.x() - cur.x())
+               + (cur.y() - prev.y()) * (nxt.y() - cur.y()))
+        if abs(cross) > 0.01 or dot < 0:
             straightened.append(cur)
     if len(out) > 1:
         straightened.append(out[-1])
     return straightened
+
+
+# How far a pinned connector steps straight out of its side before it turns,
+# when the other end lies behind that side (#209) — enough for the turn to read
+# as leaving the box, short enough to stay close to it.
+PINNED_STUB = 18.0
+
+
+def _along(a: QPointF, b: QPointF, side: str) -> float:
+    """How far ``a``→``b`` travels along the outward normal of ``side``."""
+    nx, ny = _NORMALS[side]
+    return (b.x() - a.x()) * nx + (b.y() - a.y()) * ny
+
+
+def _keeps_to_sides(pts: list[QPointF], start_side: str, end_side: str) -> bool:
+    """Whether a route leaves out of its start side and enters into its end
+    side, rather than running back across the box it starts or ends on."""
+    return (len(pts) >= 2 and _along(pts[0], pts[1], start_side) > 0.01
+            and _along(pts[-1], pts[-2], end_side) > 0.01)
+
+
+def _stub_points(start: QPointF, start_side: str,
+                 end: QPointF, end_side: str) -> tuple[QPointF, QPointF]:
+    """The two points a pinned connector steps out to before it turns.
+
+    Two ends pinned to the same side step out to the same line, past whichever
+    end sits further out, so a U-turn comes back square instead of cutting the
+    corner of the box that sticks out more.
+    """
+    sx, sy = _NORMALS[start_side]
+    ex, ey = _NORMALS[end_side]
+    p1 = QPointF(start.x() + sx * PINNED_STUB, start.y() + sy * PINNED_STUB)
+    p2 = QPointF(end.x() + ex * PINNED_STUB, end.y() + ey * PINNED_STUB)
+    if start_side == end_side:
+        if start_side in ("e", "w"):
+            far = max if start_side == "e" else min
+            x = far(p1.x(), p2.x())
+            p1, p2 = QPointF(x, p1.y()), QPointF(x, p2.y())
+        else:
+            far = max if start_side == "s" else min
+            y = far(p1.y(), p2.y())
+            p1, p2 = QPointF(p1.x(), y), QPointF(p2.x(), y)
+    return p1, p2
+
+
+def _reversals(pts: list[QPointF]) -> int:
+    """How often a route doubles back on the segment it just drew."""
+    return sum(
+        1 for a, b, c in zip(pts, pts[1:], pts[2:])
+        if ((b.x() - a.x()) * (c.x() - b.x())
+            + (b.y() - a.y()) * (c.y() - b.y())) < 0)
+
+
+def _pinned_stair(start: QPointF, start_side: str,
+                  end: QPointF, end_side: str,
+                  blockers: list[QRectF]) -> list[QPointF]:
+    """A right-angle route that leaves and enters along pinned sides.
+
+    Only used when the plain stair would run back across its own box — a
+    U-turn, or an end pinned to the side facing away from the other. Each end
+    steps out of its side, and the two stub points are joined by whichever of a
+    few right-angle shapes crosses the fewest boxes, the endpoints' own boxes
+    included; a tie keeps the shorter shape and then the listed order.
+    """
+    p1, p2 = _stub_points(start, start_side, end, end_side)
+    mx, my = (p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2
+    candidates = [
+        [start, p1, QPointF(p1.x(), p2.y()), p2, end],
+        [start, p1, QPointF(p2.x(), p1.y()), p2, end],
+        [start, p1, QPointF(p1.x(), my), QPointF(p2.x(), my), p2, end],
+        [start, p1, QPointF(mx, p1.y()), QPointF(mx, p2.y()), p2, end],
+    ]
+    best, best_key = None, None
+    for pts in candidates:
+        pts = _tidy(pts)
+        key = (_reversals(pts), _crossed(pts, blockers), len(pts))
+        if best_key is None or key < best_key:
+            best, best_key = pts, key
+    return best
+
+
+def pinned_direct_points(start: QPointF, start_side: str,
+                         end: QPointF, end_side: str) -> list[QPointF]:
+    """The run of a direct connector between two pinned anchors (#209).
+
+    Straight when it can leave and enter through the pinned sides; otherwise it
+    steps out of each side first and runs straight between the two stub points,
+    so a U-turn or a back-facing pin still reads as leaving that side.
+    """
+    if (_along(start, end, start_side) > 0.01
+            and _along(end, start, end_side) > 0.01):
+        return [start, end]
+    p1, p2 = _stub_points(start, start_side, end, end_side)
+    return _tidy([start, p1, p2, end])
+
+
+def polyline_path(points: list[QPointF]) -> QPainterPath:
+    """A path through ``points`` with sharp corners."""
+    path = QPainterPath(points[0])
+    for pt in points[1:]:
+        path.lineTo(pt)
+    return path
 
 
 def _rounded_polyline(points: list[QPointF], radius: float) -> QPainterPath:
@@ -506,17 +639,20 @@ def spline_path(start: QPointF, start_side: str,
 
 def routed_path(routing: str, start: QPointF, start_side: str,
                 end: QPointF, end_side: str,
-                obstacles: list[QRectF] | None = None) -> QPainterPath:
+                obstacles: list[QRectF] | None = None,
+                ends: tuple[QRectF, QRectF] | None = None) -> QPainterPath:
     """The connector body for a routing, as a path.
 
     ``obstacles`` lets a stair slide its mid-line clear of intervening boxes;
-    the other routings have no free parameter to spend and ignore it.
+    the other routings have no free parameter to spend and ignore it. ``ends``
+    marks a connector with pinned sides (see ``ortho_points``); a spline already
+    leaves along each side's normal and needs nothing more.
     """
     if routing == "spline":
         return spline_path(start, start_side, end, end_side)
     if routing == "ortho":
         return _rounded_polyline(
-            ortho_points(start, start_side, end, end_side, obstacles),
+            ortho_points(start, start_side, end, end_side, obstacles, ends),
             ORTHO_RADIUS)
     path = QPainterPath(start)
     path.lineTo(end)
@@ -736,13 +872,31 @@ def pick_self_loop_sides(load: dict[str, int]) -> tuple[str, str]:
                key=lambda pair: load.get(pair[0], 0) + load.get(pair[1], 0))
 
 
+def pinned_self_loop_sides(out_pin: str, in_pin: str,
+                           load: dict[str, int]) -> tuple[str, str]:
+    """The sides a self-connector with one or both sides pinned loops over.
+
+    A pinned side is kept; an unpinned one takes the adjacent side that the
+    loop pairs it with in ``SELF_LOOP_SIDES``, as the emptiest corner would.
+    """
+    if out_pin and in_pin:
+        return out_pin, in_pin
+    if out_pin:
+        return next(p for p in SELF_LOOP_SIDES if p[0] == out_pin)
+    return next(p for p in SELF_LOOP_SIDES if p[1] == in_pin)
+
+
 def self_loop_ts(out_side: str, in_side: str) -> tuple[float, float]:
     """Where the two ends of a self-loop sit on their sides, as 0..1.
 
     Both sit near the corner the two sides share; which end of a side that is
     depends on the corner, since ``t`` always runs left-to-right or top-to-bottom.
     """
+    if out_side == in_side:                  # a pinned loop on one side
+        return 1.0 - SELF_LOOP_T, SELF_LOOP_T
     corner = {out_side, in_side}
+    if corner in ({"n", "s"}, {"e", "w"}):
+        return 0.5, 0.5                      # pinned to opposite sides
 
     def near(side: str) -> float:
         at_high_end = ("e" in corner) if side in ("n", "s") else ("s" in corner)

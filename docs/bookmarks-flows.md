@@ -252,6 +252,22 @@ grafli export diagram.grafli tour.pdf --flow tour
 board renders from that board, framed as `grafli render <that board>
 --bookmark <id>` frames it.
 
+`--check` dry-runs the export without writing it and exits 1 on findings:
+overloaded slides, over-long captions, dangling refs and missing vault docs.
+An overloaded slide names each note that renders under the 11 pt floor at
+that slide's frame:
+
+```text
+$ grafli export diagram.grafli --check --all-flows
+flow 'tour': 3 slides
+[overloaded] slide #2 Overview: note 'evidence' at 2.2 pt (floor 11 pt) — trim the text or split the slide
+flow 'intro': 2 slides
+No findings.
+```
+
+`--all-flows` checks every flow of the board in one run; `--json` emits the
+report as JSON (with `--all-flows`, a list of one report per flow).
+
 ### Composing slides
 
 A slide is not a flat screenshot — the diagram is rasterized, but every **note

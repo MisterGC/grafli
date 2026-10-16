@@ -94,7 +94,7 @@ def test_graph_box_shows_its_miniature_once_large_enough(tmp_path: Path):
     view = win._view
     view._lod_enabled = False   # isolate the miniature threshold
     item = view._box_items["combat"]
-    area = item.miniature_rect()
+    area = item.miniature_body_rect()
     short = min(area.width(), area.height())
 
     _zoom(win, 1.0)
@@ -194,9 +194,9 @@ def test_icon_boxes_show_a_miniature_only_with_a_corner_badge(tmp_path: Path):
     assert items["fill"]._miniature is None
     badge = items["badge"]
     assert badge._miniature is not None
-    # The badge sits in the corner, above the miniature.
+    # The badge sits in the corner, on the band above the miniature.
     side = badge._badge_icon_side()
-    assert 8.0 + side <= badge.miniature_rect().top()
+    assert 8.0 + side <= badge.miniature_band_rect().bottom()
     win.close()
 
 
@@ -224,6 +224,87 @@ def test_label_band_stays_clear_of_the_corner_icons(tmp_path: Path):
             assert label.boundingRect().contains(
                 icon.translated(label._icon_offset()))
         assert item._icons_above_label()
+    win.close()
+
+
+def test_miniature_fills_the_box_edge_to_edge(tmp_path: Path):
+    root, _ = _system(tmp_path)
+    win = _window(root)
+    view = win._view
+    view._lod_enabled = False
+    item = view._box_items["combat"]
+    _zoom(win, 1.0)
+    assert item.miniature_rect() == item.rect()
+    target = item.miniature_pixmap_rect(item._miniature)
+    # The wide sub-board reaches both side edges; nothing is cut off.
+    assert abs(target.left()) < 1e-6
+    assert abs(target.right() - item.box.w) < 1e-6
+    assert target.top() >= 0 and target.bottom() <= item.box.h
+    pix = item._miniature
+    assert abs(target.width() / target.height()
+               - pix.width() / pix.height()) < 0.01
+    win.close()
+
+
+def test_band_holds_the_label_and_the_level_icon(tmp_path: Path):
+    root = _write(tmp_path / "Band.grafli",
+                  '#!grafli v2\n'
+                  '@ box plain "Plain" 0,0 420x300 &graph:combat\n'
+                  '@ box filled "Filled" 500,0 420x300 #8ecae6 *badge:gear '
+                  '&graph:combat\n')
+    _write(tmp_path / "Band-res" / "combat.grafli",
+           '#!grafli v2\n@ box x "X" 0,0 160x60\n')
+    win = _window(root)
+    view = win._view
+    view._lod_enabled = False
+    _zoom(win, 1.0)
+    for bid in ("plain", "filled"):
+        item = view._box_items[bid]
+        assert item._miniature is not None
+        band = item.mapRectToScene(item.miniature_band_rect())
+        assert band.width() == item.box.w
+        label = item._label
+        assert band.contains(label.mapRectToScene(label._plate_rect()))
+        for icon in item.corner_icon_rects():
+            assert band.contains(item.mapRectToScene(icon)), bid
+        # What stays in sight below the band decides the threshold.
+        body = item.miniature_body_rect()
+        assert body.top() == item.miniature_band_rect().bottom()
+        assert body.bottom() == item.box.h
+    # The band takes the box's own fill, so the label ink still reads.
+    filled = view._box_items["filled"]._miniature_band_fill()
+    assert filled.name() == "#8ecae6"
+    win.close()
+
+
+def test_band_shows_on_the_canvas_over_the_miniature(tmp_path: Path):
+    from PySide6.QtGui import QColor, QImage, QPainter
+    root = _write(tmp_path / "Ink.grafli",
+                  '#!grafli v2\n'
+                  '@ box b "Filled" 0,0 420x300 #8ecae6 &graph:combat\n')
+    _write(tmp_path / "Ink-res" / "combat.grafli",
+           '#!grafli v2\n@ box x "X" 0,0 160x60\n')
+    win = _window(root)
+    view = win._view
+    view._lod_enabled = False
+    _zoom(win, 1.0)
+    item = view._box_items["b"]
+    assert item._miniature is not None
+    img = QImage(420, 300, QImage.Format.Format_ARGB32)
+    img.fill(0)
+    painter = QPainter(img)
+    item.paint(painter, None, view.viewport())
+    painter.end()
+    band = item.miniature_band_rect()
+    # The label item paints its text separately: here the band is the box
+    # fill at 90 % over the raster.
+    fill = item._miniature_band_fill()
+    raster = QColor(img.pixel(int(band.center().x()), int(band.bottom()) + 4))
+    px = QColor(img.pixel(int(band.center().x()), int(band.center().y())))
+    for got, f, r in ((px.red(), fill.red(), raster.red()),
+                      (px.green(), fill.green(), raster.green()),
+                      (px.blue(), fill.blue(), raster.blue())):
+        assert abs(got - (0.9 * f + 0.1 * r)) <= 3
     win.close()
 
 

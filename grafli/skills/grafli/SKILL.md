@@ -227,7 +227,22 @@ in `references/genres.md` instead.)
    tier you want to show but have nothing to put in yet — has to ask
    for that look: `!flat ^topleft ~small`. Without it an empty band
    renders as a big rounded leaf node, which reads as a component
-   rather than a layer.
+   rather than a layer. A stack of layer containers that must still
+   read as a stack zoomed out takes `^left` instead of `^topleft`
+   (written `#!grafli v4`): collapsed, each band keeps a strip of its
+   children's colours and its title on the left. The reverse — a **card**, a box that keeps its
+   fill, border and centred title around a body note it owns — asks for
+   `!card` (written `#!grafli v4`). A dark fill reads with `!ink`: the
+   label and icon take a light ink on the fill itself, no plate; on a
+   note, `!ink` draws the text in its `%color` (both `#!grafli v4`).
+   Box labels are monospace; `!sans` sets a box's label in a
+   proportional face (Inter) — for an explanation map's titles
+   (`#!grafli v4`). On a note, `!sans` swaps the handwriting for Inter.
+   Something later or optional gets a `!dashed` or `!dotted` outline
+   (`#!grafli v4`); on a flat box or a container it adds the outline.
+   A resting status (`open`, `designed`) is `~status=open` or
+   `~status=designed:%rose`, a pill on the box's bottom edge that shows in
+   every view (`#!grafli v4`); keep overlays for what is toggled with `A`.
 5. **Place children inside containers**, sized and aligned to the
    grid (multiples of 50). Use the container margin model in
    `references/design.md`.
@@ -276,14 +291,17 @@ in `references/genres.md` instead.)
     misplaced modifier silently removes the element; always fix these
     first), children outside parents, sibling overlaps, cramped
     containers, likely-truncated labels, arrow labels crowding endpoints
-    or hiding arrowheads, missing `@path` / image refs. Each finding
+    or hiding arrowheads, missing images, `&graph` / `.grafli` `&link`
+    targets and `#<id>`s that do not exist and `@path:line` refs whose
+    file or line does not exist (both errors), overlay files
+    that don't parse or name ids not on the board. Each finding
     carries a `fixable` flag and a `severity`:
 
     * `severity: error` (`parse-error`, `invalid-parent-ref`, …) —
       always fix.
     * `fixable: true` — usually a real geometry mistake. Try to fix.
     * `fixable: false` — heuristic or possibly-intentional (a
-      placeholder reference, an artistic crowding choice).
+      missing image placeholder, an artistic crowding choice).
       Acknowledge once and move on.
 
     **Let the tool do the mechanical part.** `grafli diagnose <file>
@@ -307,8 +325,8 @@ in `references/genres.md` instead.)
     only for boards that must be spotless), so you can loop on
     "re-run until `diagnose` exits 0" without parsing output.
     (For flows/decks there is a matching check:
-    `grafli export <file> --check` — see
-    `references/presenting.md`.)
+    `grafli export <file> --check --all-flows`, which names the note
+    that makes a slide overloaded — see `references/presenting.md`.)
 11. **Format before committing.** `grafli fmt <file>.grafli` rewrites
     the board in the canonical serialized form — integer coordinates,
     canonical token order and spacing — exactly what the app's own save
@@ -321,8 +339,8 @@ in `references/genres.md` instead.)
 
 ```
 # Comments and titles
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat !bold !italic] [*icon] [&attach] [>parent] [# annotation]
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [~size] [# annotation]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [!dot] [~size] [~from=<side>] [~to=<side>] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [# annotation]
@@ -362,7 +380,9 @@ to a v1 file, bump the header yourself).
   `%base %primary %secondary %tertiary %subtle %accent %highlight
   %muted %soft %clay %teal %rose %forest %plum`, or a raw `#RRGGBB`.
   An unknown token (e.g. `%green`) silently falls back to the default
-  fill — `diagnose` flags it as `unknown-color`.
+  fill — `diagnose` flags it as `unknown-color`. A map can name its own
+  colours in `<stem>-res/palette.json` and use them as `%name` on every
+  board of the map (see `references/format.md`, "Map palette").
 * Modifiers in `[]` are optional and order-sensitive as shown.
 * Multi-line text: use `\n` in labels and note text; a literal quote
   inside quoted text is `\"` (triple-quoted blocks need no escapes).
@@ -448,13 +468,17 @@ task needs them:
   expert checklist is your self-review before shipping.
 * `references/presenting.md` — flows, slide composition, and export:
   bookmarks (incl. `~iso` scoping), text slides, container-as-slide,
-  auto-flows, narration craft, PDF/PPTX export (incl. corporate
+  slides from a map (frame with a bookmark, the legibility arithmetic, a
+  headline per stop), auto-flows, narration craft, PDF/PPTX export (incl. corporate
   templates) and the `export --check` verify loop. Open when asked to
   explain, walk through, present, or build a deck from a board.
 * `references/explaining.md` — explanation maps of any subject (code
-  as one section): one question and the evidence for its split per
-  level, box docs and sub-boards for depth, one board per repo plus a
-  bench board linking in, relationship kinds on arrows, tours across
+  as one section): a top board that opens with the problem and its
+  layers as a stack, one question and the evidence for its split per
+  level, slide-grade boards (a claim headline, three visual weights,
+  numbered paths, category bars, status labels, cards), box docs and sub-boards for depth, one board per repo plus a
+  bench board linking in, relationship kinds on arrows, a resting
+  colour per layer (filled boxes from the map's palette), tours across
   levels, the ask-on-the-map loop (answer a `Q:` with a level, a line or
   a tour), overlay files with provenance, and marking a map stale. Open
   when the user wants to understand, learn, explain or review a subject

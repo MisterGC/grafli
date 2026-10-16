@@ -1843,7 +1843,8 @@ def test_grammar_messages_track_the_regexes():
         for group in _re.findall(r'!\((?:\?:)?([a-z|]+)\)', regex.pattern):
             for flag in group.split("|"):
                 assert "!" + flag in form, (flag, form)
-    for token in ("^topleft", "^topcenter", "*icon", "&attach", ">parent"):
+    for token in ("^topleft", "^topcenter", "*icon", "&attach", "~status=",
+                  ">parent"):
         assert token in fmt.BOX_FORM
     assert "~width=N" in fmt.NOTE_FORM and "*icon" in fmt.NOTE_FORM
     assert "@dx,dy" in fmt.ARROW_FORM and "~kind=" in fmt.ARROW_FORM

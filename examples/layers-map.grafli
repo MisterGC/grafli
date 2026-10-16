@@ -1,0 +1,50 @@
+#!grafli v4
+# What is grafli made of, and how does one file reach every view?
+# Worked example of a slide-grade explanation map (skill:
+# references/explaining.md and references/presenting.md): grafli's own
+# layers, format -> view -> exports, opened problem-first as a stack of
+# layers, part boxes with doc lines and status labels, one palette with its
+# legend (layers-map-res/palette.json), a generated overlay
+# (layers-map-overlay.py) and an entry tour that exports as slides.
+# source: ..
+
+@ note problem 0,-380 "Problem: a diagram both an agent and a person edit, that still reads like a slide" ~xlarge !flat !sans !bold
+@ note answer 0,-310 "Answer: one plain-text format, a view that draws it, exports that carry it out" ~small
+@ note case 0,-270 "Example, not the scope: one box, Login, followed through every layer" ~small
+
+@ box export "Exports" 0,-220 1140x180 %export ^left
+@ box slides "PDF / PPTX" 30,-160 240x90 ^topcenter !flat &graph:exports ~status=snapshot >export
+@ box render "render" 300,-160 240x90 ^topcenter !flat &doc:render ~status=snapshot >export
+@ box html "HTML page" 570,-160 240x90 ^topcenter !flat &doc:html ~status=snapshot >export
+@ note case_export 850,-145 "Login is a box on a slide" ~small >export
+
+@ box view "View" 0,20 1140x180 %view ^left
+@ box scene "Scene items" 30,80 240x90 ^topcenter !flat &doc:scene ~status=live >view
+@ box lod "Zoom levels" 300,80 240x90 ^topcenter !flat &doc:lod ~status=live >view
+@ box overlays "Overlays" 570,80 240x90 ^topcenter !flat &doc:overlays ~status=live >view
+@ note case_view 850,95 "Login is drawn and dragged" ~small >view
+
+@ box format "Format" 0,260 1140x180 %format ^left
+@ box parser "Parser" 30,320 240x90 ^topcenter !flat &graph:parse >format
+@ box palette "Map palette" 300,320 240x90 ^topcenter !flat &doc:palette >format
+@ box vault "Resource vault" 570,320 240x90 ^topcenter !flat &doc:vault >format
+@ note case_format 850,335 "Login is one line: @ box login …" ~small >format
+
+@ arrow parser -> scene "data: Board" ~id=feed
+@ arrow scene -> slides "data: scene" ~id=carry
+
+@ note evidence 0,480 """
+code:
+split by the modules that own each layer
+  @grafli/format.py:915 parse
+  @grafli/map_palette.py:139 load_palette
+  @grafli/view/selection.py:263 load_board
+  @grafli/lod.py:88 LodModel
+  @grafli/slideplan.py:74 build_slide_plan
+  @grafli/htmlexport.py:503 export_html
+""" ~small
+
+@ bookmark b_all "One file, three layers" @problem,answer,case,export,view,format ~pad=20
+@ bookmark b_feed "The format feeds the view" @format,view,feed
+@ bookmark b_carry "The view feeds every export" @view,export,carry
+@ flow entry "What grafli is made of" b_all b_feed parse#b_build b_carry exports#b_same "From one plain-text file through the canvas to every export, and one level down where it matters."

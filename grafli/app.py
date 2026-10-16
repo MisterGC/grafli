@@ -35,7 +35,9 @@ from grafli.format import (Board, is_newer, parse, serialize,
                            serialize_to_file, supported_version)
 from grafli.sync import Conflict, atomic_write, merge_boards
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
+from grafli.map_palette import attach_names
 from grafli.sidepanel import PanelToggleButton, SidePanel, ThemeToggleButton
+from grafli.slideplan import describe_overload
 from grafli.view import GrafliView
 
 
@@ -124,6 +126,7 @@ class MainWindow(QMainWindow):
         self._watcher: JsonSafeWatcher | None = None
         self._docs_watcher: MultiFileWatcher | None = None
         self._images_watcher: MultiFileWatcher | None = None
+        self._palette_watcher: MultiFileWatcher | None = None
         self._buffers = BufferManager()
 
         self._autosave_timer = QTimer(self)
@@ -258,6 +261,7 @@ class MainWindow(QMainWindow):
             "search":       self._view._start_search,
             "grid":         self._view.toggle_grid,
             "minimap":      self._view._toggle_minimap,
+            "legend":       self._view._toggle_legend,
             "dim_notes":    self._view._toggle_notes_hidden,
             "dim_arrows":   self._view._toggle_arrows_dimmed,
             "complexity":   self._view._toggle_complexity,
@@ -372,9 +376,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # surface any render/IO failure
             self._view.toast(f"PDF export failed: {exc}", "error")
             return
-        msg = f"PDF exported · {slides} slides"
-        if overloaded:
-            msg += f" · {len(overloaded)} overloaded — trim or split"
+        msg = f"PDF exported · {slides} slides" + _overload_toast(overloaded)
         self._view.toast(msg, "warn" if overloaded else "info")
 
     def _export_flow_pptx(self, flow=None):
@@ -418,9 +420,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # surface any render/IO failure
             self._view.toast(f"PPTX export failed: {exc}", "error")
             return
-        msg = f"PPTX exported · {slides} slides"
-        if overloaded:
-            msg += f" · {len(overloaded)} overloaded — trim or split"
+        msg = f"PPTX exported · {slides} slides" + _overload_toast(overloaded)
         self._view.toast(msg, "warn" if overloaded else "info")
 
     def _export_html(self):
@@ -728,8 +728,17 @@ class MainWindow(QMainWindow):
                 "Missing vault doc"
                 + ("s" if len(missing) > 1 else "")
                 + ": " + ", ".join(f"{m}.md" for m in missing), "warn")
+        self._warn_stale_source(path, board)
         # Last, so a newer board's read-only notice is the toast that shows.
         self._warn_parse_issues(board)
+
+    def _warn_stale_source(self, path: Path, board):
+        """Say so when the board's ``# source:`` repo has moved on from the
+        revision its refs were read at — the notice `grafli diagnose` gives."""
+        from grafli.revision import refs_stale_line
+        line = refs_stale_line(board, path.resolve().parent)
+        if line:
+            self._view.toast(line[0].upper() + line[1:], "warn")
 
     def _enter_board(self, path: Path, label: str, target_id: str = "",
                      via=None):
@@ -1244,6 +1253,26 @@ class MainWindow(QMainWindow):
         self._watcher.start()
         self._watch_docs()
         self._watch_images()
+        self._watch_palette()
+
+    def _watch_palette(self):
+        """(Re)start the poller over the places the map's palette file may
+        live, so writing, editing or removing it recolours the board."""
+        if self._palette_watcher:
+            self._palette_watcher.stop()
+            self._palette_watcher = None
+        if not self._file_path:
+            return
+        from grafli.map_palette import candidate_paths
+        paths = [str(p) for p in candidate_paths(self._file_path)]
+        self._palette_watcher = MultiFileWatcher(paths)
+        self._palette_watcher.files_changed.connect(self._on_palette_changed)
+        self._palette_watcher.start()
+
+    def _on_palette_changed(self, _changed: list):
+        # Not a board change: no reload, no dirty flag — just recolour.
+        if self._view.load_map_palette():
+            self._apply_theme()
 
     def _watch_docs(self):
         """(Re)start the consolidated poller over the board's vault docs, so
@@ -1306,6 +1335,9 @@ class MainWindow(QMainWindow):
         if self._images_watcher:
             self._images_watcher.stop()
             self._images_watcher = None
+        if self._palette_watcher:
+            self._palette_watcher.stop()
+            self._palette_watcher = None
 
     def _reconcile_external(self, disk_text: str) -> tuple[Board, list[Conflict]]:
         """3-way merge an external on-disk edit into the in-memory board.
@@ -1438,6 +1470,21 @@ def _newer_board_reason(board: Board) -> str:
     """Why *board* is read-only: its header is newer than this build."""
     return (f"this board is grafli v{board.version}, this build reads up "
             f"to v{supported_version()}")
+
+
+def _overload_toast(overloaded: list) -> str:
+    """The export toast's tail for overloaded slides: how many, and what
+    makes the first one overloaded, so the author knows where to look —
+    terse, as the toast is one line across the canvas."""
+    if not overloaded:
+        return ""
+    index, _label, findings = overloaded[0]
+    first = findings[0]
+    what = (f"overflows at {first['pt']:g} pt"
+            if first["reason"] == "overflow"
+            else f"{first['pt']:g} pt < {first['floor']:g} pt")
+    return (f" · {len(overloaded)} overloaded: "
+            f"#{index + 1} '{first['element']}' {what}")
 
 
 def _step_bookmark(board_path: Path, board: Board, ref: str):
@@ -1919,6 +1966,17 @@ def _cmd_render(argv: list[str]) -> int:
              "does not follow the app's theme setting, so a given file and "
              "flags always render the same image",
     )
+    parser.add_argument(
+        "--legend", action="store_true",
+        help="Draw the legend of the map's palette (the palette.json entries "
+             "the board uses) below the board",
+    )
+    parser.add_argument(
+        "--overlay", default=None, metavar="NAME",
+        help="Colour the board by its overlay file <stem>-res/NAME.overlay."
+             "json, as A shows it in the app, with the overlay's legend "
+             "below the board",
+    )
     args = parser.parse_args(argv)
 
     theme.set_theme(args.theme)
@@ -1956,6 +2014,7 @@ def _cmd_render(argv: list[str]) -> int:
     # Draw `&graph` miniatures and `&doc` lines as the canvas shows them.
     view.render_headless(args.input.resolve())
     view.load_board(board)
+    view._legend_visible = args.legend
 
     region = None
     iso_ctx = nullcontext()
@@ -1999,6 +2058,12 @@ def _cmd_render(argv: list[str]) -> int:
             detail = step_detail(flow, step) or None
         if focus_mode is None:
             focus_mode = step_focus(flow, step) or None
+    if args.overlay:
+        try:
+            view.show_overlay(args.overlay)
+        except ValueError as e:
+            print(f"--overlay: {e}", file=sys.stderr)
+            return 2
     if bookmark_id:
         from grafli.flows import (bookmark_target_rect, emphasis_for,
                                   isolate_focus)
@@ -2074,6 +2139,66 @@ def _cmd_render(argv: list[str]) -> int:
     return 0
 
 
+def _flow_findings(board_path: Path, board: Board,
+                   flow) -> tuple[list[str], list[dict]]:
+    """The flow-integrity findings of *flow* (cheap, no Qt needed):
+    ``(dangling, overlong)`` — steps referencing a missing bookmark and
+    bookmark focus ids that resolve to no element (an arrow's ~id= counts:
+    a path stop frames the arrow), and over-long captions."""
+    element_ids = (
+        {b.id for b in board.boxes}
+        | {n.id for n in board.notes}
+        | {im.id for im in board.images}
+        | {a.id for a in board.arrows if a.id}
+    )
+    dangling: list[str] = []
+    for step in flow.steps:
+        if _step_bookmark(board_path, board, step.ref) is None:
+            dangling.append(
+                f"flow '{flow.id}' step references missing bookmark "
+                f"'{step.ref}'"
+            )
+    for bm in board.bookmarks:
+        for fid in bm.focus:
+            if fid not in element_ids:
+                dangling.append(
+                    f"bookmark '{bm.id}' anchors missing element '{fid}'"
+                )
+
+    # Over-long captions: playback and slides show the full description
+    # wrapped, so a caption past the budget stops being a caption.
+    from grafli.format import MAX_DESCRIPTION_CHARS
+    overlong: list[dict] = []
+    for bm_id in dict.fromkeys(step.ref for step in flow.steps):
+        bm = _step_bookmark(board_path, board, bm_id)
+        if bm is not None and len(bm.description) > MAX_DESCRIPTION_CHARS:
+            overlong.append({"bookmark": bm.id,
+                             "chars": len(bm.description),
+                             "max": MAX_DESCRIPTION_CHARS})
+    return dangling, overlong
+
+
+def _print_check_report(report: dict) -> None:
+    """One flow's ``export --check`` report as text findings."""
+    print(f"flow '{report['flow']}': {report['slides']} slides")
+    for entry in report["overloaded"]:
+        print(f"[overloaded] slide #{entry['slide']} "
+              f"{entry['label']}".rstrip() + ": "
+              + "; ".join(describe_overload(f) for f in entry["elements"])
+              + " — trim the text or split the slide")
+    for entry in report["overlong"]:
+        print(f"[overlong-caption] bookmark '{entry['bookmark']}' — "
+              f"{entry['chars']} chars (max {entry['max']}); "
+              f"shorten it or split the stop")
+    for msg in report["dangling"]:
+        print(f"[dangling] {msg}")
+    for name in report["missing_docs"]:
+        print(f"[missing-doc] vault doc {name}.md")
+    if not (report["overloaded"] or report["overlong"] or report["dangling"]
+            or report["missing_docs"]):
+        print("No findings.")
+
+
 def _cmd_export(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="grafli export",
@@ -2093,6 +2218,11 @@ def _cmd_export(argv: list[str]) -> int:
         help="Dry-run: report slide count, overloaded slides, dangling "
              "bookmark/step refs and missing vault docs — without writing "
              "the deck. Exit 1 when anything needs fixing.",
+    )
+    parser.add_argument(
+        "--all-flows", action="store_true",
+        help="With --check: check every flow of the board in one run "
+             "(--json then emits a list of reports, one per flow)",
     )
     parser.add_argument(
         "--json", action="store_true",
@@ -2119,6 +2249,17 @@ def _cmd_export(argv: list[str]) -> int:
         help="Name of the template layout for content slides "
              "(default: auto-detected). Only with --template.",
     )
+    parser.add_argument(
+        "--legend", action="store_true",
+        help="Draw the legend of the map's palette (the palette.json entries "
+             "the board uses) at the bottom of each diagram slide.",
+    )
+    parser.add_argument(
+        "--overlay", default=None, metavar="NAME",
+        help="Colour each diagram slide by the board's overlay file "
+             "<stem>-res/NAME.overlay.json, as A shows it in the app, with "
+             "the overlay's legend beside the diagram",
+    )
     args = parser.parse_args(argv)
     if args.template is not None and not args.template.exists():
         print(f"Template not found: {args.template}", file=sys.stderr)
@@ -2130,6 +2271,12 @@ def _cmd_export(argv: list[str]) -> int:
     if args.output is None and not args.check:
         print("output is required (or pass --check for a dry-run)",
               file=sys.stderr)
+        return 2
+    if args.all_flows and not args.check:
+        print("--all-flows only goes with --check", file=sys.stderr)
+        return 2
+    if args.all_flows and args.flow:
+        print("pass either --flow or --all-flows", file=sys.stderr)
         return 2
     suffix = args.output.suffix.lower() if args.output else ".pdf"
     if suffix not in (".pdf", ".pptx"):
@@ -2146,54 +2293,24 @@ def _cmd_export(argv: list[str]) -> int:
     if not board.flows:
         print("No flows in this file — nothing to export.", file=sys.stderr)
         return 1
-    if args.flow:
+    if args.all_flows:
+        flows = list(board.flows)
+    elif args.flow:
         flow = board.flow_by_id(args.flow)
         if flow is None:
             ids = ", ".join(f.id for f in board.flows)
             print(f"Flow '{args.flow}' not found. Available: {ids}", file=sys.stderr)
             return 2
+        flows = [flow]
     elif len(board.flows) == 1:
-        flow = board.flows[0]
+        flows = [board.flows[0]]
     else:
         ids = ", ".join(f.id for f in board.flows)
         print(f"Multiple flows — pass --flow <id>. Available: {ids}",
               file=sys.stderr)
         return 2
 
-    # Flow-integrity findings (cheap, no Qt needed): steps referencing a
-    # missing bookmark, bookmark focus ids that resolve to no element (an
-    # arrow's ~id= counts: a path stop frames the arrow).
-    element_ids = (
-        {b.id for b in board.boxes}
-        | {n.id for n in board.notes}
-        | {im.id for im in board.images}
-        | {a.id for a in board.arrows if a.id}
-    )
     board_path = args.input.resolve()
-    dangling: list[str] = []
-    for step in flow.steps:
-        if _step_bookmark(board_path, board, step.ref) is None:
-            dangling.append(
-                f"flow '{flow.id}' step references missing bookmark "
-                f"'{step.ref}'"
-            )
-    for bm in board.bookmarks:
-        for fid in bm.focus:
-            if fid not in element_ids:
-                dangling.append(
-                    f"bookmark '{bm.id}' anchors missing element '{fid}'"
-                )
-
-    # Over-long captions: playback and slides show the full description
-    # wrapped, so a caption past the budget stops being a caption.
-    from grafli.format import MAX_DESCRIPTION_CHARS
-    overlong: list[dict] = []
-    for bm_id in dict.fromkeys(step.ref for step in flow.steps):
-        bm = _step_bookmark(board_path, board, bm_id)
-        if bm is not None and len(bm.description) > MAX_DESCRIPTION_CHARS:
-            overlong.append({"bookmark": bm.id,
-                             "chars": len(bm.description),
-                             "max": MAX_DESCRIPTION_CHARS})
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
@@ -2204,64 +2321,66 @@ def _cmd_export(argv: list[str]) -> int:
     # `&doc` boxes resolve their docs against the board, as in the app.
     view.render_headless(args.input.resolve())
     view.load_board(board)
+    view._legend_visible = args.legend
+    if args.overlay:
+        try:
+            view.show_overlay(args.overlay)
+        except ValueError as e:
+            print(f"--overlay: {e}", file=sys.stderr)
+            return 2
 
     if args.check:
         # Dry-run through the real exporter (text sizing needs the real
         # layout), written to a scratch file that is removed afterwards.
         import json as _json
         import tempfile
-        with tempfile.NamedTemporaryFile(
-            suffix=suffix, delete=False,
-        ) as tmp:
-            tmp_path = Path(tmp.name)
-        try:
-            if suffix == ".pptx":
-                from grafli.pptxexport import export_flow_to_pptx
-                slides, overloaded = export_flow_to_pptx(
-                    view, flow, tmp_path, theme=args.theme,
-                    template=args.template,
-                    title_layout=args.title_layout,
-                    content_layout=args.content_layout,
-                    board_path=board_path)
-            else:
-                from grafli.pdfexport import export_flow_to_pdf
-                slides, overloaded = export_flow_to_pdf(view, flow, tmp_path,
-                                                        board_path)
-        finally:
-            tmp_path.unlink(missing_ok=True)
-        report = {
-            "flow": flow.id,
-            "slides": slides,
-            "overloaded": [
-                {"slide": i + 1, "label": lbl} for i, lbl in overloaded
-            ],
-            "overlong": overlong,
-            "dangling": dangling,
-            "missing_docs": list(missing),
-        }
-        clean = not (overloaded or overlong or dangling or missing)
+        reports = []
+        for flow in flows:
+            dangling, overlong = _flow_findings(board_path, board, flow)
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+            try:
+                if suffix == ".pptx":
+                    from grafli.pptxexport import export_flow_to_pptx
+                    slides, overloaded = export_flow_to_pptx(
+                        view, flow, tmp_path, theme=args.theme,
+                        template=args.template,
+                        title_layout=args.title_layout,
+                        content_layout=args.content_layout,
+                        board_path=board_path)
+                else:
+                    from grafli.pdfexport import export_flow_to_pdf
+                    slides, overloaded = export_flow_to_pdf(
+                        view, flow, tmp_path, board_path)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+            reports.append({
+                "flow": flow.id,
+                "slides": slides,
+                "overloaded": [
+                    {"slide": i + 1, "label": lbl, "elements": findings}
+                    for i, lbl, findings in overloaded
+                ],
+                "overlong": overlong,
+                "dangling": dangling,
+                "missing_docs": list(missing),
+            })
+        clean = not any(r["overloaded"] or r["overlong"] or r["dangling"]
+                        or r["missing_docs"] for r in reports)
         if args.json:
-            print(_json.dumps(report, indent=2))
+            print(_json.dumps(reports if args.all_flows else reports[0],
+                              indent=2))
         else:
-            print(f"flow '{flow.id}': {slides} slides")
-            for entry in report["overloaded"]:
-                print(f"[overloaded] slide #{entry['slide']} "
-                      f"{entry['label']}".rstrip()
-                      + " — trim the text or split the slide")
-            for entry in overlong:
-                print(f"[overlong-caption] bookmark '{entry['bookmark']}' — "
-                      f"{entry['chars']} chars (max {entry['max']}); "
-                      f"shorten it or split the stop")
-            for msg in dangling:
-                print(f"[dangling] {msg}")
-            for name in missing:
-                print(f"[missing-doc] vault doc {name}.md")
-            if clean:
-                print("No findings.")
+            for report in reports:
+                _print_check_report(report)
         del view
         del app
         return 0 if clean else 1
 
+    flow = flows[0]
+    dangling, overlong = _flow_findings(board_path, board, flow)
     for msg in dangling:
         print(f"Warning: {msg}", file=sys.stderr)
     for entry in overlong:
@@ -2282,7 +2401,10 @@ def _cmd_export(argv: list[str]) -> int:
                                                 board_path)
     print(f"Wrote {args.output} ({slides} slides)", file=sys.stderr)
     if overloaded:
-        where = ", ".join(f"#{i + 1} {lbl}".strip() for i, lbl in overloaded)
+        where = "; ".join(
+            f"#{i + 1} {lbl}".strip() + ": "
+            + ", ".join(describe_overload(f) for f in findings)
+            for i, lbl, findings in overloaded)
         print(f"Warning: {len(overloaded)} slide(s) overloaded — trim or "
               f"split: {where}", file=sys.stderr)
     del view
@@ -2386,7 +2508,9 @@ def _cmd_diagnose(argv: list[str]) -> int:
         description=(
             "Run static layout diagnostics on a .grafli file. "
             "Surfaces children outside parents, sibling overlaps, cramped "
-            "containers, likely-truncated labels, and missing linked resources."
+            "containers, likely-truncated labels, missing images, board "
+            "links and code refs that lead nowhere, unknown colours and the "
+            "map's palette.json."
         ),
         epilog=(
             "Exit codes: 0 no gated findings, 1 errors present "
@@ -2419,6 +2543,7 @@ def _cmd_diagnose(argv: list[str]) -> int:
 
     text = args.input.read_text(encoding="utf-8")
     board = parse(text)
+    attach_names(board, args.input)
     from grafli.diagnostics import Diagnostic, apply_fixes
     note_rect = _make_note_rect_provider()
     arrow_label_size = _make_arrow_label_size_provider()
@@ -2430,6 +2555,7 @@ def _cmd_diagnose(argv: list[str]) -> int:
             args.input.resolve().parent,
             note_rect=note_rect,
             arrow_label_size=arrow_label_size,
+            grafli_path=args.input,
         )
         # Vault integrity: referenced docs whose file is gone (error — a
         # doc-bodied note would render blank) and unreferenced docs (info —
@@ -2568,6 +2694,7 @@ def _cmd_fmt(argv: list[str]) -> int:
                   file=sys.stderr)
             malformed += 1
             continue
+        attach_names(board, path)
         out = serialize(board)
         if out == text:
             continue

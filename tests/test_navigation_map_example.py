@@ -17,7 +17,9 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from grafli.app import MainWindow, _step_bookmark
-from grafli.format import parse
+from grafli import theme
+from grafli.format import parse, resolve_code_ref
+from grafli.map_palette import load_palette
 from grafli.overlay_file import load_overlay
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -107,13 +109,15 @@ def _board_refs(board_path: Path) -> list[tuple[str, Path, int, int, str]]:
     ref in the notes of a board. The symbol is the identifier written after
     the ref on its line; none written is an empty symbol."""
     refs = []
-    for note in parse(board_path.read_text(encoding="utf-8")).notes:
+    board = parse(board_path.read_text(encoding="utf-8"))
+    for note in board.notes:
         for text in note.text.splitlines():
             for m in _NOTE_REF.finditer(text):
                 line = int(m.group(2))
+                path, _ = resolve_code_ref(board, board_path.parent,
+                                           m.group(1))
                 refs.append((f"{board_path.name} note {note.id}: {text.strip()}",
-                             board_path.parent / m.group(1), line, line,
-                             m.group(3) or ""))
+                             path, line, line, m.group(3) or ""))
     return refs
 
 
@@ -177,6 +181,34 @@ def test_the_tour_crosses_all_three_levels_and_frames_arrows():
     path_stops = [bm for bm in board.bookmarks
                   if set(bm.focus) <= arrow_ids]
     assert len(path_stops) >= 4
+
+
+def test_every_part_rests_in_its_layer_colour_on_every_level():
+    """Each part box on each level names an entry of the map's palette and
+    sits its label at the top; the link back to the map is not a part."""
+    for board_path in BOARDS:
+        names = {e.name for e in load_palette(board_path)}
+        assert len(names) >= 3, board_path.name
+        for box in parse(board_path.read_text(encoding="utf-8")).boxes:
+            if box.attach_kind == "link":
+                continue
+            assert box.color.removeprefix("%") in names, (board_path.name,
+                                                          box.id)
+            assert box.anchor == "topcenter", (board_path.name, box.id)
+
+
+def test_the_opened_map_fills_its_boxes_with_the_layer_colours(tmp_path: Path):
+    root = _copy(tmp_path)
+    palette = {e.name: e.color for e in load_palette(root)}
+    win = _window(root)
+    fills = set()
+    for bid, item in win._view._box_items.items():
+        expected = theme.resolve_color(palette[item.box.color[1:]])
+        fill = item.brush().color().name().upper()
+        assert fill == expected.upper(), bid
+        fills.add(fill)
+    assert len(fills) == 4
+    win.close()
 
 
 def test_the_overlay_colours_every_part_of_the_top_level():

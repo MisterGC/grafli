@@ -39,7 +39,10 @@ from grafli.constants import (
     resolve_textsize_px,
 )
 from grafli.flows import isolate_focus, render_thumbnail_art
+from grafli.items import note_ink
+from grafli.legend import draw_legend, legend_height
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
+from grafli.overlay_legend import SLIDE_CARD_W, draw_export_card, measure_card
 # Slide-typing/decision layer is shared with the PPTX exporter. ``_container_box``
 # and ``_slide_source`` are re-exported here for the existing pdfexport tests.
 from grafli.slideplan import (  # noqa: F401
@@ -48,8 +51,11 @@ from grafli.slideplan import (  # noqa: F401
     _slide_source,
     build_slide_plan,
     live_overlays,
+    overload_finding,
+    note_text_face,
     playback_text_fit,
     slide_doc_lines,
+    slide_overlay,
     slide_presentation,
 )
 
@@ -81,6 +87,10 @@ _CODE_BAND = (13.0, 16.0, 20.0)
 _FOOTER_BAND = (10.0, 13.0, 14.0)
 _CAPTION_BAND = (12.0, 15.0, 18.0)
 
+# The map palette's legend (``grafli.legend``): a band of swatches and labels
+# at the bottom of a diagram slide while the legend is on, in points.
+_LEGEND_PT = 14.0
+
 # A text slide normally sizes at playback parity (the note zoomed to fill the
 # hero, like fitInView frames it in the app) capped here; below the body-band
 # minimum it falls back to the band's shrink-to-fit instead.
@@ -108,8 +118,9 @@ def export_flow_to_pdf(view, flow, out_path: str | Path,
     """Render ``flow`` to a PDF at ``out_path``.
 
     Returns ``(slide_count, overloaded)`` where ``overloaded`` is a list of
-    ``(step_index, label)`` for content slides whose text overflows even at the
-    band minimum (or whose in-place notes fall below the readable floor) — the
+    ``(step_index, label, findings)`` for content slides whose text overflows
+    even at the band minimum (or whose in-place notes fall below the readable
+    floor); ``findings`` names each such note (:func:`overload_finding`) — the
     caller surfaces it so the author can trim or split those steps.
 
     ``view`` is a GrafliView whose scene holds the rendered graph (used both
@@ -140,6 +151,7 @@ def export_flow_to_pdf(view, flow, out_path: str | Path,
     view._scene.setBackgroundBrush(Qt.GlobalColor.transparent)
 
     footer = board.footer or ""
+    legend = view._legend_visible
 
     overloaded = []
     painter = QPainter(writer)
@@ -152,9 +164,10 @@ def export_flow_to_pdf(view, flow, out_path: str | Path,
         _draw_title_slide(painter, page, view, board, flow)
         for plan in plans[1:]:
             writer.newPage()
-            if _draw_content_slide(painter, page, plan.view or view, plan,
-                                   footer):
-                overloaded.append((plan.index, plan.title))
+            findings = _draw_content_slide(painter, page, plan.view or view,
+                                           plan, footer, legend)
+            if findings:
+                overloaded.append((plan.index, plan.title, findings))
             _draw_footer(painter, page, footer)
     finally:
         painter.end()
@@ -328,10 +341,10 @@ def _hidden(items):
 
 
 def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
-                       px_per_pt: float) -> bool:
+                       px_per_pt: float) -> dict | None:
     """Draw one note as native text at its mapped page position, sized to the
     scene scale already baked into ``mapped`` so it matches the diagram. Returns
-    True when the note renders below the readable floor (an overload signal)."""
+    the note's overload finding when it renders below the readable floor."""
     note = item.note
     is_md = note_is_md(note)
     body = (md_hard_quote_breaks(note_md_body(note)) if is_md
@@ -353,21 +366,37 @@ def _draw_note_overlay(painter, mapped: QRectF, clip: QRectF, item,
     text_rect = QRectF(mapped.left() + pad, mapped.top() + pad,
                        min(wrap_w, mapped.width() - pad), mapped.height() - pad * 2)
     _draw_markdown(painter, text_rect, body, markdown=is_md, band=_BODY_BAND,
-                   px_per_pt=px_per_pt, color=theme.INK, vcenter=False,
-                   fixed_px=fixed_px, clip=clip)
+                   px_per_pt=px_per_pt, color=note_ink(note) or theme.INK,
+                   vcenter=False, fixed_px=fixed_px, clip=clip,
+                   family=note_text_face(note))
     if len(body.strip()) <= _ANNOTATION_MAX_CHARS:
-        return False   # a short annotation rides the picture (issue #123)
-    return fixed_px < _READABLE_MIN_PT * px_per_pt
+        return None   # a short annotation rides the picture (issue #123)
+    if fixed_px >= _READABLE_MIN_PT * px_per_pt:
+        return None
+    return overload_finding(note, fixed_px / px_per_pt, _READABLE_MIN_PT)
 
 
 def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
-                        footer: str = "") -> bool:
-    """Draw one content slide from its plan. Returns True when it is overloaded —
-    text that overflows even at the band minimum, or an in-place note below the
-    readable floor — so the caller can warn the author."""
+                        footer: str = "", legend: bool = False) -> list[dict]:
+    """Draw one content slide from its plan. Returns the findings that make
+    it overloaded — text that overflows even at the band minimum, or in-place
+    notes below the readable floor — so the caller can warn the author. With *legend*, a
+    diagram slide keeps a band at its bottom for the map palette's legend; a
+    diagram slide of a view showing an overlay file draws the diagram on the
+    overlay's canvas with its legend card in a column on the right."""
     painter.fillRect(page, theme.SCENE_BG)
     pw, ph = page.width(), page.height()
     margin = ph * 0.06
+    entries = (view.legend_entries()
+               if legend and plan.kind != "text" else [])
+    legend_px = _LEGEND_PT * _px_per_pt(page)
+    legend_h = legend_height(entries, legend_px, pw - margin * 2)
+    legend_reserve = legend_h + margin * 0.4 if entries else 0.0
+    reading = slide_overlay(view, plan)
+    card_column = 0.0
+    if reading is not None:
+        card_laid, card_h = measure_card(reading, SLIDE_CARD_W)
+        card_column = SLIDE_CARD_W * _px_per_pt(page) + margin * 0.5
 
     # A label-less, description-less stop is a "graph-only" slide: the framed
     # diagram fills the page with no title bar or caption — what the graph
@@ -376,7 +405,12 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     has_desc = bool(plan.caption)
 
     hero_top = margin * 0.5
-    hero_bottom = ph - margin * 0.5 - _footer_reserve(page, footer)
+    hero_bottom = (ph - margin * 0.5 - _footer_reserve(page, footer)
+                   - legend_reserve)
+    if entries:
+        draw_legend(painter, QRectF(margin, hero_bottom + margin * 0.3,
+                                    pw - margin * 2, legend_h),
+                    entries, legend_px)
 
     if has_title:
         bar_h = ph * 0.12
@@ -403,13 +437,23 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
     # through the flow. ``has_desc`` only gates whether we draw that card.
 
     # ── hero: the bookmark's framed diagram region (or a text slide) ──
-    hero = QRectF(margin, hero_top, pw - margin * 2, hero_bottom - hero_top)
+    hero = QRectF(margin, hero_top, pw - margin * 2 - card_column,
+                  hero_bottom - hero_top)
+    if reading is not None:
+        k = _px_per_pt(page)
+        draw_export_card(painter,
+                         QPointF(pw - margin - SLIDE_CARD_W * k,
+                                 hero_bottom - card_h * k),
+                         k, reading, card_laid, card_h, SLIDE_CARD_W)
 
     # A single-note step with no description renders its note as native,
     # selectable, clickable text instead of a rasterized diagram.
     if plan.kind == "text":
-        return _draw_text_hero(painter, hero, plan.text_note, _px_per_pt(page),
-                               text_rect=plan.text_rect)
+        if _draw_text_hero(painter, hero, plan.text_note, _px_per_pt(page),
+                           text_rect=plan.text_rect):
+            return [overload_finding(plan.text_note, _BODY_BAND[0],
+                                     _BODY_BAND[0], overflow=True)]
+        return []
 
     source = plan.source
     if source is None:
@@ -417,7 +461,7 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
         painter.setPen(QPen(theme.INK_FAINT))
         painter.drawText(hero, int(Qt.AlignmentFlag.AlignCenter),
                          "no anchor to render")
-        return False
+        return []
 
     scale = min(hero.width() / source.width(), hero.height() / source.height())
     tw, th = source.width() * scale, source.height() * scale
@@ -434,7 +478,9 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
         k = cap / max(iw, ih)
         iw, ih = max(1, round(iw * k)), max(1, round(ih * k))
     img = QImage(iw, ih, QImage.Format.Format_ARGB32_Premultiplied)
-    img.fill(Qt.GlobalColor.transparent)
+    # An overlay's colours are made for its darkened canvas, as in the app.
+    img.fill(theme.HEATMAP_BG if reading is not None
+             else Qt.GlobalColor.transparent)
     ip = QPainter(img)
     ip.setRenderHint(QPainter.RenderHint.Antialiasing)
     ip.setRenderHint(QPainter.RenderHint.TextAntialiasing)
@@ -462,18 +508,21 @@ def _draw_content_slide(painter, page: QRectF, view, plan: SlidePlan,
 
     # Overlay each note as real text at its mapped position (same source->fitted
     # transform as the image), sized to the scene scale so it reads in place.
-    overloaded = False
+    findings = []
     for item in overlays:
         nr = item.sceneBoundingRect()
         mapped = QRectF(fitted.left() + (nr.left() - source.left()) * scale,
                         fitted.top() + (nr.top() - source.top()) * scale,
                         nr.width() * scale, nr.height() * scale)
-        if _draw_note_overlay(painter, mapped, hero, item, _px_per_pt(page)):
-            overloaded = True
+        finding = _draw_note_overlay(painter, mapped, hero, item,
+                                     _px_per_pt(page))
+        if finding is not None:
+            findings.append(finding)
 
     if has_desc:
-        _draw_caption(painter, page, plan.caption, footer)
-    return overloaded
+        _draw_caption(painter, page, plan.caption, footer, legend_reserve,
+                      card_column)
+    return findings
 
 
 _UNORDERED = (
@@ -507,6 +556,8 @@ def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float,
     is_md = note_is_md(note)
     body = (md_hard_quote_breaks(note_md_body(note)) if is_md
             else note.text)
+    # A `!sans` note keeps its face and an `!ink` note its colour (#206).
+    color, family = note_ink(note) or theme.INK, note_text_face(note)
     fit = playback_text_fit(resolve_textsize_px(note.textsize, ""), text_rect,
                             hero, _BODY_BAND[0] * px_per_pt,
                             _BODY_MAX_PT * px_per_pt)
@@ -514,10 +565,11 @@ def _draw_text_hero(painter, hero: QRectF, note, px_per_pt: float,
         size_px, rect = fit
         return _draw_markdown(painter, rect, body, markdown=is_md,
                               band=_BODY_BAND, px_per_pt=px_per_pt,
-                              color=theme.INK, vcenter=True,
-                              fixed_px=max(1, round(size_px)))
+                              color=color, vcenter=True,
+                              fixed_px=max(1, round(size_px)), family=family)
     return _draw_markdown(painter, hero, body, markdown=is_md, band=_BODY_BAND,
-                          px_per_pt=px_per_pt, color=theme.INK, vcenter=True)
+                          px_per_pt=px_per_pt, color=color, vcenter=True,
+                          family=family)
 
 
 def render_text_slide_pixmap(note, w: int, h: int, text_rect=None):
@@ -544,7 +596,8 @@ def render_text_slide_pixmap(note, w: int, h: int, text_rect=None):
 def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
                    band, px_per_pt: float, color, vcenter: bool,
                    fill_floor: float = _FILL_FLOOR, fixed_px: int | None = None,
-                   clip: QRectF | None = None) -> bool:
+                   clip: QRectF | None = None,
+                   family: str = FONT_FAMILY) -> bool:
     """Render ``body`` as native, selectable, clickable PDF text in ``rect``.
 
     When ``markdown`` the body is parsed as GitHub-flavoured Markdown, else it
@@ -559,6 +612,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     band minimum (an overloaded slide). ``fixed_px`` forces an exact size and
     skips the fit (for scene-scale in-place overlays); ``clip`` overrides the
     paint clip so such an overlay can extend past its own mapped rect.
+    ``family`` is the body's face, mono unless a ``!sans`` note sets Inter.
 
     Unordered-list bullets are drawn by us as vector discs and Qt's own list
     markers suppressed: Qt's auto markers don't render reliably through the PDF
@@ -572,7 +626,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
 
     doc = QTextDocument()
     doc.setDocumentMargin(0)
-    font = QFont(FONT_FAMILY)
+    font = QFont(family)
     font.setPixelSize(max_px)
     doc.setDefaultFont(font)
     if is_md:
@@ -584,7 +638,8 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     # font size, so the fit loop below (which only changes the default font)
     # would shrink the prose but leave code rendered at the huge import size.
     # Clear that explicit size so code inherits the default like everything
-    # else, keeping only its fixed-pitch family.
+    # else. Their family is the generic "monospace", which headless resolves
+    # to a serif system face, so set the bundled mono face instead (#219).
     norm = QTextCursor(doc)
     code_ranges = []
     blk = doc.begin()
@@ -593,8 +648,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
         while not it.atEnd():
             frag = it.fragment()
             cf = frag.charFormat()
-            if (frag.isValid() and cf.fontFixedPitch()
-                    and cf.hasProperty(QTextFormat.Property.FontPixelSize)):
+            if frag.isValid() and cf.fontFixedPitch():
                 code_ranges.append((frag.position(), frag.length(), cf))
             it += 1
         blk = blk.next()
@@ -602,6 +656,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
         m = QTextCharFormat(cf)
         m.clearProperty(QTextFormat.Property.FontPixelSize)
         m.clearProperty(QTextFormat.Property.FontPointSize)
+        m.setFontFamilies([FONT_FAMILY])
         norm.setPosition(pos)
         norm.setPosition(pos + length, QTextCursor.MoveMode.KeepAnchor)
         norm.setCharFormat(m)
@@ -703,7 +758,7 @@ def _draw_markdown(painter, rect: QRectF, body: str, *, markdown: bool,
     lay.draw(painter, ctx)
 
     r = max(2.0, gutter * 0.16)
-    marker_font = QFont(FONT_FAMILY)
+    marker_font = QFont(family)
     marker_font.setPixelSize(size)
     for text_left, top, line_h, marker in drawn_markers:
         if marker is None:
@@ -738,21 +793,23 @@ def _markdown_height(body: str, markdown: bool, width: float, px: int) -> float:
     return doc.size().height()
 
 
-def _draw_caption(painter, page: QRectF, text: str, footer: str) -> None:
+def _draw_caption(painter, page: QRectF, text: str, footer: str,
+                  above: float = 0.0, right: float = 0.0) -> None:
     """Draw the step description as a floating dark caption card at the bottom,
-    over the content (above the footer). Markdown, with clickable links; matches
-    the on-canvas playback caption and reserves no layout space."""
+    over the content (above the footer), centred left of a *right* column the
+    slide keeps. Markdown, with clickable links; matches the on-canvas playback
+    caption and reserves no layout space."""
     pw, ph = page.width(), page.height()
     margin = ph * 0.06
     ppp = _px_per_pt(page)
     pad = ph * 0.020
-    card_w = min(pw * 0.62, pw - margin * 2)
+    card_w = min(pw * 0.62, pw - margin * 2 - right)
     text_w = card_w - pad * 2
     ideal_px = max(1, round(_CAPTION_BAND[1] * ppp))
     text_h = min(_markdown_height(text, True, text_w, ideal_px), ph * 0.26)
     card_h = text_h + pad * 2
-    card_x = (pw - card_w) / 2
-    card_y = ph - margin - _footer_reserve(page, footer) - card_h
+    card_x = margin + (pw - margin * 2 - right - card_w) / 2
+    card_y = ph - margin - _footer_reserve(page, footer) - above - card_h
     card = QRectF(card_x, card_y, card_w, card_h)
 
     bg = QColor(theme.OVERLAY_BG)

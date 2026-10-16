@@ -92,3 +92,125 @@ def test_diagnose_fix_leaves_newer_board_untouched(tmp_path, capsys):
     _cmd_diagnose([str(f), "--fix"])
     assert f.read_text() == text
     assert "not fixed" in capsys.readouterr().err
+
+
+def test_a_v3_build_opens_a_card_board_read_only(tmp_path, monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = ('#!grafli v4\n@ box c "Card" 0,0 200x150 !card\n'
+            '@ note n 20,60 "body" >c\n')
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "v4" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+
+
+def test_a_v3_build_opens_an_ink_board_read_only(tmp_path, monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = ('#!grafli v4\n@ box b "Dark" 0,0 200x80 %primary !ink\n'
+            '@ note n 0,120 "rose text" %rose !ink\n')
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "v4" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+    assert f.read_text() == text
+
+
+def test_a_v3_build_opens_a_sans_board_read_only(tmp_path, monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = '#!grafli v4\n@ box b "Title" 0,0 200x80 !sans\n'
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "v4" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+    assert f.read_text() == text
+
+
+def test_a_v3_build_opens_a_sans_note_board_read_only(tmp_path, monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = '#!grafli v4\n@ note n 0,0 "A sans note" !sans\n'
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+    assert f.read_text() == text
+
+
+def test_a_v3_build_opens_an_outline_board_read_only(tmp_path, monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = '#!grafli v4\n@ box b "Later" 0,0 200x80 !dashed\n'
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "v4" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+    assert f.read_text() == text
+
+
+def test_a_v3_build_opens_a_number_marker_board_read_only(tmp_path,
+                                                          monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = ('#!grafli v4\n@ box b "Step" 0,0 80x80 *solid-3\n'
+            '@ box z "Start" 0,120 80x80 *0\n')
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "v4" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+    assert f.read_text() == text
+
+
+def test_a_v3_build_opens_a_connector_sides_board_read_only(tmp_path,
+                                                            monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = ('#!grafli v4\n@ box a "A" 0,0 200x80\n@ box b "B" 0,200 200x80\n'
+            '@ arrow a -> b ~from=right ~to=right\n')
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "v4" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+    assert f.read_text() == text
+
+
+def test_a_v3_build_opens_a_dot_ends_board_read_only(tmp_path, monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = ('#!grafli v4\n@ box a "A" 0,0 200x80\n@ box b "B" 0,200 200x80\n'
+            '@ arrow a <-> b !dot\n')
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "v4" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+    assert f.read_text() == text
+
+
+def test_a_v3_build_opens_a_status_board_read_only(tmp_path, monkeypatch):
+    from grafli import format as fmt
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    text = '#!grafli v4\n@ box b "API" 0,0 200x80 ~status=open:%rose\n'
+    win, f = _open(tmp_path, text)
+    assert "read-only" in win._view._toast_text
+    assert "v4" in win._view._toast_text
+    assert "[read-only]" in win.windowTitle()
+    assert f.read_text() == text

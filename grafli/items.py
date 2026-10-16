@@ -753,6 +753,25 @@ class BoxItem(QGraphicsRectItem):
         return (bool(self.box.icon) and self.box.icon_placement == "lead"
                 and iconset.has_icon(self.box.icon))
 
+    def _lead_layout(self) -> tuple[QRectF, float]:
+        """The lead icon's rect and the label's top, in item coordinates.
+        A top anchor (a container's default) keeps both at the top, the
+        icon centred on the label's first line; otherwise icon and label
+        block centre at mid-height."""
+        side = self._lead_icon_side()
+        if self._get_effective_anchor() in ("topleft", "topcenter"):
+            line_mid = (self._label.document().documentMargin()
+                        + QFontMetricsF(self._label.font()).height() / 2)
+            shift = side / 2 - line_mid
+            label_top = 8.0 + max(shift, 0.0)
+            icon_top = 8.0 + max(-shift, 0.0)
+        else:
+            block_h = self._label.boundingRect().height() + (
+                self._doc_line_extra_h() if self._doc_line else 0.0)
+            label_top = (self.box.h - block_h) / 2
+            icon_top = (self.box.h - side) / 2
+        return QRectF(8.0, icon_top, self._lead_icon_w(), side), label_top
+
     def _has_badge_icon(self) -> bool:
         return (bool(self.box.icon) and self.box.icon_placement == "badge"
                 and iconset.has_icon(self.box.icon))
@@ -794,10 +813,8 @@ class BoxItem(QGraphicsRectItem):
                                 color)
             return
         if self.box.icon_placement == "lead":
-            side = self._lead_icon_side()
             iconset.paint_icon(painter, self.box.icon,
-                               QRectF(8.0, (h - side) / 2,
-                                      self._lead_icon_w(), side), color)
+                               self._lead_layout()[0], color)
             return
         pad = 10.0
         cap_h = (self._label.boundingRect().height() + 6
@@ -867,9 +884,7 @@ class BoxItem(QGraphicsRectItem):
                 opt = QTextOption()
                 opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
                 doc.setDefaultTextOption(opt)
-                block_h = br.height() + (self._doc_line_extra_h()
-                                         if self._doc_line else 0.0)
-                self._label.setPos(bx + gutter, by + (h - block_h) / 2)
+                self._label.setPos(bx + gutter, by + self._lead_layout()[1])
                 return
             opt = QTextOption()
             opt.setAlignment(Qt.AlignmentFlag.AlignHCenter)

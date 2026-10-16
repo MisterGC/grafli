@@ -35,12 +35,13 @@ from pptx.oxml.ns import qn
 from pptx.dml.color import RGBColor
 from pptx.util import Pt
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRectF, Qt
-from PySide6.QtGui import QFont, QImage, QPainter, QTextDocument
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QTextDocument
 
 from grafli import theme as grafli_theme
 from grafli.constants import FONT_FAMILY, SANS_FONT_FAMILY, resolve_textsize_px
 from grafli.flows import isolate_focus, render_thumbnail_art
 from grafli.items import note_ink
+from grafli.legend import legend_chips
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
 from grafli.overlay_legend import SLIDE_CARD_W, card_image, measure_card
 from grafli.slideplan import (SlidePlan, build_slide_plan, live_overlays,
@@ -65,6 +66,9 @@ _EMU_PER_PT = 12700.0
 _TITLE_PT = 27.0          # slide title bar
 _PROGRESS_PT = 18.0       # "i / n"
 _FOOTER_PT = 12.0
+# The map palette's legend: a band of swatches and labels at the bottom of a
+# diagram slide while the legend is on (``grafli.legend``), as in the PDF.
+_LEGEND_PT = 14.0
 _COVER_TITLE_PT = 46.0
 
 # Area-filling text uses a (min, ideal, max) point band and a grow-to-fill rule,
@@ -125,6 +129,7 @@ class _Ctx:
     theme: _Theme
     footer: str
     template: bool = False
+    legend: bool = False   # the map palette's legend on diagram slides
 
 # Theme-font reference tokens — resolve to the deck's major/minor latin fonts, so
 # a font-theme change in PowerPoint cascades onto the text.
@@ -167,7 +172,8 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
         _strip_slides(prs)
         th = _THEMES["template"]
         ctx = _Ctx(prs.slide_width / _EMU_PER_PT, prs.slide_height / _EMU_PER_PT,
-                   th, board.footer or "", template=True)
+                   th, board.footer or "", template=True,
+                   legend=view._legend_visible)
         tlayout = _resolve_layout(prs, title_layout, "title")
         clayout = _resolve_layout(prs, content_layout, "content")
     else:
@@ -177,7 +183,8 @@ def export_flow_to_pptx(view, flow, out_path: str | Path,
         prs.slide_height = Pt(_DEFAULT_PAGE_H)
         if th.inject_grafli:
             _apply_grafli_theme(prs)
-        ctx = _Ctx(_DEFAULT_PAGE_W, _DEFAULT_PAGE_H, th, board.footer or "")
+        ctx = _Ctx(_DEFAULT_PAGE_W, _DEFAULT_PAGE_H, th, board.footer or "",
+                   legend=view._legend_visible)
         tlayout = clayout = prs.slide_layouts[6]   # the built-in blank layout
 
     plans = build_slide_plan(view, flow,
@@ -497,6 +504,14 @@ def _render_hero(slide, view, plan: SlidePlan, hero: QRectF, ctx: _Ctx,
                    color=MSO_THEME_COLOR.TEXT_1, anchor=MSO_ANCHOR.MIDDLE)
         return []
 
+    # The legend keeps a band at the hero's bottom; the caption floats above it.
+    entries = view.legend_entries() if ctx.legend else []
+    if entries:
+        reserve = _build_legend(slide, entries, hero, ctx)
+        hero = QRectF(hero.left(), hero.top(), hero.width(),
+                      hero.height() - reserve)
+        cap_bottom -= reserve
+
     # Fit the framed region into the hero, preserving aspect ratio.
     scale = min(hero.width() / source.width(), hero.height() / source.height())
     tw, th_ = source.width() * scale, source.height() * scale
@@ -631,6 +646,41 @@ def _build_caption(slide, text: str, ctx: _Ctx, hero: QRectF,
     _fill_text(tf, text, is_md=True, base_pt=base, font_ref=_FONT_MINOR,
                color=MSO_THEME_COLOR.BACKGROUND_1, anchor=MSO_ANCHOR.MIDDLE,
                clear=True, autosize=False)
+
+
+def _build_legend(slide, entries: list, hero: QRectF, ctx: _Ctx) -> float:
+    """The map palette's legend along the bottom of ``hero``: a swatch shape
+    and an editable label per entry, laid out as the PDF lays it out. Returns
+    the height it takes from the hero."""
+    from pptx.enum.shapes import MSO_SHAPE
+    placed, height = legend_chips(entries, _LEGEND_PT, hero.width())
+    row_h = height / len({y for _, y, _ in placed})
+    top = hero.bottom() - height
+    for x, y, entry in placed:
+        left, row_top = hero.left() + x, top + y
+        swatch = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE, Pt(left),
+            Pt(row_top + (row_h - _LEGEND_PT) / 2), Pt(_LEGEND_PT),
+            Pt(_LEGEND_PT))
+        color = QColor(grafli_theme.resolve_color(f"%{entry.name}")
+                       or grafli_theme.INK_FAINT)
+        swatch.fill.solid()
+        swatch.fill.fore_color.rgb = RGBColor(color.red(), color.green(),
+                                              color.blue())
+        swatch.line.fill.background()
+        swatch.shadow.inherit = False
+        label_x = left + _LEGEND_PT * 1.45
+        box = slide.shapes.add_textbox(
+            Pt(label_x), Pt(row_top), Pt(max(1.0, hero.right() - label_x)),
+            Pt(row_h))
+        tf = box.text_frame
+        tf.word_wrap = False
+        tf.margin_left = tf.margin_right = 0
+        tf.margin_top = tf.margin_bottom = 0
+        _fill_text(tf, entry.label, is_md=False, base_pt=_LEGEND_PT,
+                   font_ref=_FONT_MINOR, color=MSO_THEME_COLOR.TEXT_1,
+                   anchor=MSO_ANCHOR.MIDDLE)
+    return height + ctx.page_h * 0.06 * 0.4
 
 
 def _build_footer(slide, footer: str, ctx: _Ctx) -> None:

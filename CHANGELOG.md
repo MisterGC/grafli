@@ -156,6 +156,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   <kbd>e</kbd> sets it: Background row, plate / flat / card. A board using
   it is written `#!grafli v4`; older builds open it read-only.
   ([#203](https://github.com/MisterGC/grafli/issues/203))
+- **A worked explanation map ships in `examples/`.**
+  `examples/navigation-map.grafli` maps grafli's own path from Return on a
+  box to the board behind it in three levels — the parts, the dispatch, the
+  algorithm with its source refs — with box docs, deep links, a tour across
+  the levels with path stops, and a Tests overlay that
+  `examples/navigation-map-overlay.py` regenerates.
+  ([#171](https://github.com/MisterGC/grafli/issues/171))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

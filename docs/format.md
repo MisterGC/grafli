@@ -361,9 +361,10 @@ The palette is also the map's legend: <kbd>Shift</kbd>+<kbd>M</kbd> (or
 bottom-left corner with a swatch and the label of each entry the board uses,
 in the file's order; entries no box, status label, note or connector of the
 board uses stay out. While it is on, the SVG and PNG exports draw it in a
-band below the board and a PDF flow export draws it at the bottom of each
-diagram slide (not on the cover or a text slide). From the command line,
-`grafli render --legend` and `grafli export --legend` (PDF) do the same. The
+band below the board and a PDF or PPTX flow export draws it at the bottom of
+each diagram slide (not on the cover or a text slide; in the PPTX as editable
+shapes and text). From the command line, `grafli render --legend` and
+`grafli export --legend` do the same. The
 legend is a view setting, not part of the board: nothing in the `.grafli`
 changes.
 

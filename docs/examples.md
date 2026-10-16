@@ -55,6 +55,21 @@ grafli render grafli/examples/presentation-demo.grafli /tmp/stop.png --step show
 grafli render grafli/examples/presentation-demo.grafli /tmp/stop.png --step showcase:5
 ```
 
+## Explanation map demo
+
+`examples/navigation-map.grafli` is a map you read level by level: grafli's
+own path from <kbd>Return</kbd> on a box to the board behind it. Select
+**Open dispatch** and press <kbd>g</kbd><kbd>d</kbd> to zoom into its level,
+again on **_enter_board** to reach the algorithm and its source refs, and
+<kbd>g</kbd><kbd>u</kbd> to come back out. <kbd>g</kbd><kbd>v</kbd> peeks at a
+box's doc, the `enter` tour crosses all three levels, and <kbd>A</kbd> cycles
+to the **Tests** overlay, which `examples/navigation-map-overlay.py` writes.
+To share it with someone without grafli:
+
+```bash
+grafli export-html grafli/examples/navigation-map.grafli map.html
+```
+
 ## Try it yourself
 
 The format is small enough that the fastest way to learn is to read a

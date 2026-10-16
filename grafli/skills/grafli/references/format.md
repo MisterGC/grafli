@@ -690,7 +690,7 @@ them all, in the app, `render` and the exports.
 * A board using a palette name is written `#!grafli v4`.
 * The palette is the map's legend — don't hand-draw a key note. The user
   toggles it with `Shift+M`; for a picture or a deck pass `--legend` to
-  `grafli render` or `grafli export` (PDF). It lists the entries the board
+  `grafli render` or `grafli export` (PDF or PPTX). It lists the entries the board
   uses, by `label`, so write labels a reader understands.
 
 ## Overlay files (`<stem>-res/<name>.overlay.json`)

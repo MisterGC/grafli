@@ -240,7 +240,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   something needed a hand-made note to say what. <kbd>Shift</kbd>+<kbd>M</kbd>
   (or *Legend* in the side panel) shows a card with a swatch and label for
   each palette entry the board uses; while it is on, the SVG/PNG exports
-  draw it below the board and PDF diagram slides at their bottom.
+  draw it below the board and PDF/PPTX diagram slides at their bottom.
   `grafli render --legend` and `grafli export --legend` do the same from the
   command line. Nothing in the `.grafli` changes.
   ([#214](https://github.com/MisterGC/grafli/issues/214))
@@ -267,6 +267,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   there, and `grafli diagnose` looks for it there. Renders and exports draw
   the ref as written. Boards without the comment resolve as before.
   ([#217](https://github.com/MisterGC/grafli/issues/217))
+- **A worked explanation map ships in `examples/`.**
+  `examples/navigation-map.grafli` maps grafli's own path from Return on a
+  box to the board behind it in three levels — the parts, the dispatch, the
+  algorithm with its source refs — with box docs, deep links, a tour across
+  the levels with path stops, and a Tests overlay that
+  `examples/navigation-map-overlay.py` regenerates.
+  ([#171](https://github.com/MisterGC/grafli/issues/171))
 
 ### Changed
 - **A sub-board's miniature fills the whole box.** It used to sit small

@@ -179,6 +179,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handwritten, mono and sans. A PPTX slide names Inter on a `!sans` note's
   text instead of the theme font.
   ([#206](https://github.com/MisterGC/grafli/issues/206))
+- **A worked explanation map ships in `examples/`.**
+  `examples/navigation-map.grafli` maps grafli's own path from Return on a
+  box to the board behind it in three levels — the parts, the dispatch, the
+  algorithm with its source refs — with box docs, deep links, a tour across
+  the levels with path stops, and a Tests overlay that
+  `examples/navigation-map-overlay.py` regenerates.
+  ([#171](https://github.com/MisterGC/grafli/issues/171))
 
 ### Changed
 - **A box's doc line shows in every export, not only on the canvas.** A

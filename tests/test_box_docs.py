@@ -240,6 +240,63 @@ def test_board_without_box_docs_is_untouched(tmp_path: Path):
     win.close()
 
 
+
+def _headless(path: Path):
+    """A never-shown view set up as `grafli render` sets it up."""
+    from grafli.format import parse
+    from grafli.view import GrafliView
+    _app()
+    view = GrafliView()
+    view.base_dir = str(path.parent)
+    view.render_headless(path)
+    view.load_board(parse(path.read_text()))
+    return view
+
+
+def test_headless_render_shows_the_doc_lines_the_app_shows(tmp_path: Path):
+    root, _ = _system(tmp_path)
+    win = _window(root)
+    view = _headless(root)
+    for scale in (0.3, 1.0, 2.0):
+        _zoom(win, scale)
+        view.setTransform(QTransform().scale(scale, scale))
+        view._refresh_lod()
+        lines = {bid: item._doc_line
+                 for bid, item in win._view._box_items.items()}
+        assert {bid: item._doc_line
+                for bid, item in view._box_items.items()} == lines
+    assert lines["combat"] == "A blow lands and impact() shakes the camera."
+    win.close()
+
+
+def test_render_draws_the_doc_line(tmp_path: Path):
+    from PySide6.QtGui import QImage
+    from grafli.app import _cmd_render
+    root, doc = _system(tmp_path)
+    with_line = tmp_path / "with.png"
+    assert _cmd_render([str(root), str(with_line)]) == 0
+    doc.unlink()
+    without = tmp_path / "without.png"
+    assert _cmd_render([str(root), str(without)]) == 0
+    assert QImage(str(with_line)) != QImage(str(without))
+
+
+def test_render_lod_keeps_the_zoomed_out_look(tmp_path: Path):
+    # Fitted to the screen, the doc line is far too small to read, so
+    # `--lod` renders the board as it did before render drew doc lines.
+    from PySide6.QtGui import QImage
+    from grafli.app import _cmd_render
+    root, doc = _system(tmp_path)
+    root.write_text(root.read_text()
+                    + '@ box far "Far" 20000,20000 240x80\n')
+    zoomed_out = tmp_path / "lod.png"
+    assert _cmd_render([str(root), str(zoomed_out), "--lod"]) == 0
+    doc.unlink()
+    before = tmp_path / "before.png"
+    assert _cmd_render([str(root), str(before), "--lod"]) == 0
+    assert QImage(str(zoomed_out)) == QImage(str(before))
+
+
 # ── The peek ──
 
 

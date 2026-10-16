@@ -537,6 +537,10 @@ grafli render input.grafli /tmp/stop.png --step tour:3    # step 3 with its deta
 grafli export-html input.grafli out.html  # the board + every reachable board as one offline page, tours playable
 ```
 
+The render draws what the canvas draws at that zoom — 100% by default,
+the fitted board with `--lod` — including a `&graph` box's miniature and
+a `&doc` box's first sentence when the box has room for them.
+
 Workflow:
 
 1. Write or edit the `.grafli`.

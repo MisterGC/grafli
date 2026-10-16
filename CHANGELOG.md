@@ -183,6 +183,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **`grafli render` draws sub-board miniatures and box doc lines.** A
+  headless render looked up the board's file on a window it never has, so
+  a `&graph` box showed no miniature and a `&doc` box no first sentence.
+  The render now shows both wherever the app shows them at that zoom;
+  `--lod` keeps its zoomed-out look, and the exports still leave them out.
+  ([#190](https://github.com/MisterGC/grafli/issues/190))
 - **A container with a lead icon keeps its label and icon top-left.** A
   `*lead:` icon on a container — or on any box with `^topleft` or
   `^topcenter` — put the icon and label at mid-height, across the children,

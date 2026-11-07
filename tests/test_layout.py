@@ -418,3 +418,16 @@ class TestStableRerun:
         layout_groups(board, container_groups(board), 20, lambda pid: 0)
         assert min(b.x for b in board.boxes) == 100
         assert min(b.y for b in board.boxes) == 100
+
+    def test_free_box_steps_back_before_a_pinned_box_when_closer(self):
+        # The layer's centred slot for A overlaps the pin's left end, so
+        # A goes before the pin rather than past its far end.
+        pin = _box("P", 300, 0, 600, 80)
+        pin.pinned = True
+        board = _make_board([pin, _box("A", 0, 0), _box("W", 0, 200, 900, 80)],
+                            [_arrow("A", "W")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 0,
+                      Direction.TTB)
+        a = board.box_by_id("A")
+        assert a.x + a.w <= pin.x
+        assert not _overlaps(a, pin)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import math
 from collections import defaultdict
 from collections.abc import Callable
 
@@ -528,23 +529,34 @@ def _assign_coordinates(
         for ni, nid in enumerate(layer):
             bw, bh = box_sizes.get(nid, (160, 80))
 
-            while True:
-                if direction == Direction.TTB:
-                    x = cx + cross_cursor
-                    y = cy + main_cursor
-                else:
-                    x = cx + main_cursor
-                    y = cy + cross_cursor
+            ttb = direction == Direction.TTB
+            size = bw if ttb else bh
+            origin = cx if ttb else cy
 
-                x = _snap(x, grid)
-                y = _snap(y, grid)
+            def _at(cursor: float) -> tuple[float, float]:
+                if ttb:
+                    return _snap(cx + cursor, grid), _snap(cy + main_cursor, grid)
+                return _snap(cx + main_cursor, grid), _snap(cy + cursor, grid)
+
+            # A node may step back before an obstacle, but not onto the
+            # previous node of its layer or before the area's edge.
+            floor = 0.0 if ni == 0 else cross_cursor
+            while True:
+                x, y = _at(cross_cursor)
                 hit = _blocking((x, y, bw, bh), obstacles)
                 if hit is None:
                     break
                 ox, oy, ow, oh = hit
-                past = (ox + ow - cx if direction == Direction.TTB
-                        else oy + oh - cy) + effective_node_gap
-                cross_cursor = max(cross_cursor + 1, past)
+                o_start, o_len = (ox, ow) if ttb else (oy, oh)
+                forward = max(cross_cursor + 1,
+                              o_start + o_len - origin + effective_node_gap)
+                back = _snap_down(o_start - effective_node_gap - size, grid) - origin
+                if (floor <= back < cross_cursor
+                        and cross_cursor - back < forward - cross_cursor
+                        and _blocking((*_at(back), bw, bh), obstacles) is None):
+                    cross_cursor = back
+                else:
+                    cross_cursor = forward
             positions[nid] = (x, y)
 
             if direction == Direction.TTB:
@@ -555,6 +567,13 @@ def _assign_coordinates(
         main_cursor += layer_main_sizes[li] + effective_layer_gap
 
     return positions
+
+
+def _snap_down(value: float, grid: float) -> float:
+    """Snap a coordinate to the grid point at or below it."""
+    if grid <= 0:
+        return value
+    return math.floor(value / grid) * grid
 
 
 def _snap(value: float, grid: float) -> float:

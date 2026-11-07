@@ -1,0 +1,374 @@
+"""grafli serve end to end: a real server on 127.0.0.1, the real render
+worker, and WebSocket clients standing in for tabs."""
+
+from __future__ import annotations
+
+import io
+import json
+import os
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("starlette")
+pytest.importorskip("uvicorn")
+websockets_sync = pytest.importorskip("websockets.sync.client")
+
+from grafli.serve import server as srv  # noqa: E402
+from grafli.sync import atomic_write  # noqa: E402
+
+BOARD = """#!grafli v1
+@ box a "A" 0,0 120x60
+@ box b "B" 240,0 120x60
+@ arrow a -> b "calls"
+"""
+
+
+class Served:
+    def __init__(self, root: Path):
+        import uvicorn
+        self.root = root
+        self.keys = srv.Keys()
+        self.sock = srv.bind("127.0.0.1", 0)
+        self.port = self.sock.getsockname()[1]
+        self.app = srv.create_app(root, self.keys)
+        config = uvicorn.Config(self.app, log_level="warning", ws="auto",
+                                lifespan="on")
+        self.server = uvicorn.Server(config)
+        self.thread = threading.Thread(
+            target=self.server.run, kwargs={"sockets": [self.sock]},
+            daemon=True)
+        self.thread.start()
+        while not self.server.started:
+            time.sleep(0.02)
+
+    def url(self, name: str) -> str:
+        return f"ws://127.0.0.1:{self.port}/ws/{name}"
+
+    def stop(self):
+        self.server.should_exit = True
+        self.thread.join(10)
+        self.sock.close()
+
+
+@pytest.fixture(scope="module")
+def served(tmp_path_factory):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    root = tmp_path_factory.mktemp("boards")
+    s = Served(root)
+    yield s
+    s.stop()
+
+
+@pytest.fixture
+def board(served, request):
+    path = served.root / f"{request.node.name.replace('[', '_').strip(']')}.grafli"
+    path.write_text(BOARD, encoding="utf-8")
+    return path
+
+
+class Tab:
+    """A WebSocket client speaking the live page's protocol."""
+
+    def __init__(self, served: Served, name: str, key: str):
+        self._conn = websockets_sync.connect(served.url(name), max_size=None)
+        self.ws = self._conn.__enter__()
+        self.ws.send(json.dumps({"t": "hello", "key": key}))
+        self.next_id = 1
+
+    def recv(self, timeout=10):
+        return json.loads(self.ws.recv(timeout=timeout))
+
+    def recv_until(self, kind, timeout=10):
+        deadline = time.monotonic() + timeout
+        while True:
+            msg = self.recv(max(deadline - time.monotonic(), 0.01))
+            if msg["t"] == kind:
+                return msg
+
+    def open(self):
+        welcome = self.recv()
+        assert welcome["t"] == "welcome"
+        frame = self.recv_until("frame")
+        return welcome, frame
+
+    def edit(self, base, op):
+        req = self.next_id
+        self.next_id += 1
+        self.ws.send(json.dumps({"t": "edit", "id": req, "base": base, "op": op}))
+        while True:
+            msg = self.recv()
+            if msg.get("id") == req:
+                return msg
+
+    def close(self):
+        self._conn.__exit__(None, None, None)
+
+
+def _labels(frame):
+    return {e["id"]: e["label"] for e in frame["board"]["elements"]}
+
+
+# ── Binding, keys and links ──
+
+def test_binds_to_the_address_given_only():
+    sock = srv.bind("127.0.0.1", 0)
+    try:
+        assert sock.getsockname()[0] == "127.0.0.1"
+    finally:
+        sock.close()
+
+
+def test_default_host_is_this_machine_not_every_interface(tmp_path, monkeypatch):
+    from grafli import app
+    seen = {}
+    monkeypatch.setattr(srv, "run", lambda root, **kw: seen.update(kw) or 0)
+    assert app._cmd_serve([str(tmp_path)]) == 0
+    assert seen["host"] == "127.0.0.1" == srv.DEFAULT_HOST
+    assert not srv.every_interface(seen["host"])
+    assert app._cmd_serve([str(tmp_path), "--host", "100.64.0.7"]) == 0
+    assert seen["host"] == "100.64.0.7"
+
+
+def test_viewer_and_editor_keys_differ():
+    keys = srv.Keys()
+    assert keys.viewer != keys.editor
+    assert keys.role(keys.viewer) == "viewer"
+    assert keys.role(keys.editor) == "editor"
+    assert keys.role("nope") is None and keys.role(None) is None
+    with pytest.raises(ValueError):
+        srv.Keys("same", "same")
+
+
+def test_link_carries_the_key_after_the_hash():
+    assert (srv.link("192.168.1.5", 7341, "team/api map", "K")
+            == "http://192.168.1.5:7341/b/team/api%20map#k=K")
+    assert srv.link("fd7a::1", 80, "b", "K") == "http://[fd7a::1]:80/b/b#k=K"
+
+
+def test_run_prints_a_watch_and_an_edit_link_per_board(tmp_path, monkeypatch):
+    import uvicorn
+    (tmp_path / "one.grafli").write_text(BOARD)
+    (tmp_path / "two.grafli").write_text(BOARD)
+    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
+    out = io.StringIO()
+    assert srv.run(tmp_path, host="127.0.0.1", port=0, out=out) == 0
+    text = out.getvalue()
+    watch = [ln.split("watch: ")[1] for ln in text.splitlines() if "watch: " in ln]
+    edit = [ln.split("edit:  ")[1] for ln in text.splitlines() if "edit:  " in ln]
+    assert [u.split("/b/")[1].split("#")[0] for u in watch] == ["one", "two"]
+    assert all(u.startswith("http://127.0.0.1:") for u in watch + edit)
+    viewer_keys = {u.split("#k=")[1] for u in watch}
+    editor_keys = {u.split("#k=")[1] for u in edit}
+    assert len(viewer_keys) == len(editor_keys) == 1
+    assert viewer_keys.isdisjoint(editor_keys)
+    assert "every interface" not in text
+
+
+def test_run_warns_when_told_to_listen_everywhere(tmp_path, monkeypatch):
+    import uvicorn
+    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
+    out = io.StringIO()
+    srv.run(tmp_path, host="0.0.0.0", port=0, out=out)
+    assert "Warning: 0.0.0.0 listens on every interface" in out.getvalue()
+
+
+def test_board_names_stay_under_the_served_directory(tmp_path):
+    (tmp_path / "ok.grafli").write_text(BOARD)
+    (tmp_path / "ok-res").mkdir()
+    (tmp_path / "ok-res" / "sub.grafli").write_text(BOARD)
+    (tmp_path.parent / "outside.grafli").write_text(BOARD)
+    assert srv.board_path(tmp_path, "ok") == (tmp_path / "ok.grafli").resolve()
+    assert srv.board_path(tmp_path, "ok-res/sub") is not None
+    for bad in ("../outside", "/etc/passwd", "missing", "", "ok-res/../ok",
+                "ok\\x"):
+        assert srv.board_path(tmp_path, bad) is None, bad
+    assert srv.listed_boards(tmp_path) == ["ok"]
+
+
+# ── The page and the socket ──
+
+def test_the_page_holds_no_board_until_the_key(served, board):
+    from urllib.request import urlopen
+    with urlopen(f"http://127.0.0.1:{served.port}/b/{board.stem}") as r:
+        page = r.read().decode("utf-8")
+    data = page.split('id="grafli-data">', 1)[1].split("</script>", 1)[0]
+    assert json.loads(data)["live"] is True
+    assert json.loads(data)["boards"] == {}
+    assert '<template id="svg-' not in page
+    assert "grafliLive" in page
+
+
+def test_a_wrong_key_is_refused(served, board):
+    from websockets.exceptions import ConnectionClosed
+    tab = Tab(served, board.stem, "not-a-key")
+    with pytest.raises(ConnectionClosed) as e:
+        tab.recv()
+    assert e.value.rcvd.code == srv.CLOSE_BAD_KEY
+
+
+def test_an_unknown_board_is_refused(served):
+    from websockets.exceptions import ConnectionClosed
+    tab = Tab(served, "no-such-board", served.keys.viewer)
+    with pytest.raises(ConnectionClosed) as e:
+        tab.recv()
+    assert e.value.rcvd.code == srv.CLOSE_NO_BOARD
+
+
+def test_the_first_frame_is_the_apps_drawing(served, board):
+    tab = Tab(served, board.stem, served.keys.viewer)
+    welcome, frame = tab.open()
+    assert welcome["role"] == "viewer"
+    assert frame["board"]["file"] == f"{board.stem}.grafli"
+    assert _labels(frame) == {"a": "A", "b": "B"}
+    rects = {e["id"]: e["rect"] for e in frame["board"]["elements"]}
+    assert rects["a"][2] >= 120 and rects["b"][0] > rects["a"][0]
+    assert frame["svgs"]["b0-0"].startswith("<svg")
+    tab.close()
+
+
+@pytest.mark.parametrize("writer", ["editor", "app"])
+def test_a_change_to_the_file_shows_within_a_second(served, board, writer):
+    """An editor rewrites the file in place; the desktop app saves through
+    atomic_write. Either way the new frame arrives well within a second."""
+    tab = Tab(served, board.stem, served.keys.viewer)
+    _welcome, first = tab.open()
+    times = []
+    for i in range(5):
+        text = BOARD.replace('"B"', f'"B{i}"')
+        t0 = time.time()
+        if writer == "editor":
+            with open(board, "w", encoding="utf-8") as f:
+                f.write(text)
+        else:
+            atomic_write(board, text)
+        # The frame that shows this write; an in-place write can be seen
+        # half-done first, and that frame may come before it.
+        while True:
+            frame = tab.recv_until("frame", timeout=max(t0 + 1.0 - time.time(), 0.01))
+            if _labels(frame)["b"] == f"B{i}":
+                break
+        times.append(time.time() - t0)
+        assert frame["version"] > first["version"]
+        time.sleep(0.05)
+    tab.close()
+    assert max(times) < 1.0, times
+
+
+def test_every_tab_on_the_board_gets_the_change(served, board):
+    tabs = [Tab(served, board.stem, served.keys.viewer) for _ in range(3)]
+    for t in tabs:
+        t.open()
+    board.write_text(BOARD.replace('"A"', '"Everyone"'))
+    for t in tabs:
+        assert _labels(t.recv_until("frame"))["a"] == "Everyone"
+        t.close()
+
+
+# ── Edits from a tab, through the merge ──
+
+def test_an_editor_tab_edits_the_file(served, board):
+    tab = Tab(served, board.stem, served.keys.editor)
+    welcome, frame = tab.open()
+    assert welcome["role"] == "editor"
+    ack = tab.edit(frame["version"], {"op": "move", "id": "b", "x": 300, "y": 20})
+    assert ack["t"] == "ack" and ack["touched"] == "b" and ack["conflicts"] == []
+    assert '@ box b "B" 300,20 120x60' in board.read_text()
+    frame = tab.recv_until("frame")
+    rect = next(e["rect"] for e in frame["board"]["elements"] if e["id"] == "b")
+    assert rect[0] > 280
+    tab.close()
+
+
+def test_a_viewer_tab_cannot_edit(served, board):
+    tab = Tab(served, board.stem, served.keys.viewer)
+    _welcome, frame = tab.open()
+    msg = tab.edit(frame["version"], {"op": "move", "id": "b", "x": 1, "y": 1})
+    assert msg["t"] == "error" and "editor link" in msg["message"]
+    assert board.read_text() == BOARD
+    tab.close()
+
+
+def test_an_edit_merges_with_a_change_it_did_not_see(served, board):
+    """The tab moves a box on the version it saw while an agent renamed the
+    other box on disk: the merge keeps both."""
+    tab = Tab(served, board.stem, served.keys.editor)
+    _welcome, frame = tab.open()
+    seen = frame["version"]
+    board.write_text(BOARD.replace('"B"', '"Renamed on disk"'))
+    tab.recv_until("frame")
+    ack = tab.edit(seen, {"op": "move", "id": "a", "x": 10, "y": 10})
+    assert ack["t"] == "ack" and ack["conflicts"] == []
+    disk = board.read_text()
+    assert '@ box a "A" 10,10' in disk
+    assert '"Renamed on disk"' in disk
+    tab.close()
+
+
+def test_a_true_conflict_keeps_the_file_and_is_reported(served, board):
+    """Both sides rename the same box: sync.merge_boards keeps the file's
+    label and reports the field."""
+    tab = Tab(served, board.stem, served.keys.editor)
+    _welcome, frame = tab.open()
+    seen = frame["version"]
+    board.write_text(BOARD.replace('"A"', '"From disk"'))
+    tab.recv_until("frame")
+    ack = tab.edit(seen, {"op": "rename", "id": "a", "label": "From tab"})
+    assert ack["conflicts"] == [{"kind": "box", "key": "a", "detail": "label"}]
+    assert '"From disk"' in board.read_text()
+    tab.close()
+
+
+def test_a_bad_edit_leaves_the_file_alone(served, board):
+    tab = Tab(served, board.stem, served.keys.editor)
+    _welcome, frame = tab.open()
+    msg = tab.edit(frame["version"], {"op": "move", "id": "zz", "x": 0, "y": 0})
+    assert msg["t"] == "error" and "'zz'" in msg["message"]
+    msg = tab.edit(-5, {"op": "move", "id": "a", "x": 0, "y": 0})
+    assert msg["t"] == "error" and "too old" in msg["message"]
+    assert board.read_text() == BOARD
+    tab.close()
+
+
+def test_a_level_into_another_board_opens_its_live_page(served):
+    res = served.root / "top-res"
+    res.mkdir()
+    (res / "inner.grafli").write_text(BOARD)
+    top = served.root / "top.grafli"
+    top.write_text('#!grafli v1\n@ box z "Zoom in" 0,0 160x80 &graph:inner\n')
+    tab = Tab(served, "top", served.keys.viewer)
+    _welcome, frame = tab.open()
+    assert frame["board"]["file"] == "top.grafli"
+    z = next(e for e in frame["board"]["elements"] if e["id"] == "z")
+    assert z["level"]["href"] == "/b/top-res/inner"
+    tab.close()
+
+
+def test_a_cancelled_render_does_not_hand_its_frame_to_the_next(tmp_path):
+    """A room that closes mid-render cancels its request; the worker's late
+    answer must not become the next board's frame."""
+    import asyncio
+    from grafli.serve.render import RenderWorker
+    a = tmp_path / "a.grafli"
+    a.write_text(BOARD)
+    b = tmp_path / "b.grafli"
+    b.write_text(BOARD)
+
+    async def go():
+        worker = RenderWorker()
+        try:
+            await worker.shell()
+            first = asyncio.create_task(worker.render(a, BOARD, tmp_path))
+            await asyncio.sleep(0.005)
+            first.cancel()
+            try:
+                await first
+            except asyncio.CancelledError:
+                pass
+            return await worker.render(b, BOARD, tmp_path)
+        finally:
+            await worker.close()
+
+    assert asyncio.run(go())["board"]["file"] == "b.grafli"

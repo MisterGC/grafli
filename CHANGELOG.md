@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lines; `--check` makes it a CI gate. Files with malformed lines are left
   untouched and the offending lines reported.
   ([#20](https://github.com/MisterGC/grafli/issues/20))
+- **`grafli layout <file>` — the layered layout without the app.** The
+  layout the app runs on <kbd>=</kbd> had no command, so agents placed
+  every coordinate by hand. `grafli layout` rewrites a board's box
+  coordinates with it: each container's boxes ranked by their arrows —
+  an arrow into a box's contents counts for that box, so containers rank
+  by what runs between them — and containers grown to fit. A box marked
+  `!pin` keeps its position and the others are placed around it, in the
+  app's <kbd>=</kbd> too. A second run moves nothing, so `--check` can
+  gate a board; `--direction ltr|ttb` fixes the flow. The shared layout
+  now spaces boxes in whole grid steps, lays top-level containers out
+  before the root, and picks a container's flow by what fits it.
+  ([#256](https://github.com/MisterGC/grafli/issues/256))
 - **A blank board says how to start.** An empty board — fresh untitled
   buffer or empty file — paints a muted hint in the middle of the canvas
   (`n box · t note · i image`, `F1 all keys`) that vanishes the moment the

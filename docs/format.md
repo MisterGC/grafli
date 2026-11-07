@@ -16,7 +16,7 @@ its version. It is required.
 ## Element types
 
 ```text
-@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [&attach] [~status=<text>[:color]] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [!pin] [&attach] [~status=<text>[:color]] [>parent]
 @ note [<id>] <x>,<y> "<text>" [color] [~size] [~width=N] [!style] [>parent]
 @ arrow <from> <op> <to> ["label"] [color] [!pattern] [!thickness] [!routing] [!dot] [~size] [~from=<side>] [~to=<side>]
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [&attach]
@@ -106,6 +106,15 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   `grafli render` and every export draw it. A board using either carries a
   `#!grafli v4` header. (Style mode → `e`, Outline row: solid / dashed /
   dotted.)
+- `!pin` — on a box, the layered layout (`grafli layout <file>`, and `=`
+  in the app) keeps the box where it is and places the other boxes of its
+  container around it; arrows to it still rank them, so `a -> pinned -> b`
+  keeps `a` before `b`. A pinned box inside a container that the layout
+  moves goes along with it — pin the container too to keep both in place.
+  The box's own children are still laid out inside it; pin them to keep
+  them. It goes with the other `!` flags, e.g. `@ box claim "Claim"
+  400,100 240x100 %highlight !pin`, and draws nothing. A board using it
+  carries a `#!grafli v4` header.
 - `~status=<text>[:color]` — on a box, a short status label (`open`,
   `designed`, `in-review`) drawn as a pill on the box's bottom edge,
   right-aligned, on the canvas, in `grafli render` and in every export. The

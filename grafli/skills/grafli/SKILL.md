@@ -252,7 +252,9 @@ in `references/genres.md` instead.)
    and sequence, write the boxes at rough positions and run
    `grafli layout <file>` — the app's layered layout (`=` in the app),
    run headless — then adjust by hand: the claim's boxes where the eye
-   lands, related boxes side by side, no arrow through a box. For a
+   lands, related boxes side by side, no arrow through a box. A box
+   you placed on purpose gets `!pin`: the next `grafli layout` keeps
+   it there and places the others around it. For a
    matrix, mirror, proportional strip or before / after, the
    coordinates *are* the content: compute them from the encoding's rule
    and don't run the layout over them. If your grafli has no `layout`

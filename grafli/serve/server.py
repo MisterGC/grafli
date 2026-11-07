@@ -6,7 +6,10 @@
   key read from the link after ``#k=`` decides whether the tab may watch
   (viewer) or also edit (editor). Then the server sends ``welcome`` and a
   ``frame`` on every change; an editor sends ``{"t": "edit", "id", "base",
-  "op"}`` and gets ``ack`` or ``error`` with the same ``id``.
+  "op"}`` and gets ``ack`` or ``error`` with the same ``id``, the ack once
+  the frame that shows the edit is pushed (its ``version``). ``{"t":
+  "undo", "id"}`` takes back the last edit of the tab's author, the
+  ``author`` its hello named (a tab keeps it across reloads).
 
 A wrong key closes the socket with code 4401, an unknown board with 4404.
 """
@@ -17,6 +20,7 @@ import asyncio
 import hmac
 import ipaddress
 import json
+import re
 import secrets
 import socket
 import sys
@@ -35,6 +39,9 @@ HELLO_TIMEOUT_S = 10
 
 CLOSE_BAD_KEY = 4401
 CLOSE_NO_BOARD = 4404
+
+# What a tab may call its author: a short token it made up itself.
+_AUTHOR_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 @dataclass
@@ -95,6 +102,9 @@ class Hub:
         self.log = log
         self.rooms: dict[Path, Room] = {}
         self.fonts: dict[str, dict] = {}
+        # Board → author → their edits; outlives a room, so undo still works
+        # after the last tab on a board reloaded.
+        self.history: dict[Path, dict] = {}
         self._shell: str | None = None
 
     async def shell(self) -> str:
@@ -106,7 +116,8 @@ class Hub:
         room = self.rooms.get(path)
         if room is None:
             room = Room(path, name, self.root, self.renderer, self.fonts,
-                        log=self.log)
+                        log=self.log,
+                        history=self.history.setdefault(path, {}))
             self.rooms[path] = room
             room.start()
         return room
@@ -168,14 +179,17 @@ def create_app(root: Path, keys: Keys, renderer=None,
             async with send_lock:
                 await ws.send_text(json.dumps(msg, ensure_ascii=False))
 
-        client = Client(send, role)
+        author = hello.get("author")
+        if not (isinstance(author, str) and _AUTHOR_RE.fullmatch(author)):
+            author = secrets.token_urlsafe(8)
+        client = Client(send, role, author)
         room = hub.room(path, name)
         await send({"t": "welcome", "role": role, "board": name})
         await room.join(client)
         try:
             while True:
                 msg = await ws.receive_json()
-                if not isinstance(msg, dict) or msg.get("t") != "edit":
+                if not isinstance(msg, dict) or msg.get("t") not in ("edit", "undo"):
                     continue
                 await _edit(room, client, msg, send)
         except (WebSocketDisconnect, json.JSONDecodeError, RuntimeError):
@@ -213,7 +227,11 @@ async def _edit(room: Room, client: Client, msg: dict, send) -> None:
                                "editing needs the editor link"})
         return
     try:
-        result = await room.edit(msg.get("base"), msg.get("op"))
+        if msg.get("t") == "undo":
+            result = await room.undo(client.author)
+        else:
+            result = await room.edit(msg.get("base"), msg.get("op"),
+                                     client.author)
     except OpError as e:
         await send({"t": "error", "id": req_id, "message": str(e)})
         return

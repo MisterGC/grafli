@@ -72,14 +72,21 @@ def board(served, request):
 class Tab:
     """A WebSocket client speaking the live page's protocol."""
 
-    def __init__(self, served: Served, name: str, key: str):
+    def __init__(self, served: Served, name: str, key: str, author=None):
         self._conn = websockets_sync.connect(served.url(name), max_size=None)
         self.ws = self._conn.__enter__()
-        self.ws.send(json.dumps({"t": "hello", "key": key}))
+        hello = {"t": "hello", "key": key}
+        if author is not None:
+            hello["author"] = author
+        self.ws.send(json.dumps(hello))
         self.next_id = 1
+        self.frames: list[dict] = []
 
     def recv(self, timeout=10):
-        return json.loads(self.ws.recv(timeout=timeout))
+        msg = json.loads(self.ws.recv(timeout=timeout))
+        if msg["t"] == "frame":
+            self.frames.append(msg)
+        return msg
 
     def recv_until(self, kind, timeout=10):
         deadline = time.monotonic() + timeout
@@ -95,20 +102,32 @@ class Tab:
         return welcome, frame
 
     def edit(self, base, op):
+        return self.send({"t": "edit", "base": base, "op": op})
+
+    def undo(self):
+        return self.send({"t": "undo"})
+
+    def send(self, msg):
         req = self.next_id
         self.next_id += 1
-        self.ws.send(json.dumps({"t": "edit", "id": req, "base": base, "op": op}))
+        self.ws.send(json.dumps({**msg, "id": req}))
         while True:
             msg = self.recv()
             if msg.get("id") == req:
                 return msg
+
+    def latest(self):
+        """The newest frame this tab has seen."""
+        return self.frames[-1]
 
     def close(self):
         self._conn.__exit__(None, None, None)
 
 
 def _labels(frame):
-    return {e["id"]: e["label"] for e in frame["board"]["elements"]}
+    """The boxes', notes' and images' labels (arrows have no rect)."""
+    return {e["id"]: e["label"] for e in frame["board"]["elements"]
+            if "rect" in e}
 
 
 # ── Binding, keys and links ──
@@ -223,7 +242,8 @@ def test_the_first_frame_is_the_apps_drawing(served, board):
     assert welcome["role"] == "viewer"
     assert frame["board"]["file"] == f"{board.stem}.grafli"
     assert _labels(frame) == {"a": "A", "b": "B"}
-    rects = {e["id"]: e["rect"] for e in frame["board"]["elements"]}
+    rects = {e["id"]: e["rect"] for e in frame["board"]["elements"]
+             if "rect" in e}
     assert rects["a"][2] >= 120 and rects["b"][0] > rects["a"][0]
     assert frame["svgs"]["b0-0"].startswith("<svg")
     tab.close()
@@ -276,7 +296,9 @@ def test_an_editor_tab_edits_the_file(served, board):
     ack = tab.edit(frame["version"], {"op": "move", "id": "b", "x": 300, "y": 20})
     assert ack["t"] == "ack" and ack["touched"] == "b" and ack["conflicts"] == []
     assert '@ box b "B" 300,20 120x60' in board.read_text()
-    frame = tab.recv_until("frame")
+    # The frame that shows the edit came before its answer.
+    frame = tab.latest()
+    assert frame["version"] == ack["version"]
     rect = next(e["rect"] for e in frame["board"]["elements"] if e["id"] == "b")
     assert rect[0] > 280
     tab.close()
@@ -345,6 +367,116 @@ def test_a_nan_coordinate_is_refused_and_the_socket_stays_open(served, board):
     assert board.read_text() == BOARD
     ack = tab.edit(frame["version"], {"op": "move", "id": "a", "x": 5, "y": 5})
     assert ack["t"] == "ack"
+    tab.close()
+
+
+# ── Answers that name their frame, and undo per author ──
+
+def test_an_edit_is_answered_once_its_frame_is_pushed(served, board):
+    """The ack names the version that shows the edit, and that frame came
+    first: the tab can drop its placeholder on the ack."""
+    tab = Tab(served, board.stem, served.keys.editor)
+    _welcome, frame = tab.open()
+    ack = tab.edit(frame["version"], {"op": "add_box", "label": "C",
+                                      "beside": "b", "connect": True})
+    assert ack["t"] == "ack" and ack["touched"] == "box1"
+    assert ack["version"] > frame["version"]
+    shown = next(f for f in tab.frames if f["version"] == ack["version"])
+    assert _labels(shown)["box1"] == "C"
+    tab.close()
+
+
+def test_an_edit_that_changes_nothing_names_the_frame_on_screen(served, board):
+    tab = Tab(served, board.stem, served.keys.editor)
+    _welcome, frame = tab.open()
+    ack = tab.edit(frame["version"], {"op": "rename", "id": "a", "label": "A"})
+    assert ack["version"] == frame["version"]
+    tab.close()
+
+
+def test_undo_takes_back_only_the_authors_own_edit(served, board):
+    """Two editors; one adds a box, the other renames a box. Undo in the
+    first tab takes the box away and keeps the other's rename."""
+    mine = Tab(served, board.stem, served.keys.editor, author="me")
+    theirs = Tab(served, board.stem, served.keys.editor, author="them")
+    _w, frame = mine.open()
+    theirs.open()
+    mine.edit(frame["version"], {"op": "add_box", "label": "Mine",
+                                 "beside": "a"})
+    seen = mine.latest()["version"]
+    theirs.edit(seen, {"op": "rename", "id": "b", "label": "Theirs"})
+    ack = mine.undo()
+    assert ack["t"] == "ack" and ack["undone"] and ack["touched"] == "box1"
+    disk = board.read_text()
+    assert '"Mine"' not in disk and '"Theirs"' in disk
+    assert mine.undo()["message"] == "nothing of yours to undo"
+    ack = theirs.undo()
+    assert ack["t"] == "ack" and '"Theirs"' not in board.read_text()
+    assert board.read_text() == BOARD
+    mine.close()
+    theirs.close()
+
+
+def test_undo_goes_back_step_by_step(served, board):
+    tab = Tab(served, board.stem, served.keys.editor, author="steps")
+    _w, frame = tab.open()
+    for label in ("one", "two", "three"):
+        tab.edit(tab.latest()["version"],
+                 {"op": "rename", "id": "a", "label": label})
+    for expected in ("two", "one", "A"):
+        assert tab.undo()["t"] == "ack"
+        assert f'@ box a "{expected}"' in board.read_text()
+    tab.close()
+
+
+def test_undo_survives_a_reconnect_with_the_same_author(served, board):
+    tab = Tab(served, board.stem, served.keys.editor, author="reloads")
+    _w, frame = tab.open()
+    tab.edit(frame["version"], {"op": "delete", "id": "b"})
+    tab.close()
+    again = Tab(served, board.stem, served.keys.editor, author="reloads")
+    again.open()
+    assert again.undo()["t"] == "ack"
+    assert '@ box b "B"' in board.read_text()
+    assert '@ arrow a -> b "calls"' in board.read_text()
+    again.close()
+
+
+def test_undoing_an_added_box_drops_an_arrow_others_drew_to_it(served, board):
+    mine = Tab(served, board.stem, served.keys.editor, author="adder")
+    theirs = Tab(served, board.stem, served.keys.editor, author="linker")
+    _w, frame = mine.open()
+    theirs.open()
+    mine.edit(frame["version"], {"op": "add_box", "label": "New",
+                                 "x": 0, "y": 200})
+    theirs.edit(mine.latest()["version"],
+                {"op": "connect", "from": "a", "to": "box1"})
+    assert mine.undo()["t"] == "ack"
+    disk = board.read_text()
+    assert "box1" not in disk
+    assert disk == BOARD
+    mine.close()
+    theirs.close()
+
+
+def test_a_watch_tab_cannot_undo(served, board):
+    tab = Tab(served, board.stem, served.keys.viewer)
+    tab.open()
+    msg = tab.undo()
+    assert msg["t"] == "error" and "editor link" in msg["message"]
+    tab.close()
+
+
+def test_a_command_line_edit_over_the_socket(served, board):
+    tab = Tab(served, board.stem, served.keys.editor)
+    _w, frame = tab.open()
+    ack = tab.edit(frame["version"], {
+        "op": "lines", "beside": "b",
+        "text": '@ box cache "Cache"\n@ arrow b -> cache "fills"'})
+    assert ack["t"] == "ack" and ack["touched"] == "cache"
+    disk = board.read_text()
+    assert '@ box cache "Cache" 240,100 120x60' in disk
+    assert '@ arrow b -> cache "fills"' in disk
     tab.close()
 
 

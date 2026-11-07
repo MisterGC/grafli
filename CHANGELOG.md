@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the file through the same three-way merge as the app's. Needs the new
   `serve` extra: `pip install 'grafli[serve]'`.
   ([#262](https://github.com/MisterGC/grafli/issues/262))
+- **Build a board in the live tab with the keyboard.** An edit link's tab
+  takes the app's letters: `f` puts a jump label on every element in view,
+  `o` / `O` (or Ctrl+arrow) adds a box beside the selection, connected from
+  it, `c` connects the selection to a box by its jump label, `e` renames,
+  `x` deletes, `u` undoes your own last edit (what others changed since
+  stays), and `:` opens a command line that takes grafli lines such as
+  `@ box cache "Cache"`. Each edit shows a dashed placeholder until the
+  drawing that holds it arrives.
+  ([#263](https://github.com/MisterGC/grafli/issues/263))
 - **`grafli fmt` — canonical form for hand- and agent-authored boards.**
   Boards written outside the app never pass through its save path, so their
   coordinates and token spacing drift from what the app would write and the

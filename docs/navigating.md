@@ -269,17 +269,47 @@ same key.
   that board's links.
 
 An edit link's tab can change the board: each edit is a small operation
-(move, rename, add a box, connect, delete) applied to the version the tab
-shows and merged into the file with the same three-way merge the desktop app
-runs when the file changes under it, so an edit never overwrites a change the
-tab had not seen yet. A watch link's tab cannot edit. The tab's keys and
-mouse gestures for editing are not there yet; for now an edit is sent from
-the page's script with `grafliLive.edit({op: "move", id: "api", x: 40, y:
-80})`.
+(move, rename, add a box, connect, delete, grafli lines) applied to the
+version the tab shows and merged into the file with the same three-way merge
+the desktop app runs when the file changes under it, so an edit never
+overwrites a change the tab had not seen yet. A watch link's tab cannot edit.
 
 The files never leave your machine, only drawings of them do, and only to the
 tabs that hold a key. The session ends when `grafli serve` stops; there is no
 copy anywhere else.
+
+### Building a board in the tab
+
+When you present by sharing only the browser tab, you build the board there
+with a few of the app's keys:
+
+| Key | Does |
+|-----|------|
+| <kbd>f</kbd> | A jump label on every element in view; type one to select that element (a watch link's tab has this key too) |
+| <kbd>o</kbd> / <kbd>O</kbd> | A new box below / above the selection, its size, in its container, with an arrow from it; type the label, <kbd>Enter</kbd>. With nothing selected, the box goes in the middle of the view |
+| <kbd>Ctrl</kbd>+arrow | The same, on that side (macOS may keep Ctrl+arrows for switching desktops) |
+| <kbd>c</kbd> | Connect the selection to the box whose jump label you type; with nothing selected, the first label is where the arrow starts |
+| <kbd>e</kbd> | Rename the selected box, note or arrow; <kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> drops it |
+| <kbd>x</kbd> / <kbd>Delete</kbd> | Delete the selection, with its arrows |
+| <kbd>u</kbd> / <kbd>⌘</kbd>+<kbd>Z</kbd> | Undo your last edit in this tab |
+| <kbd>:</kbd> | A command line for grafli lines: `@ box cache "Cache"`, `@ arrow api -> cache "reads"`. A box line without a place goes below the selection; a line with the id of an element on the board restates that element. <kbd>↑</kbd> brings back the last line |
+| <kbd>Shift</kbd>+<kbd>Z</kbd> | Fit the board in view (never closer than 1:1), so every box has a jump label |
+
+A new box lands on the side you asked for; if a box already sits there, it
+moves further along until it covers nothing. Each edit shows a dashed
+placeholder at once — the new box with its label, the new label over the
+old one, a dashed line for a new arrow, a faded element for a delete — and
+the badge counts the edits on the way, until the drawing that holds them
+arrives.
+
+Undo takes back only your own edits, one at a time, and keeps what others
+changed since: undoing a box you added also drops an arrow someone drew to
+it. The tab keeps its undo history across a reload for as long as
+`grafli serve` runs.
+
+Plain language on the command line ("add a cache between api and db") is
+for a connected agent; until one is connected, the tab says so and changes
+nothing.
 
 ## When you want to *explain* the path
 

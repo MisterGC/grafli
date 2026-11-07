@@ -24,10 +24,17 @@ def compute_layout(
     label_height: float,
     box_sizes: dict[str, tuple[float, float]],
 ) -> dict[str, tuple[float, float]]:
-    """Return {box_id: (new_x, new_y)} for each box in target_ids."""
+    """Return {box_id: (new_x, new_y)} for each box in target_ids.
+
+    A pinned box (``!pin``) gets no entry: it stays where it is, and the
+    other boxes are placed around it."""
+    pinned = {bid for bid in target_ids
+              if (box := board.box_by_id(bid)) and box.pinned}
+    obstacles = [_rect_of(board, bid, box_sizes) for bid in sorted(pinned)]
+    target_ids = target_ids - pinned
     if not target_ids:
         return {}
-    if len(target_ids) == 1:
+    if len(target_ids) == 1 and not obstacles:
         return _layout_single(board, target_ids, parent_id, grid, label_height, box_sizes)
 
     constraint = _constraint_rect(board, target_ids, parent_id, label_height, box_sizes)
@@ -37,7 +44,8 @@ def compute_layout(
     adj, radj = _build_dag(board, target_ids)
     layers = _assign_layers(target_ids, adj, radj)
     layers = _order_within_layers(layers, adj, board, direction, target_ids, box_sizes)
-    positions = _assign_coordinates(layers, direction, constraint, grid, box_sizes)
+    positions = _assign_coordinates(layers, direction, constraint, grid, box_sizes,
+                                    obstacles)
     return positions
 
 
@@ -151,6 +159,25 @@ def _propagate_delta(board: Board, box_id: str, dx: float, dy: float) -> None:
 
 
 # ── Internals ────────────────────────────────────────────────────
+
+Rect = tuple[float, float, float, float]
+
+
+def _rect_of(board: Board, bid: str, box_sizes: dict[str, tuple[float, float]]) -> Rect:
+    box = board.box_by_id(bid)
+    w, h = box_sizes.get(bid, (box.w, box.h))
+    return (box.x, box.y, w, h)
+
+
+def _blocking(rect: Rect, obstacles: list[Rect]) -> Rect | None:
+    """The first obstacle *rect* comes closer to than the node gap."""
+    x, y, w, h = rect
+    g = LAYOUT_NODE_GAP
+    for o in obstacles:
+        ox, oy, ow, oh = o
+        if x < ox + ow + g and x + w > ox - g and y < oy + oh + g and y + h > oy - g:
+            return o
+    return None
 
 
 def _layout_single(
@@ -421,8 +448,12 @@ def _assign_coordinates(
     constraint: tuple[float, float, float, float],
     grid: float,
     box_sizes: dict[str, tuple[float, float]],
+    obstacles: list[Rect] | None = None,
 ) -> dict[str, tuple[float, float]]:
-    """Compute final (x, y) positions for all nodes."""
+    """Compute final (x, y) positions for all nodes. A node that would
+    land on an obstacle (a pinned box) moves along its layer past it,
+    and the rest of the layer follows."""
+    obstacles = obstacles or []
     cx, cy, cw, ch = constraint
     positions: dict[str, tuple[float, float]] = {}
 
@@ -486,15 +517,23 @@ def _assign_coordinates(
         for ni, nid in enumerate(layer):
             bw, bh = box_sizes.get(nid, (160, 80))
 
-            if direction == Direction.TTB:
-                x = cx + cross_cursor
-                y = cy + main_cursor
-            else:
-                x = cx + main_cursor
-                y = cy + cross_cursor
+            while True:
+                if direction == Direction.TTB:
+                    x = cx + cross_cursor
+                    y = cy + main_cursor
+                else:
+                    x = cx + main_cursor
+                    y = cy + cross_cursor
 
-            x = _snap(x, grid)
-            y = _snap(y, grid)
+                x = _snap(x, grid)
+                y = _snap(y, grid)
+                hit = _blocking((x, y, bw, bh), obstacles)
+                if hit is None:
+                    break
+                ox, oy, ow, oh = hit
+                past = (ox + ow - cx if direction == Direction.TTB
+                        else oy + oh - cy) + effective_node_gap
+                cross_cursor = max(cross_cursor + 1, past)
             positions[nid] = (x, y)
 
             if direction == Direction.TTB:

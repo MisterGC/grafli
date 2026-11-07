@@ -331,3 +331,58 @@ class TestRankWithinContainers:
                       Direction.TTB)
         X, Y = board.box_by_id("X"), board.box_by_id("Y")
         assert Y.y + Y.h <= X.y
+
+
+def _overlaps(a: Box, b: Box) -> bool:
+    return (a.x < b.x + b.w and b.x < a.x + a.w
+            and a.y < b.y + b.h and b.y < a.y + a.h)
+
+
+class TestPinned:
+    """A `!pin` box keeps its position; the others are placed around it."""
+
+    def test_pinned_box_keeps_its_position(self):
+        pin = _box("B", 333, 777)
+        pin.pinned = True
+        board = _make_board([_box("A"), pin, _box("C", 0, 300)],
+                            [_arrow("A", "B"), _arrow("B", "C")])
+        result = compute_layout(board, {"A", "B", "C"}, "", Direction.TTB,
+                                20, 0, _sizes("A", "B", "C"))
+        assert "B" not in result
+        assert set(result) == {"A", "C"}
+
+    def test_free_boxes_move_past_a_pinned_box(self):
+        pin = _box("P", 0, 0)
+        pin.pinned = True
+        free = [_box(b, 0, 0) for b in ("A", "B", "C")]
+        board = _make_board([pin, *free])
+        layout_groups(board, container_groups(board), 20, lambda pid: 0,
+                      Direction.TTB)
+        assert (pin.x, pin.y) == (0, 0)
+        for b in free:
+            assert not _overlaps(b, pin)
+        for i, a in enumerate(free):
+            for b in free[i + 1:]:
+                assert not _overlaps(a, b)
+
+    def test_pinned_container_still_lays_out_its_children(self):
+        p = _box("P", 100, 100, 400, 400)
+        p.pinned = True
+        a, b = _box("a", 400, 400), _box("b", 100, 100)
+        a.parent = b.parent = "P"
+        board = _make_board([p, a, b, _box("Q", 900, 0)],
+                            [_arrow("a", "b"), _arrow("Q", "P")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 20,
+                      Direction.TTB)
+        assert (p.x, p.y) == (100, 100)
+        assert a.y < b.y
+
+    def test_pinned_child_moves_with_its_container(self):
+        p = _box("P", 500, 500, 400, 300)
+        c = _box("c", 540, 560)
+        c.parent = "P"
+        c.pinned = True
+        board = _make_board([_box("Q"), p, c], [_arrow("Q", "P")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 20,
+                      Direction.TTB)
+        assert (c.x - p.x, c.y - p.y) == (40, 60)

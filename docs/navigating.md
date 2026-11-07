@@ -237,6 +237,50 @@ because the people you send it to don't have the checkout, and there are no
 miniatures and no editing. A link to a board that does not exist is reported
 when exporting and left out. `--theme dark` exports the dark theme.
 
+## Show a board live in a browser tab
+
+`grafli serve <dir>` serves the boards in a directory to browser tabs on your
+network or VPN. Every change to a board's file — saved by the desktop app,
+written by an editor or an agent — is drawn again with grafli's own view and
+pushed to every tab on that board; the camera, the selection and an open doc
+stay where they were. It is the HTML export page above, kept up to date.
+
+```bash
+pip install 'grafli[serve]'
+grafli serve boards/ --host 192.168.1.20
+```
+
+It prints two links per board in the directory, of the form
+`http://<host>:<port>/b/<board>#k=<key>`: a **watch** link and an **edit**
+link, each with its own key after the `#`. The page asks for nothing; the key
+travels from the link to the server over the WebSocket, and the drawing comes
+only after it. A board in a vault (`<board>-res/`) has a link too
+(`/b/<board>-res/<name>`), and clicking a level in the tab opens it with the
+same key.
+
+- `--host` takes the address of the interface to listen on: your LAN address,
+  or your VPN address (`tailscale ip -4`). Without it grafli listens on
+  127.0.0.1, this machine only. It never listens on every interface unless
+  you give `0.0.0.0`, and then it says so.
+- `--port` (default 7341; `0` picks a free one), `--theme dark`, and `-v`
+  prints a line per pushed change with how long after the file change it
+  went out.
+- `grafli serve board.grafli` serves the board's directory and prints only
+  that board's links.
+
+An edit link's tab can change the board: each edit is a small operation
+(move, rename, add a box, connect, delete) applied to the version the tab
+shows and merged into the file with the same three-way merge the desktop app
+runs when the file changes under it, so an edit never overwrites a change the
+tab had not seen yet. A watch link's tab cannot edit. The tab's keys and
+mouse gestures for editing are not there yet; for now an edit is sent from
+the page's script with `grafliLive.edit({op: "move", id: "api", x: 40, y:
+80})`.
+
+The files never leave your machine, only drawings of them do, and only to the
+tabs that hold a key. The session ends when `grafli serve` stops; there is no
+copy anywhere else.
+
 ## When you want to *explain* the path
 
 Ad-hoc navigation is for working. When you want to capture a route through the

@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`grafli serve <dir>` — a board live in a browser tab on your network
+  or VPN.** A worker process draws the board with the app's own view, as
+  `grafli export-html` does, and the server pushes the drawing to every tab
+  on the board each time its file changes — measured at under 0.1 s from
+  the write to the drawing in the tab. It listens on the address given with
+  `--host` (127.0.0.1 without it, never every interface unless told), and
+  prints a watch link and an edit link per board with different keys after
+  the `#`. Edits from an edit link's tab are small operations merged into
+  the file through the same three-way merge as the app's. Needs the new
+  `serve` extra: `pip install 'grafli[serve]'`.
+  ([#262](https://github.com/MisterGC/grafli/issues/262))
 - **`grafli fmt` — canonical form for hand- and agent-authored boards.**
   Boards written outside the app never pass through its save path, so their
   coordinates and token spacing drift from what the app would write and the

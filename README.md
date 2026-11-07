@@ -100,6 +100,10 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 - Share as one page — `grafli export-html` writes a board and every board
   reachable from it into a single offline HTML file: zoom into levels, peek
   at docs, switch overlays and play the tours in any browser.
+- Live in a browser tab — `grafli serve <dir>` pushes every change to a
+  board, from the app, an editor or an agent, to the tabs open on it on your
+  network or VPN; a watch link and an edit link per board, each with its own
+  key.
 - Bookmarks & flows — save labeled viewpoints (semantic anchors, not pixel
   coords) and string them into guided tours: step through, auto-play, present
   fullscreen (<kbd>F5</kbd>), or export a slide PDF (`grafli export … --flow`).

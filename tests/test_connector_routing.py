@@ -399,3 +399,42 @@ def test_no_ortho_connector_crosses_a_box_on_any_example_board():
         if crossed:
             offenders[path.name] = crossed
     assert not offenders, f"stairs now cut through boxes: {offenders}"
+
+
+# ── Label position (#260) ──────────────────────────────────────────
+
+def test_a_stair_label_sits_on_its_longest_run_not_its_jog():
+    # A short jog in the middle of two long horizontal runs: the path's own
+    # middle is on the jog, the label belongs on a horizontal run.
+    path = arrows.polyline_path([QPointF(0, 0), QPointF(300, 0),
+                                 QPointF(300, 40), QPointF(500, 40)])
+    at = arrows.label_point(path)
+    assert at == QPointF(150, 0)
+
+
+def test_a_label_point_on_an_eased_stair_lies_on_a_straight_run():
+    path = arrows.routed_path("ortho", QPointF(0, 0), "e",
+                              QPointF(400, 60), "w")
+    at = arrows.label_point(path)
+    assert at.y() in (0.0, 60.0)
+
+
+def test_a_curve_keeps_its_label_at_its_middle():
+    path = arrows.routed_path("spline", QPointF(0, 0), "e",
+                              QPointF(400, 200), "w")
+    assert arrows.label_point(path) == path.pointAtPercent(0.5)
+
+
+def test_a_routed_connector_draws_its_label_on_a_straight_run():
+    from grafli.items import LabelItem
+    view = _view('#!grafli v4\n'
+                 '@ box a "A" 0,0 200x100\n'
+                 '@ box e "E" 600,60 200x100\n'
+                 '@ arrow a -> e "N" !ortho\n')
+    (label,) = [g for g in view._arrow_items if isinstance(g, LabelItem)]
+    centre = label.sceneBoundingRect().center()
+    # The stair turns once, halfway across the 400px gap (x=400), with a
+    # jog of about 60px: the label sits on one of the two horizontal runs,
+    # well clear of the jog, not centred on it.
+    assert abs(centre.x() - 400) > 50
+    assert 0 < centre.y() < 160

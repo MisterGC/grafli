@@ -16,9 +16,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 
 from grafli import theme
+from grafli.constants import ARROW_LABEL_FONT_SIZES, SANS_FONT_FAMILY
 
 
 EDGE_KINDS = (
@@ -44,6 +45,14 @@ def edge_kind_color(kind: str, fallback: QColor | None = None) -> QColor:
     if color is not None:
         return color
     return fallback if fallback is not None else theme.ARROW_COLOR
+
+def arrow_label_font(textsize: str = "") -> QFont:
+    """The face an arrow label is set in: the proportional face, a step
+    quieter than the monospaced box labels it sits between, so the names
+    read first and the relations second (#260)."""
+    return QFont(SANS_FONT_FAMILY,
+                 ARROW_LABEL_FONT_SIZES.get(textsize, ARROW_LABEL_FONT_SIZES[""]))
+
 
 _RE_EDGE_LABEL = re.compile(
     r"^(?P<kind>" + "|".join(EDGE_KINDS) + r"):\s*(?P<body>.*)$",

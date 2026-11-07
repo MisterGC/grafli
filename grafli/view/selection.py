@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPen, QTransform
+from PySide6.QtGui import QBrush, QColor, QPen, QTransform
 from PySide6.QtWidgets import (
     QGraphicsLineItem,
     QGraphicsPolygonItem,
@@ -47,15 +47,13 @@ from grafli.buffers import ViewState
 from grafli.constants import (
     ANNOTATION_ARROW_WIDTH,
     ARROWHEAD_SIZE,
-    ARROW_LABEL_FONT_SIZES,
     ARROW_WIDTH,
     CONNECTOR_REF_SIZE,
     CONNECTOR_WIDTH_MAX,
     CONNECTOR_WIDTH_MIN,
-    FONT_FAMILY,
     MIN_BOX_SIZE,
 )
-from grafli.edge_label import edge_kind_color, parse_edge_label
+from grafli.edge_label import arrow_label_font, edge_kind_color, parse_edge_label
 from grafli.format import Arrow, Board, Box, Image, Note
 from grafli.items import (
     ArrowLineItem,
@@ -908,8 +906,8 @@ class SelectionMixin:
 
                 combined = "\n".join(label_texts)
                 label = LabelItem(combined)
-                label.setFont(QFont(FONT_FAMILY, ARROW_LABEL_FONT_SIZES.get(fwd.textsize, 10)))
-                label.setBrush(QBrush(QColor(theme.INK)))
+                label.setFont(arrow_label_font(fwd.textsize))
+                label.setBrush(QBrush(QColor(theme.INK_MUTED)))
                 label.setData(0, fwd)
                 if label_tooltips:
                     label.setToolTip("\n".join(label_tooltips))

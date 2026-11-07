@@ -335,7 +335,8 @@ def test_arrow_label_covers_head_skipped_when_no_head():
 
 def test_qt_arrow_label_provider_catches_test_grafli_pipeline_case():
     """End-to-end: replicate the user's 160px Stage1/2 with 20px gap and
-    a real Qt-measured 'in' label — must surface arrow-label-crowded."""
+    a real Qt-measured short label — must surface arrow-label-crowded.
+    ('in' itself fits since labels are set in the proportional face.)"""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
@@ -346,7 +347,7 @@ def test_qt_arrow_label_provider_catches_test_grafli_pipeline_case():
 
     a = Box(id="s1", label="Stage 1", x=-720, y=290, w=160, h=80)
     b = Box(id="s2", label="Stage 2", x=-540, y=290, w=160, h=80)
-    arr = Arrow(from_id="s1", to_id="s2", label="in")
+    arr = Arrow(from_id="s1", to_id="s2", label="input")
     board = _make_board(boxes=[a, b], arrows=[arr])
     diags = check_arrow_label_crowded(
         board, arrow_label_size=_make_arrow_label_size_provider(),

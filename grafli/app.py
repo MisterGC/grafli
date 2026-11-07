@@ -2480,14 +2480,11 @@ def _make_arrow_label_size_provider():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     QApplication.instance() or QApplication([])
     _register_bundled_fonts()
-    from PySide6.QtGui import QFont, QFontMetricsF
-    from grafli.constants import ARROW_LABEL_FONT_SIZES, FONT_FAMILY
+    from PySide6.QtGui import QFontMetricsF
+    from grafli.edge_label import arrow_label_font
 
     def provider(arrow):
-        font = QFont(
-            FONT_FAMILY,
-            ARROW_LABEL_FONT_SIZES.get(arrow.textsize, ARROW_LABEL_FONT_SIZES[""]),
-        )
+        font = arrow_label_font(arrow.textsize)
         fm = QFontMetricsF(font)
         text = arrow.label or ""
         if not text:

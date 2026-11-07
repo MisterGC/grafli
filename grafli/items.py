@@ -791,13 +791,17 @@ class BoxItem(QGraphicsRectItem):
                 c.setAlphaF(0.7)
             self.setBrush(QBrush(c))
         else:
-            self.setPen(self._border_pen(QColor(theme.INK), is_flat))
+            # A plain box is a light plate with a quiet outline, so its label
+            # carries it and a filled box stands out against it. A dashed or
+            # dotted outline keeps the full ink: the pattern is the message.
+            outline = QColor(theme.INK if self.box.border else theme.BOX_OUTLINE)
+            self.setPen(self._border_pen(outline, is_flat))
             if is_flat:
                 fill = QColor(theme.SCENE_BG)
                 fill.setAlphaF(0.7)
                 self.setBrush(QBrush(fill))
             else:
-                self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                self.setBrush(QBrush(theme.BOX_FILL))
         self._label.setDefaultTextColor(self._label_ink())
         self._label.update()
 

@@ -34,7 +34,7 @@ class Palette:
 
     # ── Ground & surfaces ────────────────────────────────────────
     SCENE_BG: QColor                 # the canvas itself
-    BOX_FILL: QColor                 # default node fill
+    BOX_FILL: QColor                 # default node fill: a plate lighter than the ground
     SURFACE: QColor                  # note / chip / code paper
     SURFACE_FLAT: QColor             # flat-style note paper
     GRID_COLOR: QColor
@@ -43,6 +43,7 @@ class Palette:
     # ── Ink ──────────────────────────────────────────────────────
     INK: QColor                      # primary text & node borders
     BOX_BORDER: QColor
+    BOX_OUTLINE: QColor              # a plain box's outline, quieter than its label
     ARROW_COLOR: QColor
     INK_ON_LIGHT_FILL: QColor        # text over a bright node fill
     INK_ON_DARK_FILL: QColor         # text over a dark node fill
@@ -174,7 +175,7 @@ LIGHT = Palette(
     is_dark=False,
 
     SCENE_BG=QColor("#E8E4DD"),
-    BOX_FILL=QColor("#E8E4DD"),
+    BOX_FILL=QColor("#F6F3EE"),
     SURFACE=QColor("#F2F0EB"),
     SURFACE_FLAT=QColor("#E9E5DD"),
     GRID_COLOR=QColor("#CDC8BF"),
@@ -182,6 +183,7 @@ LIGHT = Palette(
 
     INK=QColor("#2F3437"),
     BOX_BORDER=QColor("#2F3437"),
+    BOX_OUTLINE=QColor("#B3AB9E"),
     ARROW_COLOR=QColor("#2F3437"),
     INK_ON_LIGHT_FILL=QColor("#2D2D2D"),
     INK_ON_DARK_FILL=QColor("#F2F0EB"),
@@ -361,6 +363,7 @@ DARK = Palette(
     # read as counterparts rather than two unrelated palettes.
     INK=QColor("#E8E4DD"),
     BOX_BORDER=QColor("#E8E4DD"),
+    BOX_OUTLINE=QColor("#6B655C"),
     ARROW_COLOR=QColor("#D8D3CA"),
     INK_ON_LIGHT_FILL=QColor("#2D2D2D"),
     INK_ON_DARK_FILL=QColor("#F2F0EB"),

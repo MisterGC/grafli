@@ -10,7 +10,8 @@
 //   :       a command line taking grafli lines, e.g. @ box cache "Cache"
 //
 // Every edit shows a placeholder on the board until the frame that holds it
-// is drawn. A watch link's tab only gets f.
+// is drawn. A watch link's tab only gets f; a present link's tab gets them
+// all, as an edit link's does.
 (() => {
   "use strict";
   const page = window.grafliPage, live = window.grafliLive;
@@ -57,7 +58,7 @@
   let fieldCancel = null;
   let waiting = [];       // placeholders waiting for {g, version}
 
-  const editor = () => live.role() === "editor";
+  const editor = () => live.role() === "editor" || live.role() === "presenter";
   const board = () => page.current();
   const scale = () => page.view().w / Math.max(stage.getBoundingClientRect().width, 1);
 

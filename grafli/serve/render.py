@@ -5,8 +5,8 @@ warm and answers one JSON line per request on stdin with one JSON line on
 stdout, carrying back the request's ``seq``:
 
 * ``{"t": "shell"}`` → ``{"ok": true, "html": ...}``: the live page, the
-  export page with no board in it and the live client and its editing
-  keys added;
+  export page with no board in it and the live client, its editing keys
+  and presence added;
 * ``{"t": "render", "path", "text", "root"}`` → ``{"ok": true, "board",
   "svgs", "docs", "fonts", "warnings", "ms"}``: *text* drawn as the board at
   *path*, exactly as ``grafli export-html`` draws it. A level into another
@@ -28,8 +28,10 @@ import time
 from pathlib import Path
 
 LIVE_JS = Path(__file__).parent.parent / "assets" / "serve" / "live.js"
-# The presenter's keys, after the live client they build on.
+# The presenter's keys, after the live client they build on; presence after
+# both, so the keys' jump labels take a key before the laser does.
 EDIT_JS = LIVE_JS.with_name("edit.js")
+PRESENCE_JS = LIVE_JS.with_name("presence.js")
 
 # Large enough for a board with many overlays; a frame is one line.
 _LINE_LIMIT = 256 * 1024 * 1024
@@ -189,8 +191,8 @@ def _shell() -> str:
     data = {"live": True, "root": "b0", "boards": {}, "docs": {},
             "theme": theme.name(), "dwell": DEFAULT_DWELL}
     return _page("grafli", data, [], [],
-                 extra_js=LIVE_JS.read_text(encoding="utf-8") + "\n"
-                 + EDIT_JS.read_text(encoding="utf-8"),
+                 extra_js="\n".join(js.read_text(encoding="utf-8") for js in
+                                    (LIVE_JS, EDIT_JS, PRESENCE_JS)),
                  generator="grafli serve")
 
 

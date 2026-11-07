@@ -47,6 +47,36 @@ body {
 #tour-pick:not([hidden]) ~ #live, #overlay-pick:not([hidden]) ~ #live { margin-left: 0; }
 #live[data-state="live"] { color: var(--accent); border-color: var(--accent); }
 #live[data-state="off"] { opacity: 0.6; }
+/* grafli serve: presence — who is here, follow the presenter, your name;
+   the others' cursors and the laser over the board. */
+#presence { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+#peers { display: flex; gap: 3px; }
+#peers .peer {
+  width: 20px; height: 20px; border-radius: 50%; color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+}
+#peers .peer.me { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--ink); }
+#bar #follow, #bar #me { font-size: 12px; padding: 2px 8px; border-width: 2px; }
+#bar #follow[data-on="1"] { opacity: 0.85; }
+#followers { opacity: 0.8; }
+#me-field {
+  width: 12em; font: inherit; color: var(--ink); background: var(--bg);
+  border: 2px solid var(--accent); border-radius: 6px; padding: 2px 6px; outline: none;
+}
+#follow[hidden], #followers[hidden], #me[hidden], #me-field[hidden] { display: none; }
+#presence-layer {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 2; overflow: visible;
+}
+#presence-layer .cursor path { stroke: #fff; stroke-width: 1.2; }
+#presence-layer .name text {
+  fill: #fff; dominant-baseline: central;
+  font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+#presence-layer .laser line { stroke: #f03e3e; stroke-linecap: round; }
+#presence-layer .laser circle { fill: #f03e3e; }
+#stage.lasering { cursor: crosshair; }
 /* grafli serve: the presenter's keys — jump labels, an edit's placeholder
    until its frame is drawn, the label field and the ':' command line. */
 #live-marks { pointer-events: none; }

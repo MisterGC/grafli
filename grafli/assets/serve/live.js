@@ -7,6 +7,9 @@
 // ({touched, conflicts, version}) once the frame that shows the edit is on
 // its way, and rejects with its message. undo() takes back this tab's last
 // edit the same way; the tab's author token survives a reload.
+//
+// For presence, post(msg) sends a message nobody answers, on(t, fn) hears
+// every message of type t, and hello(fn) adds fn()'s fields to the hello.
 (() => {
   "use strict";
   const page = window.grafliPage;
@@ -31,6 +34,8 @@
   const pending = new Map();     // edit id → {resolve, reject}
   const shown = [];              // per frame: ms from the file change to drawn
   const frameListeners = [];
+  const listeners = {};          // message type → [fn]
+  const helloParts = [];
   let statusText = "", statusState = "";
 
   function status(text, state) {
@@ -61,14 +66,15 @@
       shown.push({ version: m.version, ms: Math.round(ms), render_ms: m.render_ms });
       if (shown.length > 200) shown.shift();
     });
-    status(role === "editor" ? "live · editing" : "live · watching", "live");
+    status({ presenter: "live · presenting", editor: "live · editing" }[role]
+           || "live · watching", "live");
     for (const fn of frameListeners) fn(m);
   }
 
   function onMessage(e) {
     const m = JSON.parse(e.data);
     if (m.t === "welcome") { role = m.role; retryMs = 500; }
-    else if (m.t === "frame") onFrame(m);
+    if (m.t === "frame") onFrame(m);
     else if (m.t === "ack" || m.t === "error") {
       const p = pending.get(m.id);
       if (p) {
@@ -77,12 +83,14 @@
         if (m.t === "ack") p.resolve(m); else p.reject(new Error(m.message));
       } else if (m.t === "error") page.toast(m.message);
     }
+    for (const fn of listeners[m.t] || []) fn(m);
   }
 
   function connect() {
     status("connecting…", "wait");
     ws = new WebSocket(socketUrl);
-    ws.onopen = () => ws.send(JSON.stringify({ t: "hello", key, author }));
+    ws.onopen = () => ws.send(JSON.stringify(
+      Object.assign({ t: "hello", key, author }, ...helloParts.map((fn) => fn()))));
     ws.onmessage = onMessage;
     ws.onclose = (e) => {
       failPending("the connection closed");
@@ -115,6 +123,13 @@
     undo: () => request({ t: "undo" }),
     // fn(frame) after each pushed frame is drawn.
     onFrame: (fn) => { frameListeners.push(fn); },
+    post: (msg) => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+      ws.send(JSON.stringify(msg));
+      return true;
+    },
+    on: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); },
+    hello: (fn) => { helloParts.push(fn); },
   };
 
   connect();

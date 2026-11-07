@@ -255,6 +255,116 @@ def check_cramped_container(
     return diags
 
 
+# A container holding this many boxes or more with no arrow between them,
+# and a board with this many leaf boxes or more, are read as lists.
+UNRELATED_MIN_BOXES = 4
+
+
+def _relating_arrows(board: Board) -> list[Arrow]:
+    """Arrows that relate two elements: not annotation callouts.
+
+    An arrow's kind is explicit (``~kind=``) or derives from its ends —
+    a note end makes it an annotation, which points at a box without
+    relating it to anything.
+    """
+    note_ids = {n.id for n in board.notes}
+    out = []
+    for a in board.arrows:
+        kind = a.kind or (
+            "annotation" if a.from_id in note_ids or a.to_id in note_ids
+            else "graph"
+        )
+        if kind != "annotation":
+            out.append(a)
+    return out
+
+
+def check_unrelated_children(board: Board) -> list[Diagnostic]:
+    """Flag containers of 4+ boxes with no arrow between any two of them.
+
+    An arrow counts when its two ends lie under two different direct
+    children of the container (an end inside a nested container counts
+    for that container). Such a container reads as a list: its boxes
+    relate to nothing but the container.
+    """
+    parent_of = {b.id: b.parent for b in board.boxes}
+    for el in (*board.notes, *board.images):
+        parent_of.setdefault(el.id, getattr(el, "parent", ""))
+    child_boxes: dict[str, list[str]] = {}
+    for b in board.boxes:
+        if b.parent:
+            child_boxes.setdefault(b.parent, []).append(b.id)
+
+    def child_under(pid: str, iid: str) -> str:
+        # The direct child of pid that iid is or lies inside, or "".
+        seen = set()
+        while iid and iid not in seen:
+            seen.add(iid)
+            up = parent_of.get(iid, "")
+            if up == pid:
+                return iid
+            iid = up
+        return ""
+
+    arrows = _relating_arrows(board)
+    diags: list[Diagnostic] = []
+    for pid, kids in child_boxes.items():
+        if len(kids) < UNRELATED_MIN_BOXES:
+            continue
+        related = any(
+            (fa := child_under(pid, a.from_id))
+            and (ta := child_under(pid, a.to_id))
+            and fa != ta
+            for a in arrows
+        )
+        if related:
+            continue
+        diags.append(Diagnostic(
+            code="unrelated-children",
+            severity=WARNING,
+            message=(
+                f"{pid!r} holds {len(kids)} boxes and no arrow between them "
+                f"— it reads as a list: draw the edges that relate them, "
+                f"place them by an encoding's rule, or make them an md: "
+                f"list note"
+            ),
+            item_ids=[pid],
+            fixable=False,
+        ))
+    return diags
+
+
+def check_unrelated_board(board: Board) -> list[Diagnostic]:
+    """Flag a board where most leaf boxes have no arrow at either end.
+
+    Leaf boxes are boxes that hold no other box; a container is the
+    relation of its children, so it is not counted itself. A board of
+    4+ leaf boxes where more than half touch no arrow reads as a list.
+    """
+    parents = {b.parent for b in board.boxes if b.parent}
+    leaves = [b.id for b in board.boxes if b.id not in parents]
+    if len(leaves) < UNRELATED_MIN_BOXES:
+        return []
+    ends = set()
+    for a in _relating_arrows(board):
+        ends.add(a.from_id)
+        ends.add(a.to_id)
+    loose = [iid for iid in leaves if iid not in ends]
+    if len(loose) * 2 <= len(leaves):
+        return []
+    return [Diagnostic(
+        code="unrelated-board",
+        severity=WARNING,
+        message=(
+            f"{len(loose)} of {len(leaves)} boxes have no arrow — the board "
+            f"reads as a list: draw the edges that relate them, place them "
+            f"by an encoding's rule, or make them an md: list note"
+        ),
+        item_ids=loose,
+        fixable=False,
+    )]
+
+
 def check_label_truncated(board: Board) -> list[Diagnostic]:
     """Heuristic: estimate text width and warn when it likely won't fit."""
     diags: list[Diagnostic] = []
@@ -730,6 +840,8 @@ def run_all(
     diags.extend(check_sibling_overlap(board, note_rect=note_rect))
     diags.extend(check_cramped_container(board, note_rect=note_rect))
     diags.extend(check_label_truncated(board))
+    diags.extend(check_unrelated_children(board))
+    diags.extend(check_unrelated_board(board))
     diags.extend(check_arrow_label_crowded(
         board, arrow_label_size=arrow_label_size, note_rect=note_rect,
     ))

@@ -14,7 +14,8 @@ import dataclasses
 import math
 import re
 
-from grafli.format import Arrow, Board, Box, parse, supported_version
+from grafli.format import (Arrow, Board, Box, doc_name, parse,
+                           supported_version)
 
 # The app's new-box size (grafli.constants.DEFAULT_BOX_W / _H), repeated here
 # because constants imports Qt; a test keeps the two equal.
@@ -254,11 +255,12 @@ def _command_lines(text: str) -> list[str]:
     return out
 
 
+_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+
+
 def _inside(ref: str) -> bool:
     """Whether a file *ref* stays in the board's folder: relative, no
-    ``..``, no ``~``. A URL is no file."""
-    if "://" in ref:
-        return True
+    ``..``, no ``~``, no drive."""
     path = ref.split("#", 1)[0]
     if path.startswith(("/", "\\", "~")) or re.match(r"[A-Za-z]:", path):
         return False
@@ -268,8 +270,17 @@ def _inside(ref: str) -> bool:
 def _check_files(el) -> None:
     """Refuse a line that points at a file outside the board's folder: the
     worker reads what an image or attachment names and sends it to every
-    tab."""
-    refs = [getattr(el, "image_path", ""), el.url]
+    tab. A doc is checked by the name the reader uses (a bare ``&doc`` is
+    named after the element's id); only a link may be a URL."""
+    kind = el.attach_kind
+    if kind == "" and el.url and _URL_RE.match(el.url):
+        # An untyped URL is a link; say so, so nothing reads it as a file.
+        el.attach_kind = kind = "link"
+    refs = [getattr(el, "image_path", "")]
+    if kind == "doc":
+        refs.append(doc_name(el))
+    elif kind != "link":
+        refs.append(el.url)
     for ref in refs:
         if ref and not _inside(ref):
             raise OpError(f"'{ref}' lies outside the board's folder; "

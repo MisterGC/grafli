@@ -332,6 +332,22 @@ def test_a_bad_edit_leaves_the_file_alone(served, board):
     tab.close()
 
 
+def test_a_nan_coordinate_is_refused_and_the_socket_stays_open(served, board):
+    """Starlette's JSON reader takes a bare NaN; the edit is answered with an
+    error, the file is untouched and the next edit still goes through."""
+    tab = Tab(served, board.stem, served.keys.editor)
+    _welcome, frame = tab.open()
+    tab.ws.send('{"t": "edit", "id": 7, "base": %d, '
+                '"op": {"op": "move", "id": "a", "x": NaN, "y": 0}}'
+                % frame["version"])
+    msg = tab.recv_until("error")
+    assert msg["id"] == 7 and "finite" in msg["message"]
+    assert board.read_text() == BOARD
+    ack = tab.edit(frame["version"], {"op": "move", "id": "a", "x": 5, "y": 5})
+    assert ack["t"] == "ack"
+    tab.close()
+
+
 def test_a_level_into_another_board_opens_its_live_page(served):
     res = served.root / "top-res"
     res.mkdir()

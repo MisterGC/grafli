@@ -115,6 +115,29 @@ def test_edits_that_do_not_fit_say_why(op, message):
     assert serialize(b) == BOARD
 
 
+@pytest.mark.parametrize("bad_id", ["my box", "two\nlines", "tab\there", " "])
+def test_a_new_box_id_must_be_one_token(bad_id):
+    """The format reads a box id as one ``\\S+`` token; anything else would
+    write a line no reader takes."""
+    b = board()
+    with pytest.raises(OpError, match="not an id"):
+        apply_op(b, {"op": "add_box", "id": bad_id, "label": "New", "x": 0, "y": 0})
+    assert serialize(b) == BOARD
+
+
+@pytest.mark.parametrize("field", ["x", "y", "w", "h"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_numbers_must_be_finite(field, value):
+    b = board()
+    op = {"op": "add_box", "label": "New", "x": 0, "y": 0, field: value}
+    with pytest.raises(OpError, match=f"'{field}' must be a finite number"):
+        apply_op(b, op)
+    if field in ("x", "y"):
+        with pytest.raises(OpError, match="finite"):
+            apply_op(b, {"op": "move", "id": "a", "x": 0, "y": 0, field: value})
+    assert serialize(b) == BOARD
+
+
 def test_a_doc_note_is_not_renamed_in_place():
     b = parse('#!grafli v1\n@ note d 0,0 &doc\n')
     with pytest.raises(OpError, match="keeps its text in a doc"):

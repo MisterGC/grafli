@@ -2711,6 +2711,83 @@ def _cmd_fmt(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_layout(argv: list[str]) -> int:
+    """Run the app's layered layout (`=` with nothing selected) headless:
+    rank each container's boxes by their arrows, keep `!pin` boxes."""
+    from grafli.board_info import top_margin
+    from grafli.constants import LAYOUT_PADDING
+    from grafli.layout import Direction, container_groups, layout_groups
+
+    parser = argparse.ArgumentParser(
+        prog="grafli layout",
+        description=(
+            "Rewrite a board's box coordinates with the layered layout the "
+            "app runs on '=' with nothing selected: every container's boxes "
+            "are ranked by the arrows between them (an arrow into a box's "
+            "contents counts for that box), containers grow to fit. Boxes "
+            "marked !pin keep their position; the others are placed around "
+            "them. Notes, images and arrows are not moved, except that a "
+            "container carries its contents along. Boards with malformed "
+            "lines or a newer #!grafli vN header are left untouched."
+        ),
+    )
+    parser.add_argument("files", nargs="+", type=Path,
+                        help="Input .grafli files (rewritten in place)")
+    parser.add_argument("--direction", choices=("ltr", "ttb"), default=None,
+                        help="Flow of every container: ltr (left to right) "
+                             "or ttb (top to bottom); default: per container "
+                             "the flow that needs it to grow least, by its "
+                             "shape when both fit; ttb at the root")
+    parser.add_argument("--check", action="store_true",
+                        help="Write nothing; exit 1 if any file would change")
+    args = parser.parse_args(argv)
+    direction = Direction(args.direction) if args.direction else None
+
+    def label_height(parent_id: str) -> float:
+        parent = board.box_by_id(parent_id)
+        textsize = parent.textsize if parent else ""
+        return top_margin(textsize or "") - LAYOUT_PADDING
+
+    changed = untouched = 0
+    for path in args.files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"cannot read {path}: {exc}", file=sys.stderr)
+            return 2
+        board = parse(text)
+        if is_newer(board):
+            print(f"{path}: left untouched — {_newer_board_reason(board)}",
+                  file=sys.stderr)
+            untouched += 1
+            continue
+        if board.parse_warnings:
+            for w in board.parse_warnings:
+                print(f"{path}:{w.line}: {w.reason}", file=sys.stderr)
+            print(f"{path}: left untouched — fix the lines above first",
+                  file=sys.stderr)
+            untouched += 1
+            continue
+        attach_names(board, path)
+        layout_groups(board, container_groups(board), 20,  # app grid
+                      label_height,
+                      direction)
+        out = serialize(board)
+        if out == text:
+            continue
+        changed += 1
+        if args.check:
+            print(f"would lay out {path}")
+        else:
+            path.write_text(out, encoding="utf-8")
+            print(f"laid out {path}")
+    if untouched:
+        return 2
+    if args.check and changed:
+        return 1
+    return 0
+
+
 def _cmd_inspect(argv: list[str]) -> int:
     """Resolved-geometry report (JSON) for agents: element bounds,
     container inner rects, sibling gaps, next free slot per container."""
@@ -2844,7 +2921,8 @@ def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
     if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
                                               "export", "export-html",
-                                              "vault", "inspect", "fmt"):
+                                              "vault", "inspect", "fmt",
+                                              "layout"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
         if sub == "export-html":
@@ -2861,12 +2939,14 @@ def main():
             sys.exit(_cmd_inspect(rest))
         if sub == "fmt":
             sys.exit(_cmd_fmt(rest))
+        if sub == "layout":
+            sys.exit(_cmd_layout(rest))
         sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
         description="Grafli whiteboard. Subcommands: skill, render, diagnose, "
-                    "inspect, export, export-html, vault, fmt.",
+                    "inspect, export, export-html, vault, fmt, layout.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

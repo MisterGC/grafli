@@ -29,7 +29,8 @@ _LARGE_SIZES = frozenset(
 _ALIGN_EPS = 2.0
 
 
-def _top_margin(textsize: str) -> float:
+def top_margin(textsize: str) -> float:
+    """Distance from a container's top edge to its first child row."""
     return _TOP_MARGIN_LARGE if textsize in _LARGE_SIZES else _TOP_MARGIN_DEFAULT
 
 
@@ -93,7 +94,7 @@ def _gaps_along(rects: list[list[float]], axis: int) -> list[float]:
 
 
 def _container_entry(parent, child_boxes: list) -> dict:
-    top = _top_margin(parent.textsize or "")
+    top = top_margin(parent.textsize or "")
     inner = _rect(
         parent.x + LAYOUT_PADDING,
         parent.y + top,

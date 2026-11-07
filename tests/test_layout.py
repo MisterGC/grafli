@@ -431,3 +431,68 @@ class TestStableRerun:
         a = board.box_by_id("A")
         assert a.x + a.w <= pin.x
         assert not _overlaps(a, pin)
+
+    def _twice(self, board: Board) -> None:
+        layout_groups(board, container_groups(board), 20, lambda pid: 20)
+        first = [(b.x, b.y, b.w, b.h) for b in board.boxes]
+        layout_groups(board, container_groups(board), 20, lambda pid: 20)
+        assert [(b.x, b.y, b.w, b.h) for b in board.boxes] == first
+
+    def test_container_that_grows_is_stable(self):
+        # A wide, low container whose four unlinked children don't fit:
+        # it grows on the first run and must not flip flow on the second.
+        p = _box("P", 0, 0, 1100, 230)
+        kids = [_box(k, 40, 80, 220, 90) for k in ("a", "b", "c", "d")]
+        for k in kids:
+            k.parent = "P"
+        self._twice(_make_board([p, *kids, _box("Q", 0, 400)],
+                                [_arrow("P", "Q")]))
+
+    def test_off_grid_container_is_stable(self):
+        p = _box("P", 33, 717, 600, 300)
+        kids = [_box("a", 50, 760, 220, 85), _box("b", 300, 760, 220, 85),
+                _box("c", 50, 900, 220, 85)]
+        for k in kids:
+            k.parent = "P"
+        self._twice(_make_board([p, *kids], [_arrow("a", "c"), _arrow("b", "c")]))
+
+    def test_gaps_within_a_layer_are_even(self):
+        boxes = [_box(b, 0, 0, 160, 85) for b in ("r", "a", "b", "c")]
+        board = _make_board(boxes, [_arrow("r", "a"), _arrow("r", "b"),
+                                    _arrow("r", "c")])
+        result = compute_layout(board, {"r", "a", "b", "c"}, "", Direction.LTR,
+                                20, 0, {b.id: (160, 85) for b in boxes})
+        ys = sorted(result[b][1] for b in ("a", "b", "c"))
+        assert ys[1] - ys[0] == ys[2] - ys[1]
+
+
+class TestFlowByFit:
+    def test_container_takes_the_flow_that_fits(self):
+        # A wide container with one layer of three: a column (LTR by
+        # shape) would make it grow, a row fits.
+        p = _box("P", 0, 0, 800, 200)
+        kids = [_box(k, 0, 0, 200, 80) for k in ("a", "b", "c")]
+        for k in kids:
+            k.parent = "P"
+        board = _make_board([p, *kids])
+        layout_groups(board, container_groups(board), 20, lambda pid: 20)
+        assert len({k.y for k in kids}) == 1
+        assert (p.w, p.h) == (800, 200)
+
+
+def test_example_board_is_stable_under_a_rerun():
+    from pathlib import Path
+
+    from grafli.board_info import top_margin
+    from grafli.format import parse
+
+    src = Path(__file__).parent.parent / "examples" / "architecture.grafli"
+    board = parse(src.read_text(encoding="utf-8"))
+
+    def label(pid: str) -> float:
+        return top_margin(board.box_by_id(pid).textsize) - 20
+
+    layout_groups(board, container_groups(board), 20, label)
+    first = [(b.x, b.y, b.w, b.h) for b in board.boxes]
+    layout_groups(board, container_groups(board), 20, label)
+    assert [(b.x, b.y, b.w, b.h) for b in board.boxes] == first

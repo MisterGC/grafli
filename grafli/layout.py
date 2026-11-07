@@ -40,20 +40,45 @@ def compute_layout(
         return _layout_single(board, free_ids, parent_id, grid, label_height, box_sizes)
 
     constraint = _constraint_rect(board, free_ids, parent_id, label_height, box_sizes)
-    if direction is None:
-        direction = _auto_direction(board, parent_id, constraint)
-
     adj, radj = _build_dag(board, target_ids)
-    layers = _assign_layers(target_ids, adj, radj)
-    layers = _order_within_layers(layers, adj, board, direction, target_ids, box_sizes)
-    layers = [kept for layer in layers
-              if (kept := [n for n in layer if n not in pinned])]
     # Without a parent the area is the boxes' own bounding box, which the
     # layout itself changes: centring in it would shift every rerun.
     in_parent = bool(parent_id and board.box_by_id(parent_id))
-    positions = _assign_coordinates(layers, direction, constraint, grid, box_sizes,
-                                    obstacles, center_on_widest=not in_parent)
-    return positions
+
+    def _place(d: Direction) -> dict[str, tuple[float, float]]:
+        layers = _assign_layers(target_ids, adj, radj)
+        layers = _order_within_layers(layers, adj, board, d, target_ids, box_sizes)
+        layers = [kept for layer in layers
+                  if (kept := [n for n in layer if n not in pinned])]
+        return _assign_coordinates(layers, d, constraint, grid, box_sizes,
+                                   obstacles, center_on_widest=not in_parent)
+
+    if direction is not None:
+        return _place(direction)
+    preferred = _auto_direction(board, parent_id, constraint)
+    if not in_parent:
+        return _place(preferred)
+    # In a container, take the flow that needs the container to grow the
+    # least, by its shape when both fit: choosing by shape alone would let
+    # a container the layout reshaped flip its flow on the next run.
+    other = Direction.TTB if preferred == Direction.LTR else Direction.LTR
+    placed = [(_growth(pos, constraint, box_sizes), i, pos)
+              for i, pos in enumerate((_place(preferred), _place(other)))]
+    return min(placed, key=lambda t: (t[0], t[1]))[2]
+
+
+def _growth(
+    positions: dict[str, tuple[float, float]],
+    constraint: tuple[float, float, float, float],
+    box_sizes: dict[str, tuple[float, float]],
+) -> float:
+    """The area the constraint rect must gain to hold *positions*."""
+    cx, cy, cw, ch = constraint
+    need_w = max((x + box_sizes.get(n, (160, 80))[0] for n, (x, _) in positions.items()),
+                 default=cx) - cx
+    need_h = max((y + box_sizes.get(n, (160, 80))[1] for n, (_, y) in positions.items()),
+                 default=cy) - cy
+    return max(cw, need_w) * max(ch, need_h) - cw * ch
 
 
 # ── Whole-board driver ──────────────────────────────────────────
@@ -87,6 +112,17 @@ def layout_groups(
     container has grown to fit its children before its own siblings are
     placed. Moving a box moves its descendants and parented notes along."""
     groups = sorted(groups, key=lambda g: -_depth(board, g[0]))
+    # Put every container that will be filled on the grid first, so its
+    # children are placed in a grid-aligned frame: a container moved onto
+    # the grid afterwards would leave them off it, and the next run would
+    # shift them back.
+    for parent_id, _ in reversed(groups):
+        parent = board.box_by_id(parent_id) if parent_id else None
+        if parent and not parent.pinned:
+            nx, ny = _snap(parent.x, grid), _snap(parent.y, grid)
+            dx, dy = nx - parent.x, ny - parent.y
+            parent.x, parent.y = nx, ny
+            _propagate_delta(board, parent_id, dx, dy)
     for parent_id, child_ids in groups:
         _layout_group(board, parent_id, child_ids, grid,
                       label_height(parent_id) if parent_id else 0.0,
@@ -460,84 +496,54 @@ def _assign_coordinates(
 ) -> dict[str, tuple[float, float]]:
     """Compute final (x, y) positions for all nodes. A node that would
     land on an obstacle (a pinned box) moves along its layer past it,
-    and the rest of the layer follows. Layers are centred on the
-    constraint's cross extent, or with *center_on_widest* on the widest
-    layer, which then starts at the constraint's edge."""
+    and the rest of the layer follows. Each layer is centred on the
+    widest one, and that block on the constraint's cross extent — with
+    *center_on_widest* it starts at the constraint's edge instead.
+
+    Every step — node to node, layer to layer, a layer's centring offset —
+    is a whole number of grid cells, so the gaps come out even and a
+    container that grew to fit its children places them the same way on
+    the next run."""
     obstacles = obstacles or []
     cx, cy, cw, ch = constraint
     positions: dict[str, tuple[float, float]] = {}
+    ttb = direction == Direction.TTB
+    origin = cx if ttb else cy
 
+    def _main(nid: str) -> float:
+        return box_sizes.get(nid, (160, 80))[1 if ttb else 0]
+
+    def _cross(nid: str) -> float:
+        return box_sizes.get(nid, (160, 80))[0 if ttb else 1]
+
+    def _step(size: float, gap: float) -> float:
+        return _snap_up(size + gap, grid)
+
+    def _extent(layer: list[str]) -> float:
+        return (sum(_step(_cross(n), LAYOUT_NODE_GAP) for n in layer[:-1])
+                + _cross(layer[-1]))
+
+    layers = [layer for layer in layers if layer]
     if not layers:
         return positions
+    extents = [_extent(layer) for layer in layers]
+    widest = max(extents)
+    # The block of layers is centred in the area, each layer in the block.
+    avail_cross = widest if center_on_widest else (cw if ttb else ch)
+    block_start = max(0.0, _snap((avail_cross - widest) / 2, grid))
 
-    # Find disconnected components by grouping layers
-    # (already handled by layering — all in one set of layers)
-
-    # Compute layer sizes
-    layer_main_sizes: list[float] = []  # size along main axis (max node size)
-    layer_cross_sizes: list[float] = []  # total size along cross axis
-
-    for layer in layers:
-        if not layer:
-            layer_main_sizes.append(0)
-            layer_cross_sizes.append(0)
-            continue
-
-        if direction == Direction.TTB:
-            main_sizes = [box_sizes.get(n, (160, 80))[1] for n in layer]
-            cross_sizes = [box_sizes.get(n, (160, 80))[0] for n in layer]
-        else:
-            main_sizes = [box_sizes.get(n, (160, 80))[0] for n in layer]
-            cross_sizes = [box_sizes.get(n, (160, 80))[1] for n in layer]
-
-        layer_main_sizes.append(max(main_sizes))
-        total_cross = sum(cross_sizes) + LAYOUT_NODE_GAP * (len(layer) - 1)
-        layer_cross_sizes.append(total_cross)
-
-    # Total main-axis span
-    total_main = sum(layer_main_sizes) + LAYOUT_LAYER_GAP * max(len(layers) - 1, 0)
-    max_cross = max(layer_cross_sizes) if layer_cross_sizes else 0
-
-    if center_on_widest:
-        avail_cross = max_cross
-    elif direction == Direction.TTB:
-        avail_cross = cw
-    else:
-        avail_cross = ch
-
-    effective_layer_gap = LAYOUT_LAYER_GAP
-    effective_node_gap = LAYOUT_NODE_GAP
-
-    # Place layers
     main_cursor = 0.0
-    for li, layer in enumerate(layers):
-        if not layer:
-            continue
+    for layer, extent in zip(layers, extents):
+        cross_cursor = block_start + _snap((widest - extent) / 2, grid)
 
-        if direction == Direction.TTB:
-            cross_sizes = [box_sizes.get(n, (160, 80))[0] for n in layer]
-        else:
-            cross_sizes = [box_sizes.get(n, (160, 80))[1] for n in layer]
-
-        total_cross_layer = sum(cross_sizes) + effective_node_gap * max(len(layer) - 1, 0)
-
-        # Center the layer on the cross axis within constraint
-        cross_start = (avail_cross - total_cross_layer) / 2 if avail_cross > 0 else 0
-        cross_start = max(0, cross_start)
-        cross_cursor = cross_start
+        def _at(cursor: float) -> tuple[float, float]:
+            if ttb:
+                return _snap(cx + cursor, grid), _snap(cy + main_cursor, grid)
+            return _snap(cx + main_cursor, grid), _snap(cy + cursor, grid)
 
         for ni, nid in enumerate(layer):
             bw, bh = box_sizes.get(nid, (160, 80))
-
-            ttb = direction == Direction.TTB
-            size = bw if ttb else bh
-            origin = cx if ttb else cy
-
-            def _at(cursor: float) -> tuple[float, float]:
-                if ttb:
-                    return _snap(cx + cursor, grid), _snap(cy + main_cursor, grid)
-                return _snap(cx + main_cursor, grid), _snap(cy + cursor, grid)
-
+            size = _cross(nid)
             # A node may step back before an obstacle, but not onto the
             # previous node of its layer or before the area's edge.
             floor = 0.0 if ni == 0 else cross_cursor
@@ -548,9 +554,9 @@ def _assign_coordinates(
                     break
                 ox, oy, ow, oh = hit
                 o_start, o_len = (ox, ow) if ttb else (oy, oh)
-                forward = max(cross_cursor + 1,
-                              o_start + o_len - origin + effective_node_gap)
-                back = _snap_down(o_start - effective_node_gap - size, grid) - origin
+                forward = max(cross_cursor + 1, _snap_up(
+                    o_start + o_len + LAYOUT_NODE_GAP - origin, grid))
+                back = _snap_down(o_start - LAYOUT_NODE_GAP - size - origin, grid)
                 if (floor <= back < cross_cursor
                         and cross_cursor - back < forward - cross_cursor
                         and _blocking((*_at(back), bw, bh), obstacles) is None):
@@ -558,15 +564,18 @@ def _assign_coordinates(
                 else:
                     cross_cursor = forward
             positions[nid] = (x, y)
+            cross_cursor += _step(size, LAYOUT_NODE_GAP)
 
-            if direction == Direction.TTB:
-                cross_cursor += bw + effective_node_gap
-            else:
-                cross_cursor += bh + effective_node_gap
-
-        main_cursor += layer_main_sizes[li] + effective_layer_gap
+        main_cursor += _step(max(_main(n) for n in layer), LAYOUT_LAYER_GAP)
 
     return positions
+
+
+def _snap_up(value: float, grid: float) -> float:
+    """Snap a length up to whole grid cells."""
+    if grid <= 0:
+        return value
+    return math.ceil(value / grid - 1e-9) * grid
 
 
 def _snap_down(value: float, grid: float) -> float:

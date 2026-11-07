@@ -72,11 +72,17 @@ def arrow_trouble(path: Path) -> list[str]:
     view.render_headless(path)
     view.load_board(board)
     items = view._scene.items()
-    parents = {b.id: b.parent for b in board.boxes}
-    containers = {p for p in parents.values() if p}
+    parents = {el.id: el.parent for el in (*board.boxes, *board.notes)}
+
+    def with_ancestors(el_id: str) -> set[str]:
+        out = set()
+        while el_id and el_id not in out:
+            out.add(el_id)
+            el_id = parents.get(el_id, "")
+        return out
+
     rects = {it.box.id: it.sceneBoundingRect().adjusted(4, 4, -4, -4)
-             for it in items if isinstance(it, BoxItem)
-             and it.box.id not in containers}
+             for it in items if isinstance(it, BoxItem)}
     arrows: dict[int, tuple[object, list[QLineF]]] = {}
     for it in items:
         if isinstance(it, ArrowLineItem) and it.isVisible():
@@ -88,7 +94,9 @@ def arrow_trouble(path: Path) -> list[str]:
 
     trouble = []
     for arrow, segs in arrows.values():
-        ends = {arrow.from_id, arrow.to_id}
+        # An arrow may cross its own ends and the containers they sit in;
+        # every other box, a container included, is in its way.
+        ends = with_ancestors(arrow.from_id) | with_ancestors(arrow.to_id)
         for box_id, rect in rects.items():
             if box_id not in ends and any(_hits_rect(s, rect) for s in segs):
                 trouble.append(f"{name(arrow)} runs through {box_id}")
@@ -140,3 +148,18 @@ def test_the_check_sees_an_arrow_through_a_box_and_a_crossing(tmp_path: Path):
     assert "d -> e runs through b" in trouble
     assert ("a -> c crosses d -> e" in trouble
             or "d -> e crosses a -> c" in trouble)
+
+
+def test_the_check_sees_an_arrow_through_a_container_that_holds_neither_end(
+        tmp_path: Path):
+    board = tmp_path / "bands.grafli"
+    board.write_text(
+        "#!grafli v4\n"
+        "@ box top \"top\" 0,0 600x180 ^left\n"
+        "@ box a \"a\" 200,60 200x80 >top\n"
+        "@ box mid \"mid\" 0,300 600x180 ^left\n"
+        "@ box m \"m\" 20,360 120x80 >mid\n"
+        "@ box bot \"bot\" 0,600 600x180 ^left\n"
+        "@ box b \"b\" 200,660 200x80 >bot\n"
+        "@ arrow a -> b\n", encoding="utf-8")
+    assert arrow_trouble(board) == ["a -> b runs through mid"]

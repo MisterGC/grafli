@@ -218,6 +218,7 @@ def test_the_page_holds_no_board_until_the_key(served, board):
     assert json.loads(data)["boards"] == {}
     assert '<template id="svg-' not in page
     assert "grafliLive" in page
+    assert "grafliEdit" in page    # the presenter's keys
 
 
 def test_a_wrong_key_is_refused(served, board):

@@ -137,6 +137,9 @@ def _live_exporter_class():
 
         def _element(self, path, key, el, rect, ids, kind):
             entry = super()._element(path, key, el, rect, ids, kind)
+            # What a rename in the tab starts from: the label as written.
+            entry["text"] = (el.text if kind == "note"
+                             else "" if kind == "image" else el.label)
             link = board_link(path, el)
             if "level" not in entry and link is not None:
                 name = board_name(self.served_root, link[0])
@@ -144,6 +147,25 @@ def _live_exporter_class():
                     entry["level"] = {"board": None, "href": f"/b/{name}",
                                       "target": link[1]}
             return entry
+
+        def board(self, path, key, ids, padding):
+            out = super().board(path, key, ids, padding)
+            # Live, every drawn arrow can be selected, renamed and deleted;
+            # the export lists only those with an id or an attachment.
+            listed = {e["id"] for e in out["elements"]}
+            arrows = {a.id or f"{a.from_id}->{a.to_id}": a
+                      for a in parse(self.text).arrows}
+            for line in out["lines"]:
+                ref = line["id"] or "->".join(line["ends"])
+                arrow = arrows.get(ref)
+                if ref in listed or arrow is None:
+                    continue
+                listed.add(ref)
+                out["elements"].append({
+                    "id": ref, "kind": "arrow", "paths": line["paths"],
+                    "label": arrow.label or f"{arrow.from_id} \u2192 {arrow.to_id}",
+                    "text": arrow.label})
+            return out
 
         def frame(self, path: Path, text: str, root: Path) -> dict:
             self.text = text

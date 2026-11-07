@@ -249,6 +249,20 @@ def test_the_first_frame_is_the_apps_drawing(served, board):
     tab.close()
 
 
+def test_a_frame_lists_every_arrow_and_each_labels_text(served, board):
+    """The tab selects, renames and deletes any arrow, and a rename starts
+    from the label as written."""
+    board.write_text(BOARD + '@ note n1 0,200 "two\\nlines"\n')
+    tab = Tab(served, board.stem, served.keys.viewer)
+    _welcome, frame = tab.open()
+    els = {e["id"]: e for e in frame["board"]["elements"]}
+    assert els["a->b"]["kind"] == "arrow" and els["a->b"]["paths"]
+    assert els["a->b"]["text"] == "calls"
+    assert els["a"]["text"] == "A"
+    assert els["n1"]["text"] == "two\nlines"
+    tab.close()
+
+
 @pytest.mark.parametrize("writer", ["editor", "app"])
 def test_a_change_to_the_file_shows_within_a_second(served, board, writer):
     """An editor rewrites the file in place; the desktop app saves through

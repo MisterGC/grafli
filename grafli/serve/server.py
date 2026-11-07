@@ -217,6 +217,12 @@ async def _edit(room: Room, client: Client, msg: dict, send) -> None:
     except OpError as e:
         await send({"t": "error", "id": req_id, "message": str(e)})
         return
+    except Exception as e:
+        # An edit that fails in a way the checks did not foresee is answered
+        # like any other refused edit; the tab's connection stays open.
+        await send({"t": "error", "id": req_id,
+                    "message": f"the edit failed: {type(e).__name__}: {e}"})
+        return
     await send({"t": "ack", "id": req_id, **result})
 
 

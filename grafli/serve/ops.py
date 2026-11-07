@@ -9,6 +9,9 @@ into the file (see ``grafli.serve.room``).
 
 from __future__ import annotations
 
+import math
+import re
+
 from grafli.format import Arrow, Board, Box
 
 # The app's new-box size (grafli.constants.DEFAULT_BOX_W / _H), repeated here
@@ -17,6 +20,9 @@ NEW_BOX_W = 160
 NEW_BOX_H = 80
 
 MAX_LABEL_CHARS = 500
+
+# An element id as the format reads it: one token, no whitespace.
+_ID_RE = re.compile(r"\S+")
 
 
 class OpError(ValueError):
@@ -27,6 +33,9 @@ def _number(op: dict, name: str) -> float:
     value = op.get(name)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise OpError(f"'{name}' must be a number")
+    if not math.isfinite(value):
+        # The file holds whole numbers; NaN and infinity have none.
+        raise OpError(f"'{name}' must be a finite number")
     return float(value)
 
 
@@ -108,6 +117,8 @@ def _rename(board: Board, op: dict) -> dict:
 def _add_box(board: Board, op: dict) -> dict:
     label = _text(op, "label")
     elem_id = _text(op, "id", required=False) or board.next_box_id()
+    if not _ID_RE.fullmatch(elem_id):
+        raise OpError(f"{elem_id!r} is not an id: one word, no spaces")
     if _placed(board, elem_id) is not None:
         raise OpError(f"'{elem_id}' already exists")
     w = _number(op, "w") if "w" in op else NEW_BOX_W

@@ -275,3 +275,34 @@ def test_command_lines_that_do_not_fit_say_why(text, message):
     with pytest.raises(OpError, match=message):
         apply_op(b, {"op": "lines", "text": text})
     assert serialize(b) == BOARD
+
+
+@pytest.mark.parametrize("line", [
+    '@ box x "X" &doc:../../secret',
+    '@ box x "X" &graph:../other',
+    '@ box x "X" &/etc/hosts.grafli',
+    '@ box x "X" &~/notes.grafli',
+    '@ image pic "../../photo.png" 0,0 10x10',
+    '@ image pic "/Users/someone/photo.png" 0,0 10x10',
+    '@ arrow a -> b "x" &doc:../../secret',
+])
+def test_a_command_line_may_not_name_files_outside_the_boards_folder(line):
+    """The worker reads what an image or a doc names and sends it to every
+    tab; an edit from a tab stays inside the board's folder."""
+    b = spaced()
+    b.add_box(parse('#!grafli v1\n@ box b2 "B2" 900,0 10x10').boxes[0])
+    text = serialize(b)
+    with pytest.raises(OpError, match="outside the board's folder"):
+        apply_op(b, {"op": "lines", "text": line.replace("-> b ", "-> b2 ")})
+    assert serialize(b) == text
+
+
+@pytest.mark.parametrize("line", [
+    '@ box x "X" &doc:notes',
+    '@ box x "X" &graph:inner#top',
+    '@ box x "X" &https://example.org/a/../b',
+    '@ image pic "x-res/photo.png" 0,0 10x10',
+])
+def test_a_command_line_may_name_files_inside_it(line):
+    b = spaced()
+    apply_op(b, {"op": "lines", "text": line})

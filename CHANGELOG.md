@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `@ box cache "Cache"`. Each edit shows a dashed placeholder until the
   drawing that holds it arrives.
   ([#263](https://github.com/MisterGC/grafli/issues/263))
+- **See who is in the live tab, follow the presenter, point with a laser.**
+  `grafli serve` prints a third link per board, **present**, for the person
+  presenting. Every other tab follows the presenter's tab — its view, and
+  along into a level or another board — until **Stop following** in the bar
+  (or your own pan or zoom); **Follow** brings it back. Each tab's pointer
+  shows on the others as a cursor with its name, `k` turns on a laser trail
+  everyone sees, and "You: …" in the bar sets your name. None of it is
+  written to the board file.
+  ([#264](https://github.com/MisterGC/grafli/issues/264))
 - **`grafli fmt` — canonical form for hand- and agent-authored boards.**
   Boards written outside the app never pass through its save path, so their
   coordinates and token spacing drift from what the app would write and the

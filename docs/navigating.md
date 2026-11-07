@@ -250,9 +250,10 @@ pip install 'grafli[serve]'
 grafli serve boards/ --host 192.168.1.20
 ```
 
-It prints two links per board in the directory, of the form
+It prints three links per board in the directory, of the form
 `http://<host>:<port>/b/<board>#k=<key>`: a **watch** link and an **edit**
-link, each with its own key after the `#`. The page asks for nothing; the key
+link for the people in the meeting, and a **present** link for you, each
+with its own key after the `#`. The page asks for nothing; the key
 travels from the link to the server over the WebSocket, and the drawing comes
 only after it. A board in a vault (`<board>-res/`) has a link too
 (`/b/<board>-res/<name>`), and clicking a level in the tab opens it with the
@@ -273,6 +274,8 @@ An edit link's tab can change the board: each edit is a small operation
 version the tab shows and merged into the file with the same three-way merge
 the desktop app runs when the file changes under it, so an edit never
 overwrites a change the tab had not seen yet. A watch link's tab cannot edit.
+The present link's tab edits like an edit link's, and the others follow it
+(see below).
 
 The files never leave your machine, only drawings of them do, and only to the
 tabs that hold a key. The session ends when `grafli serve` stops; there is no
@@ -310,6 +313,29 @@ it. The tab keeps its undo history across a reload for as long as
 Plain language on the command line ("add a cache between api and db") is
 for a connected agent; until one is connected, the tab says so and changes
 nothing.
+
+### Who is here: follow, laser, cursors
+
+Every tab on a board sees the others: a coloured dot per tab in the bar
+(yours has a ring), and the others' pointers on the board as cursors with
+their names. The present link's tab is orange.
+
+- **Follow the presenter.** A tab opened with a watch or edit link follows
+  the present link's tab: it shows what the presenter's tab shows, framed
+  whole in its own window, and goes along when the presenter opens a level
+  or another board. **Stop following** in the bar stops it, one click; your
+  own pan, zoom or tour stops it too, and **Follow** brings you back. The
+  presenter's bar counts who follows.
+- **Laser.** <kbd>k</kbd> turns the laser on and off (<kbd>Esc</kbd> turns
+  it off): your pointer leaves a red trail that every tab on the board sees
+  for a moment. Every tab has it, watch links too.
+- **Your name.** "You: Guest 1" in the bar is the name the others see; click
+  it, type, <kbd>Enter</kbd>. The browser keeps it for the next session.
+
+None of this is written to the board file: cursors, the laser, who follows
+and the presenter's view travel between the tabs only and are gone when the
+tabs close. If the presenter opens the same board in a second tab, the newer
+tab is the one the others follow.
 
 ## When you want to *explain* the path
 

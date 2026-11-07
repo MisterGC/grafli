@@ -868,5 +868,7 @@
   if (!DATA.live) {
     showBoard(DATA.root);
     setView(fitBoard());
+  } else {
+    $("back").disabled = true;   // nothing to go back to until a board arrives
   }
 })();

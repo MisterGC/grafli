@@ -39,6 +39,14 @@ body {
 #overlay-pick { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 #tour-pick:not([hidden]) + #overlay-pick { margin-left: 0; }
 #overlay-pick[hidden], #tour-pick[hidden] { display: none; }
+/* grafli serve: whether the tab is live, and what its link lets it do. */
+#live {
+  margin-left: auto; font-size: 12px; padding: 2px 8px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 25%, transparent);
+}
+#tour-pick:not([hidden]) ~ #live, #overlay-pick:not([hidden]) ~ #live { margin-left: 0; }
+#live[data-state="live"] { color: var(--accent); border-color: var(--accent); }
+#live[data-state="off"] { opacity: 0.6; }
 
 #stage-wrap { position: relative; overflow: hidden; min-height: 0; }
 #stage {

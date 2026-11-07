@@ -2454,6 +2454,60 @@ def _cmd_export_html(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_serve(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="grafli serve",
+        description="Serve the boards in a directory live to browser tabs on "
+                    "your network or VPN: every change to a board's file is "
+                    "drawn again and pushed to its tabs. Prints a watch link "
+                    "and an edit link per board; the key is after '#'.",
+    )
+    parser.add_argument("dir", type=Path,
+                        help="Directory of .grafli boards, or one board")
+    parser.add_argument(
+        "--host", default=None,
+        help="Address of the interface to listen on — your LAN or VPN "
+             "address, e.g. from `tailscale ip -4` (default 127.0.0.1, this "
+             "machine only; never every interface unless you give 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=None,
+                        help="Port (default 7341; 0 picks a free one)")
+    parser.add_argument(
+        "--theme", default="light", choices=("light", "dark"),
+        help="Colour theme of the drawing (default light)")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Print a line per pushed change with its timing")
+    args = parser.parse_args(argv)
+    try:
+        import starlette  # noqa: F401
+        import uvicorn  # noqa: F401
+        import websockets  # noqa: F401
+    except ImportError:
+        print("grafli serve needs its extra: pip install 'grafli[serve]'",
+              file=sys.stderr)
+        return 2
+    from grafli.serve.render import board_name
+    from grafli.serve.server import DEFAULT_HOST, DEFAULT_PORT, run
+    target = args.dir
+    if not target.exists():
+        print(f"Not found: {target}", file=sys.stderr)
+        return 2
+    open_board = None
+    if target.is_file():
+        if target.suffix != ".grafli":
+            print(f"Not a board: {target}", file=sys.stderr)
+            return 2
+        open_board = board_name(target.parent, target)
+        target = target.parent
+    host = args.host or DEFAULT_HOST
+    port = DEFAULT_PORT if args.port is None else args.port
+    try:
+        return run(target, host=host, port=port, theme=args.theme,
+                   verbose=args.verbose, open_board=open_board)
+    except OSError as e:
+        print(f"Cannot listen on {host}:{port}: {e}", file=sys.stderr)
+        return 2
+
+
 def _make_note_rect_provider():
     """Return a callable that computes a note's rendered scene rect.
 
@@ -2914,7 +2968,7 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
                                               "export", "export-html",
                                               "vault", "inspect", "fmt",
-                                              "layout"):
+                                              "layout", "serve"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
         if sub == "export-html":
@@ -2933,12 +2987,14 @@ def main():
             sys.exit(_cmd_fmt(rest))
         if sub == "layout":
             sys.exit(_cmd_layout(rest))
+        if sub == "serve":
+            sys.exit(_cmd_serve(rest))
         sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
         description="Grafli whiteboard. Subcommands: skill, render, diagnose, "
-                    "inspect, export, export-html, vault, fmt, layout.",
+                    "inspect, export, export-html, vault, fmt, layout, serve.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

@@ -28,7 +28,9 @@ classifiers = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-qt>=4"]
+# `grafli serve`: the live board in a browser tab.
+serve = ["starlette>=0.37", "uvicorn>=0.30", "websockets>=13"]
+dev = ["pytest>=8", "pytest-qt>=4", "grafli[serve]"]
 docs = [
     "mkdocs>=1.6",
     "mkdocs-material>=9.5",

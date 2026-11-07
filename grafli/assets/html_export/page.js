@@ -66,6 +66,17 @@
 
   function fitBoard() { return frameRect(board.bounds, 0); }
 
+  // Live, a board grows from one box (or none): fitting it never zooms in
+  // past 1:1, so a new box is drawn at its size, not across the screen.
+  function fitView() {
+    const v = fitBoard();
+    if (!DATA.live) return v;
+    const s = stageSize();
+    if (v.w >= s.w) return v;
+    const cx = v.x + v.w / 2, cy = v.y + v.h / 2;
+    return { x: cx - s.w / 2, y: cy - s.h / 2, w: s.w, h: s.h };
+  }
+
   function toBoard(clientX, clientY) {
     const r = stage.getBoundingClientRect();
     return { x: vb.x + (clientX - r.left) / r.width * vb.w,
@@ -710,6 +721,7 @@
     drag.moved = true;
     stage.classList.add("panning");
     const s = vb.w / stage.getBoundingClientRect().width;
+    cancelGlide();
     setView({ x: drag.view.x - dx * s, y: drag.view.y - dy * s, w: vb.w, h: vb.h });
   });
   stage.addEventListener("pointerup", () => {
@@ -723,6 +735,7 @@
     e.preventDefault();
     if (busy || !board) return;
     const rate = e.ctrlKey ? 0.01 : 0.0015;
+    cancelGlide();
     zoomAt(toBoard(e.clientX, e.clientY), Math.exp(e.deltaY * rate));
   }, { passive: false });
 
@@ -744,10 +757,19 @@
 
   function centre() { return { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 }; }
 
+  // grafli serve's editing keys: asked first, outside a tour and a level
+  // zoom and after a "g"; true when it took the key.
+  let keyHook = null;
+  const hooked = (e) => !!(keyHook && !tour && !busy && keyHook(e));
+
   let gPending = false, gTimer = 0;
   document.addEventListener("keydown", (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.target instanceof HTMLSelectElement || !board) return;
+    if (e.target instanceof HTMLSelectElement || e.target instanceof HTMLInputElement
+        || e.target instanceof HTMLTextAreaElement || !board) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) {
+      if (!gPending && hooked(e)) e.preventDefault();
+      return;
+    }
     const k = e.key;
     if (gPending) {
       gPending = false;
@@ -765,6 +787,9 @@
       e.preventDefault();
       return;
     }
+    if (hooked(e)) { e.preventDefault(); return; }
+    // A camera key takes over from a glide still under way.
+    if (k === "+" || k === "=" || k === "-" || k === "Z" || k.startsWith("Arrow")) cancelGlide();
     let handled = true;
     if (k === "g") { gPending = true; gTimer = setTimeout(() => { gPending = false; }, 1200); }
     else if (k === "Enter") {
@@ -782,7 +807,7 @@
     }
     else if (k === "+" || k === "=") zoomAt(centre(), 1 / 1.25);
     else if (k === "-") zoomAt(centre(), 1.25);
-    else if (k === "Z") setView(fitBoard());
+    else if (k === "Z") setView(fitView());
     else if (k.startsWith("Arrow")) {
       const step = vb.w * 0.1;
       const dx = k === "ArrowLeft" ? -step : k === "ArrowRight" ? step : 0;
@@ -834,9 +859,10 @@
     DATA.boards[next.id] = next;
     if (!board) {
       showBoard(next.id);
-      setView(fitBoard());
+      setView(fitView());
       return;
     }
+    const wasEmpty = !board.elements.length;
     const selId = selected ? selected.id : null;
     const peekId = peeked ? peeked.id : null;
     board = next;
@@ -849,11 +875,30 @@
     select(board.elements.find((e) => e.id === selId) || null);
     const again = board.elements.find((e) => e.id === peekId);
     if (again && again.doc) openPeek(again); else if (peekId) closePeek();
+    // The first element on an empty board: frame it.
+    if (wasEmpty && board.elements.length) setView(fitView());
   }
 
-  // A test hook: the page's state, read by the export's browser check.
+  // Pan so rect [x, y, w, h] is in view, at the same zoom, when it is not.
+  function reveal(r) {
+    if (!vb || !r) return;
+    const inside = r[0] >= vb.x && r[1] >= vb.y &&
+      r[0] + r[2] <= vb.x + vb.w && r[1] + r[3] <= vb.y + vb.h;
+    if (inside) return;
+    const cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
+    glide({ x: cx - vb.w / 2, y: cy - vb.h / 2, w: vb.w, h: vb.h }, STOP_MS / 2);
+  }
+
+  // A test hook: the page's state, read by the export's browser check; under
+  // grafli serve also what the live client's editing keys build on.
   window.grafliPage = {
-    update, toast,
+    update, toast, reveal,
+    current: () => board,
+    selectedEl: () => selected,
+    selectId: (id) => {
+      if (board) select(board.elements.find((e) => e.id === id) || null);
+    },
+    setKeyHook: (fn) => { keyHook = fn; },
     board: () => (board ? board.id : null), depth: () => stack.length,
     selected: () => (selected ? selected.id : null),
     peek: () => (peeked ? peeked.id : null),

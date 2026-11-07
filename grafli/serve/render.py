@@ -5,7 +5,8 @@ warm and answers one JSON line per request on stdin with one JSON line on
 stdout, carrying back the request's ``seq``:
 
 * ``{"t": "shell"}`` → ``{"ok": true, "html": ...}``: the live page, the
-  export page with no board in it and the live client script added;
+  export page with no board in it and the live client and its editing
+  keys added;
 * ``{"t": "render", "path", "text", "root"}`` → ``{"ok": true, "board",
   "svgs", "docs", "fonts", "warnings", "ms"}``: *text* drawn as the board at
   *path*, exactly as ``grafli export-html`` draws it. A level into another
@@ -27,6 +28,8 @@ import time
 from pathlib import Path
 
 LIVE_JS = Path(__file__).parent.parent / "assets" / "serve" / "live.js"
+# The presenter's keys, after the live client they build on.
+EDIT_JS = LIVE_JS.with_name("edit.js")
 
 # Large enough for a board with many overlays; a frame is one line.
 _LINE_LIMIT = 256 * 1024 * 1024
@@ -186,7 +189,8 @@ def _shell() -> str:
     data = {"live": True, "root": "b0", "boards": {}, "docs": {},
             "theme": theme.name(), "dwell": DEFAULT_DWELL}
     return _page("grafli", data, [], [],
-                 extra_js=LIVE_JS.read_text(encoding="utf-8"),
+                 extra_js=LIVE_JS.read_text(encoding="utf-8") + "\n"
+                 + EDIT_JS.read_text(encoding="utf-8"),
                  generator="grafli serve")
 
 

@@ -47,6 +47,43 @@ body {
 #tour-pick:not([hidden]) ~ #live, #overlay-pick:not([hidden]) ~ #live { margin-left: 0; }
 #live[data-state="live"] { color: var(--accent); border-color: var(--accent); }
 #live[data-state="off"] { opacity: 0.6; }
+/* grafli serve: the presenter's keys — jump labels, an edit's placeholder
+   until its frame is drawn, the label field and the ':' command line. */
+#live-marks { pointer-events: none; }
+#live-marks text {
+  text-anchor: middle; dominant-baseline: central;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.jump-label rect { fill: var(--accent); }
+.jump-label text { fill: var(--bg); font-weight: 700; }
+.ghost rect, .ghost line, .ghost path {
+  fill: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+  animation: ghost-wait 0.9s ease-in-out infinite alternate;
+}
+.ghost line, .ghost path { fill: none; }
+.ghost text { fill: var(--ink); }
+.ghost.gone rect { fill: color-mix(in srgb, var(--bg) 75%, transparent); }
+.ghost.gone path { stroke: var(--bg); stroke-width: 6; stroke-dasharray: none; }
+@keyframes ghost-wait { from { opacity: 1; } to { opacity: 0.55; } }
+#live-field {
+  position: absolute; z-index: 3; height: 32px; padding: 4px 8px;
+  font: 15px system-ui, -apple-system, "Segoe UI", sans-serif; text-align: center;
+  color: var(--ink); background: var(--bg);
+  border: 2px solid var(--accent); border-radius: 6px; outline: none;
+}
+#cmdline {
+  position: absolute; z-index: 3; left: 16px; right: 16px; bottom: 16px;
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+  background: var(--surface); border: 2px solid var(--accent); border-radius: 6px;
+}
+#cmdline span { font: 700 16px ui-monospace, monospace; color: var(--accent); }
+#cmdline input {
+  flex: 1; min-width: 0; border: 0; outline: none; background: none;
+  color: var(--ink); font: 15px ui-monospace, "JetBrains Mono", monospace;
+}
+#live-field[hidden], #cmdline[hidden] { display: none; }
 
 #stage-wrap { position: relative; overflow: hidden; min-height: 0; }
 #stage {

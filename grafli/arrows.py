@@ -659,6 +659,36 @@ def routed_path(routing: str, start: QPointF, start_side: str,
     return path
 
 
+def label_point(path: QPainterPath) -> QPointF:
+    """Where a connector's label sits: the middle of its longest straight run.
+
+    The middle of the whole path can fall on a short jog of a stair, where
+    the label hides the turn and reads as belonging to neither run (#260). A
+    tie goes to the run nearest the path's middle; a path with no straight
+    run (a spline, a bow) keeps the label at its middle."""
+    middle = path.pointAtPercent(0.5)
+    best, best_len, best_off = None, 0.0, 0.0
+    prev = None
+    for i in range(path.elementCount()):
+        el = path.elementAt(i)
+        pt = QPointF(el.x, el.y)
+        if el.type == QPainterPath.ElementType.LineToElement and prev is not None:
+            length = math.hypot(pt.x() - prev.x(), pt.y() - prev.y())
+            mid = QPointF((prev.x() + pt.x()) / 2, (prev.y() + pt.y()) / 2)
+            off = math.hypot(mid.x() - middle.x(), mid.y() - middle.y())
+            if (length > best_len + 0.5
+                    or (abs(length - best_len) <= 0.5 and off < best_off)):
+                best, best_len, best_off = mid, length, off
+        if el.type in (QPainterPath.ElementType.MoveToElement,
+                       QPainterPath.ElementType.LineToElement):
+            prev = pt
+        elif el.type == QPainterPath.ElementType.CurveToElement:
+            prev = None               # control points follow; resynced below
+        else:
+            prev = pt                 # last data point of a curve is its end
+    return best if best is not None else middle
+
+
 def path_end_angle(path: QPainterPath, at_end: bool = True) -> float:
     """Direction the path is travelling at one of its ends, in radians.
 

@@ -29,6 +29,7 @@ from grafli.arrows import (
     bowed_path,
     endpoint_pair,
     fan_offsets,
+    label_point,
     path_end_angle,
     pick_self_loop_sides,
     pinned_direct_points,
@@ -894,11 +895,12 @@ class SelectionMixin:
             label_too_small = (fwd.from_id, fwd.to_id) in self._lod_arrow_labels_hidden
             has_label = False
             if label_texts and total_len > 0 and not endpoint_collapsed:
-                # The label rides the connector, so on a routed one it follows
-                # the path's midpoint — the chord midpoint of an L-bend sits off
-                # in empty space, nowhere near the line it is labelling.
+                # The label rides the connector, so on a routed one it sits on
+                # the path's longest straight run — the chord midpoint of an
+                # L-bend sits off in empty space, and the path's own middle can
+                # land on a short jog.
                 if conn_path is not None:
-                    mid = conn_path.pointAtPercent(0.5)
+                    mid = label_point(conn_path)
                     mid_x, mid_y = mid.x(), mid.y()
                 else:
                     mid_x = (start.x() + end.x()) / 2

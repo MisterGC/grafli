@@ -556,3 +556,82 @@ def test_undo_redo_refreshes_lod_model():
     view._redo()                                # d returns
     _set_zoom(view, 0.05)
     assert sorted(view._lod_hull_member) == ["a", "b", "c", "d"]
+
+
+# Two top-level containers far apart in area, and one nested inside the big
+# one; the small one's children are tiny, so it folds before the big one.
+LEVELS = """\
+@ box big "Big container" 0,0 3000x2000 !flat
+@ box inner "Inner" 100,200 1200x800 !flat >big
+@ box deep "Deep" 200,400 300x120 >inner
+@ box side "Side" 1500,200 300x120 >big
+@ box small "Small container" 3400,0 500x300 !flat
+@ box leaf "Leaf" 3440,80 200x80 >small
+"""
+
+
+def test_level_title_px_steps_down_by_level_and_holds_past_the_table():
+    from grafli.items import LEVEL_TITLE_PX, level_title_px
+    sizes = [level_title_px(d) for d in range(1, len(LEVEL_TITLE_PX) + 3)]
+    assert sizes[:len(LEVEL_TITLE_PX)] == list(LEVEL_TITLE_PX)
+    assert sizes == sorted(sizes, reverse=True)
+    assert sizes[-1] == sizes[len(LEVEL_TITLE_PX) - 1]
+
+
+def test_same_level_tiles_share_one_title_size_whatever_their_area():
+    view = _view(parse(LEVELS))
+    view._present_detail = "summary"
+    _set_zoom(view, 0.15)
+    big, small = view._box_items["big"], view._box_items["small"]
+    assert big._lod_tile == ("Big container", 1)
+    assert small._lod_tile == ("Small container", 1)
+    # Areas differ by a factor of 40; the titles do not.
+    assert big._lod_title_px == small._lod_title_px
+    from grafli.items import level_title_px
+    assert big._lod_title_px <= level_title_px(1)
+
+
+def test_nested_tiles_take_their_own_level_size():
+    view = _view(parse(LEVELS))
+    _set_zoom(view, 0.3)
+    tiles = {bid: it for bid, it in view._box_items.items()
+             if it._lod_tile is not None and it.isVisible()}
+    assert "inner" in tiles and "big" not in tiles
+    assert tiles["inner"]._lod_tile == ("Inner", 2)
+    from grafli.items import level_title_px
+    assert tiles["inner"]._lod_title_px <= level_title_px(2)
+    if "small" in tiles:
+        assert tiles["small"]._lod_title_px <= level_title_px(1)
+
+
+def test_a_tile_too_small_for_its_title_does_not_shrink_its_level_below_the_floor():
+    from grafli.view.complexity import LOD_TITLE_FLOOR_PX
+    board = parse(LEVELS.replace("3400,0 500x300", "3400,0 60x40")
+                  .replace("3440,80 200x80", "3405,5 20x10"))
+    view = _view(board)
+    view._present_detail = "summary"
+    _set_zoom(view, 0.05)
+    big, small = view._box_items["big"], view._box_items["small"]
+    assert big._lod_title_px == small._lod_title_px >= LOD_TITLE_FLOOR_PX
+
+
+def test_a_tile_draws_its_title_and_no_node_count(monkeypatch):
+    from PySide6.QtGui import QImage, QPainter
+    drawn: list[str] = []
+    orig = QPainter.drawText
+
+    def spy(self, *args):
+        drawn.extend(a for a in args if isinstance(a, str))
+        return orig(self, *args)
+
+    monkeypatch.setattr(QPainter, "drawText", spy)
+    view = _view(parse(LEVELS))
+    view._present_detail = "summary"
+    _set_zoom(view, 0.15)
+    img = QImage(800, 600, QImage.Format.Format_ARGB32)
+    img.fill(0)
+    p = QPainter(img)
+    view.render(p)
+    p.end()
+    assert "Big container" in drawn and "Small container" in drawn
+    assert not [t for t in drawn if "node" in t]

@@ -22,7 +22,12 @@ from grafli.md_note import doc_first_sentence
 
 
 def _app() -> QApplication:
-    return QApplication.instance() or QApplication([])
+    """The app with grafli's bundled faces, so a doc line is measured in the
+    face the canvas, `grafli render` and the exports draw it in."""
+    from grafli.fonts import register_bundled_fonts
+    app = QApplication.instance() or QApplication([])
+    register_bundled_fonts()
+    return app
 
 
 def _write(path: Path, text: str) -> Path:
@@ -40,8 +45,8 @@ def _system(tmp_path: Path) -> tuple[Path, Path]:
     root = _write(tmp_path / "System.grafli",
                   '#!grafli v2\n'
                   '@ box plain "Plain" 0,0 240x80\n'
-                  '@ box combat "Combat" 300,0 320x80 &doc:combat\n'
-                  '@ box link "Site" 700,0 240x80 &link:https://example.org\n')
+                  '@ box combat "Combat" 300,0 400x80 &doc:combat\n'
+                  '@ box link "Site" 760,0 240x80 &link:https://example.org\n')
     doc = _write(tmp_path / "System-res" / "combat.md", COMBAT_DOC)
     return root, doc
 
@@ -153,9 +158,9 @@ def test_a_number_badge_on_a_doc_box_draws_its_whole_disc(tmp_path: Path):
     from PySide6.QtGui import QColor, QImage, QPainter
     root = _write(tmp_path / "Badge.grafli",
                   '#!grafli v4\n'
-                  '@ box doc "Alpha" 0,0 200x90 %highlight *badge:solid-1 '
+                  '@ box doc "Alpha" 0,0 440x90 %highlight *badge:solid-1 '
                   '&doc:combat\n'
-                  '@ box link "Gamma" 300,0 200x90 %highlight ^topcenter '
+                  '@ box link "Gamma" 500,0 200x90 %highlight ^topcenter '
                   '*badge:solid-3 &link:https://example.org\n')
     _write(tmp_path / "Badge-res" / "combat.md", COMBAT_DOC)
     win = _window(root)

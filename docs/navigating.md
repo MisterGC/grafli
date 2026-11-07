@@ -80,9 +80,11 @@ miniature updates. Zooming in on it never switches boards on its own — only
 without the miniature.
 
 A box with a `&doc` shows the first sentence of its doc on one line below its
-label, once you are close enough to read it. To read the whole doc without
-leaving the board, select the box and press <kbd>g</kbd><kbd>v</kbd>: a
-read-only panel opens beside the box, scrollable when the doc is long, and
+label, once you are close enough to read it and when the box is wide enough for
+the whole sentence; a sentence that would be cut is left out. To read the whole
+doc without leaving the board, select the box and press
+<kbd>g</kbd><kbd>v</kbd>: a read-only panel opens beside the box, scrollable
+when the doc is long, and
 <kbd>Esc</kbd> closes it. <kbd>E</kbd> opens the doc for editing. When the doc
 file changes, the line and an open panel follow. Renders and exports show the
 line too; a PDF or PPTX slide shows it only where the slide's frame keeps it

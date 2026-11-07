@@ -473,8 +473,9 @@ Every element can carry **one** typed attachment:
   (that's what a markdown note is — bare `&doc` names it after the note
   id); on a box/image/arrow it opens in the editor. A box shows the
   doc's first sentence on one line below its label (when the box has
-  room for it) — a container or a `!card` with children too, under its
-  title — and `gv` peeks the whole doc — so open the doc with one
+  room for the whole sentence; it is never cut) — a container or a
+  `!card` with children too, under its title — and `gv` peeks the whole
+  doc — so open the doc with one
   sentence that says what the box is.
 - `&graph:<name>` — a sub-board at `<stem>-res/<name>.grafli`; its own
   resources nest at `<stem>-res/<name>-res/`.

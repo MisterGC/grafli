@@ -456,7 +456,7 @@
     return true;
   }
 
-  page.setKeyHook((e) => {
+  page.addKeyHook((e) => {
     if (jump) return jumpKey(e);
     const k = e.key, mod = e.metaKey || e.ctrlKey;
     if (mod && !e.altKey && !e.shiftKey && (k === "z" || k === "Z")) {

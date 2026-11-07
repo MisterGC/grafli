@@ -49,10 +49,19 @@
     return { w: Math.max(r.width, 1), h: Math.max(r.height, 1) };
   }
 
+  // grafli serve listens: to every camera change, and to the ones the
+  // viewer made with the mouse or a camera key.
+  const viewListeners = [], userViewListeners = [];
+
   function setView(v) {
     vb = v;
     stage.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${v.h}`);
     placePeek();
+    for (const fn of viewListeners) fn(v);
+  }
+
+  function userMoved() {
+    for (const fn of userViewListeners) fn();
   }
 
   // A camera that shows rect [x, y, w, h] whole, at the stage's aspect.
@@ -435,6 +444,7 @@
     const flow = board.flows.find((f) => f.id === flowId);
     if (!flow || !flow.steps.length) return;
     if (tour) stopTour();
+    userMoved();
     tour = { home: board.id, flow, index: 0, mode: "paused", smooth: true };
     $("tour-pick").hidden = true;
     $("player").hidden = false;
@@ -720,6 +730,7 @@
     if (!drag.moved && Math.hypot(dx, dy) < 4) return;
     drag.moved = true;
     stage.classList.add("panning");
+    userMoved();
     const s = vb.w / stage.getBoundingClientRect().width;
     cancelGlide();
     setView({ x: drag.view.x - dx * s, y: drag.view.y - dy * s, w: vb.w, h: vb.h });
@@ -736,6 +747,7 @@
     if (busy || !board) return;
     const rate = e.ctrlKey ? 0.01 : 0.0015;
     cancelGlide();
+    userMoved();
     zoomAt(toBoard(e.clientX, e.clientY), Math.exp(e.deltaY * rate));
   }, { passive: false });
 
@@ -757,10 +769,11 @@
 
   function centre() { return { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 }; }
 
-  // grafli serve's editing keys: asked first, outside a tour and a level
-  // zoom and after a "g"; true when it took the key.
-  let keyHook = null;
-  const hooked = (e) => !!(keyHook && !tour && !busy && keyHook(e));
+  // grafli serve's keys: asked first, in the order added, outside a tour
+  // and a level zoom and after a "g"; a hook returns true when it took the
+  // key.
+  const keyHooks = [];
+  const hooked = (e) => !tour && !busy && keyHooks.some((fn) => fn(e));
 
   let gPending = false, gTimer = 0;
   document.addEventListener("keydown", (e) => {
@@ -789,7 +802,10 @@
     }
     if (hooked(e)) { e.preventDefault(); return; }
     // A camera key takes over from a glide still under way.
-    if (k === "+" || k === "=" || k === "-" || k === "Z" || k.startsWith("Arrow")) cancelGlide();
+    if (k === "+" || k === "=" || k === "-" || k === "Z" || k.startsWith("Arrow")) {
+      cancelGlide();
+      userMoved();
+    }
     let handled = true;
     if (k === "g") { gPending = true; gTimer = setTimeout(() => { gPending = false; }, 1200); }
     else if (k === "Enter") {
@@ -898,7 +914,11 @@
     selectId: (id) => {
       if (board) select(board.elements.find((e) => e.id === id) || null);
     },
-    setKeyHook: (fn) => { keyHook = fn; },
+    addKeyHook: (fn) => { keyHooks.push(fn); },
+    // Show rect [x, y, w, h] whole, at this stage's aspect.
+    frame: (r) => { cancelGlide(); setView(frameRect(r, 0)); },
+    onView: (fn) => { viewListeners.push(fn); },
+    onUserView: (fn) => { userViewListeners.push(fn); },
     board: () => (board ? board.id : null), depth: () => stack.length,
     selected: () => (selected ? selected.id : null),
     peek: () => (peeked ? peeked.id : null),

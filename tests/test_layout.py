@@ -9,6 +9,8 @@ from grafli.layout import (
     _build_dag,
     _snap,
     compute_layout,
+    container_groups,
+    layout_groups,
 )
 
 
@@ -259,3 +261,30 @@ class TestReverseArrow:
         # B is the source (has arrow pointing to A)
         assert layers[0] == ["B"]
         assert layers[1] == ["A"]
+
+
+class TestLayoutGroups:
+    """The whole-board driver the app's `=` and `grafli layout` share."""
+
+    def test_container_groups_recurse(self):
+        board = _make_board([
+            _box("P", 0, 0, 400, 300), _box("a"), _box("b"), _box("c"),
+        ])
+        board.box_by_id("a").parent = "P"
+        board.box_by_id("b").parent = "P"
+        groups = container_groups(board)
+        assert groups == [("", {"P", "c"}), ("P", {"a", "b"})]
+
+    def test_container_grows_and_carries_children(self):
+        p = _box("P", 0, 0, 100, 300)  # tall: children flow top-down
+        a, b = _box("a", 500, 500), _box("b", 600, 500)
+        a.parent = b.parent = "P"
+        board = _make_board([p, a, b, _box("Q", 0, 600)],
+                            [_arrow("a", "b"), _arrow("P", "Q")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 20)
+        # a above b inside P, P above Q, P grown to hold both children
+        assert a.y < b.y
+        assert p.y + p.h <= board.box_by_id("Q").y
+        for c in (a, b):
+            assert p.x <= c.x and c.x + c.w <= p.x + p.w
+            assert p.y + 20 <= c.y and c.y + c.h <= p.y + p.h

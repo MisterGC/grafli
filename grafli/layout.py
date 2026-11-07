@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 from collections import defaultdict
+from collections.abc import Callable
 
 from grafli.constants import LAYOUT_LAYER_GAP, LAYOUT_NODE_GAP, LAYOUT_PADDING
 from grafli.format import Board
@@ -38,6 +39,113 @@ def compute_layout(
     layers = _order_within_layers(layers, adj, board, direction, target_ids, box_sizes)
     positions = _assign_coordinates(layers, direction, constraint, grid, box_sizes)
     return positions
+
+
+# ── Whole-board driver ──────────────────────────────────────────
+
+# The label band above a container's children, by container id ("" = the
+# board root, which has none). The app measures its label; headless callers
+# use the documented margin model.
+LabelHeightFn = Callable[[str], float]
+
+
+def container_groups(board: Board, parent_id: str = "") -> list[tuple[str, set[str]]]:
+    """The (parent_id, child_ids) groups to lay out under *parent_id*,
+    recursively: the parent's own children, then each child's."""
+    children = {b.id for b in board.boxes if b.parent == parent_id}
+    if not children:
+        return []
+    result: list[tuple[str, set[str]]] = [(parent_id, children)]
+    for cid in sorted(children):
+        result.extend(container_groups(board, cid))
+    return result
+
+
+def layout_groups(
+    board: Board,
+    groups: list[tuple[str, set[str]]],
+    grid: float,
+    label_height: LabelHeightFn,
+    direction: Direction | None = None,
+) -> None:
+    """Lay out each group in place, deepest container first, so a
+    container has grown to fit its children before its own siblings are
+    placed. Moving a box moves its descendants and parented notes along."""
+    groups = sorted(groups, key=lambda g: -_depth(board, g[0]))
+    for parent_id, child_ids in groups:
+        _layout_group(board, parent_id, child_ids, grid,
+                      label_height(parent_id) if parent_id else 0.0,
+                      direction)
+
+
+def _depth(board: Board, parent_id: str) -> int:
+    d = 0
+    pid = parent_id
+    while pid:
+        box = board.box_by_id(pid)
+        if not box or not box.parent:
+            break
+        pid = box.parent
+        d += 1
+    return d
+
+
+def _layout_group(
+    board: Board,
+    parent_id: str,
+    child_ids: set[str],
+    grid: float,
+    label_height: float,
+    direction: Direction | None,
+) -> None:
+    box_sizes: dict[str, tuple[float, float]] = {}
+    for cid in child_ids:
+        box = board.box_by_id(cid)
+        if box:
+            box_sizes[cid] = (box.w, box.h)
+
+    new_positions = compute_layout(
+        board, child_ids, parent_id, direction, grid, label_height, box_sizes,
+    )
+
+    # Grow the parent to fit naturally-spaced children
+    if parent_id and new_positions:
+        parent = board.box_by_id(parent_id)
+        if parent:
+            max_right = max(nx + box_sizes[bid][0]
+                            for bid, (nx, ny) in new_positions.items())
+            max_bottom = max(ny + box_sizes[bid][1]
+                             for bid, (nx, ny) in new_positions.items())
+            needed_w = max_right + LAYOUT_PADDING - parent.x
+            needed_h = max_bottom + LAYOUT_PADDING - parent.y
+            if needed_w > parent.w:
+                parent.w = _snap(needed_w, grid)
+            if needed_h > parent.h:
+                parent.h = _snap(needed_h, grid)
+
+    # Apply positions and carry descendants and notes along
+    for bid, (nx, ny) in new_positions.items():
+        box = board.box_by_id(bid)
+        if not box:
+            continue
+        dx = nx - box.x
+        dy = ny - box.y
+        box.x = nx
+        box.y = ny
+        _propagate_delta(board, bid, dx, dy)
+
+
+def _propagate_delta(board: Board, box_id: str, dx: float, dy: float) -> None:
+    """Move all descendants and parented notes of *box_id* by (dx, dy)."""
+    for box in board.boxes:
+        if box.parent == box_id:
+            box.x += dx
+            box.y += dy
+            _propagate_delta(board, box.id, dx, dy)
+    for note in board.notes:
+        if note.parent == box_id:
+            note.x += dx
+            note.y += dy
 
 
 # ── Internals ────────────────────────────────────────────────────

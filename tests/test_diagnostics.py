@@ -432,3 +432,123 @@ def test_unknown_color_reported_by_run_all():
     board = parse('@ box b "B" 0,0 200x100 %green\n')
     codes = [d.code for d in run_all(board)]
     assert "unknown-color" in codes
+
+
+# ── boxes that relate to nothing (#259) ────────────────────────
+
+def _container(n, arrows=(), note=None):
+    parent = Box(id="p", label="P", x=0, y=0, w=1200, h=300)
+    kids = [Box(id=f"c{i}", label=f"C{i}", x=50 + 250 * i, y=100,
+                w=200, h=100, parent="p") for i in range(n)]
+    notes = [note] if note else []
+    return _make_board(boxes=[parent, *kids], notes=notes,
+                       arrows=list(arrows))
+
+
+def test_container_of_four_unrelated_boxes_is_reported():
+    from grafli.diagnostics import check_unrelated_children
+
+    diags = check_unrelated_children(_container(4))
+    assert [d.code for d in diags] == ["unrelated-children"]
+    assert diags[0].item_ids == ["p"]
+    assert diags[0].severity == "warning"
+    assert diags[0].fixable is False
+
+
+def test_container_of_three_unrelated_boxes_is_not_reported():
+    from grafli.diagnostics import check_unrelated_children
+
+    assert check_unrelated_children(_container(3)) == []
+
+
+def test_one_arrow_between_children_relates_the_container():
+    from grafli.diagnostics import check_unrelated_children
+
+    board = _container(4, arrows=[Arrow(from_id="c0", to_id="c3")])
+    assert check_unrelated_children(board) == []
+
+
+def test_arrow_into_a_nested_child_counts_for_its_container():
+    from grafli.diagnostics import check_unrelated_children
+
+    board = _container(4)
+    board.boxes.append(Box(id="deep", label="D", x=60, y=110, w=50, h=50,
+                           parent="c0"))
+    board.arrows.append(Arrow(from_id="deep", to_id="c2"))
+    assert check_unrelated_children(board) == []
+
+
+def test_arrows_leaving_the_container_do_not_relate_its_children():
+    from grafli.diagnostics import check_unrelated_children
+
+    board = _container(4)
+    board.boxes.append(Box(id="out", label="O", x=0, y=500, w=200, h=100))
+    board.arrows.extend(Arrow(from_id=f"c{i}", to_id="out") for i in range(4))
+    assert [d.code for d in check_unrelated_children(board)] == [
+        "unrelated-children"]
+
+
+def test_annotation_arrow_does_not_relate_children():
+    from grafli.diagnostics import check_unrelated_children
+
+    note = Note(id="n", x=0, y=400, text="N", parent="p")
+    board = _container(4, note=note, arrows=[
+        Arrow(from_id="n", to_id="c0"),
+        Arrow(from_id="c1", to_id="c2", kind="annotation"),
+    ])
+    assert [d.code for d in check_unrelated_children(board)] == [
+        "unrelated-children"]
+
+
+def _loose(n, arrows=()):
+    boxes = [Box(id=f"b{i}", label=f"B{i}", x=250 * i, y=0, w=200, h=100)
+             for i in range(n)]
+    return _make_board(boxes=boxes, arrows=list(arrows))
+
+
+def test_board_where_most_boxes_have_no_arrow_is_reported():
+    from grafli.diagnostics import check_unrelated_board
+
+    diags = check_unrelated_board(_loose(5, [Arrow(from_id="b0", to_id="b1")]))
+    assert [d.code for d in diags] == ["unrelated-board"]
+    assert sorted(diags[0].item_ids) == ["b2", "b3", "b4"]
+    assert diags[0].severity == "warning"
+
+
+def test_board_where_half_the_boxes_have_an_arrow_is_not_reported():
+    from grafli.diagnostics import check_unrelated_board
+
+    board = _loose(4, [Arrow(from_id="b0", to_id="b1")])
+    assert check_unrelated_board(board) == []
+
+
+def test_board_of_three_loose_boxes_is_not_reported():
+    from grafli.diagnostics import check_unrelated_board
+
+    assert check_unrelated_board(_loose(3)) == []
+
+
+def test_containers_are_not_counted_as_loose_boxes():
+    from grafli.diagnostics import check_unrelated_board
+
+    # Two containers of two related boxes: every leaf has an arrow.
+    boxes = [
+        Box(id="g1", label="G1", x=0, y=0, w=500, h=200),
+        Box(id="g2", label="G2", x=600, y=0, w=500, h=200),
+        Box(id="a", label="A", x=20, y=50, w=200, h=100, parent="g1"),
+        Box(id="b", label="B", x=260, y=50, w=200, h=100, parent="g1"),
+        Box(id="c", label="C", x=620, y=50, w=200, h=100, parent="g2"),
+        Box(id="d", label="D", x=860, y=50, w=200, h=100, parent="g2"),
+    ]
+    arrows = [Arrow(from_id="a", to_id="b"), Arrow(from_id="c", to_id="d")]
+    board = _make_board(boxes=boxes, arrows=arrows)
+    assert check_unrelated_board(board) == []
+
+
+def test_unrelated_boxes_reported_by_run_all():
+    from grafli.format import parse
+
+    text = "".join(
+        f'@ box b{i} "B{i}" {250 * i},0 200x100\n' for i in range(4))
+    codes = [d.code for d in run_all(parse(text))]
+    assert "unrelated-board" in codes

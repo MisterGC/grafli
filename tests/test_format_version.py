@@ -455,3 +455,26 @@ def test_a_v3_build_reads_a_status_board_as_newer(monkeypatch):
     monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
     assert supported_version() == 3
     assert is_newer(parse(STATUS))
+
+
+PIN = '#!grafli v4\n@ box b "Claim" 0,0 200x80 %highlight !pin >c\n'
+
+
+def test_pin_on_a_box_round_trips_and_writes_v4():
+    board = parse(PIN)
+    assert board.box_by_id("b").pinned
+    assert not board.parse_warnings
+    assert required_version(board) == 4
+    assert serialize(board) == PIN
+
+
+def test_pin_writes_beside_the_other_flags():
+    text = ('#!grafli v4\n'
+            '@ box b "Title" 0,0 200x80 !card !sans !dashed !pin !bold\n')
+    assert serialize(parse(text)) == text
+
+
+def test_pin_on_a_v1_box_lifts_the_board_to_v4():
+    board = parse('#!grafli v1\n@ box b "Title" 0,0 200x80\n')
+    board.boxes[0].pinned = True
+    assert serialize(board).splitlines()[0] == "#!grafli v4"

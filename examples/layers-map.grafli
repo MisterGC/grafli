@@ -36,7 +36,7 @@
 @ note evidence 0,480 """
 code:
 split by the modules that own each layer
-  @grafli/format.py:915 parse
+  @grafli/format.py:918 parse
   @grafli/map_palette.py:139 load_palette
   @grafli/view/selection.py:263 load_board
   @grafli/lod.py:88 LodModel

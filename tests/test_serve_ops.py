@@ -285,6 +285,14 @@ def test_command_lines_that_do_not_fit_say_why(text, message):
     '@ image pic "../../photo.png" 0,0 10x10',
     '@ image pic "/Users/someone/photo.png" 0,0 10x10',
     '@ arrow a -> b "x" &doc:../../secret',
+    # A bare &doc is named after the element's id.
+    'box ../x "X" &doc',
+    '@ box ../../outside-of-root/secret "X" &doc',
+    '@ note a/../../secret 0,0 &doc',
+    # Only a link may be a URL.
+    '@ box x "X" &doc:a://../x',
+    '@ box x "X" &graph:a://../x',
+    '@ image pic "a://../../../p.png" 0,0 10x10',
 ])
 def test_a_command_line_may_not_name_files_outside_the_boards_folder(line):
     """The worker reads what an image or a doc names and sends it to every
@@ -306,3 +314,10 @@ def test_a_command_line_may_not_name_files_outside_the_boards_folder(line):
 def test_a_command_line_may_name_files_inside_it(line):
     b = spaced()
     apply_op(b, {"op": "lines", "text": line})
+
+
+def test_an_untyped_url_on_a_command_line_is_kept_as_a_link():
+    b = spaced()
+    apply_op(b, {"op": "lines", "text": '@ box x "X" &https://example.org/a'})
+    x = b.box_by_id("x")
+    assert (x.attach_kind, x.url) == ("link", "https://example.org/a")

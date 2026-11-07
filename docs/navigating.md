@@ -152,9 +152,11 @@ needs no setup: just zoom out (<kbd>-</kbd>, <kbd>z</kbd>, or
 What happens as you pull back:
 
 - **Containers fold into tiles.** A group whose children have shrunk too small
-  to read collapses to a single tile showing its label and a child count; its
-  contents hide and arrows re-route to the tile. Nested groups fold
-  innermost-first, and smaller groups fold before larger ones.
+  to read collapses to a single tile showing its label; its contents hide and
+  arrows re-route to the tile. The label's size follows the group's nesting
+  level, not its area: tiles at the same level show their titles at the same
+  size, top-level groups the largest. Nested groups fold innermost-first, and
+  smaller groups fold before larger ones.
 - **Leaves become shells.** A standalone box whose label is too small keeps its
   colour and shows skeleton bars where the text was — you still see *that
   there's a node here*, without the unreadable label.

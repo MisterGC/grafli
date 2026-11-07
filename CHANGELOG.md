@@ -304,6 +304,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#222](https://github.com/MisterGC/grafli/issues/222))
 
 ### Changed
+- **Zoomed out, a container's title is sized by its level, not its area.**
+  A collapsed container's headline grew with its tile, so the biggest
+  container was the loudest text. Tiles at the same nesting level now
+  share one title size — 20 px for top-level containers, 16 px one level
+  in, 13 px deeper — shrunk together only when one of them can't fit it.
+  The "N nodes" count under the title is gone, from cluster hulls too.
+  ([#258](https://github.com/MisterGC/grafli/issues/258))
 - **The skill draws relations first, then boxes, then an encoding.** The
   authoring loop in `SKILL.md` starts with the claim — what the picture
   shows that the text beside it doesn't — then the edges with their kind

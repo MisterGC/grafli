@@ -1,8 +1,9 @@
 # Diagram design principles
 
-The grafli is a box-and-arrow tool — no auto-layout, no curved lines,
-no freeform shapes. These constraints make intentional design
-essential.
+The grafli is a box-and-arrow tool — no freeform shapes, and the only
+automatic placement is a layered layout (`=` in the app). These
+constraints make intentional design essential: position has to mean
+something, and you decide what.
 
 ## 1. Visual hierarchy
 
@@ -96,7 +97,11 @@ understand*, leave it off.
 
 ## 2. Layout strategy
 
-You are the layout engine. Think in grids and flows.
+The layered layout places a graph by its edges (`=` in the app). It
+does not know what position should mean, so the grid and the flow below
+are yours to set: an encoding whose coordinates are the content is
+placed by hand, and every layout gets a touch-up pass. Think in grids
+and flows.
 
 **Grid alignment**:
 
@@ -172,11 +177,11 @@ Example for 3 children, 2 rows, 220×100 boxes, 40 px gaps,
 
 When you add to a board someone else laid out, drop the new node into the
 existing structure and leave everything else **byte-identical** — never
-reflow the whole diagram. grafli has no auto-layout, so a clean fit is
-*your* arithmetic: compute the absolute `x,y` from the neighbours and
-emit it directly (there is no "place near X" token — you do the
-resolution once, at write time, and the file stays plain coordinates a
-human can read and drag).
+reflow the whole diagram, and never run the layered layout over a board
+a human placed. A clean fit is *your* arithmetic: compute the absolute
+`x,y` from the neighbours and emit it directly (there is no "place
+near X" token — you do the resolution once, at write time, and the file
+stays plain coordinates a human can read and drag).
 
 **Next slot in a container** — the common case ("add another child"):
 

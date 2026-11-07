@@ -90,10 +90,18 @@ class Tab:
 
     def recv_until(self, kind, timeout=10):
         deadline = time.monotonic() + timeout
+        skipped = []
         while True:
-            msg = self.recv(max(deadline - time.monotonic(), 0.01))
+            try:
+                msg = self.recv(max(deadline - time.monotonic(), 0.01))
+            except TimeoutError as e:
+                # Say what came instead: a render error reads as a timeout.
+                raise TimeoutError(f"no {kind!r} in {timeout} s; got "
+                                   f"{[m.get('message', m['t']) for m in skipped]}"
+                                   ) from e
             if msg["t"] == kind:
                 return msg
+            skipped.append(msg)
 
     def open(self):
         welcome = self.recv()

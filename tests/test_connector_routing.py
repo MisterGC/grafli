@@ -438,3 +438,21 @@ def test_a_routed_connector_draws_its_label_on_a_straight_run():
     # well clear of the jog, not centred on it.
     assert abs(centre.x() - 400) > 50
     assert 0 < centre.y() < 160
+
+
+def test_editing_a_routed_label_opens_the_editor_on_the_label():
+    """The inline editor opens where the canvas drew the label (one anchor,
+    ``arrows.label_anchor``), not at the old midpoint on the stair's jog."""
+    from grafli.items import LabelItem
+    from grafli.view.resources import _InlineEditorItem
+    view = _view('#!grafli v4\n'
+                 '@ box a "A" 0,0 200x100\n'
+                 '@ box e "E" 600,60 200x100\n'
+                 '@ arrow a -> e "depends on" !ortho\n')
+    (label,) = [g for g in view._arrow_items if isinstance(g, LabelItem)]
+    drawn = label.sceneBoundingRect().center()
+    view._start_editing_arrow(view._board.arrows[0])
+    (editor,) = [i for i in view._scene.items()
+                 if isinstance(i, _InlineEditorItem)]
+    at = editor.sceneBoundingRect().center()
+    assert abs(at.x() - drawn.x()) < 3 and abs(at.y() - drawn.y()) < 3

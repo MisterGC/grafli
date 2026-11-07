@@ -7,7 +7,7 @@ from collections import defaultdict
 from collections.abc import Callable
 
 from grafli.constants import LAYOUT_LAYER_GAP, LAYOUT_NODE_GAP, LAYOUT_PADDING
-from grafli.format import Board
+from grafli.format import Arrow, Board
 
 
 class Direction(enum.Enum):
@@ -224,50 +224,73 @@ def _auto_direction(
     return Direction.TTB
 
 
+def _lift(board: Board, element_id: str, target_ids: set[str]) -> str | None:
+    """The box among *target_ids* that is *element_id* or holds it, or None.
+
+    An arrow between two boxes inside different sibling containers ranks
+    those containers, so a layout ranks within each container by the
+    arrows that cross it."""
+    seen: set[str] = set()
+    eid = element_id
+    while eid and eid not in seen:
+        if eid in target_ids:
+            return eid
+        seen.add(eid)
+        el = (board.box_by_id(eid) or board.note_by_id(eid)
+              or board.image_by_id(eid))
+        eid = el.parent if el else ""
+    return None
+
+
 def _build_dag(
     board: Board, target_ids: set[str],
 ) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     """Build adjacency lists from arrows connecting target boxes.
 
-    Returns (adj, reverse_adj). Cycles are broken via DFS back-edge removal.
-    Self-loops and arrows outside target_ids are ignored.
+    Returns (adj, reverse_adj). An arrow end inside a target box counts
+    for that box; arrows within one target box, and arrows with an end
+    outside every target box, are ignored. Parallel arrows count once.
+    Cycles are broken via DFS back-edge removal.
     """
     adj: dict[str, list[str]] = defaultdict(list)
     radj: dict[str, list[str]] = defaultdict(list)
 
+    lifted: list[tuple[str, str, Arrow]] = []
     for arrow in board.arrows:
-        src, dst = arrow.from_id, arrow.to_id
-        if src == dst:
+        src = _lift(board, arrow.from_id, target_ids)
+        dst = _lift(board, arrow.to_id, target_ids)
+        if src is None or dst is None or src == dst:
             continue
-        if src not in target_ids or dst not in target_ids:
-            continue
+        lifted.append((src, dst, arrow))
 
+    out_degree: dict[str, int] = defaultdict(int)
+    for src, _dst, _arrow in lifted:
+        out_degree[src] += 1
+
+    def _add(u: str, v: str) -> None:
+        if v not in adj[u]:
+            adj[u].append(v)
+            radj[v].append(u)
+
+    for src, dst, arrow in lifted:
         if arrow.head_to and not arrow.head_from:
             # A -> B
-            adj[src].append(dst)
-            radj[dst].append(src)
+            _add(src, dst)
         elif arrow.head_from and not arrow.head_to:
             # A <- B  (reverse)
-            adj[dst].append(src)
-            radj[src].append(dst)
+            _add(dst, src)
         elif arrow.head_from and arrow.head_to:
             # Bidi — pick direction: fewer outgoing source wins
-            out_src = sum(1 for a in board.arrows if a.from_id == src and a.to_id in target_ids)
-            out_dst = sum(1 for a in board.arrows if a.from_id == dst and a.to_id in target_ids)
-            if out_src <= out_dst:
-                adj[src].append(dst)
-                radj[dst].append(src)
+            if out_degree[src] <= out_degree[dst]:
+                _add(src, dst)
             else:
-                adj[dst].append(src)
-                radj[src].append(dst)
+                _add(dst, src)
         else:
             # No heads (--), pick alphabetical
             if src < dst:
-                adj[src].append(dst)
-                radj[dst].append(src)
+                _add(src, dst)
             else:
-                adj[dst].append(src)
-                radj[src].append(dst)
+                _add(dst, src)
 
     # Break cycles via DFS
     _break_cycles(adj, radj, target_ids)

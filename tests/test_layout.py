@@ -300,3 +300,34 @@ class TestLayoutGroups:
         layout_groups(board, container_groups(board), 20, lambda pid: 20,
                       Direction.TTB)
         assert p.y + p.h <= board.box_by_id("Q").y
+
+
+class TestRankWithinContainers:
+    """An arrow between boxes in two sibling containers ranks the containers."""
+
+    def _board(self) -> Board:
+        boxes = [_box("X", 0, 0, 400, 200), _box("Y", 0, 0, 400, 200),
+                 _box("x1"), _box("y1"), _box("y2")]
+        board = _make_board(boxes, [_arrow("y1", "x1"), _arrow("y2", "x1"),
+                                    _arrow("y1", "y2")])
+        board.box_by_id("x1").parent = "X"
+        board.box_by_id("y1").parent = "Y"
+        board.box_by_id("y2").parent = "Y"
+        return board
+
+    def test_descendant_arrow_ranks_siblings(self):
+        adj, _ = _build_dag(self._board(), {"X", "Y"})
+        assert adj["Y"] == ["X"]
+
+    def test_arrow_within_one_container_is_ignored_above_it(self):
+        board = self._board()
+        board.arrows = [_arrow("y1", "y2")]
+        adj, _ = _build_dag(board, {"X", "Y"})
+        assert not any(adj.values())
+
+    def test_layout_puts_source_container_first(self):
+        board = self._board()
+        layout_groups(board, container_groups(board), 20, lambda pid: 20,
+                      Direction.TTB)
+        X, Y = board.box_by_id("X"), board.box_by_id("Y")
+        assert Y.y + Y.h <= X.y

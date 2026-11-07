@@ -142,6 +142,12 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   a handwritten face by default**; `!mono` (and `code:` notes) switch to the
   monospace face — handwriting for prose, monospace for code. (Style mode →
   `t` opens the text grid; `Tab` there cycles a note's font.)
+- *(arrows)* the label is set in Inter, a step quieter than the box labels
+  it sits between. A label that opens with a cardinality — `"1"`, `"N"`,
+  `"*"`, `"N:N included in"`, `"0..1 owner"`, `"1..* items"` — draws that
+  count bold in the full ink, so it reads at a glance. The layered layout
+  (`grafli layout`, `=` in the app) makes the gap between two layers wide
+  enough for the labels of the arrows between them.
 - `!routing` *(arrows)* — how the connector travels between its ends:
   omitted for a **direct** line (the default), `!spline` for a curve, `!ortho`
   for a right-angle stair. Independent of `!pattern` and `!thickness`, so

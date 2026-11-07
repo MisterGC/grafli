@@ -314,6 +314,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#222](https://github.com/MisterGC/grafli/issues/222))
 
 ### Changed
+- **A render reads in the order a hand-made sketch does.** Compared with a
+  sketch of the same board, every box outline and line weighed as much as
+  the one box the board is about. A box with no colour is now a light
+  plate with a quiet outline, so a filled box stands out against it
+  (a `!dashed` / `!dotted` outline keeps the full ink); connectors draw
+  in an ink quieter than the box labels they join; arrow labels are set
+  in Inter in a muted ink, and a label that opens with a cardinality —
+  `"1"`, `"N"`, `"N:N included in"`, `"0..1 owner"` — sets it bold in
+  the full ink. On a routed connector the label sits on its longest
+  straight run instead of on a short jog of the stair. `grafli layout`
+  (and `=` in the app) widens the gap between two layers to hold the
+  labels of the arrows between them, so a label no longer lands on a box.
+  `examples/source-and-builds.grafli` is the public board the renders
+  were compared on.
+  ([#260](https://github.com/MisterGC/grafli/issues/260))
 - **Zoomed out, a container's title is sized by its level, not its area.**
   A collapsed container's headline grew with its tile, so the biggest
   container was the loudest text. Tiles at the same nesting level now

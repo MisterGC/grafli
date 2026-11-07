@@ -91,6 +91,19 @@ grafli export grafli/examples/layers-map.grafli deck.pdf --legend
 grafli render grafli/examples/layers-map.grafli tests.png --overlay tests
 ```
 
+## Fan-out demo
+
+`examples/source-and-builds.grafli` is six boxes and five arrows: one
+canonical source package (the filled box) fans out to its builds, and
+releases tie packages together. Position carries the claim — left is the
+canonical item, right is what is derived from it — and the labels carry
+the cardinality (`1`, `N`, `N:N included in`), drawn bold. It is the
+board grafli's render is compared with a hand-made sketch on:
+
+```bash
+grafli render grafli/examples/source-and-builds.grafli fan-out.png
+```
+
 ## Try it yourself
 
 The format is small enough that the fastest way to learn is to read a

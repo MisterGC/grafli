@@ -288,3 +288,15 @@ class TestLayoutGroups:
         for c in (a, b):
             assert p.x <= c.x and c.x + c.w <= p.x + p.w
             assert p.y + 20 <= c.y and c.y + c.h <= p.y + p.h
+
+    def test_top_level_container_grows_before_root_is_placed(self):
+        # P must grow to hold its children before its root sibling Q is
+        # placed below it, or Q lands inside P's grown area.
+        p = _box("P", 0, 0, 400, 100)
+        a, b = _box("a"), _box("b")
+        a.parent = b.parent = "P"
+        board = _make_board([p, a, b, _box("Q")],
+                            [_arrow("a", "b"), _arrow("P", "Q")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 20,
+                      Direction.TTB)
+        assert p.y + p.h <= board.box_by_id("Q").y

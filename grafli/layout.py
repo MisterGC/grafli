@@ -79,14 +79,16 @@ def layout_groups(
 
 
 def _depth(board: Board, parent_id: str) -> int:
+    """How deep a group sits: 0 for the board root, 1 for a top-level
+    container, one more per enclosing container."""
     d = 0
     pid = parent_id
-    while pid:
-        box = board.box_by_id(pid)
-        if not box or not box.parent:
-            break
-        pid = box.parent
+    seen: set[str] = set()
+    while pid and pid not in seen:
+        seen.add(pid)
         d += 1
+        box = board.box_by_id(pid)
+        pid = box.parent if box else ""
     return d
 
 

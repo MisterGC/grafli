@@ -30,7 +30,7 @@ from grafli.constants import (
     MIN_BOX_SIZE,
     resolve_textsize_px,
 )
-from grafli.edge_label import edge_kind_color, parse_edge_label
+from grafli.edge_label import edge_kind_color, parse_edge_label, split_cardinality
 
 _RE_SPEAKER = re.compile(r"^([A-Z][A-Za-z0-9_-]{0,15}): ")
 
@@ -3925,7 +3925,12 @@ class LabelItem(QGraphicsSimpleTextItem):
                 body_w = fm.horizontalAdvance(parsed.body)
                 widths.append(badge_w + (self._GAP + body_w if parsed.body else 0))
             else:
-                widths.append(fm.horizontalAdvance(raw))
+                card, rest = split_cardinality(raw)
+                if card:
+                    widths.append(bfm.horizontalAdvance(card)
+                                  + (fm.horizontalAdvance(" " + rest) if rest else 0))
+                else:
+                    widths.append(fm.horizontalAdvance(raw))
         total_w = max(widths, default=0)
         total_h = len(widths) * line_h + max(0, len(widths) - 1) * self._LINE_GAP
         return fm, bfm, line_h, total_w, total_h
@@ -3968,7 +3973,17 @@ class LabelItem(QGraphicsSimpleTextItem):
                 x += badge_w + self._GAP
                 text = parsed.body
             else:
-                text = raw
+                # A leading cardinality is the count the relation carries:
+                # bold, in the full ink, ahead of the quieter relation name.
+                card, rest = split_cardinality(raw)
+                if card:
+                    painter.setFont(bold)
+                    painter.setPen(QColor(theme.INK))
+                    painter.drawText(QPointF(x, y), card)
+                    x += bfm.horizontalAdvance(card)
+                    text = " " + rest if rest else ""
+                else:
+                    text = raw
 
             if text:
                 painter.setFont(font)

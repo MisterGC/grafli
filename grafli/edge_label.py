@@ -75,3 +75,21 @@ def parse_edge_label(label: str) -> ParsedEdgeLabel:
     if not m:
         return ParsedEdgeLabel("", label)
     return ParsedEdgeLabel(m.group("kind").lower(), m.group("body"))
+
+
+# A cardinality at the start of a label: "1", "N", "*", "N:N", "1:N",
+# "0..1", "1..*" — alone or followed by the relation it counts.
+_RE_CARDINALITY = re.compile(
+    r"^(?P<card>(?:\d+|[NMn*])(?:(?::|\.\.)(?:\d+|[NMn*]))?)(?=\s|$)\s*(?P<rest>.*)$"
+)
+
+
+def split_cardinality(text: str) -> tuple[str, str]:
+    """Split a leading cardinality off a label: ``("N:N", "included in")``.
+
+    A label without one comes back as ``("", text)``. The renderer sets the
+    cardinality bold in full ink, so the count reads at a glance (#260)."""
+    m = _RE_CARDINALITY.match(text)
+    if not m:
+        return "", text
+    return m.group("card"), m.group("rest")

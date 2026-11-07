@@ -2482,6 +2482,7 @@ def _make_arrow_label_size_provider():
     _register_bundled_fonts()
     from PySide6.QtGui import QFontMetricsF
     from grafli.edge_label import arrow_label_font
+    from grafli.items import LabelItem
 
     def provider(arrow):
         font = arrow_label_font(arrow.textsize)
@@ -2489,7 +2490,11 @@ def _make_arrow_label_size_provider():
         text = arrow.label or ""
         if not text:
             return (0.0, 0.0)
-        longest_w = max(fm.horizontalAdvance(line) for line in text.split("\n"))
+        # Measured as drawn: a bold cardinality and a kind badge are wider
+        # than the same characters set plain.
+        item = LabelItem(text)
+        item.setFont(font)
+        longest_w = item.boundingRect().width()
         height = fm.height() * max(1, len(text.split("\n")))
         return (longest_w, height)
 

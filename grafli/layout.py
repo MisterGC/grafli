@@ -27,23 +27,26 @@ def compute_layout(
     """Return {box_id: (new_x, new_y)} for each box in target_ids.
 
     A pinned box (``!pin``) gets no entry: it stays where it is, and the
-    other boxes are placed around it."""
+    other boxes are placed around it. It still takes part in the ranking,
+    so ``a -> pinned -> b`` keeps ``a`` before ``b``."""
     pinned = {bid for bid in target_ids
               if (box := board.box_by_id(bid)) and box.pinned}
     obstacles = [_rect_of(board, bid, box_sizes) for bid in sorted(pinned)]
-    target_ids = target_ids - pinned
-    if not target_ids:
+    free_ids = target_ids - pinned
+    if not free_ids:
         return {}
-    if len(target_ids) == 1 and not obstacles:
-        return _layout_single(board, target_ids, parent_id, grid, label_height, box_sizes)
+    if len(free_ids) == 1 and not obstacles:
+        return _layout_single(board, free_ids, parent_id, grid, label_height, box_sizes)
 
-    constraint = _constraint_rect(board, target_ids, parent_id, label_height, box_sizes)
+    constraint = _constraint_rect(board, free_ids, parent_id, label_height, box_sizes)
     if direction is None:
         direction = _auto_direction(board, parent_id, constraint)
 
     adj, radj = _build_dag(board, target_ids)
     layers = _assign_layers(target_ids, adj, radj)
     layers = _order_within_layers(layers, adj, board, direction, target_ids, box_sizes)
+    layers = [kept for layer in layers
+              if (kept := [n for n in layer if n not in pinned])]
     # Without a parent the area is the boxes' own bounding box, which the
     # layout itself changes: centring in it would shift every rerun.
     in_parent = bool(parent_id and board.box_by_id(parent_id))

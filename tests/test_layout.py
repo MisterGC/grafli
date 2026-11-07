@@ -387,6 +387,16 @@ class TestPinned:
                       Direction.TTB)
         assert (c.x - p.x, c.y - p.y) == (40, 60)
 
+    def test_pinned_box_still_ranks_its_neighbours(self):
+        # C -> B(pinned) -> A: C before A although only B links them.
+        pin = _box("B", 2000, 2000)
+        pin.pinned = True
+        board = _make_board([_box("A", 0, 0), pin, _box("C", 0, 400)],
+                            [_arrow("C", "B"), _arrow("B", "A")])
+        result = compute_layout(board, {"A", "B", "C"}, "", Direction.TTB,
+                                20, 0, _sizes("A", "B", "C"))
+        assert result["C"][1] < result["A"][1]
+
 
 class TestStableRerun:
     """A second layout run over a laid-out board moves nothing."""

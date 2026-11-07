@@ -776,7 +776,7 @@ class ResourcesMixin:
         self._edit_target = arrow
         self._clear_arrow_mode()
 
-        mid = self._arrow_label_midpoint()
+        mid = self._arrow_label_midpoint(arrow)
         if not mid:
             return
 

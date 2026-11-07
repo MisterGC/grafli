@@ -29,7 +29,7 @@ from grafli.arrows import (
     bowed_path,
     endpoint_pair,
     fan_offsets,
-    label_point,
+    label_anchor,
     path_end_angle,
     pick_self_loop_sides,
     pinned_direct_points,
@@ -352,6 +352,7 @@ class SelectionMixin:
         self._scene.clear()
         self._box_items.clear()
         self._arrow_items.clear()
+        self._arrow_label_geometry.clear()
         self._note_items.clear()
         self._image_items.clear()
         # The scene clear above deleted any LoD hull/overlay items; drop the now
@@ -630,6 +631,7 @@ class SelectionMixin:
         for item in self._arrow_items:
             self._scene.removeItem(item)
         self._arrow_items.clear()
+        self._arrow_label_geometry.clear()
         self._merged_reverse.clear()
 
         if not self._board:
@@ -883,6 +885,11 @@ class SelectionMixin:
                 label_tooltips.append(rev.url)
 
             total_len = math.hypot(dx, dy)
+            # What label_anchor needs, kept so the inline editor and the
+            # arrow-mode badge open where this label is drawn.
+            for arrow in (fwd, rev):
+                if arrow is not None:
+                    self._arrow_label_geometry[id(arrow)] = (start, end, conn_path)
             # Drop the connector label when either end is a LoD-collapsed node
             # (tile or hull) — its authored size would render as illegible
             # clutter on a rerouted edge.
@@ -899,12 +906,8 @@ class SelectionMixin:
                 # the path's longest straight run — the chord midpoint of an
                 # L-bend sits off in empty space, and the path's own middle can
                 # land on a short jog.
-                if conn_path is not None:
-                    mid = label_point(conn_path)
-                    mid_x, mid_y = mid.x(), mid.y()
-                else:
-                    mid_x = (start.x() + end.x()) / 2
-                    mid_y = (start.y() + end.y()) / 2
+                mid = label_anchor(start, end, conn_path)
+                mid_x, mid_y = mid.x(), mid.y()
 
                 combined = "\n".join(label_texts)
                 label = LabelItem(combined)

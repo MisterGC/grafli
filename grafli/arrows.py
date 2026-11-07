@@ -659,6 +659,20 @@ def routed_path(routing: str, start: QPointF, start_side: str,
     return path
 
 
+def label_anchor(start: QPointF, end: QPointF,
+                 path: QPainterPath | None = None) -> QPointF:
+    """Where an arrow's label is centred, before its ``@dx,dy`` offset.
+
+    The one place this is decided: the canvas draws the label here, and the
+    inline label editor and the arrow-mode badge open here, so editing a
+    label never starts away from it. A shaped connector (routed, bowed,
+    pinned) puts it on the path (``label_point``); a straight one at the
+    middle between its two ends."""
+    if path is not None:
+        return label_point(path)
+    return QPointF((start.x() + end.x()) / 2, (start.y() + end.y()) / 2)
+
+
 def label_point(path: QPainterPath) -> QPointF:
     """Where a connector's label sits: the middle of its longest straight run.
 

@@ -170,6 +170,9 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         self.base_dir: str = ""
         self._box_items: dict[str, BoxItem] = {}
         self._arrow_items: list[QGraphicsLineItem | QGraphicsPolygonItem | QGraphicsSimpleTextItem] = []
+        # id(arrow) → (start, end, path) of its last drawn connector: what
+        # arrows.label_anchor needs to say where its label sits.
+        self._arrow_label_geometry: dict[int, tuple] = {}
         self._note_items: dict[str, NoteItem] = {}
         self._image_items: dict[str, ImageItem] = {}
         self._dirty = False

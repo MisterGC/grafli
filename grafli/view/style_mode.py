@@ -16,6 +16,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem, QInputDialog
 from grafli import theme
+from grafli.arrows import label_anchor
 from grafli.constants import (
     COLOR_PALETTE,
     FONT_FAMILY,
@@ -954,15 +955,21 @@ class StyleModeMixin:
 
     # ── Arrow mode (vim-like style) ──
 
-    def _arrow_label_midpoint(self) -> QPointF | None:
-        """Return scene midpoint of the selected arrow's line.
+    def _arrow_label_midpoint(self, arrow=None) -> QPointF | None:
+        """Scene point an arrow's label is centred on (default: the selected
+        arrow), before its ``@dx,dy`` offset — the anchor the canvas drew it
+        at, from ``arrows.label_anchor``.
 
-        Resolves any endpoint type (box, note, image) via its graphics item, so
+        An arrow not drawn yet falls back to the middle between its two
+        elements, resolved via their graphics items (box, note or image), so
         the style-mode badge appears on note/image connectors too.
         """
-        arrow = self._selected_arrow
+        arrow = arrow or self._selected_arrow
         if not arrow or not self._board:
             return None
+        geometry = self._arrow_label_geometry.get(id(arrow))
+        if geometry is not None:
+            return label_anchor(*geometry)
         fi = (self._box_items.get(arrow.from_id)
               or self._note_items.get(arrow.from_id)
               or self._image_items.get(arrow.from_id))

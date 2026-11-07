@@ -72,7 +72,8 @@ def arrow_trouble(path: Path) -> list[str]:
     view.render_headless(path)
     view.load_board(board)
     items = view._scene.items()
-    parents = {el.id: el.parent for el in (*board.boxes, *board.notes)}
+    parents = {el.id: el.parent
+               for el in (*board.boxes, *board.notes, *board.images)}
 
     def with_ancestors(el_id: str) -> set[str]:
         out = set()
@@ -163,3 +164,19 @@ def test_the_check_sees_an_arrow_through_a_container_that_holds_neither_end(
         "@ box b \"b\" 200,660 200x80 >bot\n"
         "@ arrow a -> b\n", encoding="utf-8")
     assert arrow_trouble(board) == ["a -> b runs through mid"]
+
+
+def test_the_check_lets_an_arrow_leave_the_container_its_image_sits_in(
+        tmp_path: Path):
+    from PySide6.QtGui import QColor, QImage
+    image = QImage(100, 80, QImage.Format.Format_RGB32)
+    image.fill(QColor("white"))
+    assert image.save(str(tmp_path / "pic.png"))
+    board = tmp_path / "image.grafli"
+    board.write_text(
+        "#!grafli v4\n"
+        "@ box top \"top\" 0,0 600x180 ^left\n"
+        "@ image p \"pic.png\" 200,60 100x80 >top\n"
+        "@ box b \"b\" 200,400 200x80\n"
+        "@ arrow p -> b\n", encoding="utf-8")
+    assert arrow_trouble(board) == []

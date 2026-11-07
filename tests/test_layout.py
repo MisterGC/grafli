@@ -401,6 +401,24 @@ class TestPinned:
 class TestStableRerun:
     """A second layout run over a laid-out board moves nothing."""
 
+    def _pinned_chain(self, pin_x: float, pin_y: float) -> Board:
+        # a -> p(pinned) -> b, c at the root: the widest layer [b, c] is
+        # pushed past the pin, which must not shift `a` on every run.
+        pin = _box("p", pin_x, pin_y, 300, 80)
+        pin.pinned = True
+        return _make_board(
+            [_box("a", 0, 0), pin, _box("b", 0, 300), _box("c", 200, 300)],
+            [_arrow("a", "p"), _arrow("p", "b"), _arrow("p", "c")],
+        )
+
+    def test_root_layout_with_a_pinned_box_is_stable(self):
+        for pin_at in ((20, 160), (13, 151)):
+            board = self._pinned_chain(*pin_at)
+            layout_groups(board, container_groups(board), 20, lambda pid: 0)
+            first = [(b.x, b.y, b.w, b.h) for b in board.boxes]
+            layout_groups(board, container_groups(board), 20, lambda pid: 0)
+            assert [(b.x, b.y, b.w, b.h) for b in board.boxes] == first, pin_at
+
     def test_root_layout_is_stable(self):
         board = _make_board(
             [_box("A", 300, 0), _box("B", 0, 400), _box("C", 900, 400),

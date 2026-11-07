@@ -45,13 +45,34 @@ def compute_layout(
     # layout itself changes: centring in it would shift every rerun.
     in_parent = bool(parent_id and board.box_by_id(parent_id))
 
-    def _place(d: Direction) -> dict[str, tuple[float, float]]:
+    def _place_in(d: Direction, area: Rect) -> dict[str, tuple[float, float]]:
         layers = _assign_layers(target_ids, adj, radj)
         layers = _order_within_layers(layers, adj, board, d, target_ids, box_sizes)
         layers = [kept for layer in layers
                   if (kept := [n for n in layer if n not in pinned])]
-        return _assign_coordinates(layers, d, constraint, grid, box_sizes,
+        return _assign_coordinates(layers, d, area, grid, box_sizes,
                                    obstacles, center_on_widest=not in_parent)
+
+    def _place(d: Direction) -> dict[str, tuple[float, float]]:
+        if in_parent or not obstacles:
+            return _place_in(d, constraint)
+        # At the root the next run starts from the free boxes' own edge.
+        # A pin can push the widest layer off that edge and leave a
+        # centred layer as the leftmost box, so shift the start until the
+        # free boxes begin at the edge they began at: a rerun then finds
+        # the same edge and reproduces the layout.
+        axis = 0 if d == Direction.TTB else 1
+        target = _snap(constraint[axis], grid)
+        area = constraint
+        for _ in range(_ROOT_EDGE_TRIES):
+            positions = _place_in(d, area)
+            lo = min(pos[axis] for pos in positions.values())
+            if lo == target:
+                break
+            shifted = list(area)
+            shifted[axis] += target - lo
+            area = (shifted[0], shifted[1], shifted[2], shifted[3])
+        return positions
 
     if direction is not None:
         return _place(direction)
@@ -79,6 +100,11 @@ def _growth(
     need_h = max((y + box_sizes.get(n, (160, 80))[1] for n, (_, y) in positions.items()),
                  default=cy) - cy
     return max(cw, need_w) * max(ch, need_h) - cw * ch
+
+
+# How often a root layout with pinned boxes shifts its start to begin at
+# the free boxes' edge before it settles for the last try.
+_ROOT_EDGE_TRIES = 4
 
 
 # ── Whole-board driver ──────────────────────────────────────────

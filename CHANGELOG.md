@@ -312,8 +312,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Its entry tour exports as a deck with a headline on every stop:
   `grafli export examples/layers-map.grafli deck.pdf --legend`.
   ([#222](https://github.com/MisterGC/grafli/issues/222))
+- **Worked examples of a matrix and a mirror.**
+  `examples/outputs-matrix.grafli` places every way a board leaves the
+  file on two axes — who can change it while it is shown, how much of the
+  map it carries; `examples/save-reload-mirror.grafli` sets reloading and
+  saving side by side, the same step at the same height, so the one step
+  only saving has shows as a gap.
+  ([#261](https://github.com/MisterGC/grafli/issues/261))
 
 ### Changed
+- **`examples/layers-map.grafli` is drawn as layered dependencies.** Its
+  top board was three bands of three boxes and two arrows. It now opens
+  with a claim, every arrow points at what a part depends on and names
+  what it reads or draws, and the one call that points up the stack is
+  drawn in rose. The map palette's doc moved into the vault's, and the
+  status labels stay on the two levels.
+  ([#261](https://github.com/MisterGC/grafli/issues/261))
 - **A render reads in the order a hand-made sketch does.** Compared with a
   sketch of the same board, every box outline and line weighed as much as
   the one box the board is about. A box with no colour is now a light

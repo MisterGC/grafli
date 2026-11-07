@@ -76,12 +76,15 @@ grafli export-html grafli/examples/navigation-map.grafli map.html
 ## Slide-grade map demo
 
 `examples/layers-map.grafli` explains grafli's own layers — format, view,
-exports — the way a slide would: the problem first, then the layers as a
-stack of bands in their colours from `layers-map-res/palette.json`. Each
-part shows its doc's first sentence under its label and a status label
-(`live` in the app, `snapshot` outside it). Select **Parser** or
+exports — the way a slide would: a claim first, then the layers as a stack
+of bands in their colours from `layers-map-res/palette.json`, drawn as
+layered dependencies. Every arrow points at what a part depends on and is
+named for what it reads or draws; the one that points up the stack — the
+view asking the PDF export for its slide shape — is drawn in rose, and the
+claim says so. Select **Parser** or
 **PDF / PPTX** and press <kbd>g</kbd><kbd>d</kbd> for a level with a claim
-headline, one emphasised part and a numbered path; <kbd>Shift</kbd>+<kbd>M</kbd>
+headline, one emphasised part, a numbered path and status labels (`live`
+in the app, `snapshot` outside it); <kbd>Shift</kbd>+<kbd>M</kbd>
 shows the legend and <kbd>A</kbd> cycles to the **Tests** overlay, which
 `examples/layers-map-overlay.py` writes. The `entry` tour crosses both
 levels and exports as a deck, one headline per stop:
@@ -89,6 +92,22 @@ levels and exports as a deck, one headline per stop:
 ```bash
 grafli export grafli/examples/layers-map.grafli deck.pdf --legend
 grafli render grafli/examples/layers-map.grafli tests.png --overlay tests
+```
+
+## Matrix and mirror demos
+
+Two worked examples of the encoding catalogue on grafli's own subject.
+`examples/outputs-matrix.grafli` places every way a board leaves the file
+on two forces — who can change it while it is shown, and how much of the
+map it carries — so the empty corner the planned live tab fills is visible.
+`examples/save-reload-mirror.grafli` puts reloading an outside write and
+saving side by side, the same step at the same height: both meet in
+`merge_boards()`, and the step only saving has, `atomic_write()`, leaves a
+gap on the reload side.
+
+```bash
+grafli render grafli/examples/outputs-matrix.grafli matrix.png
+grafli render grafli/examples/save-reload-mirror.grafli mirror.png
 ```
 
 ## Fan-out demo

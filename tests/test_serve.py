@@ -482,6 +482,26 @@ def test_undoing_an_added_box_drops_an_arrow_others_drew_to_it(served, board):
     theirs.close()
 
 
+def test_deleting_a_box_drops_an_arrow_another_tab_drew_to_it(served, board):
+    """One tab connects to b; another deletes b against the version before
+    that connect. The merge would keep the new arrow with no end; the file
+    holds neither the box nor the arrow."""
+    linker = Tab(served, board.stem, served.keys.editor, author="linker2")
+    deleter = Tab(served, board.stem, served.keys.editor, author="deleter")
+    _w, frame = linker.open()
+    deleter.open()
+    before = frame["version"]
+    ack = linker.edit(before, {"op": "connect", "from": "b", "to": "a"})
+    assert ack["t"] == "ack" and "@ arrow b -> a" in board.read_text()
+    ack = deleter.edit(before, {"op": "delete", "id": "b"})
+    assert ack["t"] == "ack"
+    disk = board.read_text()
+    assert '@ box b "B"' not in disk
+    assert "@ arrow" not in disk
+    linker.close()
+    deleter.close()
+
+
 def test_a_watch_tab_cannot_undo(served, board):
     tab = Tab(served, board.stem, served.keys.viewer)
     tab.open()

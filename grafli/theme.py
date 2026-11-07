@@ -44,7 +44,7 @@ class Palette:
     INK: QColor                      # primary text & node borders
     BOX_BORDER: QColor
     BOX_OUTLINE: QColor              # a plain box's outline, quieter than its label
-    ARROW_COLOR: QColor
+    ARROW_COLOR: QColor              # a connector: quieter than the box labels it joins
     INK_ON_LIGHT_FILL: QColor        # text over a bright node fill
     INK_ON_DARK_FILL: QColor         # text over a dark node fill
     INK_SUBTLE: QColor
@@ -184,7 +184,7 @@ LIGHT = Palette(
     INK=QColor("#2F3437"),
     BOX_BORDER=QColor("#2F3437"),
     BOX_OUTLINE=QColor("#B3AB9E"),
-    ARROW_COLOR=QColor("#2F3437"),
+    ARROW_COLOR=QColor("#6A645B"),
     INK_ON_LIGHT_FILL=QColor("#2D2D2D"),
     INK_ON_DARK_FILL=QColor("#F2F0EB"),
     INK_SUBTLE=QColor("#4A4A4A"),
@@ -364,7 +364,7 @@ DARK = Palette(
     INK=QColor("#E8E4DD"),
     BOX_BORDER=QColor("#E8E4DD"),
     BOX_OUTLINE=QColor("#6B655C"),
-    ARROW_COLOR=QColor("#D8D3CA"),
+    ARROW_COLOR=QColor("#A9A49B"),
     INK_ON_LIGHT_FILL=QColor("#2D2D2D"),
     INK_ON_DARK_FILL=QColor("#F2F0EB"),
     INK_SUBTLE=QColor("#C4BFB6"),

@@ -52,7 +52,7 @@ split by the modules that own each layer
   @grafli/lod.py:88 LodModel
   @grafli/view/structure.py:300 slide_content_ratio
   @grafli/slideplan.py:74 build_slide_plan
-  @grafli/htmlexport.py:503 export_html
+  @grafli/htmlexport.py:522 export_html
 """ ~small
 
 # ── tour ──

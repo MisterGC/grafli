@@ -225,8 +225,12 @@ class _Exporter:
         self.svgs: list[tuple[str, str]] = []
         self.warnings: list[str] = []
 
+    def _read(self, path: Path) -> Board:
+        """The board at *path*, its attachments classified and docs loaded."""
+        return _read_board(path)
+
     def _load(self, path: Path) -> Board:
-        board = _read_board(path)
+        board = self._read(path)
         view = self.view
         # The view looks up its board file through its window, which a
         # parentless view is itself.
@@ -405,8 +409,8 @@ class _Exporter:
                 "flows": flows, "lines": arrow_lines}
 
 
-def _fonts(svgs: list[tuple[str, str]], docs: bool) -> list[dict]:
-    """The bundled fonts the drawings use, gzipped, as base64."""
+def font_keys(svgs: list[tuple[str, str]], docs: bool) -> set[tuple[str, bool]]:
+    """The bundled faces the drawings use, as (family, bold)."""
     wanted: set[tuple[str, bool]] = set()
     for _key, svg in svgs:
         for family, weight in _SVG_FONT_RE.findall(svg):
@@ -414,6 +418,11 @@ def _fonts(svgs: list[tuple[str, str]], docs: bool) -> list[dict]:
     if docs:
         # The peek's faces: handwritten text, monospace code.
         wanted |= {("Patrick Hand", False), ("JetBrainsMono Nerd Font", False)}
+    return wanted
+
+
+def font_data(wanted: set[tuple[str, bool]]) -> list[dict]:
+    """The bundled fonts among *wanted*, gzipped, as base64."""
     fonts = []
     for (family, bold), name in sorted(_FONT_FILES.items()):
         if (family, bold) not in wanted:
@@ -424,14 +433,24 @@ def _fonts(svgs: list[tuple[str, str]], docs: bool) -> list[dict]:
     return fonts
 
 
+def _fonts(svgs: list[tuple[str, str]], docs: bool) -> list[dict]:
+    """The bundled fonts the drawings use, gzipped, as base64."""
+    return font_data(font_keys(svgs, docs))
+
+
 def _json_script(data) -> str:
     return json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
 
 
 def _page(title: str, data: dict, svgs: list[tuple[str, str]],
-          fonts: list[dict]) -> str:
+          fonts: list[dict], extra_js: str = "",
+          generator: str = "grafli export-html") -> str:
+    """The page: the drawings in templates, *data* and *fonts* as JSON, the
+    page script, then *extra_js* (``grafli serve`` adds its live client)."""
     css = (_ASSETS / "page.css").read_text(encoding="utf-8")
     js = (_ASSETS / "page.js").read_text(encoding="utf-8")
+    if extra_js:
+        js = f"{js}\n{extra_js}"
     colors = {
         "--bg": _color_hex(theme.SCENE_BG),
         "--surface": _color_hex(theme.SURFACE),
@@ -448,7 +467,7 @@ def _page(title: str, data: dict, svgs: list[tuple[str, str]],
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="generator" content="grafli export-html">
+<meta name="generator" content="{html.escape(generator)}">
 <title>{html.escape(title)}</title>
 <style>:root{{{root_vars}}}
 {css}</style>

@@ -2,7 +2,8 @@
 // back out of, the doc peek, the overlay switch and the tour player. Every
 // board is the app's own SVG in a <template>; this script only moves the
 // camera (the viewBox), swaps drawings and places click areas from the rects
-// in #grafli-data.
+// in #grafli-data. Under grafli serve the page starts without a board
+// (DATA.live) and grafliPage.update() draws each frame the server pushes.
 (() => {
   "use strict";
   const DATA = JSON.parse(document.getElementById("grafli-data").textContent);
@@ -24,9 +25,9 @@
 
   // ── Fonts: the bundled faces, gzipped, unpacked in the browser ──
 
-  async function loadFonts() {
+  async function loadFonts(fonts) {
     if (!("DecompressionStream" in window) || !("FontFace" in window)) return;
-    for (const f of FONTS) {
+    for (const f of fonts) {
       try {
         const bin = atob(f.data);
         const bytes = new Uint8Array(bin.length);
@@ -187,6 +188,8 @@
 
   function enter(el) {
     if (busy || !el || !el.level) return;
+    // Live, a level is another board's own page, under the same key.
+    if (el.level.href) { location.assign(el.level.href + location.hash); return; }
     const child = DATA.boards[el.level.board];
     const frame = { board: board.id, view: vb, selected: el, via: el,
                     label: el.label, tour: leaveTour() };
@@ -695,7 +698,7 @@
 
   let drag = null;
   stage.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || !board) return;
     drag = { x: e.clientX, y: e.clientY, moved: false,
              target: e.target.__el || null, view: vb };
     stage.setPointerCapture(e.pointerId);
@@ -718,7 +721,7 @@
   });
   stage.addEventListener("wheel", (e) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !board) return;
     const rate = e.ctrlKey ? 0.01 : 0.0015;
     zoomAt(toBoard(e.clientX, e.clientY), Math.exp(e.deltaY * rate));
   }, { passive: false });
@@ -744,7 +747,7 @@
   let gPending = false, gTimer = 0;
   document.addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.target instanceof HTMLSelectElement) return;
+    if (e.target instanceof HTMLSelectElement || !board) return;
     const k = e.key;
     if (gPending) {
       gPending = false;
@@ -803,15 +806,55 @@
 
   let lastStage = stageSize();
   window.addEventListener("resize", () => {
-    const s = stageSize(), k = vb.w / lastStage.w;
+    const s = stageSize();
+    if (!vb) { lastStage = s; return; }
+    const k = vb.w / lastStage.w;
     lastStage = s;
     const c = centre();
     setView({ x: c.x - s.w * k / 2, y: c.y - s.h * k / 2, w: s.w * k, h: s.h * k });
   });
 
+  // ── Live: a frame grafli serve pushed ──
+
+  // Draw *frame* — {board, svgs, docs, fonts} — in place of the board on
+  // screen, keeping the camera, the selection, the peek and the overlay.
+  function update(frame) {
+    for (const [key, svg] of Object.entries(frame.svgs)) {
+      let tpl = $("svg-" + key);
+      if (!tpl) {
+        tpl = document.createElement("template");
+        tpl.id = "svg-" + key;
+        document.body.appendChild(tpl);
+      }
+      tpl.innerHTML = svg;
+    }
+    Object.assign(DATA.docs, frame.docs || {});
+    if (frame.fonts && frame.fonts.length) loadFonts(frame.fonts);
+    const next = frame.board;
+    DATA.boards[next.id] = next;
+    if (!board) {
+      showBoard(next.id);
+      setView(fitBoard());
+      return;
+    }
+    const selId = selected ? selected.id : null;
+    const peekId = peeked ? peeked.id : null;
+    board = next;
+    if ((overlayOf[board.id] || 0) >= board.states.length) overlayOf[board.id] = 0;
+    drawState();
+    buildHits();
+    showOverlayPick();
+    showTourPick();
+    showCrumbs();
+    select(board.elements.find((e) => e.id === selId) || null);
+    const again = board.elements.find((e) => e.id === peekId);
+    if (again && again.doc) openPeek(again); else if (peekId) closePeek();
+  }
+
   // A test hook: the page's state, read by the export's browser check.
   window.grafliPage = {
-    board: () => board.id, depth: () => stack.length,
+    update, toast,
+    board: () => (board ? board.id : null), depth: () => stack.length,
     selected: () => (selected ? selected.id : null),
     peek: () => (peeked ? peeked.id : null),
     overlay: () => overlayOf[board.id] || 0,
@@ -821,7 +864,9 @@
     dimmed: () => $("veil").style.display !== "none",
   };
 
-  loadFonts();
-  showBoard(DATA.root);
-  setView(fitBoard());
+  loadFonts(FONTS);
+  if (!DATA.live) {
+    showBoard(DATA.root);
+    setView(fitBoard());
+  }
 })();

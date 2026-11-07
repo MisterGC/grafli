@@ -44,8 +44,11 @@ def compute_layout(
     adj, radj = _build_dag(board, target_ids)
     layers = _assign_layers(target_ids, adj, radj)
     layers = _order_within_layers(layers, adj, board, direction, target_ids, box_sizes)
+    # Without a parent the area is the boxes' own bounding box, which the
+    # layout itself changes: centring in it would shift every rerun.
+    in_parent = bool(parent_id and board.box_by_id(parent_id))
     positions = _assign_coordinates(layers, direction, constraint, grid, box_sizes,
-                                    obstacles)
+                                    obstacles, center_on_widest=not in_parent)
     return positions
 
 
@@ -449,10 +452,13 @@ def _assign_coordinates(
     grid: float,
     box_sizes: dict[str, tuple[float, float]],
     obstacles: list[Rect] | None = None,
+    center_on_widest: bool = False,
 ) -> dict[str, tuple[float, float]]:
     """Compute final (x, y) positions for all nodes. A node that would
     land on an obstacle (a pinned box) moves along its layer past it,
-    and the rest of the layer follows."""
+    and the rest of the layer follows. Layers are centred on the
+    constraint's cross extent, or with *center_on_widest* on the widest
+    layer, which then starts at the constraint's edge."""
     obstacles = obstacles or []
     cx, cy, cw, ch = constraint
     positions: dict[str, tuple[float, float]] = {}
@@ -488,7 +494,9 @@ def _assign_coordinates(
     total_main = sum(layer_main_sizes) + LAYOUT_LAYER_GAP * max(len(layers) - 1, 0)
     max_cross = max(layer_cross_sizes) if layer_cross_sizes else 0
 
-    if direction == Direction.TTB:
+    if center_on_widest:
+        avail_cross = max_cross
+    elif direction == Direction.TTB:
         avail_cross = cw
     else:
         avail_cross = ch

@@ -386,3 +386,25 @@ class TestPinned:
         layout_groups(board, container_groups(board), 20, lambda pid: 20,
                       Direction.TTB)
         assert (c.x - p.x, c.y - p.y) == (40, 60)
+
+
+class TestStableRerun:
+    """A second layout run over a laid-out board moves nothing."""
+
+    def test_root_layout_is_stable(self):
+        board = _make_board(
+            [_box("A", 300, 0), _box("B", 0, 400), _box("C", 900, 400),
+             _box("D", 500, 900, 300, 120)],
+            [_arrow("A", "B"), _arrow("A", "C"), _arrow("B", "D")],
+        )
+        layout_groups(board, container_groups(board), 20, lambda pid: 0)
+        first = [(b.x, b.y, b.w, b.h) for b in board.boxes]
+        layout_groups(board, container_groups(board), 20, lambda pid: 0)
+        assert [(b.x, b.y, b.w, b.h) for b in board.boxes] == first
+
+    def test_root_layout_keeps_the_top_left_corner(self):
+        board = _make_board([_box("A", 300, 100), _box("B", 100, 500)],
+                            [_arrow("A", "B")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 0)
+        assert min(b.x for b in board.boxes) == 100
+        assert min(b.y for b in board.boxes) == 100

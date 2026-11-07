@@ -254,6 +254,28 @@ def _command_lines(text: str) -> list[str]:
     return out
 
 
+def _inside(ref: str) -> bool:
+    """Whether a file *ref* stays in the board's folder: relative, no
+    ``..``, no ``~``. A URL is no file."""
+    if "://" in ref:
+        return True
+    path = ref.split("#", 1)[0]
+    if path.startswith(("/", "\\", "~")) or re.match(r"[A-Za-z]:", path):
+        return False
+    return ".." not in re.split(r"[\\/]", path)
+
+
+def _check_files(el) -> None:
+    """Refuse a line that points at a file outside the board's folder: the
+    worker reads what an image or attachment names and sends it to every
+    tab."""
+    refs = [getattr(el, "image_path", ""), el.url]
+    for ref in refs:
+        if ref and not _inside(ref):
+            raise OpError(f"'{ref}' lies outside the board's folder; "
+                          "a tab may only name files inside it")
+
+
 def _fields(dst, src) -> None:
     for f in dataclasses.fields(src):
         if not f.name.startswith("_"):
@@ -339,6 +361,8 @@ def _lines(board: Board, op: dict) -> dict:
         for end in (arrow.from_id, arrow.to_id):
             if _placed(board, end) is None and end not in new_ends:
                 raise OpError(f"no box, note or image '{end}'")
+    for el in [*parsed.boxes, *parsed.notes, *parsed.images, *parsed.arrows]:
+        _check_files(el)
     touched: list[str] = []
     for els, same, add in kinds.values():
         for el in els:

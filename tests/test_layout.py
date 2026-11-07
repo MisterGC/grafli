@@ -514,3 +514,42 @@ def test_example_board_is_stable_under_a_rerun():
     first = [(b.x, b.y, b.w, b.h) for b in board.boxes]
     layout_groups(board, container_groups(board), 20, label)
     assert [(b.x, b.y, b.w, b.h) for b in board.boxes] == first
+
+
+# ── Layer gaps that hold arrow labels (#260) ─────────────────────
+
+
+def _labelled(label: str) -> Board:
+    return _make_board([_box("a"), _box("b"), _box("c")],
+                       [Arrow(from_id="a", to_id="b", label=label),
+                        _arrow("b", "c")])
+
+
+def _fixed_label(w: float, h: float):
+    return lambda arrow: (w, h) if arrow.label else (0.0, 0.0)
+
+
+def test_a_layer_gap_widens_to_hold_a_long_label_across_it():
+    board = _labelled("a long relation name")
+    sizes = _sizes("a", "b", "c")
+    pos = compute_layout(board, {"a", "b", "c"}, "", Direction.LTR, 20, 0,
+                         sizes, _fixed_label(140, 16))
+    gap_ab = pos["b"][0] - (pos["a"][0] + 160)
+    gap_bc = pos["c"][0] - (pos["b"][0] + 160)
+    assert gap_ab >= 140 + 2 * (4 + 16)     # label, plate and two stubs
+    assert gap_bc == 40                      # no label: the fixed gap
+
+
+def test_top_to_bottom_a_gap_holds_the_label_height():
+    board = _labelled("x")
+    sizes = _sizes("a", "b", "c")
+    pos = compute_layout(board, {"a", "b", "c"}, "", Direction.TTB, 20, 0,
+                         sizes, _fixed_label(10, 30))
+    assert pos["b"][1] - (pos["a"][1] + 80) >= 30 + 2 * (4 + 16)
+
+
+def test_without_a_label_measure_the_gaps_stay_fixed():
+    board = _labelled("a long relation name")
+    sizes = _sizes("a", "b", "c")
+    pos = compute_layout(board, {"a", "b", "c"}, "", Direction.LTR, 20, 0, sizes)
+    assert pos["b"][0] - (pos["a"][0] + 160) == 40

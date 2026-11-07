@@ -140,3 +140,18 @@ def test_grafli_layout_dispatches(board: Path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         app.main()
     assert exc.value.code == 1
+
+
+def test_layout_leaves_room_for_an_arrow_label_between_layers(tmp_path: Path):
+    """#260: a label between two layers lands in the gap, not on a box."""
+    from grafli.app import _make_arrow_label_size_provider
+    f = tmp_path / "labels.grafli"
+    f.write_text('#!grafli v4\n'
+                 '@ box a "A" 0,0 160x80\n'
+                 '@ box b "B" 0,0 160x80\n'
+                 '@ arrow a -> b "a rather long relation"\n', encoding="utf-8")
+    assert _cmd_layout(["--direction", "ltr", str(f)]) == 0
+    rects = _rects(f)
+    label_w, _ = _make_arrow_label_size_provider()(parse(f.read_text()).arrows[0])
+    gap = rects["b"][0] - (rects["a"][0] + rects["a"][2])
+    assert gap >= label_w + 8

@@ -55,7 +55,7 @@ def test_container_collapses_to_a_tile_and_hides_children():
     _set_zoom(view, 0.3)                       # children sub-threshold
     assert view._lod_collapsed == {"group"}
     g = view._box_items["group"]
-    assert g._lod_tile == ("Group", 1)         # headline + descendant count
+    assert g._lod_tile == ("Group", 1)         # headline + nesting level
     assert not g._label.isVisible()            # tile draws its own headline
     # The child is subsumed into the tile.
     assert not view._box_items["child"].isVisible()

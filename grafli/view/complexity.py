@@ -39,6 +39,9 @@ from grafli.constants import (
 from grafli.items import ArrowLineItem, ClusterHullItem, LabelItem
 from grafli.lod import should_collapse, should_collapse_container
 
+# Below this on-screen px a level's shared tile title stops shrinking (#258).
+LOD_TITLE_FLOOR_PX = 9.0
+
 
 class ComplexityMixin:
     """Mixin providing heatmap rendering.
@@ -334,7 +337,7 @@ class ComplexityMixin:
         flicker):
 
         * **tile** — a collapsed container with no collapsed ancestor: its
-          headline + child-count badge stand in for the whole group.
+          headline stands in for the whole group, sized by its nesting level.
         * **hidden** — a box inside a collapsed container (subsumed by the tile).
         * **shell** — a leaf whose own label is illegible: a bare coloured box.
         * **cluster** — a parent-less connected component (>=3) whose members are
@@ -463,6 +466,8 @@ class ComplexityMixin:
         self._refresh_miniatures(scale, hidden | tiles | shells)
         # Box doc lines likewise show only on boxes at the detailed level.
         self._refresh_doc_lines(scale, hidden | tiles | shells, lod_on)
+        # Tile titles follow the zoom too: one size per nesting level.
+        self._refresh_lod_titles(scale, tiles)
 
         state = (frozenset(collapsed), frozenset(shells), frozenset(clusters),
                  frozenset(hidden_notes), frozenset(note_shells),
@@ -516,6 +521,27 @@ class ComplexityMixin:
             # Tiles appearing / elements hiding change what counts as fully
             # framed — recompute the focus fade against the new composition.
             self._apply_presentation_focus()
+
+    def _refresh_lod_titles(self, scale: float, tiles: set[str]) -> None:
+        """Give every tile of a nesting level the same title size: its
+        level's size, shrunk to the largest that fits each of that level's
+        tiles, so no container's title reads louder than a sibling's for
+        its area (#258). The shared size stops at a readable floor: a tile
+        too small even for that lets its title overflow, rather than shrink
+        the whole level with it."""
+        model = self._lod
+        if model is None or scale <= 0:
+            return
+        by_level: dict[int, float] = {}
+        for bid in tiles:
+            summ = model.summary(bid)
+            px = self._box_items[bid].lod_title_fit_px(scale, summ.label,
+                                                      summ.depth)
+            by_level[summ.depth] = min(px, by_level.get(summ.depth, px))
+        for bid, item in self._box_items.items():
+            item.set_lod_title_px(
+                max(LOD_TITLE_FLOOR_PX, by_level[model.summary(bid).depth])
+                if bid in tiles else None)
 
     def _lod_band_strip(self, item) -> tuple:
         """A ``^left`` container's children colours for its collapsed band:

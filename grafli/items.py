@@ -224,87 +224,111 @@ def _view_scale(item) -> float:
 
 
 def _aggregate_ideal_px(w_screen: float, h_screen: float) -> float:
-    """Most-readable headline size (on-screen px) for an aggregate of the given
-    on-screen footprint, shared by collapsed tiles and cluster hulls.
+    """Most-readable headline size (on-screen px) for a cluster hull of the
+    given on-screen footprint.
 
     Driven by the footprint's *area* (geometric mean of the sides), not its
-    shorter side: a wide-but-flat tile then still earns a prominent headline
+    shorter side: a wide-but-flat hull then still earns a prominent headline
     instead of being throttled by its short dimension. Floored so a headline
-    stays scannable as the tile keeps shrinking on zoom-out (it may overflow the
+    stays scannable as the hull keeps shrinking on zoom-out (it may overflow the
     footprint — the caption painter treats that as an acceptable last resort),
-    and capped so a huge tile doesn't shout.
+    and capped so a huge hull doesn't shout. Collapsed container tiles size
+    their titles by nesting level instead (:func:`level_title_px`).
     """
     return max(9.0, min(22.0, (w_screen * h_screen) ** 0.5 * 0.32))
 
 
-def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
-                            ideal_px, left: bool = False):
-    """Draw a centered '<label> / N nodes' caption for a collapsed tile or hull.
-    With *left* the caption sits on the left edge instead, left-aligned, as
-    a ``^left`` band's title (#212).
+# On-screen headline px of a collapsed container's title, by nesting level:
+# top-level containers first, each deeper level a step smaller; past the
+# table, every level takes its last entry (#258).
+LEVEL_TITLE_PX = (20.0, 16.0, 13.0)
 
-    The painter is already translated to the centre and counter-scaled
-    (1 unit == 1 on-screen px). The headline wraps to the available width at the
-    ideal (most readable) size; it is shrunk **only if** it would still overflow
-    the available area — the largest size that fits — and overflows past the
-    edges only as a last resort (a single word too wide even at the floor).
-    """
-    flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
-                | Qt.TextFlag.TextWordWrap)
-    min_px = 6.0
-    head_px = max(min_px, ideal_px)
-    while True:
-        pad = max(3.0, head_px * 0.45)
+
+def level_title_px(depth: int) -> float:
+    """Headline size (on-screen px) of a collapsed container at *depth*
+    (1 = top level). Fixed per level, so containers at the same nesting level
+    show their titles at the same size whatever their area (#258)."""
+    return LEVEL_TITLE_PX[min(max(depth, 1), len(LEVEL_TITLE_PX)) - 1]
+
+
+_CAPTION_MIN_PX = 6.0
+
+
+def _caption_flags(left: bool) -> int:
+    align = Qt.AlignmentFlag.AlignLeft if left else Qt.AlignmentFlag.AlignHCenter
+    return int(align | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap)
+
+
+def _caption_pad(head_px: float) -> float:
+    return max(3.0, head_px * 0.45)
+
+
+def _caption_font(head_px: float) -> QFont:
+    font = QFont(FONT_FAMILY)
+    font.setPixelSize(round(head_px))
+    font.setBold(True)
+    return font
+
+
+def _caption_bound(label, w_screen, head_px, left: bool) -> QRectF:
+    # Measure with QFontMetricsF, not painter.boundingRect: the latter
+    # returns an empty rect under the translated/counter-scaled scene
+    # painter (device-coordinate quirk). Font metrics are transform-free.
+    avail_w = max(16.0, w_screen - 2 * _caption_pad(head_px))
+    return QFontMetricsF(_caption_font(head_px)).boundingRect(
+        QRectF(-avail_w / 2, 0.0, avail_w, 60.0 * head_px),
+        _caption_flags(left), label)
+
+
+def caption_fit_px(label, w_screen, h_screen, ideal_px,
+                   left: bool = False) -> float:
+    """The headline size a caption is drawn at: *ideal_px*, shrunk **only
+    if** the wrapped headline would still overflow the available area — the
+    largest size that fits — down to a floor, past which it overflows the
+    edges as a last resort (a single word too wide even at the floor)."""
+    head_px = max(_CAPTION_MIN_PX, ideal_px)
+    while head_px > _CAPTION_MIN_PX:
+        pad = _caption_pad(head_px)
         avail_w = max(16.0, w_screen - 2 * pad)
         avail_h = max(12.0, h_screen - 2 * pad)
-        head_font = QFont(FONT_FAMILY)
-        head_font.setPixelSize(round(head_px))
-        head_font.setBold(True)
-        painter.setFont(head_font)
-        # A band's strip already shows its children: no count line.
-        gap = 0.0 if left else head_px * 0.35
-        badge_px = 0.0 if left else max(6.0, head_px * 0.72)
-        # Measure with QFontMetricsF, not painter.boundingRect: the latter
-        # returns an empty rect under the translated/counter-scaled scene
-        # painter (device-coordinate quirk). Font metrics are transform-free.
-        bound = QFontMetricsF(head_font).boundingRect(
-            QRectF(-avail_w / 2, 0.0, avail_w, 60.0 * head_px), flags, label)
-        fits = (bound.width() <= avail_w + 0.5
-                and bound.height() + gap + badge_px <= avail_h)
-        if fits or head_px <= min_px:
-            head_h = bound.height()
+        bound = _caption_bound(label, w_screen, head_px, left)
+        if bound.width() <= avail_w + 0.5 and bound.height() <= avail_h:
             break
         head_px -= 1.0
+    return head_px
 
-    total_h = head_h + gap + badge_px
-    top = -total_h / 2
 
-    badge_font = QFont(FONT_FAMILY)
-    badge_font.setPixelSize(max(1, round(badge_px)))
-    text = "" if left else f"{count} node" + ("" if count == 1 else "s")
-    bfm = QFontMetricsF(badge_font)
-    bw = bfm.horizontalAdvance(text)
+def _draw_aggregate_caption(painter, label, w_screen, h_screen, head_px,
+                            left: bool = False):
+    """Draw a centered '<label>' caption at *head_px* for a collapsed tile or
+    hull. With *left* the caption sits on the left edge instead, left-aligned,
+    as a ``^left`` band's title (#212).
 
-    # Soft paper plate behind the whole caption block — the headline must
-    # stay readable on any hull/tile fill (issue #126).
-    plate_w = min(avail_w, max(bound.width(), bw)) + head_px * 0.9
+    The painter is already translated to the centre and counter-scaled
+    (1 unit == 1 on-screen px). The headline wraps to the available width;
+    :func:`caption_fit_px` picks a *head_px* that fits.
+    """
+    pad = _caption_pad(head_px)
+    avail_w = max(16.0, w_screen - 2 * pad)
+    flags = _caption_flags(left)
+    head_font = _caption_font(head_px)
+    bound = _caption_bound(label, w_screen, head_px, left)
+    head_h = bound.height()
+    top = -head_h / 2
+
+    # Soft paper plate behind the headline — it must stay readable on any
+    # hull/tile fill (issue #126).
+    plate_w = min(avail_w, bound.width()) + head_px * 0.9
     plate_pad = head_px * 0.28
     plate = QRectF(-plate_w / 2, top - plate_pad,
-                   plate_w, total_h + 2 * plate_pad)
+                   plate_w, head_h + 2 * plate_pad)
     head_rect = QRectF(-avail_w / 2, top, avail_w, head_h)
-    badge_rect = QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6)
-    badge_flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
     if left:
         # The plate's left end a pad in from the tile's left edge, the
-        # headline and the count left-aligned inside it.
+        # headline left-aligned inside it.
         painter.translate(-w_screen / 2 + pad + plate_w / 2, 0.0)
         inner = plate_w - head_px * 0.9
-        flags = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-                    | Qt.TextFlag.TextWordWrap)
         head_rect = QRectF(-inner / 2, top, inner, head_h)
-        badge_rect = QRectF(-inner / 2, top + head_h + gap, inner,
-                            badge_px * 1.6)
-        badge_flags = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
     bg = QColor(theme.SURFACE)
     bg.setAlphaF(0.85)
     painter.setPen(Qt.PenStyle.NoPen)
@@ -315,11 +339,6 @@ def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
     painter.setFont(head_font)
     painter.setPen(QColor(theme.INK))
     painter.drawText(head_rect, flags, label)
-
-    if text:
-        painter.setFont(badge_font)
-        painter.setPen(QColor(theme.INK))
-        painter.drawText(badge_rect, badge_flags, text)
 
 
 def note_family(note) -> str:
@@ -721,7 +740,9 @@ class BoxItem(QGraphicsRectItem):
         # When this box is a collapsed container, the view sets a (headline,
         # count) tuple; paint() then draws a counter-scaled headline + count
         # badge in place of the hidden children, and the normal label is hidden.
-        self._lod_tile: tuple[str, int] | None = None
+        self._lod_tile: tuple[str, int] | None = None   # (title, level)
+        # On-screen title px the view shares across a level's tiles (#258).
+        self._lod_title_px: float | None = None
         self._lod_strip: tuple = ()   # a `^left` tile's children colours
         # A `&graph` box large enough on screen shows a raster miniature of its
         # sub-board below its label (D3); the view sets and clears it.
@@ -1688,7 +1709,7 @@ class BoxItem(QGraphicsRectItem):
 
         *strip* is a ``^left`` band's children colours, as ``(x0, x1, rgba)``
         with x as fractions of the box width (#212)."""
-        tile = (summary.label, summary.descendants) if summary else None
+        tile = (summary.label, summary.depth) if summary else None
         strip = tuple(strip) if summary else ()
         if tile == self._lod_tile and strip == self._lod_strip:
             return
@@ -1816,53 +1837,81 @@ class BoxItem(QGraphicsRectItem):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(visible)
 
+    def set_lod_title_px(self, px: float | None) -> None:
+        """Set the on-screen size the tile's title is drawn at — the view
+        picks one per nesting level (#258); None fits the tile alone."""
+        if px != self._lod_title_px:
+            self._lod_title_px = px
+            self.update()
+
+    def lod_caption_size(self, scale: float) -> tuple[float, float]:
+        """The tile's caption area on screen, as (width, height) px: the
+        whole tile, or a ``^left`` band's part above its strip."""
+        rect = (self._lod_strip_rect()[0] if self.box.anchor == "left"
+                else self.rect())
+        return rect.width() * scale, rect.height() * scale
+
+    def lod_title_fit_px(self, scale: float, label: str, depth: int) -> float:
+        """The largest size up to its level's at which *label* fits this
+        tile's caption area."""
+        w_screen, h_screen = self.lod_caption_size(scale)
+        return caption_fit_px(label, w_screen, h_screen, level_title_px(depth),
+                              left=self.box.anchor == "left")
+
     def _paint_lod_tile(self, painter: QPainter):
-        """Draw a collapsed container as a headline + child-count badge.
+        """Draw a collapsed container as its headline.
 
         Counter-scaled so the text stays readable as the tile shrinks (like a
-        place name on a map). The headline **wraps** to the tile's on-screen
+        place name on a map), at a size set by the container's nesting level,
+        not its area (#258). The headline **wraps** to the tile's on-screen
         width across multiple lines, only spilling past the edges when a single
         word can't fit at all.
         """
-        label, count = self._lod_tile
+        label, depth = self._lod_tile
         rect = self.rect()
         scale = _view_scale(self)
         if scale <= 0:
             return
-        ideal = _aggregate_ideal_px(rect.width() * scale,
-                                    rect.height() * scale)
         band = self.box.anchor == "left"
         if band:
             rect = self._paint_lod_strip(painter, self._lod_strip)
         w_screen = rect.width() * scale
         h_screen = rect.height() * scale
+        head_px = (self._lod_title_px if self._lod_title_px is not None
+                   else self.lod_title_fit_px(scale, label, depth))
 
         painter.save()
         painter.translate(rect.center())
         painter.scale(1.0 / scale, 1.0 / scale)   # 1 unit == 1 on-screen px
-        _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
-                                ideal, left=band)
+        _draw_aggregate_caption(painter, label, w_screen, h_screen,
+                                head_px, left=band)
         painter.restore()
 
     _STRIP_SHARE = 0.32   # of a band's height, along its bottom
+
+    def _lod_strip_rect(self) -> tuple[QRectF, QRectF]:
+        """A ``^left`` band's (title area, strip) rects: the strip along its
+        bottom, the title area above it (#212)."""
+        rect = self.rect()
+        inset = rect.height() * 0.08
+        strip_h = rect.height() * self._STRIP_SHARE
+        top = rect.bottom() - inset - strip_h
+        return (QRectF(rect.left(), rect.top(), rect.width(), top - rect.top()),
+                QRectF(rect.left(), top, rect.width(), strip_h))
 
     def _paint_lod_strip(self, painter: QPainter, strip) -> QRectF:
         """Paint a ``^left`` band's children colours as a strip along its
         bottom, each where its child sits across the band, and return the
         area above it, which takes the title (#212)."""
-        rect = self.rect()
-        inset = rect.height() * 0.08
-        strip_h = rect.height() * self._STRIP_SHARE
-        top = rect.bottom() - inset - strip_h
+        title, bar = self._lod_strip_rect()
         painter.save()
         painter.setPen(Qt.PenStyle.NoPen)
         for x0, x1, rgba in strip:
             painter.setBrush(QColor.fromRgba(rgba))
-            painter.drawRect(QRectF(rect.left() + x0 * rect.width(), top,
-                                    (x1 - x0) * rect.width(), strip_h))
+            painter.drawRect(QRectF(bar.left() + x0 * bar.width(), bar.top(),
+                                    (x1 - x0) * bar.width(), bar.height()))
         painter.restore()
-        return QRectF(rect.left(), rect.top(), rect.width(),
-                      top - rect.top())
+        return title
 
 
 class ClusterHullItem(QGraphicsPathItem):
@@ -1871,8 +1920,8 @@ class ClusterHullItem(QGraphicsPathItem):
     The outline is a pure-Qt concave hull: the boolean union of each member's
     inflated rounded-rect with a thick-stroked path of the member-to-member
     edges (so the blob follows the graph and never fragments). The cluster has
-    no backing element, so it is navigation-only — it carries a hub label and
-    node count drawn counter-scaled at the centroid, like a collapsed tile.
+    no backing element, so it is navigation-only — it carries a hub label
+    drawn counter-scaled at the centroid, like a collapsed tile.
     """
 
     def __init__(self, member_rects, edges, pad: float,
@@ -1974,12 +2023,13 @@ class ClusterHullItem(QGraphicsPathItem):
         bounds = self.path().boundingRect()
         w_screen = bounds.width() * scale
         h_screen = bounds.height() * scale
-        ideal = _aggregate_ideal_px(w_screen, h_screen)
+        head_px = caption_fit_px(self._label, w_screen, h_screen,
+                                 _aggregate_ideal_px(w_screen, h_screen))
         painter.save()
         painter.translate(self._centroid)
         painter.scale(1.0 / scale, 1.0 / scale)
-        _draw_aggregate_caption(painter, self._label, self._count,
-                                w_screen, h_screen, ideal)
+        _draw_aggregate_caption(painter, self._label, w_screen, h_screen,
+                                head_px)
         painter.restore()
 
 

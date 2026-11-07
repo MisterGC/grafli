@@ -46,3 +46,26 @@ def test_a_connector_is_quieter_than_a_box_label_in_both_themes():
             assert 0 < _contrast(theme.ARROW_COLOR) < _contrast(theme.INK)
         finally:
             theme.set_theme("light")
+
+
+def _labels(view):
+    from grafli.items import LabelItem
+    return [g for g in view._arrow_items if isinstance(g, LabelItem)]
+
+
+def test_an_arrow_label_is_set_in_the_proportional_face_and_muted_ink():
+    from grafli.constants import SANS_FONT_FAMILY
+    (label,) = _labels(_view())
+    assert label.font().family() == SANS_FONT_FAMILY
+    assert label.brush().color() == QColor(theme.INK_MUTED)
+    assert _contrast(theme.INK_MUTED) < _contrast(theme.INK)
+
+
+def test_diagnose_measures_an_arrow_label_in_the_face_it_is_drawn_in():
+    from PySide6.QtGui import QFontMetricsF
+    from grafli.app import _make_arrow_label_size_provider
+    from grafli.edge_label import arrow_label_font
+    _view()
+    arrow = parse(BOARD).arrows[0]
+    width, _ = _make_arrow_label_size_provider()(arrow)
+    assert width == QFontMetricsF(arrow_label_font()).horizontalAdvance("feeds")

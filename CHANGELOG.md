@@ -296,7 +296,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authoring loop in `SKILL.md` starts with the claim — what the picture
   shows that the text beside it doesn't — then the edges with their kind
   and cardinality, then only the boxes those edges need (a thing with no
-  edge goes into a list note; at most 9 units per view), then an encoding
+  edge goes into a list note unless an encoding places it, like an item
+  on a matrix's axes; at most 9 units per view), then an encoding
   from a catalogue in `references/design.md`: matrix on two axes, layered
   dependencies, containment, mirror, proportional strip, before / after
   and sequence, each with the question it answers and an example. The

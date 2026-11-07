@@ -223,7 +223,10 @@ in `references/genres.md` instead.)
    a board whose arrows all say `uses` explains nothing.
 3. **Only the boxes those edges need.** The ends of your edges are the
    boxes. A thing with no edge goes into a list note (an `md:` bullet
-   list), not a box. **At most 9 units per view** — a unit is what the
+   list), not a box — unless the encoding you are about to pick places
+   it by a rule (an item on a matrix's two axes, a field in a
+   proportional strip): there its position is the relation, so it
+   stays a box. **At most 9 units per view** — a unit is what the
    eye counts: a box, a container read as one, a note. More goes a
    level down (a `&graph` sub-board, detail into a `&doc`) — see
    "Units per view" in `references/design.md`. For a map someone reads
@@ -305,7 +308,9 @@ in `references/genres.md` instead.)
    Box section) — never inline multi-line detail into a box label.
 8. **Re-read against the quality bar.** Pretend you're the user opening
    the file: the headline states the claim; position means something
-   (an axis, an order, containment); most boxes have a labelled edge;
+   (an axis, an order, containment); most boxes have a labelled edge
+   or a place set by the encoding's rule (a matrix's axes, a strip's
+   widths);
    the eye lands on the 1–2 emphasised things and they are the claim;
    at most 9 units in view; a change is shown as before / after with
    the unchanged parts quiet; no arrow crosses another or runs through a
@@ -454,10 +459,12 @@ catches them before the user opens the file.
   Default to `~small` (and cap `~width`) in multi-column phases — see
   "Sizing in multi-column phases" in `references/format.md` for the
   budget math.
-* **Boxes with no edge.** A box should have an arrow or sit inside a
-  container that is the relation. A thing with no edge is a list item:
-  put it in an `md:` list note, not a box. Drifting orphans look like
-  errors and say nothing.
+* **Boxes with no edge.** A box should have an arrow, sit inside a
+  container that is the relation, or be placed by its encoding's rule
+  (an item on a matrix's axes, a field in a strip — its position is the
+  relation). Anything else with no edge is a list item: put it in an
+  `md:` list note, not a box. Drifting orphans look like errors and say
+  nothing.
 * **More than 9 units in one view.** A view the eye can hold has at
   most 9 units (boxes, containers read as one, notes). More goes a level
   down (`&graph`, `&doc`) or into a list note.

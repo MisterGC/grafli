@@ -122,7 +122,10 @@ table — say so instead of drawing it.
 counts: a box, a container read as one, a note. More goes a level down
 (a `&graph` sub-board, a container whose detail moves into a `&doc`)
 or into a list note. A thing with no edge is not a unit of the picture:
-it goes into a list note, not a box.
+it goes into a list note, not a box. The exception is a box an encoding
+places by its rule — an item on a matrix's two axes, a field in a
+proportional strip: its position is the relation, so it counts as
+related and stays a box.
 
 **Layered layout** means `grafli layout <file>` (or `=` in the app on a
 selection), then a touch-up by hand. **Placed by hand** means the

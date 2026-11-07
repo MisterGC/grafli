@@ -142,3 +142,136 @@ def test_a_doc_note_is_not_renamed_in_place():
     b = parse('#!grafli v1\n@ note d 0,0 &doc\n')
     with pytest.raises(OpError, match="keeps its text in a doc"):
         apply_op(b, {"op": "rename", "id": "d", "label": "x"})
+
+
+# ── A new box beside the selection (the tab's o / O / Ctrl+arrow) ──
+
+# A container and, outside it, one box on its own.
+SPACED = """#!grafli v1
+@ box lane "Lane" 0,0 400x400
+@ box a "A" 20,40 100x60 >lane
+@ box b "B" 600,40 100x60
+@ note n1 20,300 "a note" >lane
+"""
+
+
+def spaced():
+    return parse(SPACED)
+
+def test_a_box_beside_takes_the_apps_spot_size_and_parent():
+    b = spaced()
+    assert apply_op(b, {"op": "add_box", "label": "C", "beside": "a",
+                        "connect": True}) == {"id": "box1"}
+    c = b.box_by_id("box1")
+    # 40 below a, a's size, in a's container, as the app's o places it.
+    assert (c.x, c.y, c.w, c.h, c.parent) == (20, 140, 100, 60, "lane")
+    assert any(x.from_id == "a" and x.to_id == "box1" for x in b.arrows)
+
+
+@pytest.mark.parametrize("side, spot", [
+    ("below", (600, 140)), ("above", (600, -60)),
+    ("right", (740, 40)), ("left", (460, 40)),
+])
+def test_a_box_beside_on_each_side(side, spot):
+    b = spaced()
+    apply_op(b, {"op": "add_box", "label": "C", "beside": "b", "side": side})
+    c = b.box_by_id("box1")
+    assert (c.x, c.y) == spot
+    assert not any(x.to_id == "box1" for x in b.arrows)
+
+
+def test_a_second_box_beside_the_same_one_does_not_cover_the_first():
+    b = spaced()
+    apply_op(b, {"op": "add_box", "label": "C", "beside": "b"})
+    apply_op(b, {"op": "add_box", "label": "D", "beside": "b"})
+    assert (b.box_by_id("box1").y, b.box_by_id("box2").y) == (140, 240)
+
+
+def test_five_connected_boxes_one_beside_the_last():
+    b = parse('#!grafli v1\n@ box s "Start" 0,0 160x80\n')
+    last = "s"
+    for label in "ABCD":
+        last = apply_op(b, {"op": "add_box", "label": label, "beside": last,
+                            "connect": True})["id"]
+    assert [x.label for x in b.boxes] == ["Start", "A", "B", "C", "D"]
+    assert [(x.from_id, x.to_id) for x in b.arrows] == [
+        ("s", "box1"), ("box1", "box2"), ("box2", "box3"), ("box3", "box4")]
+
+
+@pytest.mark.parametrize("op, message", [
+    ({"op": "add_box", "label": "C", "beside": "zz"}, "no box, note or image 'zz'"),
+    ({"op": "add_box", "label": "C", "beside": "a", "side": "up"}, "'side' is one of"),
+    ({"op": "add_box", "label": "C"}, "'x' must be a number"),
+])
+def test_a_box_beside_that_does_not_fit_says_why(op, message):
+    b = spaced()
+    with pytest.raises(OpError, match=message):
+        apply_op(b, op)
+    assert serialize(b) == SPACED
+
+
+# ── Lines typed on the tab's ':' command line ──
+
+def test_a_box_line_without_a_place_goes_below_the_selection():
+    b = spaced()
+    out = apply_op(b, {"op": "lines", "text": '@ box cache "Cache"',
+                       "beside": "b"})
+    assert out == {"id": "cache", "ids": ["cache"]}
+    assert '@ box cache "Cache" 600,140 100x60' in serialize(b)
+
+
+def test_a_box_line_without_a_place_and_no_selection_goes_to_x_y():
+    b = spaced()
+    apply_op(b, {"op": "lines", "text": 'box cache "Cache" %accent',
+                 "x": 500, "y": 300})
+    assert '@ box cache "Cache" 420,260 160x80 %accent' in serialize(b)
+
+
+def test_lines_add_boxes_and_the_arrow_between_them_at_once():
+    b = spaced()
+    apply_op(b, {"op": "lines", "beside": "b", "text":
+                 '@ box cache "Cache"\nbox db "DB"\n'
+                 '@ arrow cache -> db "reads"'})
+    assert (b.box_by_id("cache").y, b.box_by_id("db").y) == (140, 240)
+    assert '@ arrow cache -> db "reads"' in serialize(b)
+
+
+def test_a_line_restates_the_element_with_its_id():
+    b = spaced()
+    apply_op(b, {"op": "lines", "text": '@ box a "Api" %accent'})
+    a = b.box_by_id("a")
+    # No place on the line: the box keeps its place and its container.
+    assert (a.label, a.color, a.x, a.y, a.parent) == ("Api", "%accent", 20, 40, "lane")
+    apply_op(b, {"op": "lines", "text": '@ arrow a -> b "calls"'})
+    apply_op(b, {"op": "lines", "text": '@ arrow a -> b "reads" !dashed'})
+    assert len(b.arrows) == 1 and b.arrows[0].label == "reads"
+    assert b.arrows[0].style == "dashed"
+
+
+def test_a_full_line_is_taken_as_written():
+    b = spaced()
+    apply_op(b, {"op": "lines", "text": '@ box q "Queue" 600,0 120x60 >lane'})
+    q = b.box_by_id("q")
+    assert (q.x, q.y, q.w, q.h, q.parent) == (600, 0, 120, 60, "lane")
+    apply_op(b, {"op": "lines", "text": '@ note 0,500 "Q: why a queue?"\n'
+                                        '@ note 0,600 "Q: and who reads it?"'})
+    assert [n.text for n in b.notes[-2:]] == ["Q: why a queue?",
+                                             "Q: and who reads it?"]
+    assert len({n.id for n in b.notes}) == len(b.notes)
+
+
+@pytest.mark.parametrize("text, message", [
+    ("add a cache between api and db", "takes box, arrow, note and image lines"),
+    ("@ flow f \"F\"", "takes box, arrow, note and image lines"),
+    ("", "nothing to add"),
+    ("# only a comment", "nothing to add"),
+    ('@ box x "X" 0,0 10x10 nonsense', "not a grafli line"),
+    ("@ arrow a -> zz", "no box, note or image 'zz'"),
+    ('@ box x "X" >nowhere', "no box 'nowhere'"),
+    ('@ box n1 "X"', "already on the board, and not as a box"),
+])
+def test_command_lines_that_do_not_fit_say_why(text, message):
+    b = board()
+    with pytest.raises(OpError, match=message):
+        apply_op(b, {"op": "lines", "text": text})
+    assert serialize(b) == BOARD

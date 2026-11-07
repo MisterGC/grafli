@@ -131,7 +131,9 @@ Once the skill is installed, the agent:
    normalize what it wrote into the same canonical form the app saves
    (integer coordinates, canonical spacing — keeps diffs clean),
    `grafli diagnose`
-   (incl. `parse-error` findings for lines that would silently drop),
+   (incl. `parse-error` findings for lines that would silently drop,
+   and `unrelated-children` / `unrelated-board` warnings for boxes that
+   relate to nothing),
    `grafli inspect` for placement geometry, `grafli layout` to run the
    app's layered layout over a board's boxes (boxes marked `!pin` stay
    where they are), and `grafli export --check`

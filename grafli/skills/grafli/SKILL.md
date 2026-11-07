@@ -335,7 +335,10 @@ in `references/genres.md` instead.)
     **dropped lines** (`parse-error` — a malformed directive or
     misplaced modifier silently removes the element; always fix these
     first), children outside parents, sibling overlaps, cramped
-    containers, likely-truncated labels, arrow labels crowding endpoints
+    containers, likely-truncated labels, boxes that relate to nothing
+    (`unrelated-children`: a container of 4+ boxes with no arrow between
+    them; `unrelated-board`: more than half of 4+ boxes touch no arrow),
+    arrow labels crowding endpoints
     or hiding arrowheads, missing images, `&graph` / `.grafli` `&link`
     targets and `#<id>`s that do not exist and `@path:line` refs whose
     file or line does not exist (both errors), overlay files
@@ -466,7 +469,9 @@ catches them before the user opens the file.
   (an item on a matrix's axes, a field in a strip — its position is the
   relation). Anything else with no edge is a list item: put it in an
   `md:` list note, not a box. Drifting orphans look like errors and say
-  nothing.
+  nothing. `grafli diagnose` reports both shapes of it (`unrelated-children`,
+  `unrelated-board`); on a matrix or a strip, where position is the
+  relation, acknowledge the finding and keep the boxes.
 * **More than 9 units in one view.** A view the eye can hold has at
   most 9 units (boxes, containers read as one, notes). More goes a level
   down (`&graph`, `&doc`) or into a list note.

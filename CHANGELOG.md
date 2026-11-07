@@ -29,6 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now spaces boxes in whole grid steps, lays top-level containers out
   before the root, and picks a container's flow by what fits it.
   ([#256](https://github.com/MisterGC/grafli/issues/256))
+- **`grafli diagnose` reports boxes that relate to nothing.** A board
+  drawn as a list passed every check. Two warnings now name it:
+  `unrelated-children` for a container of 4 or more boxes with no arrow
+  between any two of them (an arrow into a nested container counts for
+  that container), and `unrelated-board` for a board of 4 or more boxes
+  where more than half touch no arrow. Annotation arrows from notes do
+  not count as relations; containers are not counted as boxes. On a
+  matrix or a strip, where position is the relation, the warning can be
+  acknowledged.
+  ([#259](https://github.com/MisterGC/grafli/issues/259))
 - **A blank board says how to start.** An empty board — fresh untitled
   buffer or empty file — paints a muted hint in the middle of the canvas
   (`n box · t note · i image`, `F1 all keys`) that vanishes the moment the

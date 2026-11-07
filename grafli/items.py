@@ -3992,6 +3992,21 @@ class LabelItem(QGraphicsSimpleTextItem):
             y += line_h + self._LINE_GAP
 
 
+def arrow_label_size(arrow) -> tuple[float, float]:
+    """An arrow label's (width, height) as the canvas draws it: the width
+    of its widest line with a bold cardinality and kind badges, the height
+    of its lines. ``(0, 0)`` for an arrow without a label."""
+    from grafli.edge_label import arrow_label_font
+    text = arrow.label or ""
+    if not text:
+        return (0.0, 0.0)
+    font = arrow_label_font(arrow.textsize)
+    item = LabelItem(text)
+    item.setFont(font)
+    lines = max(1, len(text.split("\n")))
+    return (item.boundingRect().width(), QFontMetricsF(font).height() * lines)
+
+
 class ArrowLineItem(QGraphicsPathItem):
     """The drawn body of a connector, with a wider hit area for click-select.
 

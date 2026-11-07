@@ -24,8 +24,13 @@ def compute_layout(
     grid: float,
     label_height: float,
     box_sizes: dict[str, tuple[float, float]],
+    arrow_label_size: ArrowLabelSizeFn | None = None,
 ) -> dict[str, tuple[float, float]]:
     """Return {box_id: (new_x, new_y)} for each box in target_ids.
+
+    With *arrow_label_size*, the gap between two layers grows to hold the
+    widest label of an arrow between them, so the label sits in the gap
+    instead of on a box.
 
     A pinned box (``!pin``) gets no entry: it stays where it is, and the
     other boxes are placed around it. It still takes part in the ranking,
@@ -50,8 +55,10 @@ def compute_layout(
         layers = _order_within_layers(layers, adj, board, d, target_ids, box_sizes)
         layers = [kept for layer in layers
                   if (kept := [n for n in layer if n not in pinned])]
+        gaps = _layer_gaps(board, layers, d, target_ids, arrow_label_size)
         return _assign_coordinates(layers, d, area, grid, box_sizes,
-                                   obstacles, center_on_widest=not in_parent)
+                                   obstacles, center_on_widest=not in_parent,
+                                   layer_gaps=gaps)
 
     def _place(d: Direction) -> dict[str, tuple[float, float]]:
         if in_parent or not obstacles:
@@ -114,6 +121,15 @@ _ROOT_EDGE_TRIES = 4
 # use the documented margin model.
 LabelHeightFn = Callable[[str], float]
 
+# An arrow label's drawn (width, height). The app measures it in the face
+# the label is drawn in; without one, layers keep the fixed gap.
+ArrowLabelSizeFn = Callable[[Arrow], tuple[float, float]]
+
+# What a label needs beside it in a layer gap: the plate's padding, then
+# room for a stub of line and an arrowhead on each side of the label.
+_LABEL_GAP_PAD = 4
+_LABEL_GAP_STUB = 16
+
 
 def container_groups(board: Board, parent_id: str = "") -> list[tuple[str, set[str]]]:
     """The (parent_id, child_ids) groups to lay out under *parent_id*,
@@ -133,10 +149,12 @@ def layout_groups(
     grid: float,
     label_height: LabelHeightFn,
     direction: Direction | None = None,
+    arrow_label_size: ArrowLabelSizeFn | None = None,
 ) -> None:
     """Lay out each group in place, deepest container first, so a
     container has grown to fit its children before its own siblings are
-    placed. Moving a box moves its descendants and parented notes along."""
+    placed. Moving a box moves its descendants and parented notes along.
+    *arrow_label_size* widens a layer gap to hold its arrow labels."""
     groups = sorted(groups, key=lambda g: -_depth(board, g[0]))
     # Put every container that will be filled on the grid first, so its
     # children are placed in a grid-aligned frame: a container moved onto
@@ -152,7 +170,7 @@ def layout_groups(
     for parent_id, child_ids in groups:
         _layout_group(board, parent_id, child_ids, grid,
                       label_height(parent_id) if parent_id else 0.0,
-                      direction)
+                      direction, arrow_label_size)
 
 
 def _depth(board: Board, parent_id: str) -> int:
@@ -176,6 +194,7 @@ def _layout_group(
     grid: float,
     label_height: float,
     direction: Direction | None,
+    arrow_label_size: ArrowLabelSizeFn | None = None,
 ) -> None:
     box_sizes: dict[str, tuple[float, float]] = {}
     for cid in child_ids:
@@ -185,6 +204,7 @@ def _layout_group(
 
     new_positions = compute_layout(
         board, child_ids, parent_id, direction, grid, label_height, box_sizes,
+        arrow_label_size,
     )
 
     # Grow the parent to fit naturally-spaced children
@@ -511,6 +531,37 @@ def _order_within_layers(
     return layers
 
 
+def _layer_gaps(
+    board: Board,
+    layers: list[list[str]],
+    direction: Direction,
+    target_ids: set[str],
+    arrow_label_size: ArrowLabelSizeFn | None,
+) -> list[float]:
+    """The gap after each layer: the fixed layer gap, or more where an arrow
+    between that layer and the next carries a label longer than it — the
+    label is drawn at the arrow's middle, which then lands in the gap."""
+    gaps = [float(LAYOUT_LAYER_GAP)] * len(layers)
+    if arrow_label_size is None:
+        return gaps
+    layer_of = {nid: li for li, layer in enumerate(layers) for nid in layer}
+    for arrow in board.arrows:
+        if not arrow.label:
+            continue
+        src = _lift(board, arrow.from_id, target_ids)
+        dst = _lift(board, arrow.to_id, target_ids)
+        if src not in layer_of or dst not in layer_of:
+            continue
+        a, b = sorted((layer_of[src], layer_of[dst]))
+        if b - a != 1:
+            continue
+        w, h = arrow_label_size(arrow)
+        along = w if direction == Direction.LTR else h
+        need = along + 2 * (_LABEL_GAP_PAD + _LABEL_GAP_STUB)
+        gaps[a] = max(gaps[a], need)
+    return gaps
+
+
 def _assign_coordinates(
     layers: list[list[str]],
     direction: Direction,
@@ -519,6 +570,7 @@ def _assign_coordinates(
     box_sizes: dict[str, tuple[float, float]],
     obstacles: list[Rect] | None = None,
     center_on_widest: bool = False,
+    layer_gaps: list[float] | None = None,
 ) -> dict[str, tuple[float, float]]:
     """Compute final (x, y) positions for all nodes. A node that would
     land on an obstacle (a pinned box) moves along its layer past it,
@@ -529,7 +581,8 @@ def _assign_coordinates(
     Every step — node to node, layer to layer, a layer's centring offset —
     is a whole number of grid cells, so the gaps come out even and a
     container that grew to fit its children places them the same way on
-    the next run."""
+    the next run. ``layer_gaps[i]`` is the gap after layer *i* (default
+    the fixed layer gap)."""
     obstacles = obstacles or []
     cx, cy, cw, ch = constraint
     positions: dict[str, tuple[float, float]] = {}
@@ -559,7 +612,7 @@ def _assign_coordinates(
     block_start = max(0.0, _snap((avail_cross - widest) / 2, grid))
 
     main_cursor = 0.0
-    for layer, extent in zip(layers, extents):
+    for li, (layer, extent) in enumerate(zip(layers, extents)):
         cross_cursor = block_start + _snap((widest - extent) / 2, grid)
 
         def _at(cursor: float) -> tuple[float, float]:
@@ -592,7 +645,9 @@ def _assign_coordinates(
             positions[nid] = (x, y)
             cross_cursor += _step(size, LAYOUT_NODE_GAP)
 
-        main_cursor += _step(max(_main(n) for n in layer), LAYOUT_LAYER_GAP)
+        gap = (layer_gaps[li] if layer_gaps and li < len(layer_gaps)
+               else LAYOUT_LAYER_GAP)
+        main_cursor += _step(max(_main(n) for n in layer), gap)
 
     return positions
 

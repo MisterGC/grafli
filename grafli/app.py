@@ -2480,23 +2480,10 @@ def _make_arrow_label_size_provider():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     QApplication.instance() or QApplication([])
     _register_bundled_fonts()
-    from PySide6.QtGui import QFontMetricsF
-    from grafli.edge_label import arrow_label_font
-    from grafli.items import LabelItem
+    from grafli.items import arrow_label_size
 
     def provider(arrow):
-        font = arrow_label_font(arrow.textsize)
-        fm = QFontMetricsF(font)
-        text = arrow.label or ""
-        if not text:
-            return (0.0, 0.0)
-        # Measured as drawn: a bold cardinality and a kind badge are wider
-        # than the same characters set plain.
-        item = LabelItem(text)
-        item.setFont(font)
-        longest_w = item.boundingRect().width()
-        height = fm.height() * max(1, len(text.split("\n")))
-        return (longest_w, height)
+        return arrow_label_size(arrow)
 
     return provider
 
@@ -2750,6 +2737,9 @@ def _cmd_layout(argv: list[str]) -> int:
         textsize = parent.textsize if parent else ""
         return top_margin(textsize or "") - LAYOUT_PADDING
 
+    # Layer gaps make room for the arrow labels, measured as drawn.
+    label_size = _make_arrow_label_size_provider()
+
     changed = untouched = 0
     for path in args.files:
         try:
@@ -2773,7 +2763,7 @@ def _cmd_layout(argv: list[str]) -> int:
         attach_names(board, path)
         layout_groups(board, container_groups(board), 20,  # app grid
                       label_height,
-                      direction)
+                      direction, label_size)
         out = serialize(board)
         if out == text:
             continue

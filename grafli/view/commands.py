@@ -18,6 +18,7 @@ from grafli.items import (
     BoxItem,
     ImageItem,
     NoteItem,
+    arrow_label_size,
     default_image_size,
     svg_natural_size,
 )
@@ -518,7 +519,8 @@ class CommandsMixin:
 
         self._push_undo()
         layout_groups(self._board, groups, self.GRID_SPACING,
-                      self._layout_label_height)
+                      self._layout_label_height,
+                      arrow_label_size=arrow_label_size)
         self._rebuild_scene()
         self.mark_dirty()
 

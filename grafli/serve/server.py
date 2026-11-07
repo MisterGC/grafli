@@ -4,12 +4,19 @@
   over the WebSocket only, after the key.
 * ``WS /ws/<board>`` — the page sends ``{"t": "hello", "key"}`` first; the
   key read from the link after ``#k=`` decides whether the tab may watch
-  (viewer) or also edit (editor). Then the server sends ``welcome`` and a
-  ``frame`` on every change; an editor sends ``{"t": "edit", "id", "base",
+  (viewer), also edit (editor), or present: edit and be followed
+  (presenter). Then the server sends ``welcome`` and a ``frame`` on every
+  change; an editor or the presenter sends ``{"t": "edit", "id", "base",
   "op"}`` and gets ``ack`` or ``error`` with the same ``id``, the ack once
   the frame that shows the edit is pushed (its ``version``). ``{"t":
   "undo", "id"}`` takes back the last edit of the tab's author, the
   ``author`` its hello named (a tab keeps it across reloads).
+* Presence — cursors, the laser, the presenter's view, who follows, names —
+  is passed between the tabs of a board and never stored; see
+  ``grafli.serve.presence``. The hello may carry the tab's ``name`` and
+  whether it ``follow``s. When the presenter opens another board, the tabs
+  on every other board get ``{"t": "away", "board", "href"}`` (``board``
+  None once no board has the presenter).
 
 A wrong key closes the socket with code 4401, an unknown board with 4404.
 """
@@ -28,8 +35,10 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
+from urllib.parse import quote
 
 from grafli.serve.ops import OpError
+from grafli.serve.presence import KINDS as PRESENCE, clean_name
 from grafli.serve.render import RenderWorker, board_name
 from grafli.serve.room import Client, Room
 
@@ -44,19 +53,26 @@ CLOSE_NO_BOARD = 4404
 _AUTHOR_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
+def _key() -> str:
+    return secrets.token_urlsafe(16)
+
+
 @dataclass
 class Keys:
-    """The run's two keys; a link carries one of them after ``#k=``."""
-    viewer: str = field(default_factory=lambda: secrets.token_urlsafe(16))
-    editor: str = field(default_factory=lambda: secrets.token_urlsafe(16))
+    """The run's three keys; a link carries one of them after ``#k=``."""
+    viewer: str = field(default_factory=_key)
+    editor: str = field(default_factory=_key)
+    presenter: str = field(default_factory=_key)
 
     def __post_init__(self):
-        if self.viewer == self.editor:
-            raise ValueError("the viewer and editor keys must differ")
+        if len({self.viewer, self.editor, self.presenter}) != 3:
+            raise ValueError("the viewer, editor and presenter keys must differ")
 
     def role(self, key) -> str | None:
         if not isinstance(key, str):
             return None
+        if hmac.compare_digest(key, self.presenter):
+            return "presenter"
         if hmac.compare_digest(key, self.editor):
             return "editor"
         if hmac.compare_digest(key, self.viewer):
@@ -83,7 +99,6 @@ def listed_boards(root: Path) -> list[str]:
 
 def link(host: str, port: int, name: str, key: str) -> str:
     """The link a tab opens: ``http://<host>:<port>/b/<board>#k=<key>``."""
-    from urllib.parse import quote
     try:
         if ipaddress.ip_address(host).version == 6:
             host = f"[{host}]"
@@ -105,6 +120,8 @@ class Hub:
         # Board → author → their edits; outlives a room, so undo still works
         # after the last tab on a board reloaded.
         self.history: dict[Path, dict] = {}
+        # The board the presenter's latest tab is on.
+        self.lead_room: Room | None = None
         self._shell: str | None = None
 
     async def shell(self) -> str:
@@ -126,6 +143,34 @@ class Hub:
         if not room.clients and self.rooms.get(room.path) is room:
             del self.rooms[room.path]
             await room.stop()
+
+    # ── Where the presenter is: tabs on other boards follow them there ──
+
+    def away(self, room: Room) -> dict:
+        """What a tab on *room* hears of the presenter on another board."""
+        lead = self.lead_room
+        if lead is None or lead is room or lead.lead is None:
+            return {"t": "away", "board": None, "href": None}
+        return {"t": "away", "board": lead.name, "href": f"/b/{quote(lead.name)}"}
+
+    async def arrived(self, room: Room, client: Client) -> None:
+        if client.role == "presenter":
+            self.lead_room = room
+            await self._tell_away()
+        else:
+            msg = self.away(room)
+            if msg["board"] is not None:
+                await room.send_to(client, msg)
+
+    async def departed(self, room: Room) -> None:
+        if self.lead_room is room and room.lead is None:
+            self.lead_room = None
+            await self._tell_away()
+
+    async def _tell_away(self) -> None:
+        for room in list(self.rooms.values()):
+            if room is not self.lead_room:
+                await room.broadcast(self.away(room))
 
     async def close(self) -> None:
         for room in list(self.rooms.values()):
@@ -182,20 +227,29 @@ def create_app(root: Path, keys: Keys, renderer=None,
         author = hello.get("author")
         if not (isinstance(author, str) and _AUTHOR_RE.fullmatch(author)):
             author = secrets.token_urlsafe(8)
-        client = Client(send, role, author)
+        client = Client(send, role, author, name=clean_name(hello.get("name")),
+                        following=hello.get("follow") is True
+                        and role != "presenter")
         room = hub.room(path, name)
-        await send({"t": "welcome", "role": role, "board": name})
-        await room.join(client)
+        await send({"t": "welcome", "role": role, "board": name,
+                    "id": client.id})
         try:
+            await room.join(client)
+            await hub.arrived(room, client)
             while True:
                 msg = await ws.receive_json()
-                if not isinstance(msg, dict) or msg.get("t") not in ("edit", "undo"):
+                if not isinstance(msg, dict):
                     continue
-                await _edit(room, client, msg, send)
+                kind = msg.get("t")
+                if kind in ("edit", "undo"):
+                    await _edit(room, client, msg, send)
+                elif kind in PRESENCE:
+                    await room.presence(client, msg)
         except (WebSocketDisconnect, json.JSONDecodeError, RuntimeError):
             pass
         finally:
-            room.leave(client)
+            await room.leave(client)
+            await hub.departed(room)
             await hub.release(room)
 
     @asynccontextmanager
@@ -221,7 +275,7 @@ async def _close(ws, code: int, reason: str) -> None:
 
 async def _edit(room: Room, client: Client, msg: dict, send) -> None:
     req_id = msg.get("id")
-    if client.role != "editor":
+    if not client.can_edit:
         await send({"t": "error", "id": req_id,
                     "message": "this link is for watching; "
                                "editing needs the editor link"})
@@ -293,8 +347,9 @@ def run(root: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
               + link(host, port, "<board>", keys.viewer), file=out)
     for name in names:
         print(f"  {name}", file=out)
-        print(f"    watch: {link(host, port, name, keys.viewer)}", file=out)
-        print(f"    edit:  {link(host, port, name, keys.editor)}", file=out)
+        print(f"    watch:   {link(host, port, name, keys.viewer)}", file=out)
+        print(f"    edit:    {link(host, port, name, keys.editor)}", file=out)
+        print(f"    present: {link(host, port, name, keys.presenter)}", file=out)
     out.flush()
     config = uvicorn.Config(app, log_level="warning", ws="auto",
                             lifespan="on", ws_max_size=1024 * 1024)

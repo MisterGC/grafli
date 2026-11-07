@@ -10,7 +10,11 @@ before it is answered, so the answer names the version that shows it.
 
 Undo is per author and version-based: each edit keeps the text before and
 after it, and undoing it merges "after → before" into the file as it is now,
-so what others changed since stays. No Qt.
+so what others changed since stays.
+
+Presence (``grafli.serve.presence``) lives here too, in memory only: who is
+on the board, their cursors and laser, and the presenter's view. None of it
+touches the file or makes a frame. No Qt.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, Protocol
 
 from grafli.format import Board, is_newer, parse, serialize
+from grafli.serve import presence
 from grafli.serve.ops import OpError, apply_op
 from grafli.sync import atomic_write, merge_boards
 
@@ -38,6 +43,8 @@ KEEP_UNDO = 100
 # One counter for every room of a server, so a version names one text even
 # across a room that closed and opened again.
 _versions = itertools.count(1)
+# The order tabs joined in: the presenter's latest tab on a board leads.
+_joins = itertools.count(1)
 
 
 class Renderer(Protocol):
@@ -48,9 +55,28 @@ class Renderer(Protocol):
 class Client:
     """A tab on the board: how to reach it, what it may do, what it has."""
     send: Callable[[dict], Awaitable[None]]
-    role: str                     # "viewer" or "editor"
+    role: str                     # "viewer", "editor" or "presenter"
     author: str = ""              # whose edits undo undoes
     fonts: set[str] = field(default_factory=set)
+    # Presence: what the others see of this tab.
+    name: str = ""                # as the tab gave it; "" for the default
+    id: str = field(default_factory=presence.new_id)
+    color: str = ""
+    slot: int | None = None       # a guest's colour, in GUEST_COLORS
+    following: bool = False
+    joined: int = 0
+    bucket: presence.Bucket = field(default_factory=presence.Bucket)
+
+    @property
+    def can_edit(self) -> bool:
+        return self.role in ("editor", "presenter")
+
+    def shown_name(self) -> str:
+        if self.name:
+            return self.name
+        if self.role == "presenter":
+            return "Presenter"
+        return f"Guest {(self.slot or 0) + 1}"
 
 
 @dataclass
@@ -104,6 +130,9 @@ class Room:
         self._poll_s = poll_s
         self.clients: set[Client] = set()
         self.frame: Frame | None = None
+        # The presenter's tab the others follow, and its last view.
+        self.lead: Client | None = None
+        self.view: dict | None = None
         self._texts: OrderedDict[int, str] = OrderedDict()
         # Author → their edits, oldest first; kept by the server, so a tab
         # that reconnects (or reloads) can still undo.
@@ -153,7 +182,7 @@ class Room:
             changed_at = os.stat(self.path).st_mtime
             text = self.path.read_text(encoding="utf-8")
         except OSError as e:
-            await self._broadcast({"t": "error",
+            await self.broadcast({"t": "error",
                                    "message": f"cannot read {self.name}: {e}"})
             return None
         if not text.strip():
@@ -165,7 +194,7 @@ class Room:
             drawing = await self._renderer.render(self.path, text, self.root)
         except Exception as e:
             # A board mid-write or broken keeps its last good frame on screen.
-            await self._broadcast({"t": "error",
+            await self.broadcast({"t": "error",
                                    "message": f"{self.name} did not render: {e}"})
             return None
         render_ms = (time.perf_counter() - t0) * 1000
@@ -199,7 +228,7 @@ class Room:
         except Exception:
             self.clients.discard(client)
 
-    async def _broadcast(self, msg: dict) -> None:
+    async def broadcast(self, msg: dict) -> None:
         for client in list(self.clients):
             try:
                 await client.send(msg)
@@ -207,17 +236,89 @@ class Room:
                 self.clients.discard(client)
 
     async def join(self, client: Client) -> None:
-        """Add *client*; it gets the frame on screen now, or the first one
-        when it is drawn."""
+        """Add *client*; every tab hears of it, and it gets the presenter's
+        view, then the frame on screen now, or the first one when it is
+        drawn."""
         has_frame = self.frame is not None
+        client.joined = next(_joins)
+        if client.role == "presenter":
+            client.color = presence.PRESENTER_COLOR
+            self.lead, self.view = client, None
+        else:
+            used = {c.slot for c in self.clients}
+            free = [i for i in range(len(presence.GUEST_COLORS)) if i not in used]
+            client.slot = free[0] if free else len(self.clients) % len(
+                presence.GUEST_COLORS)
+            client.color = presence.GUEST_COLORS[client.slot]
         self.clients.add(client)
+        await self._send_peers()
+        if self.view is not None:
+            await self.send_to(client, {"t": "view", "id": self.lead.id,
+                                      **self.view})
         if has_frame:
             await self._send_frame(client)
         else:
             await self.ready()
 
-    def leave(self, client: Client) -> None:
+    async def leave(self, client: Client) -> None:
         self.clients.discard(client)
+        if self.lead is client:
+            # The presenter's other tab on this board, the latest, leads.
+            others = [c for c in self.clients if c.role == "presenter"]
+            self.lead = max(others, key=lambda c: c.joined, default=None)
+            self.view = None
+        await self._send_peers()
+
+    # ── Presence: in memory only, never in the file ──
+
+    def peers_message(self, client: Client) -> dict:
+        return {"t": "peers", "you": client.id,
+                "lead": self.lead.id if self.lead else None,
+                "peers": [{"id": c.id, "name": c.shown_name(), "role": c.role,
+                           "color": c.color, "following": c.following}
+                          for c in sorted(self.clients, key=lambda c: c.joined)]}
+
+    async def send_to(self, client: Client, msg: dict) -> None:
+        try:
+            await client.send(msg)
+        except Exception:
+            self.clients.discard(client)
+
+    async def _send_peers(self) -> None:
+        clients = list(self.clients)
+        await asyncio.gather(*(self.send_to(c, self.peers_message(c))
+                               for c in clients))
+
+    async def _relay(self, sender: Client, msg: dict) -> None:
+        await asyncio.gather(*(self.send_to(c, msg) for c in list(self.clients)
+                               if c is not sender))
+
+    async def presence(self, client: Client, msg: dict) -> None:
+        """Pass on *client*'s presence message *msg* (see
+        ``grafli.serve.presence``); one that does not fit, or comes too fast,
+        is dropped."""
+        kind = msg.get("t")
+        if kind not in presence.KINDS or not client.bucket.take():
+            return
+        if kind in ("cursor", "laser"):
+            at = presence.point(msg)
+            if at is not None:
+                await self._relay(client, {"t": kind, "id": client.id, **at})
+        elif kind == "view":
+            seen = presence.view(msg)
+            if seen is not None and client is self.lead:
+                self.view = seen
+                await self._relay(client, {"t": "view", "id": client.id, **seen})
+        elif kind == "follow":
+            on = msg.get("on") is True and client.role != "presenter"
+            if on != client.following:
+                client.following = on
+                await self._send_peers()
+        elif kind == "name":
+            name = presence.clean_name(msg.get("name"))
+            if name != client.name:
+                client.name = name
+                await self._send_peers()
 
     # ── Edits ──
 

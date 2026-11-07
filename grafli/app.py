@@ -2459,8 +2459,8 @@ def _cmd_serve(argv: list[str]) -> int:
         prog="grafli serve",
         description="Serve the boards in a directory live to browser tabs on "
                     "your network or VPN: every change to a board's file is "
-                    "drawn again and pushed to its tabs. Prints a watch link "
-                    "and an edit link per board; the key is after '#'.",
+                    "drawn again and pushed to its tabs. Prints a watch, an "
+                    "edit and a present link per board; the key is after '#'.",
     )
     parser.add_argument("dir", type=Path,
                         help="Directory of .grafli boards, or one board")

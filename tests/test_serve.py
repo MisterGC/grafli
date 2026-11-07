@@ -159,14 +159,17 @@ def test_default_host_is_this_machine_not_every_interface(tmp_path, monkeypatch)
     assert seen["host"] == "100.64.0.7"
 
 
-def test_viewer_and_editor_keys_differ():
+def test_viewer_editor_and_presenter_keys_differ():
     keys = srv.Keys()
-    assert keys.viewer != keys.editor
+    assert len({keys.viewer, keys.editor, keys.presenter}) == 3
     assert keys.role(keys.viewer) == "viewer"
     assert keys.role(keys.editor) == "editor"
+    assert keys.role(keys.presenter) == "presenter"
     assert keys.role("nope") is None and keys.role(None) is None
     with pytest.raises(ValueError):
         srv.Keys("same", "same")
+    with pytest.raises(ValueError):
+        srv.Keys("a", "b", "a")
 
 
 def test_link_carries_the_key_after_the_hash():
@@ -175,7 +178,8 @@ def test_link_carries_the_key_after_the_hash():
     assert srv.link("fd7a::1", 80, "b", "K") == "http://[fd7a::1]:80/b/b#k=K"
 
 
-def test_run_prints_a_watch_and_an_edit_link_per_board(tmp_path, monkeypatch):
+def test_run_prints_a_watch_an_edit_and_a_present_link_per_board(
+        tmp_path, monkeypatch):
     import uvicorn
     (tmp_path / "one.grafli").write_text(BOARD)
     (tmp_path / "two.grafli").write_text(BOARD)
@@ -183,14 +187,17 @@ def test_run_prints_a_watch_and_an_edit_link_per_board(tmp_path, monkeypatch):
     out = io.StringIO()
     assert srv.run(tmp_path, host="127.0.0.1", port=0, out=out) == 0
     text = out.getvalue()
-    watch = [ln.split("watch: ")[1] for ln in text.splitlines() if "watch: " in ln]
-    edit = [ln.split("edit:  ")[1] for ln in text.splitlines() if "edit:  " in ln]
+
+    def links(kind):
+        return [ln.split()[1] for ln in text.splitlines()
+                if ln.strip().startswith(f"{kind}:")]
+    watch, edit, present = links("watch"), links("edit"), links("present")
     assert [u.split("/b/")[1].split("#")[0] for u in watch] == ["one", "two"]
-    assert all(u.startswith("http://127.0.0.1:") for u in watch + edit)
-    viewer_keys = {u.split("#k=")[1] for u in watch}
-    editor_keys = {u.split("#k=")[1] for u in edit}
-    assert len(viewer_keys) == len(editor_keys) == 1
-    assert viewer_keys.isdisjoint(editor_keys)
+    assert len(edit) == len(present) == 2
+    assert all(u.startswith("http://127.0.0.1:") for u in watch + edit + present)
+    keys = [{u.split("#k=")[1] for u in kind} for kind in (watch, edit, present)]
+    assert [len(k) for k in keys] == [1, 1, 1]
+    assert len(set.union(*keys)) == 3
     assert "every interface" not in text
 
 

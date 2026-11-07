@@ -265,8 +265,9 @@ to the row; a loop back is the minority arrow.
 
 ## 3. Layout strategy
 
-The layered layout places a graph by its edges (`=` in the app). It
-does not know what position should mean, so the grid and the flow below
+The layered layout places a graph by its edges (`grafli layout`, `=`
+in the app; see step 5 of the loop in `SKILL.md`). It does not know
+what position should mean, so the grid and the flow below
 are yours to set: an encoding whose coordinates are the content is
 placed by hand, and every layout gets a touch-up pass. Think in grids
 and flows.

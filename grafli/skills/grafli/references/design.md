@@ -95,7 +95,175 @@ weight = emphasis, glyph = concept or flag. You rarely need more than one on
 an element. If a glyph or a bold doesn't make the diagram *easier to
 understand*, leave it off.
 
-## 2. Layout strategy
+## 2. Pick the encoding from the question
+
+A board says more than the text beside it when position means
+something. Before you place a box, decide what x and y stand for: an
+axis, an order, containment, a side. The catalogue below is the short
+list. Each encoding answers one kind of question; pick the one whose
+question matches the board's.
+
+| Encoding | The question it answers | Position means | Placed by |
+|---|---|---|---|
+| matrix on two axes | Where does each item sit on two forces? | x and y are the two forces | hand |
+| layered dependencies | What may depend on what? | the layer; every arrow points down | layered layout |
+| containment | What lives inside what? | nesting is ownership | layered layout, per container |
+| mirror | Are two paths symmetric? | the side; the same step sits at the same height | hand |
+| proportional strip | How is a whole split by size? | width is the quantity | hand |
+| before / after | What does this change change? | the column is the state; unchanged parts go quiet | hand |
+| sequence | In what order does it happen? | x (or y) is the step | layered layout |
+
+**When nothing fits.** Then the board is a plain graph: let its
+dominant edge kind set the flow direction and lay it out as layered
+dependencies. If even that adds nothing, the content is a list or a
+table — say so instead of drawing it.
+
+**Units per view.** A view holds at most 9 units — a unit is what the eye
+counts: a box, a container read as one, a note. More goes a level down
+(a `&graph` sub-board, a container whose detail moves into a `&doc`)
+or into a list note. A thing with no edge is not a unit of the picture:
+it goes into a list note, not a box.
+
+**Layered layout** means `grafli layout <file>` (or `=` in the app on a
+selection), then a touch-up by hand. **Placed by hand** means the
+coordinates are the content: compute them from the encoding's rule
+(below) and do not run the layered layout over them — it ranks boxes
+by their edges and would erase the axis, the mirror or the widths.
+
+### Matrix on two axes
+
+*Where does each item sit on two forces?* Name both axes with a thin
+arrow and a small label; place each item by its two values; emphasise
+the corner the claim is about. Axis arrows run between plain notes.
+
+```
+@ note title 0,-80 "Only the CDN pays off right away" ~xlarge !flat !bold
+@ note o 0,500 "·" !flat
+@ note xe 750,500 "effort →" ~small !flat
+@ note yp 0,0 "↑ payoff" ~small !flat
+@ arrow o -> xe !thin
+@ arrow o -> yp !thin
+@ box cdn "CDN in front" 50,50 200x80 %highlight !bold
+@ box redis "Redis tier" 450,100 200x80
+@ box memo "memoize hot calls" 100,300 200x80 %muted
+@ box rewrite "rewrite the query layer" 450,350 250x80 %muted
+```
+
+A tension map (`references/thinking.md`) is the one-axis case.
+
+### Layered dependencies
+
+*What may depend on what?* One full-width `!flat` container per layer,
+top to bottom; every arrow points down. An arrow that has to point up
+is the finding — draw it `%rose` and say so in the headline instead of
+hiding it.
+
+```
+@ box ui "UI" 0,0 700x160 %secondary ^topleft ~large !flat
+@ box app "app shell" 50,60 200x80 >ui
+@ box export "exports" 400,60 200x80 >ui
+@ box core "core" 0,300 700x160 %tertiary ^topleft ~large !flat
+@ box view "view" 225,360 250x80 >core
+@ box store "store" 0,600 700x160 %subtle ^topleft ~large !flat
+@ box format "format" 225,660 250x80 >store
+@ arrow app -> view "depends: renders"
+@ arrow export -> view "depends: draws"
+@ arrow view -> format "depends: reads"
+```
+
+### Containment
+
+*What lives inside what?* Nesting is the relation: a child is owned by
+its parent, so "contains" needs no arrow. Arrows are left for what
+crosses a boundary, and a thing that is deliberately outside (not
+stored, not owned) sits outside, `!dashed`.
+
+```
+@ box server "server" 0,0 600x300 %tertiary ^topleft ~large !flat
+@ box room "room, one per board" 20,60 560x220 %secondary ^topleft !flat >server
+@ box file "board.grafli" 40,110 220x80 >room
+@ box vault "its vault" 300,110 220x80 >room
+@ box presence "presence, not stored" 850,110 300x80 %muted !dashed
+@ arrow presence -> room "data: 1 cursor per guest"
+```
+
+### Mirror
+
+*Are two paths symmetric?* The shared thing in the middle, one path
+down each side, the same step at the same height on both. A step one
+side has and the other lacks leaves a visible gap, and that asymmetry
+is the claim — emphasise it.
+
+```
+@ note hr 0,-60 "read" ~large !flat
+@ note hw 600,-60 "write" ~large !flat
+@ box f "file" 300,0 200x80 %primary
+@ box parse "parse" 0,200 200x80
+@ box board_r "Board" 0,400 200x80
+@ box merge "merge3 + write" 600,200 200x80 %highlight !bold
+@ box board_w "Board" 600,400 200x80
+@ arrow f -> parse "data: lines"
+@ arrow parse -> board_r "data: elements"
+@ arrow board_w -> merge "data: elements"
+@ arrow merge -> f "data: lines"
+```
+
+### Proportional strip
+
+*How is a whole split by size?* Boxes side by side with no gap, each as
+wide as its share at one fixed scale (say it in a comment). A 3-bit
+field and a 16-bit field never get the same box.
+
+```
+# scale: 30 px per bit
+@ box ver "ver 4" 0,0 120x80
+@ box flags "flags 4" 120,0 120x80
+@ box len "len 8" 240,0 240x80
+@ box id "id 16" 480,0 480x80 %highlight !bold
+@ note b0 0,90 "bit 0" ~small !flat
+@ note b32 900,90 "32" ~small !flat
+```
+
+### Before / after
+
+*What does this change change?* Two columns, the same element at the
+same position in both. Unchanged parts are `%muted` on both sides;
+what changes is emphasised in the after column; what goes away is
+`!dashed` in the before column.
+
+```
+@ note hb 0,-60 "before" ~large !flat
+@ note ha 400,-60 "after" ~large !flat
+@ box p0 "parser" 0,0 250x80 %muted
+@ box v0 "view" 0,200 250x80 %muted
+@ box l0 "preview links" 0,400 250x80 %muted !dashed
+@ box p1 "parser" 400,0 250x80 %muted
+@ box v1 "view + server" 400,200 250x80 %highlight !bold
+@ box l1 "live session" 400,400 250x80 %highlight !bold
+@ arrow p0 -> v0
+@ arrow v0 -> l0
+@ arrow p1 -> v1
+@ arrow v1 -> l1 "data: frames"
+```
+
+### Sequence
+
+*In what order does it happen?* One row (or column), position is the
+step, `step:` labels number the edges. Leave room between boxes for the
+labels — about twice a box's width. A side path branches perpendicular
+to the row; a loop back is the minority arrow.
+
+```
+@ box edit "edit in app" 0,0 200x80
+@ box timer "autosave timer" 450,0 200x80
+@ box merge "3-way merge" 900,0 200x80 %highlight !bold
+@ box write "write file" 1350,0 200x80
+@ arrow edit -> timer "step: 1 dirty"
+@ arrow timer -> merge "step: 2 fire"
+@ arrow merge -> write "step: 3 result"
+```
+
+## 3. Layout strategy
 
 The layered layout places a graph by its edges (`=` in the app). It
 does not know what position should mean, so the grid and the flow below
@@ -123,7 +291,7 @@ explicit.
 **Canvas margins**: leave ~50 px around the outermost elements so
 the diagram doesn't feel cramped against the title or the edge.
 
-## 3. Containers (`>parent`)
+## 4. Containers (`>parent`)
 
 Nesting with `>parent` is the primary way to show logical grouping
 (layers, services, bounded contexts).
@@ -213,7 +381,7 @@ to its neighbours, with at most one existing line changed — a clean,
 reviewable diff that leaves the diagram as comprehensible as the human
 left it.
 
-## 4. Arrow discipline
+## 5. Arrow discipline
 
 * **Label every arrow** that isn't self-explanatory from context —
   "queries", "REST", "events" tell the reader what flows.
@@ -250,7 +418,7 @@ left it.
   prefer crossing the lighter `!flat` containers rather than primary
   boxes.
 
-## 5. Notes and annotations
+## 6. Notes and annotations
 
 Notes are badge-style labels — blue text by default, with colored
 badge chips for semantic prefixes.
@@ -317,7 +485,7 @@ values still parse and are classified on load. An attachment is distinct
 from `# annotation`: it's visible/clickable; an annotation is invisible
 authoring metadata.
 
-## 6. Common patterns
+## 7. Common patterns
 
 Most technical diagrams reduce to one of these shapes, and the format
 covers the common types directly: **architecture** (layered containers),
@@ -326,7 +494,9 @@ covers the common types directly: **architecture** (layered containers),
 `code:` note with `state from -> to` lines), **ER / class** (boxes +
 labelled relationship arrows), and **mind maps / concept boards** (center
 node + radiating ideas — see "Visual notes" below). Pick the shape from
-the question, then the flow direction.
+the question, then the flow direction. When position should carry
+meaning of its own — an axis, a side, a size — pick from the encoding
+catalogue in section 2 instead.
 
 ### Architecture (layered)
 

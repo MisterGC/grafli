@@ -164,7 +164,7 @@ class BoxDocsMixin:
                 body = self.box_doc_body(item.box)
                 if body:
                     line = doc_first_sentence(body)
-                if line and not item.doc_line_fits():
+                if line and not item.doc_line_fits(line):
                     line = ""
                 # A slide is drawn once: no hysteresis from the canvas.
                 was_hidden = (slide_scale is None and not item._doc_line)

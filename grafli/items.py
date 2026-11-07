@@ -1570,12 +1570,19 @@ class BoxItem(QGraphicsRectItem):
     def _doc_line_extra_h(self) -> float:
         return self._DOC_LINE_GAP + QFontMetricsF(self._doc_line_font()).height()
 
-    def doc_line_fits(self) -> bool:
-        """True when the body has room for the doc line below the label,
-        keeping the label's 8 px margins; a box never grows for it."""
+    def doc_line_fits(self, text: str) -> bool:
+        """True when the body has room for *text* as the doc line below the
+        label, keeping the label's 8 px margins, and the line is wide enough
+        for the whole of it; a box never grows for it, nor cuts it."""
         needed = (self._label.boundingRect().height()
                   + self._doc_line_extra_h() + 16.0)
-        return self.box.h >= needed
+        return (self.box.h >= needed
+                and self._doc_line_whole(text, self._doc_line_width()))
+
+    def _doc_line_whole(self, text: str, width: float) -> bool:
+        """True when *text* fits on a doc line *width* wide uncut."""
+        return width > 0 and QFontMetricsF(self._doc_line_font()).elidedText(
+            text, Qt.TextElideMode.ElideRight, width) == text
 
     def set_doc_line(self, text: str) -> None:
         """Show *text* on one line below the label, or "" to drop it."""
@@ -1587,19 +1594,25 @@ class BoxItem(QGraphicsRectItem):
             self._position_label()
         self.update()
 
+    def _doc_line_width(self) -> float:
+        """The doc line's width: the label's wrap width, the badge's band
+        or what is right of a lead icon."""
+        if self._has_lead_icon():
+            return self.box.w - (self._label.pos().x() - self.pos().x()) - 8.0
+        if self._has_badge_icon() and self._miniature is None:
+            # The doc line runs below the badge: only the label steps aside
+            # for it.
+            return self.box.w - 2 * (self._badge_icon_side() + 14.0)
+        return self._label_width_for(self.box.w)
+
     def doc_line_rect(self) -> QRectF:
         """Where the doc line goes, in item coordinates: right below the
         label, as wide as the label's wrap width."""
         label_top = self._label.pos().y() - self.pos().y()
         top = label_top + self._label.boundingRect().height() + self._DOC_LINE_GAP
-        width = self._label_width_for(self.box.w)
-        if self._has_badge_icon() and self._miniature is None:
-            # The doc line runs below the badge: only the label steps aside
-            # for it.
-            width = self.box.w - 2 * (self._badge_icon_side() + 14.0)
+        width = self._doc_line_width()
         if self._has_lead_icon():
             left = self._label.pos().x() - self.pos().x()
-            width = self.box.w - left - 8.0
         elif self._get_effective_anchor() == "topleft":
             left = 8.0
         else:
@@ -1609,11 +1622,11 @@ class BoxItem(QGraphicsRectItem):
 
     def _paint_doc_line(self, painter: QPainter):
         rect = self.doc_line_rect()
-        if rect.width() <= 0:
+        # A line cut mid-word reads worse than none: draw it whole or not.
+        if not self._doc_line_whole(self._doc_line, rect.width()):
             return
         font = self._doc_line_font()
-        text = QFontMetricsF(font).elidedText(
-            self._doc_line, Qt.TextElideMode.ElideRight, rect.width())
+        text = self._doc_line
         ink = theme.ink_on(self._fill_color())
         ink.setAlphaF(0.7)
         align = (Qt.AlignmentFlag.AlignLeft

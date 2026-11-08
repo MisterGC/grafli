@@ -67,6 +67,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   drops, the tabs show the agent as gone until it, or another, connects
   again. grafli never starts a session itself.
   ([#267](https://github.com/MisterGC/grafli/issues/267))
+- **See the agent's edits by name, undo them alone, and take big ones
+  when you're ready.** What the agent adds or changes glows in its purple
+  in every tab for a few seconds, tagged with its name and the version.
+  In the present link's tab, Shift+U undoes the agent's last edit and keeps
+  what you changed after it. A change of more than 5 elements leaves the
+  file alone and shows as a proposal: a banner and dashed outlines of what
+  it adds, changes and removes; Enter takes it, x drops it, and the agent
+  hears which. The agent can undo its own last edit too (`undo_board`).
+  ([#268](https://github.com/MisterGC/grafli/issues/268))
 - **`grafli fmt` — canonical form for hand- and agent-authored boards.**
   Boards written outside the app never pass through its save path, so their
   coordinates and token spacing drift from what the app would write and the

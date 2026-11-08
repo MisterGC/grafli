@@ -410,7 +410,9 @@ says it connected. The session can then:
   the present link's tab and your view;
 - write it (`write_board`): the whole text, against the version it read,
   merged into the file the way every tab's edit is, so what others changed
-  in the meantime stays;
+  in the meantime stays (see
+  [The agent's edits](#the-agents-edits-marked-undoable-big-ones-proposed));
+- take back its own last edit (`undo_board`);
 - look at it (`render_board`): the board drawn as a PNG.
 
 Without a board name the session works on the board your present link's
@@ -447,6 +449,38 @@ and the first is told so.
 your user can read (`~/.local/state/grafli/serve-<port>.json`, removed when
 it stops); the key is in no link, so no tab can take the agent's seat. With
 several servers running, `connect` takes the latest unless you name a port.
+
+### The agent's edits: marked, undoable, big ones proposed
+
+An edit of the agent's lands at once. In every tab the elements it added or
+changed glow in the agent's purple for a few seconds, with a tag naming it
+and the version — "✦ v42 · Serein's agent" — and a toast says what it did
+("Serein's agent: +1 box, +1 arrow").
+
+Undo is per author. In the present link's tab, <kbd>Shift</kbd>+<kbd>U</kbd>
+takes back the agent's last edit, and only that: what you and the others
+changed after it stays, the same way your own <kbd>u</kbd> works. The
+session hears that you undid it. The session can also take back its own
+last edit (`undo_board`).
+
+A change of more than 5 elements — boxes, notes, images and arrows, each
+added, removed or changed — does not touch the file. It waits on the board
+as the agent's **proposal**: a purple banner, "✦ Serein's agent proposes 7
+changes · split Payments", and dashed outlines in purple for what it adds or
+changes, where it would be, with what it removes struck through. Your
+present link's tab pans to it.
+
+| Key | Does |
+|-----|------|
+| <kbd>Enter</kbd> | Take the proposal: it is merged into the file as it is now, so what changed since it was made stays, and glows as the agent's edit (<kbd>Shift</kbd>+<kbd>U</kbd> takes it back) |
+| <kbd>x</kbd> | Drop it; the board stays as it was |
+| <kbd>Shift</kbd>+<kbd>U</kbd> | Undo the agent's last edit |
+
+These keys are for the present link's tab; the other tabs see the banner
+and the outlines, and in reveal mode only who proposes how much. While a
+proposal waits, <kbd>Enter</kbd> and <kbd>x</kbd> act on it instead of on
+the selection. One proposal waits at a time: a new one from the agent takes
+its place. The session hears whether you took it or dropped it.
 
 ## When you want to *explain* the path
 

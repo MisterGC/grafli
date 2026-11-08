@@ -110,7 +110,9 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
   prepared board shows only its title until the presenter reveals it by jump
   label (`v`), in any order. A Claude Code session you already run connects
   as the boards' agent (`grafli agent`, over MCP): the tabs show it by name,
-  and as gone when it drops.
+  and as gone when it drops. Its edits glow with its name and undo per
+  author; a change of more than 5 elements waits as a proposal the presenter
+  takes with <kbd>Enter</kbd> or drops with <kbd>x</kbd>.
 - Bookmarks & flows — save labeled viewpoints (semantic anchors, not pixel
   coords) and string them into guided tours: step through, auto-play, present
   fullscreen (<kbd>F5</kbd>), or export a slide PDF (`grafli export … --flow`).

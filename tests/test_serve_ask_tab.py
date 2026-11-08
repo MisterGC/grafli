@@ -197,3 +197,15 @@ def test_the_open_line_says_where_its_text_goes_as_the_agent_comes_and_goes(
                    "\"plain language: Serein's agent is gone\""
                    " && grafliEdit.route().to === 'none'")
     presenter.key("Escape")
+
+
+def test_a_grafli_line_is_applied_and_plain_language_goes_to_the_agent(
+        browsers, served):
+    presenter, _guest = browsers
+    _open(browsers, served, "lines")
+    lines = ['@ box cache "Cache"', 'box cache "Cache"', "arrow api -> db",
+             'note n "x"']
+    plain = ["note the cache is slow", "box the db please", ASK]
+    for text in lines + plain:
+        got = presenter.js(f"grafliEdit.isLine({json.dumps(text)})")
+        assert got is (text in lines), text

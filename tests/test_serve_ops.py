@@ -114,6 +114,30 @@ def test_a_drop_puts_the_element_into_the_box_it_lands_on():
     assert '@ box b "B" 100,40 100x60 >lane' in serialize(b)
 
 
+def test_a_box_dropped_half_out_of_a_container_grows_it():
+    b = board()
+    apply_op(b, {"op": "move", "id": "b", "dx": 150, "dy": 140, "parent": "lane"})
+    lane = b.box_by_id("lane")
+    # b now spans 350..450 x 180..240: the lane reaches past it by the padding.
+    assert (lane.x, lane.y, lane.w, lane.h) == (0, 0, 470, 260)
+    apply_op(b, {"op": "move", "id": "a", "dx": 0, "dy": -30, "parent": "lane"})
+    assert (lane.x, lane.y) == (0, -26)
+    assert lane.y + lane.h == 260
+
+
+def test_a_box_dropped_well_inside_leaves_the_container_as_it_is():
+    b = board()
+    apply_op(b, {"op": "move", "id": "a", "dx": 100, "dy": 20, "parent": "lane"})
+    lane = b.box_by_id("lane")
+    assert (lane.x, lane.y, lane.w, lane.h) == (0, 0, 400, 200)
+
+
+def test_the_constants_follow_the_apps():
+    from grafli.constants import LAYOUT_PADDING as APP_PADDING
+    from grafli.serve.ops import LAYOUT_PADDING
+    assert LAYOUT_PADDING == APP_PADDING
+
+
 def test_a_move_without_parent_keeps_the_container():
     b = board()
     apply_op(b, {"op": "move", "id": "a", "dx": 5, "dy": 5})

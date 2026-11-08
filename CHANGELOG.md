@@ -544,6 +544,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **The skill's code-map example draws the relations between its
+  layers.** The top board in `references/explaining.md` used to list its
+  parts with no arrow between them, so `grafli diagnose` read it as a list
+  (`unrelated-board`) — and agents copy that example. Its arrows now name
+  what crosses from layer to layer (`call: export`, `call: load_board`,
+  `data: Board`, `call: serialize`), and it passes
+  `grafli diagnose --strict`.
+  ([#285](https://github.com/MisterGC/grafli/issues/285))
 - **An arrow into a box inside a container draws unbroken across the
   container's title strip.** The title strip used to sit above every arrow,
   so an arrow faded out right where it entered the container. An arrow now

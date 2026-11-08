@@ -68,13 +68,13 @@ class SlowRenderer:
 
 
 class Served:
-    def __init__(self, root: Path, renderer=None):
+    def __init__(self, root: Path, renderer=None, reveal=False):
         import uvicorn
         self.root = root
         self.keys = srv.Keys()
         self.sock = srv.bind("127.0.0.1", 0)
         self.port = self.sock.getsockname()[1]
-        app = srv.create_app(root, self.keys, renderer)
+        app = srv.create_app(root, self.keys, renderer, reveal=reveal)
         self.server = uvicorn.Server(uvicorn.Config(
             app, log_level="warning", ws="auto", lifespan="on"))
         self.thread = threading.Thread(target=self.server.run,

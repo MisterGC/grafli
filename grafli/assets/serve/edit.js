@@ -298,6 +298,13 @@
   // ── The text field: a label for a new box, a rename ──
 
   function openField(r, value, done, cancel) {
+    // A field still open (the mouse can open a second one over it) is
+    // cancelled first, so its placeholder goes with it.
+    if (!field.hidden && fieldCancel) {
+      const replaced = fieldCancel;
+      fieldCancel = null;
+      replaced();
+    }
     const place = () => {
       const a = toScreen(r[0], r[1]), b = toScreen(r[0] + r[2], r[1] + r[3]);
       const w = Math.max(b.x - a.x, 160);

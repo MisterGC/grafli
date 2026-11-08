@@ -2762,10 +2762,16 @@ def _cmd_fmt(argv: list[str]) -> int:
 
 def _cmd_layout(argv: list[str]) -> int:
     """Run the app's layered layout (`=` with nothing selected) headless:
-    rank each container's boxes by their arrows, keep `!pin` boxes."""
+    rank each container's boxes by their arrows, keep `!pin` boxes, and
+    route the arrows between placed boxes at right angles."""
     from grafli.board_info import top_margin
     from grafli.constants import LAYOUT_PADDING
-    from grafli.layout import Direction, container_groups, layout_groups
+    from grafli.layout import (
+        Direction,
+        container_groups,
+        layout_groups,
+        route_placed_arrows,
+    )
 
     parser = argparse.ArgumentParser(
         prog="grafli layout",
@@ -2776,8 +2782,11 @@ def _cmd_layout(argv: list[str]) -> int:
             "contents counts for that box), containers grow to fit. Boxes "
             "marked !pin keep their position; the others are placed around "
             "them. Notes, images and arrows are not moved, except that a "
-            "container carries its contents along. Boards with malformed "
-            "lines or a newer #!grafli vN header are left untouched."
+            "container carries its contents along. An arrow between two "
+            "placed boxes without a routing flag gets !ortho and is drawn "
+            "at right angles; !straight keeps an arrow direct. Boards with "
+            "malformed lines or a newer #!grafli vN header are left "
+            "untouched."
         ),
     )
     parser.add_argument("files", nargs="+", type=Path,
@@ -2821,9 +2830,11 @@ def _cmd_layout(argv: list[str]) -> int:
             untouched += 1
             continue
         attach_names(board, path)
-        layout_groups(board, container_groups(board), 20,  # app grid
+        groups = container_groups(board)
+        layout_groups(board, groups, 20,  # app grid
                       label_height,
                       direction, label_size)
+        route_placed_arrows(board, groups)
         out = serialize(board)
         if out == text:
             continue

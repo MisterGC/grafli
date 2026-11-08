@@ -173,6 +173,23 @@ def layout_groups(
                       direction, arrow_label_size)
 
 
+def route_placed_arrows(board: Board,
+                        groups: list[tuple[str, set[str]]]) -> None:
+    """Draw the arrows between placed boxes at right angles (#284).
+
+    An arrow whose two ends are boxes of *groups* that the layout places —
+    every one but a ``!pin`` box — and that has no routing flag yet gets
+    ``!ortho``. ``!spline``, ``!ortho`` and ``!straight`` stay as they are,
+    so ``!straight`` keeps an arrow direct across layout runs. A loop back
+    to its own box and an arrow to a note or an image keep their shape."""
+    placed = {bid for _, ids in groups for bid in ids
+              if (box := board.box_by_id(bid)) and not box.pinned}
+    for arrow in board.arrows:
+        if (not arrow.routing and arrow.from_id != arrow.to_id
+                and arrow.from_id in placed and arrow.to_id in placed):
+            arrow.routing = "ortho"
+
+
 def _depth(board: Board, parent_id: str) -> int:
     """How deep a group sits: 0 for the board root, 1 for a top-level
     container, one more per enclosing container."""

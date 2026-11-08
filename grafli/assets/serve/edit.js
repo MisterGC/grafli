@@ -53,7 +53,7 @@
   const history = [];
   let historyAt = 0;
 
-  let jump = null;        // {purpose, from, map, prefix}
+  let jump = null;        // {purpose, from, map, prefix[, targets, done, none]}
   let fieldDone = null;   // what Enter in the field does
   let fieldCancel = null;
   let waiting = [];       // placeholders waiting for {g, version}
@@ -204,6 +204,7 @@
   // ── Jump labels ──
 
   function jumpTargets() {
+    if (jump.targets) return jump.targets();
     const b = board(), from = jump.from;
     const placed = b.elements.filter((e) => e.rect && rectInView(e.rect)
       && (!from || e.id !== from.id));
@@ -222,8 +223,8 @@
     return out;
   }
 
-  function startJump(purpose, from) {
-    jump = { purpose, from: from || null, map: new Map(), prefix: "" };
+  function startJump(purpose, from, extra) {
+    jump = { purpose, from: from || null, map: new Map(), prefix: "", ...extra };
     showJump();
     if (!jump) return;
     if (purpose === "connect") {
@@ -235,8 +236,10 @@
   function showJump() {
     const targets = jumpTargets();
     if (!targets.length) {
+      const none = jump.none
+        || (jump.from ? "Nothing in view to connect to" : "Nothing in view");
       endJump();
-      page.toast(jump && jump.from ? "Nothing in view to connect to" : "Nothing in view");
+      page.toast(none);
       return;
     }
     const labels = labelsFor(targets.length);
@@ -283,8 +286,9 @@
   }
 
   function picked(target) {
-    const { purpose, from } = jump;
+    const { purpose, from, done } = jump;
     endJump();
+    if (done) { done(target); return; }
     if (purpose === "select") { page.selectId(target.id); return; }
     if (!from) {
       page.selectId(target.id);
@@ -509,6 +513,9 @@
       field.placeholder = hint || "";
       openField(r, value, done, cancel);
     },
+    // Jump labels on targets() (elements with a rect); done(element) for
+    // the one whose label is typed, toast *none* when there are none.
+    pick: (purpose, targets, done, none) => startJump(purpose, null, { targets, done, none }),
     jump: () => (jump ? { purpose: jump.purpose, labels: Array.from(jump.map.keys()) } : null),
     labelOf: (id) => {
       if (!jump) return null;

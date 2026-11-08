@@ -10,6 +10,7 @@
 //
 // For presence, post(msg) sends a message nobody answers, on(t, fn) hears
 // every message of type t, and hello(fn) adds fn()'s fields to the hello.
+// request(msg) sends one the server answers with ack or error, as an edit.
 (() => {
   "use strict";
   const page = window.grafliPage;
@@ -121,6 +122,7 @@
     pending: () => pending.size,
     edit: (op) => request({ t: "edit", base: version, op }),
     undo: () => request({ t: "undo" }),
+    request,
     // fn(frame) after each pushed frame is drawn.
     onFrame: (fn) => { frameListeners.push(fn); },
     post: (msg) => {

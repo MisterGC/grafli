@@ -58,10 +58,18 @@
     return b.elements.filter((e) => want.has(e.id) && (e.rect || e.paths));
   }
 
-  function showMark(m) {
-    clearTimeout(mark && mark.timer);
+  // Draw mark *m* on the board as it is now; *again* redraws the mark on
+  // screen for a new frame, keeping its time, and drops it once none of
+  // its elements is left.
+  function showMark(m, again) {
+    if (!again) clearTimeout(mark && mark.timer);
     markLayer.replaceChildren();
     const found = elementsOf(m.ids);
+    if (again && !found.length) {
+      clearTimeout(m.timer);
+      mark = null;
+      return;
+    }
     const k = scale(), nodes = [];
     let tagAt = null;
     for (const e of found) {
@@ -102,10 +110,13 @@
     }
     markLayer.replaceChildren(...nodes);
     mark = { ...m, tag, shown: found.map((e) => e.id) };
-    mark.timer = setTimeout(() => {
+    if (again) return;
+    const timer = setTimeout(() => {
+      if (mark && mark.timer !== timer) return;
       markLayer.replaceChildren();
       mark = null;
     }, MARK_MS);
+    mark.timer = timer;
   }
 
   live.on("marked", (m) => {
@@ -203,6 +214,8 @@
     const due = marking.filter((m) => live.version() >= m.version);
     marking = marking.filter((m) => live.version() < m.version);
     if (due.length) showMark(due[due.length - 1]);
+    // What another frame took away (an undo, say) glows no longer.
+    else if (mark) showMark(mark, true);
   });
   page.onView(() => { if (proposal) drawProposal(); });
 

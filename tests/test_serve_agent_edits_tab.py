@@ -110,6 +110,11 @@ def test_the_agents_edit_glows_undoes_per_author_and_a_big_one_is_a_proposal(
     guest.wait("!grafliPage.current().elements.some((e) => e.id === 'cache')")
     labels = _labels(path)
     assert "cache" not in labels and labels["api"] == "Gateway"
+    # Nothing glows where the undone edit was, in either tab.
+    for tab in (presenter, guest):
+        tab.wait("!grafliAgent.marked().includes('cache')", timeout=2)
+        assert tab.js("document.querySelectorAll("
+                      "'#agent-marks [data-id=\"cache\"]').length") == 0
     presenter.wait("document.getElementById('toast').textContent"
                    " === \"Undid Serein's agent's edit\"")
     undone = session.note()

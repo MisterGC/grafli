@@ -27,13 +27,13 @@ BOARD = """#!grafli v1
 
 
 class Served:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, reveal: bool = False):
         import uvicorn
         self.root = root
         self.keys = srv.Keys()
         self.sock = srv.bind("127.0.0.1", 0)
         self.port = self.sock.getsockname()[1]
-        self.app = srv.create_app(root, self.keys)
+        self.app = srv.create_app(root, self.keys, reveal=reveal)
         config = uvicorn.Config(self.app, log_level="warning", ws="auto",
                                 lifespan="on")
         self.server = uvicorn.Server(config)

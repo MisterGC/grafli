@@ -284,13 +284,63 @@ def test_in_reveal_mode_a_guest_sees_only_who_proposes_how_much(
     started = presenter.send({"t": "reveal", "do": "start"})
     assert started["t"] == "ack", started
     meta, _text_ = _read(session, board.stem)
-    _write(session, board.stem, meta["version"], SPLIT)
+    _write(session, board.stem, meta["version"], SPLIT, about="split B")
     lead = presenter.until(lambda m: m["t"] == "proposal")["proposal"]
     seen = guest.until(lambda m: m["t"] == "proposal")["proposal"]
     assert lead["added"] and lead["removed"]
     assert seen["count"] == 7 and seen["by"] == "Serein's agent"
     assert "added" not in seen and "removed" not in seen
+    # What the agent says it does may name a hidden element.
+    assert lead["about"] == "split B" and "about" not in seen
     presenter.send({"t": "proposal", "do": "drop", "proposal": lead["id"]})
     presenter.send({"t": "reveal", "do": "stop"})
+    presenter.close()
+    guest.close()
+
+
+def test_in_reveal_mode_a_guest_is_not_told_of_an_arrow_between_hidden_boxes(
+        served, board, sessions):
+    presenter, guest, session = _connect(served, board, sessions)
+    # Reveal mode hides a and b, so the arrow a -> b is not drawn for guests.
+    assert presenter.send({"t": "reveal", "do": "start"})["t"] == "ack"
+    meta, text = _read(session, board.stem)
+    wrote = _write(session, board.stem, meta["version"],
+                   text.replace('"calls"', '"reads"'))
+    assert wrote["changes"] == 1
+    lead = presenter.until(lambda m: m["t"] == "marked")
+    seen = guest.until(lambda m: m["t"] == "marked")
+    assert lead["ids"] == ["a->b"]
+    assert seen["ids"] == []
+    presenter.send({"t": "reveal", "do": "stop"})
+    presenter.close()
+    guest.close()
+
+
+def test_a_second_large_change_replaces_the_waiting_proposal(
+        served, board, sessions):
+    presenter, guest, session = _connect(served, board, sessions)
+    meta, _text_ = _read(session, board.stem)
+    first = _write(session, board.stem, meta["version"], SPLIT)
+    assert first["proposed"] and "replaced" not in first["note"]
+    second_text = SPLIT.replace('"Payout"', '"Payouts"').replace(
+        '"Refund"', '"Refunds"')
+    second = _write(session, board.stem, meta["version"], second_text)
+    assert second["proposed"] != first["proposed"]
+    assert "it replaced your earlier proposal" in second["note"]
+    for tab in (presenter, guest):
+        tab.until(lambda m: m["t"] == "proposal"
+                  and m["proposal"]["id"] == first["proposed"])
+        latest = tab.until(lambda m: m["t"] == "proposal")["proposal"]
+        assert latest["id"] == second["proposed"]
+    stale = presenter.send({"t": "proposal", "do": "take",
+                            "proposal": first["proposed"]})
+    assert stale["t"] == "error" and "changed since" in stale["message"]
+    ack = presenter.send({"t": "proposal", "do": "take",
+                          "proposal": second["proposed"]})
+    assert ack["t"] == "ack", ack
+    labels = {b.id: b.label for b in parse(
+        board.read_text(encoding="utf-8")).boxes}
+    assert labels == {"a": "A", "c": "Charge", "d": "Refunds",
+                      "e": "Payouts"}
     presenter.close()
     guest.close()

@@ -207,6 +207,32 @@ def test_only_the_presenters_view_is_passed_on_and_a_later_tab_gets_it(
         tab.close()
 
 
+def test_the_presenters_newer_tab_leads_and_the_older_takes_over_when_it_closes(
+        served, board):
+    present, edit, watch = _keys(served)
+    older = Peer(served, board.stem, present)
+    newer = Peer(served, board.stem, present)
+    guest = Peer(served, board.stem, watch, follow=True)
+    # The guest's first peers list comes as it opens, before its frame.
+    msg = [m for m in guest.seen if m["t"] == "peers"][-1]
+    assert len(msg["peers"]) == 3 and msg["lead"] == newer.id
+    # Only the newer tab's view reaches the guest.
+    older.post(t="view", x=1, y=2, w=300, h=200)
+    newer.post(t="view", x=-40, y=-30, w=900, h=600)
+    got = guest.until(lambda m: m["t"] == "view")
+    assert got == {"t": "view", "id": newer.id, "x": -40.0, "y": -30.0,
+                   "w": 900.0, "h": 600.0}
+    assert not [m for m in guest.quiet() if m["t"] == "view"]
+    # The newer tab closes: the older one leads, and its view is passed on.
+    newer.close()
+    assert guest.peers(lambda m: len(m["peers"]) == 2)["lead"] == older.id
+    older.post(t="view", x=5, y=6, w=700, h=400)
+    got = guest.until(lambda m: m["t"] == "view")
+    assert (got["id"], got["w"]) == (older.id, 700.0)
+    for tab in (older, guest):
+        tab.close()
+
+
 def test_who_follows_shows_in_the_presenters_list(served, board):
     present, edit, watch = _keys(served)
     p = Peer(served, board.stem, present)

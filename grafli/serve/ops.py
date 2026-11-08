@@ -30,6 +30,12 @@ MAX_LINES_CHARS = 4000
 BESIDE_GAP = 40
 SIDES = ("below", "above", "right", "left")
 
+# A container grows around what is dropped into it, as the app's drop does
+# (grafli.view.structure._fit_parent_rect): LAYOUT_PADDING on each side, and
+# room for the container's label at the top (about its height + 16).
+LAYOUT_PADDING = 20
+CONTAINER_HEAD = 36
+
 # An element id as the format reads it: one token, no whitespace.
 _ID_RE = re.compile(r"\S+")
 
@@ -100,11 +106,26 @@ def _parent_for(board: Board, el, op: dict) -> str:
     return parent
 
 
+def _grow_to_hold(board: Board, parent_id: str, el) -> None:
+    """Grow box *parent_id* so it holds *el* — a box or an image, whose size
+    the file knows — with padding; never shrink it."""
+    parent = board.box_by_id(parent_id)
+    if parent is None or not hasattr(el, "w"):
+        return
+    left = min(parent.x, el.x - LAYOUT_PADDING)
+    top = min(parent.y, el.y - CONTAINER_HEAD)
+    right = max(parent.x + parent.w, el.x + el.w + LAYOUT_PADDING)
+    bottom = max(parent.y + parent.h, el.y + el.h + LAYOUT_PADDING)
+    parent.x, parent.y = left, top
+    parent.w, parent.h = right - left, bottom - top
+
+
 def _move(board: Board, op: dict) -> dict:
     """Move a box, note or image to x, y — or by dx, dy, as a drag in the
     tab does: the tab knows how far the pointer went, not where the file
     puts the element. With ``parent`` it also goes into that box ("" for
-    none), as a drop in the app nests what it drops. ``carry`` names what
+    none), as a drop in the app nests what it drops, and that box grows to
+    hold it when it sticks out. ``carry`` names what
     else goes along: what the drawing shows inside a container though the
     file gives it no ``>parent``."""
     elem_id = _text(op, "id")
@@ -135,6 +156,8 @@ def _move(board: Board, op: dict) -> dict:
     for child in {id(c): c for c in carried}.values():
         child.x += dx
         child.y += dy
+    if op.get("parent"):
+        _grow_to_hold(board, el.parent, el)
     return {"id": elem_id}
 
 

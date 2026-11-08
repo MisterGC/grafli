@@ -18,6 +18,11 @@
   waits (``None`` once there is none), and the presenter's ``{"t":
   "proposal", "id", "do": "take" | "drop", "proposal": its id}`` settles it
   (see ``Room.write`` and ``Room.settle``).
+* Asking the agent — an editor's or the presenter's ``{"t": "ask", "id",
+  "text", "about"}`` (*about* an element's id, or left out) goes to the
+  agent's session as a ``request`` and is answered with ``ack`` naming the
+  ``agent``; with no session connected, or one that is gone, it is answered
+  with ``error`` saying so, and nothing waits to be sent later.
 * Presence — cursors, the laser, the presenter's view, who follows, names —
   is passed between the tabs of a board and never stored; see
   ``grafli.serve.presence``. The hello may carry the tab's ``name`` and
@@ -68,6 +73,12 @@ HELLO_TIMEOUT_S = 10
 
 CLOSE_BAD_KEY = 4401
 CLOSE_NO_BOARD = 4404
+
+# The longest plain-language request a tab may send the agent.
+ASK_MAX_CHARS = 2000
+# What a tab hears when it asks and no session was ever connected.
+NO_AGENT = ("no agent is connected, so nothing was sent; the presenter "
+            "connects a Claude Code session with /mcp__grafli__connect")
 
 # What a tab may call its author: a short token it made up itself.
 _AUTHOR_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
@@ -244,15 +255,17 @@ class Hub:
             self.log(f"agent: {conn.name} is gone")
             await self._tell_peers()
 
-    async def ask_agent(self, board: str, text: str, asked_by: str) -> bool:
-        """Push a plain-language request to the agent's session; False when
-        no session holds the seat, so nothing waits unseen."""
+    async def ask_agent(self, board: str, text: str, asked_by: str,
+                        about: dict | None = None) -> bool:
+        """Push a plain-language request to the agent's session, *about* an
+        element (``{"id", "label"}``) when one is named; False when no
+        session holds the seat, so nothing waits unseen."""
         conn = self.seat.conn if self.seat else None
         if conn is None:
             return False
         try:
             await conn.send({"t": "request", "board": board, "text": text,
-                             "from": asked_by})
+                             "from": asked_by, "about": about})
         except Exception:
             return False
         return True
@@ -365,6 +378,8 @@ def create_app(root: Path, keys: Keys, renderer=None,
                     await _edit(room, client, msg, send)
                 elif kind == "proposal":
                     await _settle(room, client, msg, send)
+                elif kind == "ask":
+                    await _ask(hub, room, client, msg, send)
                 elif kind == "reveal":
                     await _reveal(room, client, msg, send)
                 elif kind in PRESENCE:
@@ -496,6 +511,48 @@ async def _undo_agent(hub: Hub, room: Room, client: Client, msg: dict,
     name = hub.seat.name
     await _answer(send, req_id, room.undo_agent(
         agents.author(name), name, who=client.shown_name()))
+
+
+async def _ask(hub: Hub, room: Room, client: Client, msg: dict,
+               send) -> None:
+    """Pass a tab's plain-language request on to the agent's session, or
+    say why it is not: no session, or it is gone. Nothing is queued."""
+    req_id = msg.get("id")
+    if not client.can_edit:
+        await send({"t": "error", "id": req_id,
+                    "message": "this link is for watching; asking the agent "
+                               "needs the editor link"})
+        return
+    text = msg.get("text")
+    text = text.strip() if isinstance(text, str) else ""
+    if not text:
+        await send({"t": "error", "id": req_id,
+                    "message": "nothing to ask: the request is empty"})
+        return
+    if len(text) > ASK_MAX_CHARS:
+        await send({"t": "error", "id": req_id,
+                    "message": f"a request to the agent is at most "
+                               f"{ASK_MAX_CHARS} characters"})
+        return
+    about = None
+    if msg.get("about") is not None:
+        about = room.subject(client, msg.get("about"))
+        if about is None:
+            await send({"t": "error", "id": req_id,
+                        "message": "what the request is about is not on "
+                                   "the board"})
+            return
+    seat = hub.seat
+    if seat is None:
+        await send({"t": "error", "id": req_id, "message": NO_AGENT})
+        return
+    if not await hub.ask_agent(room.name, text, client.shown_name(), about):
+        await send({"t": "error", "id": req_id,
+                    "message": f"{seat.name} is gone, so nothing was sent; "
+                               "the presenter connects a session again"})
+        return
+    hub.log(f"agent: {client.shown_name()} asked {seat.name} on {room.name}")
+    await send({"t": "ack", "id": req_id, "agent": seat.name})
 
 
 async def _reveal(room: Room, client: Client, msg: dict, send) -> None:

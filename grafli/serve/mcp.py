@@ -57,7 +57,9 @@ waits as a proposal the presenter takes or drops, so say in `about` what it \
 does. `undo_board` takes back your last edit. Requests from people on the \
 board arrive as <channel source="grafli" board="..." asked_by="...">the \
 request</channel>: act on them on that board with read_board and \
-write_board, and keep your answer on the board, not only in chat. Whether \
+write_board, and keep your answer on the board, not only in chat. A request \
+asked on one element carries about="<its id>" and about_label="<its \
+label>": that element is what it is about. Whether \
 the presenter took or dropped your proposal, or undid your edit, arrives \
 the same way, as <channel source="grafli" board="..." event="...">. \
 `disconnect` leaves the seat; the tabs then show you as gone."""
@@ -254,8 +256,12 @@ class Bridge:
 
     def push(self, msg: dict) -> None:
         """A request from a tab, into the conversation as a channel turn."""
+        about = msg.get("about")
+        about = about if isinstance(about, dict) else {}
         meta = {"board": str(msg.get("board") or ""),
-                "asked_by": str(msg.get("from") or "")}
+                "asked_by": str(msg.get("from") or ""),
+                "about": str(about.get("id") or ""),
+                "about_label": str(about.get("label") or "")}
         self.write({"jsonrpc": "2.0", "method": "notifications/claude/channel",
                     "params": {"content": str(msg.get("text") or ""),
                                "meta": {k: v for k, v in meta.items() if v}}})

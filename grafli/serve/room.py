@@ -52,6 +52,8 @@ POLL_S = 0.05
 KEEP_VERSIONS = 64
 # Edits an author can undo, per board.
 KEEP_UNDO = 100
+# How much of an element's label a request to the agent carries.
+SUBJECT_LABEL_MAX = 120
 
 # One counter for every room of a server, so a version names one text even
 # across a room that closed and opened again.
@@ -636,6 +638,31 @@ class Room:
                 "taken")
         return {"taken": p.changes.count, "conflicts": conflicts,
                 "version": version}
+
+    # ── What a request to the agent is about ──
+
+    def subject(self, client: Client, el_id) -> dict | None:
+        """The element *el_id* as ``{"id", "label"}``, when it is on the
+        board as *client* sees it; None else. A guest in reveal mode is
+        not told of a hidden element, nor of an arrow to one."""
+        if not isinstance(el_id, str) or self.frame is None:
+            return None
+        board = parse(self.frame.text)
+        hidden: set[str] = set()
+        if client.role != "presenter" and self.reveal.hidden:
+            hidden = reveal.hidden_now(board, self.reveal.hidden)
+            hidden |= {element_key(a) for a in board.arrows
+                       if a.from_id in hidden or a.to_id in hidden}
+        for el in (*board.boxes, *board.notes, *board.images, *board.arrows):
+            key = element_key(el)
+            if key != el_id or key in hidden:
+                continue
+            label = getattr(el, "text", None) or getattr(el, "label", "")
+            if not label and hasattr(el, "from_id"):
+                label = f"{el.from_id} -> {el.to_id}"
+            first = label.splitlines()[0] if label else ""
+            return {"id": key, "label": first[:SUBJECT_LABEL_MAX]}
+        return None
 
     # ── Marking the agent's edits ──
 

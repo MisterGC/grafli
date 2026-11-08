@@ -27,8 +27,9 @@ requests carries an ``id`` and is answered with ``ack`` or ``error``:
   "height"}``: the board drawn as a PNG (base64), so the agent sees it.
 
 ``board`` may be left out: it is then the presenter's board, or the only
-one. The server pushes ``{"t": "request", "board", "text", "from"}`` for a
-plain-language request from a tab, ``{"t": "notice", "board", "text",
+one. The server pushes ``{"t": "request", "board", "text", "from",
+"about"}`` for a plain-language request from a tab (*about* the element
+``{"id", "label"}`` it was asked on, or None), ``{"t": "notice", "board", "text",
 "event"}`` when the presenter took or dropped its proposal or undid its
 edit (*event* ``taken``, ``dropped`` or ``undone``), and ``{"t":
 "replaced", "by"}`` when another session took the seat.

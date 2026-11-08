@@ -306,6 +306,9 @@ ORTHO_MID_CLEARANCE = 10.0
 ORTHO_MAX_CANDIDATES = 16
 ORTHO_MAX_OBSTACLES = 24
 
+# How many columns a detour tries, nearest the straight line first (#284).
+ORTHO_MAX_DETOURS = 16
+
 _NORMALS = {"n": (0.0, -1.0), "s": (0.0, 1.0), "e": (1.0, 0.0), "w": (-1.0, 0.0)}
 
 
@@ -337,8 +340,11 @@ def _relevant(start: QPointF, end: QPointF,
     """
     if not obstacles:
         return []
+    # Two aligned anchors span a box of no width, and Qt finds such a box
+    # intersecting nothing — so it is widened by half a pixel each way.
     span = QRectF(QPointF(min(start.x(), end.x()), min(start.y(), end.y())),
-                  QPointF(max(start.x(), end.x()), max(start.y(), end.y())))
+                  QPointF(max(start.x(), end.x()), max(start.y(), end.y()))
+                  ).adjusted(-0.5, -0.5, 0.5, 0.5)
     return [r for r in obstacles if r.intersects(span)]
 
 
@@ -428,6 +434,92 @@ def _best_mid(start: QPointF, end: QPointF,
     return best
 
 
+def _detour(start: QPointF, end: QPointF, horizontal: bool,
+            obstacles: list[QRectF]) -> list[QPointF] | None:
+    """A stair around the boxes between two facing ends, or None (#284).
+
+    The route leaves its start, turns in the gap before the first box in its
+    way, runs along a free column beside the boxes, turns in the gap after
+    the last one and enters its end: five runs where a Z has three. A
+    layered layout puts the turns in the gaps between layers and the column
+    between two boxes of the layer it skips, the way one sketches it by hand.
+
+    Only boxes between the two ends along the way they face can be in the
+    way, so only those are looked at. The columns tried are those just clear
+    of such a box's edges, nearest the straight line first; the first column
+    whose route touches no box wins. None when there is none, and the caller
+    keeps its Z, so a hard case stays as predictable as it was.
+    """
+    def main(p: QPointF) -> float:
+        return p.x() if horizontal else p.y()
+
+    def cross(p: QPointF) -> float:
+        return p.y() if horizontal else p.x()
+
+    def at(m: float, c: float) -> QPointF:
+        return QPointF(m, c) if horizontal else QPointF(c, m)
+
+    def extent(r: QRectF, along: bool) -> tuple[float, float]:
+        if along == horizontal:
+            return r.left(), r.right()
+        return r.top(), r.bottom()
+
+    s0, e0 = main(start), main(end)
+    sc, ec = cross(start), cross(end)
+    d = 1.0 if e0 > s0 else -1.0
+    lo, hi = min(s0, e0), max(s0, e0)
+    band = [r for r in obstacles
+            if extent(r, True)[0] < hi and extent(r, True)[1] > lo]
+    if not band:
+        return None
+    default = (sc + ec) / 2
+
+    def cross_gap(r: QRectF) -> float:
+        near, far = extent(r, False)
+        return max(near - default, default - far, 0.0)
+
+    if len(band) > ORTHO_MAX_OBSTACLES:
+        band = heapq.nsmallest(ORTHO_MAX_OBSTACLES, band, key=cross_gap)
+
+    def entry(r: QRectF) -> float:
+        """Where the route meets *r* going from start to end."""
+        a, b = extent(r, True)
+        return a if d > 0 else b
+
+    def exit_(r: QRectF) -> float:
+        a, b = extent(r, True)
+        return b if d > 0 else a
+
+    def spanning(c0: float, c1: float) -> list[QRectF]:
+        """The band's boxes a run across from *c0* to *c1* could touch."""
+        a, b = min(c0, c1), max(c0, c1)
+        return [r for r in band
+                if extent(r, False)[0] <= b and extent(r, False)[1] >= a]
+
+    columns: list[float] = []
+    for r in band:
+        near, far = extent(r, False)
+        columns += [near - ORTHO_MID_CLEARANCE, far + ORTHO_MID_CLEARANCE]
+    columns.sort(key=lambda c: (abs(c - default), c))
+
+    for c in columns[:ORTHO_MAX_DETOURS]:
+        first = spanning(sc, c) or band
+        last = spanning(c, ec) or band
+        # Turn half way into the gap between an end and the nearest box
+        # the turn has to clear.
+        near = min((entry(r) for r in first), key=lambda m: d * m)
+        far = max((exit_(r) for r in last), key=lambda m: d * m)
+        m1, m2 = (s0 + near) / 2, (far + e0) / 2
+        if not (d * (m1 - s0) > 0.01 and d * (e0 - m2) > 0.01
+                and d * (m2 - m1) >= 0):
+            continue
+        pts = _tidy([start, at(m1, sc), at(m1, c), at(m2, c),
+                     at(m2, ec), end])
+        if _crossed(pts, band, 1) == 0:
+            return pts
+    return None
+
+
 def ortho_points(start: QPointF, start_side: str,
                  end: QPointF, end_side: str,
                  obstacles: list[QRectF] | None = None,
@@ -441,7 +533,8 @@ def ortho_points(start: QPointF, start_side: str,
 
     ``obstacles`` are rects the mid-line should avoid; the caller excludes the
     connector's own endpoints. Only the Z case has a free parameter to spend, so
-    an L is unaffected.
+    an L is unaffected. A Z whose ends face each other and that no mid-line
+    clears steps around the boxes in its way instead (``_detour``, #284).
 
     ``ends`` — the rects of the two endpoints — marks a connector with pinned
     sides (#209). Its route must leave and enter along those sides, so where
@@ -451,12 +544,14 @@ def ortho_points(start: QPointF, start_side: str,
     horiz_start = start_side in ("e", "w")
     horiz_end = end_side in ("e", "w")
 
-    if horiz_start and horiz_end:
-        mid = _best_mid(start, end, True, _relevant(start, end, obstacles))
-        pts = [start, QPointF(mid, start.y()), QPointF(mid, end.y()), end]
-    elif not horiz_start and not horiz_end:
-        mid = _best_mid(start, end, False, _relevant(start, end, obstacles))
-        pts = [start, QPointF(start.x(), mid), QPointF(end.x(), mid), end]
+    if horiz_start == horiz_end:
+        near = _relevant(start, end, obstacles)
+        mid = _best_mid(start, end, horiz_start, near)
+        pts = _z_points(start, end, mid, horiz_start)
+        if (near and _crossed(pts, near, 1)
+                and _along(start, end, start_side) > 0.01
+                and _along(end, start, end_side) > 0.01):
+            pts = _detour(start, end, horiz_start, obstacles) or pts
     elif horiz_start:
         pts = [start, QPointF(end.x(), start.y()), end]
     else:

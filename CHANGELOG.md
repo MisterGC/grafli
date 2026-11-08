@@ -37,6 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   everyone sees, and "You: …" in the bar sets your name. None of it is
   written to the board file.
   ([#264](https://github.com/MisterGC/grafli/issues/264))
+- **Edit the live tab with the mouse, no keys to learn.** In an edit or
+  present link's tab a click selects, a double-click renames, a drag moves a
+  box (into the box you let go over, which grows to hold it), a drag from a
+  box's edge draws an arrow to the box you let go over, and a right-click
+  asks a `Q:` question beside the box or at the point. Each goes through the
+  same merge as the keys' edits and shows in every tab on the board; a watch
+  link's tab gets none of them.
+  ([#265](https://github.com/MisterGC/grafli/issues/265))
 - **`grafli fmt` — canonical form for hand- and agent-authored boards.**
   Boards written outside the app never pass through its save path, so their
   coordinates and token spacing drift from what the app would write and the

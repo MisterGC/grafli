@@ -270,7 +270,8 @@ same key.
   that board's links.
 
 An edit link's tab can change the board: each edit is a small operation
-(move, rename, add a box, connect, delete, grafli lines) applied to the
+(move, rename, add a box, connect, delete, a `Q:` question, grafli lines)
+applied to the
 version the tab shows and merged into the file with the same three-way merge
 the desktop app runs when the file changes under it, so an edit never
 overwrites a change the tab had not seen yet. A watch link's tab cannot edit.
@@ -313,6 +314,26 @@ it. The tab keeps its undo history across a reload for as long as
 Plain language on the command line ("add a cache between api and db") is
 for a connected agent; until one is connected, the tab says so and changes
 nothing.
+
+### Editing with the mouse
+
+Guests need no keys: in an edit link's tab (and the present link's) the
+mouse does the common edits.
+
+| Mouse | Does |
+|-------|------|
+| Click | Selects a box, note or arrow. A box with a level opens it after a moment, unless a second click makes it a double-click |
+| Double-click | Renames what you clicked; <kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> drops it |
+| Drag a box | Moves it, with what it holds. It goes into the box you let go over (out of every box when you let go on the canvas), and that box grows to hold it, as a drop in the app does |
+| Drag from a box's edge | Draws an arrow to the box you let go over. Near the border the pointer turns into a crosshair; inside the box it shows a move |
+| Right-click | Asks a `Q:` question, typed in place: beside the box you clicked, so the box keeps its look, or at the point on the canvas or in a container |
+
+Dragging the empty canvas still pans, and the wheel zooms. Each mouse edit
+shows the same dashed placeholder as a key's until the drawing that holds
+it arrives, and <kbd>u</kbd> takes it back. A watch link's tab selects with
+a click and pans with a drag; a double-click or a right-click says that
+editing needs the edit link. With the laser on (<kbd>k</kbd>) the mouse
+points instead of dragging boxes.
 
 ### Who is here: follow, laser, cursors
 

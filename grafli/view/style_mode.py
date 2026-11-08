@@ -1095,7 +1095,9 @@ class StyleModeMixin:
              "get": lambda: primary.thickness,
              "set": lambda v: self._set_all_arrows("thickness", v)},
             {"label": "Routing", "kind": "routing", "options": list(self._CONN_ROUTING_OPTIONS),
-             "get": lambda: primary.routing,
+             # `!straight` draws direct, so the Direct cell shows it.
+             "get": lambda: ("" if primary.routing == "straight"
+                             else primary.routing),
              "set": lambda v: self._set_all_arrows("routing", v)},
             {"label": "Leaves from", "kind": "side",
              "options": list(self._CONN_SIDE_OPTIONS),

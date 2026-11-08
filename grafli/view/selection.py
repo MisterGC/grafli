@@ -540,7 +540,7 @@ class SelectionMixin:
             # that pulled value could drop it below a neighbour and invert the
             # pair into a crossing.
             s_want, e_want = s_t, e_t
-            if fwd.routing:
+            if fwd.routed:
                 s_want = 0.5 + (s_t - 0.5) * ROUTED_CENTRE_BIAS
                 e_want = 0.5 + (e_t - 0.5) * ROUTED_CENTRE_BIAS
             # A pinned end sits on the middle of its side (#209), ranked
@@ -553,7 +553,7 @@ class SelectionMixin:
                 e_t = t_of_point(t_rect, e_side, _rect_centre(f_rect))
             natural[idx] = [f_rect, s_side, s_want,
                             t_rect, e_side, e_want,
-                            bool(fwd.routing or pin_s or pin_e), s_t, e_t]
+                            bool(fwd.routed or pin_s or pin_e), s_t, e_t]
             groups.setdefault((f_id, s_side), []).append((idx, 0))
             groups.setdefault((t_id, e_side), []).append((idx, 1))
 
@@ -796,7 +796,7 @@ class SelectionMixin:
                     conn_path = self_loop_path(self._elem_rect(from_elem),
                                                start, a_start_side,
                                                end, a_end_side)
-                elif fwd.routing:
+                elif fwd.routed:
                     # A connector may pass over its own endpoints and over any
                     # container holding them — it starts on their edges, so
                     # counting those as obstacles would block every candidate.
@@ -823,7 +823,7 @@ class SelectionMixin:
             # already shaped from its own anchors and keeps its route, and so
             # does a pinned one: its author placed its ends (#209).
             offset = conn_offsets.get(idx, 0.0)
-            if (conn_path is None and offset and not fwd.routing
+            if (conn_path is None and offset and not fwd.routed
                     and not (fwd.from_side or fwd.to_side)):
                 bow_side = (anchors[1] if anchors and from_hull is None
                             else side_of_point(self._elem_rect(from_elem), start))

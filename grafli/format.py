@@ -13,6 +13,7 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" [%color]    (color override: %token / #hex)
   @ arrow <from_id> -> <to_id> "label" !dashed     (line pattern: dashed / dotted)
   @ arrow <from_id> -> <to_id> "label" !thick      (thickness: thin / thick; default tracks node size)
+  @ arrow <from_id> -> <to_id> "label" !ortho      (routing: spline / ortho / straight; default direct)
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
   @ arrow <from_id> -> <to_id> "label" ~kind=graph (connector kind: graph / annotation; default derives from endpoints)
   @ arrow <from_id> -> <to_id> "label" ~from=right ~to=left (pinned sides: top / right / bottom / left; default picks from geometry; v4)
@@ -64,6 +65,8 @@ children's colours and its title on the left. And a board whose ``%name``
 colour names an entry of the map's palette (``<stem>-res/palette.json``,
 see ``grafli.map_palette``). And a board with a ``!pin`` box, which the
 layered layout (``grafli layout``, ``=`` in the app) leaves where it is.
+And a board with a ``!straight`` arrow, a direct line ``grafli layout``
+leaves direct instead of giving it ``!ortho``.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -150,8 +153,10 @@ class Arrow:
     style: str = ""       # line pattern: "dashed", "dotted", or "" (solid)
     thickness: str = ""   # "thin", "thick", or "" (= normal, tracks node size)
     # How the connector gets from end to end: "" (direct), "spline" (curve),
-    # "ortho" (right-angle stair). Separate from `style` on purpose — routing
-    # and line pattern are independent, so a dashed ortho connector is sayable.
+    # "ortho" (right-angle stair), "straight" (`!straight`: drawn direct, and
+    # `grafli layout` leaves it so instead of giving it `!ortho`). Separate
+    # from `style` on purpose — routing and line pattern are independent, so
+    # a dashed ortho connector is sayable.
     routing: str = ""
     color: str = ""       # "%token" / "#hex" override, or "" (= kind-derived)
     textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
@@ -174,6 +179,12 @@ class Arrow:
     # (a bookmark, a tour stop, an overlay entry); "" for a plain arrow.
     id: str = ""
     annotation: str = ""     # deprecated — kept for migration parsing
+
+    @property
+    def routed(self) -> bool:
+        """Whether the connector is drawn along a shape of its own (a spline
+        or a stair) rather than as a direct line."""
+        return self.routing in ("spline", "ortho")
 
 
 DEFAULT_NOTE_WRAP_CHARS = 80
@@ -698,7 +709,7 @@ _RE_ARROW = re.compile(
     r'(?:\s+"' + _QT + r'")?'
     r'(?:\s+@(-?[\d.]+),(-?[\d.]+))?'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'          # color override
-    r'((?:\s+!(?:dashed|dotted|thin|thick|spline|ortho|dot))*)'  # pattern, thickness, routing, head shape
+    r'((?:\s+!(?:dashed|dotted|thin|thick|spline|ortho|straight|dot))*)'  # pattern, thickness, routing, head shape
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+~kind=(graph|annotation))?'
@@ -796,7 +807,7 @@ NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
              '[*icon] [&attach] [>parent]')
 ARROW_FORM = ('@ arrow <from> ->|<-|<->|-- <to> ["label"] [@dx,dy] '
               '[%color|#rrggbb] '
-              '[!dashed|!dotted|!thin|!thick|!spline|!ortho|!dot ...] '
+              '[!dashed|!dotted|!thin|!thick|!spline|!ortho|!straight|!dot ...] '
               '[~size] [&attach] [~kind=graph|annotation] '
               '[~from=top|right|bottom|left] [~to=top|right|bottom|left] '
               '[~id=<id>]')
@@ -985,13 +996,14 @@ def parse(text: str) -> Board:
             kind, url = split_attach(m.group(10) or "") if m.group(10) else ("", "")
             flags = m.group(8).split() if m.group(8) else []
             # A run of "!dashed"/"!dotted"/"!thin"/"!thick"/"!spline"/"!ortho"/
-            # "!dot" flags in any order, one per axis: thickness, line pattern,
+            # "!straight"/"!dot" flags in any order, one per axis: thickness, line pattern,
             # routing and head shape are independent, so "!dashed !ortho" is a
             # dashed stair.
             # Legacy files carrying a bare "!thick" migrate to thickness here.
             style = next((f[1:] for f in flags if f in ("!dashed", "!dotted")), "")
             thickness = next((f[1:] for f in flags if f in ("!thin", "!thick")), "")
-            routing = next((f[1:] for f in flags if f in ("!spline", "!ortho")), "")
+            routing = next((f[1:] for f in flags
+                            if f in ("!spline", "!ortho", "!straight")), "")
             head_shape = "dot" if "!dot" in flags else ""
             arrow = Arrow(
                 from_id=m.group(1),
@@ -1258,6 +1270,8 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "status labels": (4, lambda b: any(x.status for x in b.boxes)),
     "left titles": (4, lambda b: any(x.anchor == "left" for x in b.boxes)),
     "palette colours": (4, uses_palette_colors),
+    "straight arrows": (4, lambda b: any(a.routing == "straight"
+                                         for a in b.arrows)),
 }
 
 

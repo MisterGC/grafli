@@ -45,6 +45,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same merge as the keys' edits and shows in every tab on the board; a watch
   link's tab gets none of them.
   ([#265](https://github.com/MisterGC/grafli/issues/265))
+- **Reveal mode: a prepared board starts hidden and you uncover it as you
+  talk.** `grafli serve --reveal` shows every board with only its title
+  (the note with the id `title`); in the present link's tab `v` puts a jump
+  label on each hidden element and typing one reveals it — a box, a
+  container with what it holds — and `+` right after adds what an arrow
+  connects it to. `Shift+V` turns reveal mode on and off at any time. The
+  other tabs get a drawing without the hidden elements, so nothing hidden
+  reaches them; the presenter sees the rest as faint dashed outlines. What
+  is hidden is never written to the board file.
+  ([#266](https://github.com/MisterGC/grafli/issues/266))
 - **`grafli fmt` — canonical form for hand- and agent-authored boards.**
   Boards written outside the app never pass through its save path, so their
   coordinates and token spacing drift from what the app would write and the

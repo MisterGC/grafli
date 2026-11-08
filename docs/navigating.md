@@ -268,6 +268,8 @@ same key.
   went out.
 - `grafli serve board.grafli` serves the board's directory and prints only
   that board's links.
+- `--reveal` starts every board with only its title showing; see
+  [Reveal a prepared board](#reveal-a-prepared-board-as-you-talk).
 
 An edit link's tab can change the board: each edit is a small operation
 (move, rename, add a box, connect, delete, a `Q:` question, grafli lines)
@@ -357,6 +359,31 @@ None of this is written to the board file: cursors, the laser, who follows
 and the presenter's view travel between the tabs only and are gone when the
 tabs close. If the presenter opens the same board in a second tab, the newer
 tab is the one the others follow.
+
+### Reveal a prepared board as you talk
+
+A board you (or your agent) prepared before the call can start hidden, and
+you uncover it in whatever order the talk takes. Start the server with
+`--reveal` and every board shows the others only its title — the note with
+the id `title`, as the grafli skill writes it. In the present link's tab:
+
+| Key | Does |
+|-----|------|
+| <kbd>v</kbd> | A jump label on every hidden element in view; type one to reveal it. A box in a container brings the container's frame; a container comes with everything it holds |
+| <kbd>+</kbd> | Right after a reveal: also reveal what an arrow connects that element to |
+| <kbd>Shift</kbd>+<kbd>V</kbd> | Reveal mode on (all but the title hidden again) or off (everyone sees the whole board) — also without `--reveal` |
+
+An arrow shows once both its ends do. A bookmark and its flows show once
+everything they frame does. A box added during the talk — from a tab, the
+app or an agent — shows at once.
+
+The other tabs, watch and edit links alike, get a drawing of the board
+without the hidden elements, so nothing hidden — label, doc, bookmark —
+reaches their browser. Your tab gets the same drawing and shows what is
+still hidden as faint dashed outlines, and the bar counts it
+("revealing · 3 hidden"). What is hidden lives in the server's memory only:
+it is never written to the board file, survives a reload of your tab and
+ends when `grafli serve` stops.
 
 ## When you want to *explain* the path
 

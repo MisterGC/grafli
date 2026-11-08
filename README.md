@@ -106,7 +106,9 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
   its own key. The others follow the presenter's view, see each other's named
   cursors and a laser (`k`); none of that is written to the file. Guests edit
   with the mouse: click, double-click to rename, drag to move, drag from an
-  edge to connect, right-click for a `Q:` question.
+  edge to connect, right-click for a `Q:` question. With `--reveal` a
+  prepared board shows only its title until the presenter reveals it by jump
+  label (`v`), in any order.
 - Bookmarks & flows — save labeled viewpoints (semantic anchors, not pixel
   coords) and string them into guided tours: step through, auto-play, present
   fullscreen (<kbd>F5</kbd>), or export a slide PDF (`grafli export … --flow`).

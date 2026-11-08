@@ -7,7 +7,10 @@
 //           (with nothing selected, first the one to start from)
 //   e       rename the selection;  x / Delete  delete it
 //   u       undo your last edit (also Cmd/Ctrl+Z)
-//   :       a command line taking grafli lines, e.g. @ box cache "Cache"
+//   :       a command line: a grafli line, e.g. @ box cache "Cache", is
+//           applied; anything else is plain language for the board's agent
+//           (the Claude Code session the presenter connected). Without
+//           one connected the line says so and nothing is sent.
 //
 // Every edit shows a placeholder on the board until the frame that holds it
 // is drawn. A watch link's tab only gets f; a present link's tab gets them
@@ -46,10 +49,11 @@
   cmd.id = "cmdline";
   cmd.hidden = true;
   cmd.innerHTML = '<span>:</span><input type="text" autocomplete="off" '
-    + 'spellcheck="false" placeholder="@ box cache &quot;Cache&quot;   ·   '
-    + 'Enter adds it, Esc closes">';
+    + 'spellcheck="false" placeholder="@ box cache &quot;Cache&quot;, or plain '
+    + 'language   ·   Enter sends, Esc closes"><small id="cmd-route"></small>';
   wrap.appendChild(cmd);
   const cmdInput = cmd.querySelector("input");
+  const cmdRoute = cmd.querySelector("#cmd-route");
   const history = [];
   let historyAt = 0;
 
@@ -401,14 +405,53 @@
 
   // ── The ':' command line ──
 
-  const KIND_RE = /^@?\s*(box|arrow|note|image)\b/;
+  // A grafli line starts with @, or reads like one without it: a kind, an
+  // id and a quoted label (an arrow: an id and its arrow). Anything else is
+  // plain language — "note the cache is slow" too.
+  const LINE_RE = /^(@|(box|note|image)\s+[\w.-]+\s+"|arrow\s+[\w.-]+\s*(->|<-|<->|--))/;
+  const isLine = (text) => LINE_RE.test(text.trim());
   const BOX_RE = /^@?\s*box\s+(\S+)\s+"((?:[^"\\]|\\.)*)"(.*)$/;
   const PLACE_RE = /^\s+-?[\d.]+,\s*-?[\d.]+\s+[\d.]+x[\d.]+/;
+
+  // The agent as the tabs know it: {name, present}, or null before any.
+  const agent = () => (window.grafliPresence && window.grafliPresence.agent()) || null;
+
+  // Where the text on the line goes, said beside it.
+  function route() {
+    const text = cmdInput.value.trim(), a = agent();
+    const plain = !a ? "plain language: no agent connected"
+      : a.present ? `plain language → ${a.name}`
+      : `plain language: ${a.name} is gone`;
+    const line = "grafli line → applied";
+    cmdRoute.textContent = !text ? `${line} · ${plain}` : isLine(text) ? line : plain;
+    cmdRoute.dataset.to = !text || isLine(text) ? "board"
+      : a && a.present ? "agent" : "none";
+  }
+
+  cmdInput.addEventListener("input", route);
+  live.on("peers", () => { if (!cmd.hidden) route(); });
+
+  // Send *text* to the board's agent, *about* an element id or null; the
+  // server says whether a session took it. Nothing waits in the tab.
+  function askAgent(text, about) {
+    const msg = { t: "ask", text };
+    if (about) msg.about = about;
+    return live.request(msg).then((ack) => {
+      const what = text.length > 48 ? text.slice(0, 47) + "…" : text;
+      page.toast(`Asked ${ack.agent}: “${what}” · the answer comes to the board`);
+      return ack;
+    }).catch((err) => {
+      const why = err.message;
+      page.toast(why.charAt(0).toUpperCase() + why.slice(1));
+      throw err;
+    });
+  }
 
   function openCommand() {
     cmd.hidden = false;
     cmdInput.value = "";
     historyAt = history.length;
+    route();
     cmdInput.focus();
   }
 
@@ -424,10 +467,12 @@
     else if (e.key === "ArrowUp" && historyAt > 0) {
       e.preventDefault();
       cmdInput.value = history[--historyAt];
+      route();
     } else if (e.key === "ArrowDown" && historyAt < history.length) {
       e.preventDefault();
       historyAt++;
       cmdInput.value = history[historyAt] || "";
+      route();
     }
   });
 
@@ -438,10 +483,8 @@
     closeCommand();
     if (!text) return;
     if (history[history.length - 1] !== text) history.push(text);
-    if (!KIND_RE.test(text)) {
-      // Plain language is for the connected agent (grafli#269); say so.
-      page.toast("Plain language goes to a connected agent, and none is connected. "
-        + "Type a grafli line: @ box cache \"Cache\"");
+    if (!isLine(text)) {
+      askAgent(text, null).catch(() => {});
       return;
     }
     const sel = page.selectedEl();
@@ -522,8 +565,13 @@
       for (const [l, e] of jump.map) if (e.id === id) return l;
       return null;
     },
+    askAgent,
+    isLine,
     ghosts: () => ghosts.children.length,
     field: () => (field.hidden ? null : field.value),
     command: () => !cmd.hidden,
+    // Where the command line says its text goes, and "board", "agent" or
+    // "none" for it.
+    route: () => (cmd.hidden ? null : { text: cmdRoute.textContent, to: cmdRoute.dataset.to }),
   };
 })();

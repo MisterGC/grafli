@@ -38,6 +38,8 @@ EDIT_JS = LIVE_JS.with_name("edit.js")
 PRESENCE_JS = LIVE_JS.with_name("presence.js")
 # The mouse gestures build on the keys' field and placeholders.
 MOUSE_JS = LIVE_JS.with_name("mouse.js")
+# Asking the agent about the selection uses the keys' field and request.
+ASK_JS = LIVE_JS.with_name("ask.js")
 # Reveal mode's keys take their jump labels from the presenter's keys.
 REVEAL_JS = LIVE_JS.with_name("reveal.js")
 # The agent's edits and proposal: its keys are asked before the editing
@@ -231,7 +233,7 @@ def _shell() -> str:
     return _page("grafli", data, [], [],
                  extra_js="\n".join(js.read_text(encoding="utf-8") for js in
                                     (LIVE_JS, AGENT_JS, EDIT_JS, PRESENCE_JS,
-                                     MOUSE_JS, REVEAL_JS)),
+                                     MOUSE_JS, ASK_JS, REVEAL_JS)),
                  generator="grafli serve")
 
 

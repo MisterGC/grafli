@@ -373,7 +373,7 @@ def test_plain_language_on_the_command_line_says_no_agent_is_connected(
     chrome.type("add a cache between api and db")
     chrome.key("Enter")
     chrome.wait("document.getElementById('toast').textContent"
-                ".includes('none is connected')")
+                ".startsWith('No agent is connected, so nothing was sent')")
     assert chrome.js("grafliLive.pending()") == 0
     assert path.read_text() == text
 

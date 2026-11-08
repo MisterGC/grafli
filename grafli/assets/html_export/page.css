@@ -124,6 +124,12 @@ body {
   flex: 1; min-width: 0; border: 0; outline: none; background: none;
   color: var(--ink); font: 15px ui-monospace, "JetBrains Mono", monospace;
 }
+#cmdline small {
+  flex: none; font-size: 12px; white-space: nowrap; opacity: 0.75;
+  color: var(--ink);
+}
+#cmdline small[data-to="agent"] { color: #7048e8; opacity: 1; font-weight: 600; }
+#cmdline small[data-to="none"] { color: #e8590c; opacity: 1; }
 #live-field[hidden], #cmdline[hidden] { display: none; }
 /* grafli serve: the mouse — move inside a box, connect from its edge. */
 #stage[data-grab] .hit { cursor: inherit; }
@@ -176,6 +182,15 @@ body {
 }
 #proposal .keys { font: 13px ui-monospace, "JetBrains Mono", monospace; white-space: nowrap; }
 #proposal[hidden] { display: none; }
+/* grafli serve: the "ask" chip beside the selection, for the agent. */
+#ask {
+  position: absolute; z-index: 3; padding: 2px 9px 2px 7px; border-radius: 10px;
+  font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #fff; background: #7048e8; border: 1px solid #7048e8; cursor: pointer;
+}
+#ask::before { content: "\2726"; margin-right: 4px; }
+#ask[data-off="1"] { color: #7048e8; background: var(--surface); border-style: dashed; opacity: 0.8; }
+#ask[hidden] { display: none; }
 /* grafli serve: reveal mode — what the others don't see yet, faint, for the
    presenter only. */
 #reveal-outlines { pointer-events: none; }

@@ -114,6 +114,11 @@ body {
   color: var(--ink); font: 15px ui-monospace, "JetBrains Mono", monospace;
 }
 #live-field[hidden], #cmdline[hidden] { display: none; }
+/* grafli serve: the mouse — move inside a box, connect from its edge. */
+#stage[data-grab] .hit { cursor: inherit; }
+#stage[data-grab="body"] { cursor: move; }
+#stage[data-grab="moving"] { cursor: grabbing; }
+#stage[data-grab="edge"], #stage[data-grab="connecting"] { cursor: crosshair; }
 
 #stage-wrap { position: relative; overflow: hidden; min-height: 0; }
 #stage {

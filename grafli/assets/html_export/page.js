@@ -717,11 +717,18 @@
     else closePeek();
   }
 
+  // grafli serve's mouse gestures: asked first, outside a tour and a level
+  // zoom, with the press and the element under it; a hook that returns true
+  // takes the press over, and the page neither pans nor clicks for it.
+  const pointerHooks = [];
+
   let drag = null;
   stage.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || !board) return;
+    const target = e.target.__el || null;
+    if (!tour && !busy && pointerHooks.some((fn) => fn(e, target))) return;
     drag = { x: e.clientX, y: e.clientY, moved: false,
-             target: e.target.__el || null, view: vb };
+             target, view: vb };
     stage.setPointerCapture(e.pointerId);
   });
   stage.addEventListener("pointermove", (e) => {
@@ -915,6 +922,11 @@
       if (board) select(board.elements.find((e) => e.id === id) || null);
     },
     addKeyHook: (fn) => { keyHooks.push(fn); },
+    addPointerHook: (fn) => { pointerHooks.push(fn); },
+    // What a click on *el* does: select it, zoom into its level, peek at
+    // its doc.
+    activate: (el) => activate(el),
+    toBoard: (clientX, clientY) => toBoard(clientX, clientY),
     // Show rect [x, y, w, h] whole, at this stage's aspect.
     frame: (r) => { cancelGlide(); setView(frameRect(r, 0)); },
     onView: (fn) => { viewListeners.push(fn); },

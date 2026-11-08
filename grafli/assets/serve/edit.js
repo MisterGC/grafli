@@ -317,6 +317,7 @@
 
   function closeField() {
     field.hidden = true;
+    field.placeholder = "";
     fieldDone = fieldCancel = null;
     field.blur();
   }
@@ -491,6 +492,16 @@
   stage.addEventListener("pointerdown", () => { if (jump) endJump(); }, true);
 
   window.grafliEdit = {
+    // What the mouse gestures (mouse.js) build on.
+    rename,
+    send,
+    ghostBox,
+    ghostLine,
+    // The text field over rect r, as for a label: done(text) on Enter.
+    ask: (r, value, hint, done, cancel) => {
+      field.placeholder = hint || "";
+      openField(r, value, done, cancel);
+    },
     jump: () => (jump ? { purpose: jump.purpose, labels: Array.from(jump.map.keys()) } : null),
     labelOf: (id) => {
       if (!jump) return null;

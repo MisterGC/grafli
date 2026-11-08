@@ -1,5 +1,5 @@
 """The small edits a tab sends: move, rename, add a box, connect, delete,
-and grafli lines typed on the tab's ``:`` command line.
+a ``Q:`` comment, and grafli lines typed on the tab's ``:`` command line.
 
 Each operation is a JSON object with an ``op`` name and its fields, applied
 in place to a parsed ``Board``. ``apply_op`` raises ``OpError`` with a
@@ -14,7 +14,7 @@ import dataclasses
 import math
 import re
 
-from grafli.format import (Arrow, Board, Box, doc_name, parse,
+from grafli.format import (Arrow, Board, Box, Note, doc_name, parse,
                            supported_version)
 
 # The app's new-box size (grafli.constants.DEFAULT_BOX_W / _H), repeated here
@@ -86,14 +86,37 @@ def _descendants(board: Board, box_id: str) -> list:
     return out
 
 
+def _parent_for(board: Board, el, op: dict) -> str:
+    """The container *op* puts *el* in: its ``parent`` field ("" for none),
+    which must be a box that is neither *el* nor inside it."""
+    parent = _text(op, "parent", required=False)
+    if not parent:
+        return ""
+    if board.box_by_id(parent) is None:
+        raise OpError(f"no box '{parent}' to put it in")
+    if parent == el.id or (isinstance(el, Box) and any(
+            d.id == parent for d in _descendants(board, el.id))):
+        raise OpError(f"'{el.id}' cannot go inside itself")
+    return parent
+
+
 def _move(board: Board, op: dict) -> dict:
+    """Move a box, note or image to x, y — or by dx, dy, as a drag in the
+    tab does: the tab knows how far the pointer went, not where the file
+    puts the element. With ``parent`` it also goes into that box ("" for
+    none), as a drop in the app nests what it drops."""
     elem_id = _text(op, "id")
     el = _placed(board, elem_id)
     if el is None:
         raise OpError(f"no box, note or image '{elem_id}'")
-    x, y = _number(op, "x"), _number(op, "y")
-    dx, dy = x - el.x, y - el.y
-    el.x, el.y = x, y
+    if "dx" in op or "dy" in op:
+        dx, dy = _number(op, "dx"), _number(op, "dy")
+    else:
+        x, y = _number(op, "x"), _number(op, "y")
+        dx, dy = x - el.x, y - el.y
+    if "parent" in op:
+        el.parent = _parent_for(board, el, op)
+    el.x, el.y = el.x + dx, el.y + dy
     # A container carries what it holds, as a drag in the app does.
     if isinstance(el, Box):
         for child in _descendants(board, el.id):
@@ -227,6 +250,28 @@ def _delete(board: Board, op: dict) -> dict:
     else:
         board.remove_image(el)
     return {"id": elem_id}
+
+
+# What makes a note a question in the app (grafli.items, which needs Qt):
+# Q:, QUESTION:, any case.
+_QUESTION_RE = re.compile(r"^\s*(?:q|question)\s*:", re.IGNORECASE)
+
+
+def _comment(board: Board, op: dict) -> dict:
+    """A ``Q:`` note with *text* at x, y — the tab's right-click — in the
+    box ``parent`` when given. *text* gets the ``Q:`` unless it has it."""
+    text = _text(op, "text").strip()
+    if not text:
+        raise OpError("an empty question: type what you want to ask")
+    if not _QUESTION_RE.match(text):
+        text = f"Q: {text}"
+    note_id = board.next_note_id()
+    while _placed(board, note_id) is not None:
+        note_id = f"{note_id}x"
+    note = Note(note_id, _number(op, "x"), _number(op, "y"), text)
+    note.parent = _parent_for(board, note, op)
+    board.add_note(note)
+    return {"id": note.id}
 
 
 # A box line on the command line may leave out where the box goes:
@@ -400,6 +445,7 @@ OPS = {
     "add_box": _add_box,
     "connect": _connect,
     "delete": _delete,
+    "comment": _comment,
     "lines": _lines,
 }
 

@@ -120,6 +120,23 @@ body {
 #stage[data-grab="moving"] { cursor: grabbing; }
 #stage[data-grab="edge"], #stage[data-grab="connecting"] { cursor: crosshair; }
 .ghost rect.target { fill: none; stroke-dasharray: none; animation: none; }
+/* grafli serve: reveal mode — what the others don't see yet, faint, for the
+   presenter only. */
+#reveal-outlines { pointer-events: none; }
+#reveal-outlines rect, #reveal-outlines path {
+  fill: none; stroke: var(--ink); stroke-opacity: 0.3; stroke-width: 1.5;
+  stroke-dasharray: 6 4; vector-effect: non-scaling-stroke;
+}
+#reveal-outlines text {
+  fill: var(--ink); fill-opacity: 0.35;
+  dominant-baseline: central;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+#reveal-chip {
+  font-size: 12px; padding: 2px 8px; border-radius: 10px;
+  border: 1px dashed var(--accent); color: var(--accent);
+}
+#reveal-chip[hidden] { display: none; }
 
 #stage-wrap { position: relative; overflow: hidden; min-height: 0; }
 #stage {

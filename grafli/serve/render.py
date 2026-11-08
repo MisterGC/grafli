@@ -6,7 +6,7 @@ stdout, carrying back the request's ``seq``:
 
 * ``{"t": "shell"}`` → ``{"ok": true, "html": ...}``: the live page, the
   export page with no board in it and the live client, its editing keys,
-  presence and mouse gestures added;
+  presence, mouse gestures and reveal mode added;
 * ``{"t": "render", "path", "text", "root"}`` → ``{"ok": true, "board",
   "svgs", "docs", "fonts", "warnings", "ms"}``: *text* drawn as the board at
   *path*, exactly as ``grafli export-html`` draws it. A level into another
@@ -34,6 +34,8 @@ EDIT_JS = LIVE_JS.with_name("edit.js")
 PRESENCE_JS = LIVE_JS.with_name("presence.js")
 # The mouse gestures build on the keys' field and placeholders.
 MOUSE_JS = LIVE_JS.with_name("mouse.js")
+# Reveal mode's keys take their jump labels from the presenter's keys.
+REVEAL_JS = LIVE_JS.with_name("reveal.js")
 
 # Large enough for a board with many overlays; a frame is one line.
 _LINE_LIMIT = 256 * 1024 * 1024
@@ -195,7 +197,7 @@ def _shell() -> str:
     return _page("grafli", data, [], [],
                  extra_js="\n".join(js.read_text(encoding="utf-8") for js in
                                     (LIVE_JS, EDIT_JS, PRESENCE_JS,
-                                     MOUSE_JS)),
+                                     MOUSE_JS, REVEAL_JS)),
                  generator="grafli serve")
 
 

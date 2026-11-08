@@ -11,7 +11,9 @@ board file, and a presence message never makes a frame. A tab sends:
 * ``{"t": "view", "x", "y", "w", "h"}`` — the camera; only the presenter's
   is passed on;
 * ``{"t": "follow", "on"}`` whether it follows the presenter;
-* ``{"t": "name", "name"}`` the name the others see.
+* ``{"t": "name", "name"}`` the name the others see;
+* ``{"t": "select", "id"}`` what the presenter selected (``None`` for
+  nothing); kept for the agent to read, never passed on.
 
 The server passes cursors and the laser on to the board's other tabs with
 the sender's public ``id`` (never its author token), sends every tab a
@@ -27,7 +29,7 @@ import time
 import unicodedata
 
 # The presenter's colour; guests take the first free one of the others.
-# Purple stays for the agent (grafli#267).
+# Purple is the agent's (``grafli.serve.agent.AGENT_COLOR``).
 PRESENTER_COLOR = "#e8590c"
 GUEST_COLORS = ("#0c8599", "#1971c2", "#2f9e44", "#c2255c", "#66a80f",
                 "#495057")
@@ -41,7 +43,7 @@ MAX_COORD = 1e7
 RATE_PER_S = 60.0
 BURST = 120.0
 
-KINDS = ("cursor", "laser", "view", "follow", "name")
+KINDS = ("cursor", "laser", "view", "follow", "name", "select")
 
 
 def new_id() -> str:

@@ -133,7 +133,9 @@ class Room:
                  fonts: dict[str, dict], log: Callable[[str], None] | None = None,
                  poll_s: float = POLL_S,
                  history: dict[str, list[Step]] | None = None,
-                 reveal_state: reveal.RevealState | None = None):
+                 reveal_state: reveal.RevealState | None = None,
+                 agent: Callable[[], dict | None] | None = None,
+                 texts: OrderedDict[int, str] | None = None):
         self.path = path
         self.name = name
         self.root = root
@@ -146,7 +148,14 @@ class Room:
         # The presenter's tab the others follow, and its last view.
         self.lead: Client | None = None
         self.view: dict | None = None
-        self._texts: OrderedDict[int, str] = OrderedDict()
+        # What the presenter's leading tab has selected: the agent reads it.
+        self.selection: str | None = None
+        # The board's agent as the tabs see it (``grafli.serve.agent``).
+        self._agent = agent or (lambda: None)
+        # Version → its text; kept by the server, so an agent that read a
+        # board no tab is on can write against it after the room closed.
+        self._texts: OrderedDict[int, str] = (OrderedDict() if texts is None
+                                              else texts)
         # Author → their edits, oldest first; kept by the server, so a tab
         # that reconnects (or reloads) can still undo.
         self.history: dict[str, list[Step]] = {} if history is None else history
@@ -292,7 +301,7 @@ class Room:
         client.joined = next(_joins)
         if client.role == "presenter":
             client.color = presence.PRESENTER_COLOR
-            self.lead, self.view = client, None
+            self.lead, self.view, self.selection = client, None, None
         else:
             used = {c.slot for c in self.clients}
             free = [i for i in range(len(presence.GUEST_COLORS)) if i not in used]
@@ -315,7 +324,7 @@ class Room:
             # The presenter's other tab on this board, the latest, leads.
             others = [c for c in self.clients if c.role == "presenter"]
             self.lead = max(others, key=lambda c: c.joined, default=None)
-            self.view = None
+            self.view = self.selection = None
         await self._send_peers()
 
     # ── Presence: in memory only, never in the file ──
@@ -325,13 +334,18 @@ class Room:
                 "lead": self.lead.id if self.lead else None,
                 "peers": [{"id": c.id, "name": c.shown_name(), "role": c.role,
                            "color": c.color, "following": c.following}
-                          for c in sorted(self.clients, key=lambda c: c.joined)]}
+                          for c in sorted(self.clients, key=lambda c: c.joined)],
+                "agent": self._agent()}
 
     async def send_to(self, client: Client, msg: dict) -> None:
         try:
             await client.send(msg)
         except Exception:
             self.clients.discard(client)
+
+    async def send_peers(self) -> None:
+        """Tell every tab who is here, the agent too."""
+        await self._send_peers()
 
     async def _send_peers(self) -> None:
         clients = list(self.clients)
@@ -363,6 +377,11 @@ class Room:
             if on != client.following:
                 client.following = on
                 await self._send_peers()
+        elif kind == "select":
+            if client is self.lead:
+                el = msg.get("id")
+                self.selection = (el if isinstance(el, str)
+                                  and 0 < len(el) <= 256 else None)
         elif kind == "name":
             name = presence.clean_name(msg.get("name"))
             if name != client.name:
@@ -455,6 +474,37 @@ class Room:
             version = await self._land(text, disk_text)
         return {"touched": touched["id"], "conflicts": conflicts,
                 "version": version}
+
+    async def write(self, base: int, text: str, author: str = "") -> dict:
+        """Merge the whole board *text*, written against version *base*,
+        into the file — the agent's edit; what changed since *base* stays.
+
+        Returns ``{"conflicts": [...], "version": the version that shows
+        it}`` once that version is drawn and pushed; raises ``OpError`` when
+        it cannot be written.
+        """
+        if not isinstance(text, str) or not text.strip():
+            raise OpError("the board text is empty")
+        async with self._edit_lock:
+            base_text = self._texts.get(base) if isinstance(base, int) else None
+            if base_text is None:
+                raise OpError(f"version {base!r} of {self.name} is not kept "
+                              "(too old or never seen); read the board again")
+            base_board = parse(base_text)
+            if is_newer(base_board):
+                raise OpError(f"{self.name} was written by a newer grafli; "
+                              "it is read-only here")
+            local = parse(text)
+            if is_newer(local):
+                raise OpError("the text is marked for a newer grafli")
+            disk_text, remote = self._read_disk()
+            merged, conflicts = self._merge(base_board, local, disk_text, remote)
+            if merged != disk_text and author:
+                steps = self.history.setdefault(author, [])
+                steps.append(Step(disk_text, merged, ""))
+                del steps[:-KEEP_UNDO]
+            version = await self._land(merged, disk_text)
+        return {"conflicts": conflicts, "version": version}
 
     async def undo(self, author: str) -> dict:
         """Take back *author*'s last edit that still changes something.

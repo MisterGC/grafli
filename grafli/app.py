@@ -2476,6 +2476,11 @@ def _cmd_serve(argv: list[str]) -> int:
         help="Colour theme of the drawing (default light)")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Print a line per pushed change with its timing")
+    parser.add_argument(
+        "--reveal", action="store_true",
+        help="Reveal mode: every board shows only its title until the "
+             "present link's tab reveals it, element by element (v); never "
+             "written to the file")
     args = parser.parse_args(argv)
     try:
         import starlette  # noqa: F401
@@ -2502,7 +2507,8 @@ def _cmd_serve(argv: list[str]) -> int:
     port = DEFAULT_PORT if args.port is None else args.port
     try:
         return run(target, host=host, port=port, theme=args.theme,
-                   verbose=args.verbose, open_board=open_board)
+                   verbose=args.verbose, open_board=open_board,
+                   reveal=args.reveal)
     except OSError as e:
         print(f"Cannot listen on {host}:{port}: {e}", file=sys.stderr)
         return 2

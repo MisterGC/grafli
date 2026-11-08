@@ -14,7 +14,10 @@ so what others changed since stays.
 
 Presence (``grafli.serve.presence``) lives here too, in memory only: who is
 on the board, their cursors and laser, and the presenter's view. None of it
-touches the file or makes a frame. No Qt.
+touches the file or makes a frame. Reveal mode (``grafli.serve.reveal``) is
+presence that does make frames: while it hides part of the board, each text
+is drawn twice, once whole and once without the hidden elements, and every
+tab but the presenter's gets the second drawing. No Qt.
 """
 
 from __future__ import annotations
@@ -29,7 +32,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, Protocol
 
 from grafli.format import Board, is_newer, parse, serialize
-from grafli.serve import presence
+from grafli.serve import presence, reveal
 from grafli.serve.ops import OpError, apply_op
 from grafli.sync import atomic_write, merge_boards
 
@@ -95,6 +98,15 @@ class Frame:
     changed_at: float             # the file's mtime that this frame shows
     render_ms: float
     pushed_at: float = 0.0
+    # In reveal mode: what the guests' tabs and the presenter's get instead
+    # (``guest`` None while nothing is hidden).
+    guest: dict | None = None
+    lead: dict | None = None
+
+    def drawing_for(self, client: "Client") -> dict:
+        if client.role == "presenter":
+            return self.lead or self.drawing
+        return self.guest or self.drawing
 
 
 def _signature(path: Path) -> tuple:
@@ -120,7 +132,8 @@ class Room:
     def __init__(self, path: Path, name: str, root: Path, renderer: Renderer,
                  fonts: dict[str, dict], log: Callable[[str], None] | None = None,
                  poll_s: float = POLL_S,
-                 history: dict[str, list[Step]] | None = None):
+                 history: dict[str, list[Step]] | None = None,
+                 reveal_state: reveal.RevealState | None = None):
         self.path = path
         self.name = name
         self.root = root
@@ -137,6 +150,8 @@ class Room:
         # Author → their edits, oldest first; kept by the server, so a tab
         # that reconnects (or reloads) can still undo.
         self.history: dict[str, list[Step]] = {} if history is None else history
+        # Kept by the server too, so a reload finds the board as it was left.
+        self.reveal = reveal_state or reveal.RevealState()
         self._sig: tuple = ()
         self._first = asyncio.Event()
         self._edit_lock = asyncio.Lock()
@@ -197,14 +212,27 @@ class Room:
             await self.broadcast({"t": "error",
                                    "message": f"{self.name} did not render: {e}"})
             return None
-        render_ms = (time.perf_counter() - t0) * 1000
-        for font in drawing.pop("fonts", []):
-            self._fonts[_font_key(font)] = font
-        version = next(_versions)
+        self._keep_fonts(drawing)
+        state = self.reveal
+        if state.on_open and not state.started:
+            # Hidden before any tab gets a frame of it.
+            state.started = True
+            state.hidden = reveal.start(parse(text))
+        frame = Frame(0, text, drawing, changed_at, 0.0)
+        try:
+            await self._draw_reveal(frame)
+        except Exception as e:
+            # Never the whole board to the guests in place of the hidden one.
+            await self.broadcast({"t": "error",
+                                   "message": f"{self.name} did not render: {e}"})
+            return None
+        frame.render_ms = (time.perf_counter() - t0) * 1000
+        frame.version = version = next(_versions)
         self._texts[version] = text
         while len(self._texts) > KEEP_VERSIONS:
             self._texts.popitem(last=False)
-        self.frame = Frame(version, text, drawing, changed_at, render_ms)
+        self.frame = frame
+        render_ms = frame.render_ms
         await asyncio.gather(*(self._send_frame(c) for c in list(self.clients)))
         self.frame.pushed_at = time.time()
         self._log(f"{self.name} v{version}: drawn in {render_ms:.0f} ms, "
@@ -213,6 +241,26 @@ class Room:
                   f"after the file changed")
         return version
 
+    def _keep_fonts(self, drawing: dict) -> None:
+        for font in drawing.pop("fonts", []):
+            self._fonts[_font_key(font)] = font
+
+    async def _draw_reveal(self, frame: Frame) -> None:
+        """Set *frame*'s guest and presenter drawings for the reveal state
+        now: none while reveal mode is off."""
+        hidden = self.reveal.hidden
+        if hidden is None:
+            frame.guest = frame.lead = None
+            return
+        text = reveal.guest_text(frame.text, hidden)
+        guest = None
+        if text is not None:
+            guest = await self._renderer.render(self.path, text, self.root)
+            self._keep_fonts(guest)
+        frame.guest = guest
+        count = len(reveal.hidden_now(parse(frame.text), hidden))
+        frame.lead = reveal.lead_drawing(frame.drawing, guest, count)
+
     def _frame_message(self, client: Client) -> dict:
         assert self.frame is not None
         fonts = [f for k, f in self._fonts.items() if k not in client.fonts]
@@ -220,7 +268,8 @@ class Room:
         return {"t": "frame", "version": self.frame.version,
                 "changed_at": self.frame.changed_at,
                 "render_ms": round(self.frame.render_ms, 1),
-                "sent_at": time.time(), **self.frame.drawing, "fonts": fonts}
+                "sent_at": time.time(), **self.frame.drawing_for(client),
+                "fonts": fonts}
 
     async def _send_frame(self, client: Client) -> None:
         try:
@@ -319,6 +368,59 @@ class Room:
             if name != client.name:
                 client.name = name
                 await self._send_peers()
+
+    # ── Reveal mode: in memory only, never in the file ──
+
+    async def reveal_step(self, msg: dict) -> dict:
+        """Change what the guests see, as the presenter's *msg* asks:
+
+        * ``{"do": "start"}`` hides all but the title,
+          ``{"do": "stop"}`` shows everything and ends reveal mode;
+        * ``{"do": "show", "el": <id>}`` reveals that element with what it
+          holds, ``"near": true`` also what an arrow connects it to;
+          ``{"do": "all"}`` reveals the rest and stays in reveal mode.
+
+        Returns ``{"revealed": [ids now shown], "hidden": how many are
+        still hidden, "on": whether reveal mode is on, "version"}`` once the
+        tabs have the new drawing; raises ``OpError`` when it cannot be done.
+        """
+        async with self._publish_lock:
+            frame = self.frame
+            if frame is None:
+                raise OpError("the board is not drawn yet")
+            state, board = self.reveal, parse(frame.text)
+            was = None if state.hidden is None else set(state.hidden)
+            before = reveal.hidden_now(board, was or set())
+            do = msg.get("do")
+            if do == "start":
+                state.hidden = reveal.start(board)
+            elif do == "stop":
+                state.hidden = None
+            elif do in ("show", "all"):
+                if state.hidden is None:
+                    raise OpError("reveal mode is off")
+                if do == "all":
+                    state.hidden = set()
+                else:
+                    el_id = msg.get("el")
+                    try:
+                        shown = reveal.uncover(board, el_id,
+                                               near=msg.get("near") is True)
+                    except (KeyError, TypeError):
+                        raise OpError(f"no element '{el_id}' to reveal") from None
+                    state.hidden -= shown
+            else:
+                raise OpError(f"no reveal step '{do}'")
+            try:
+                await self._draw_reveal(frame)
+            except Exception as e:
+                state.hidden = was
+                raise OpError(f"{self.name} did not render: {e}") from e
+            after = reveal.hidden_now(board, state.hidden or set())
+            await asyncio.gather(*(self._send_frame(c)
+                                   for c in list(self.clients)))
+            return {"revealed": sorted(before - after), "hidden": len(after),
+                    "on": state.on, "version": frame.version}
 
     # ── Edits ──
 

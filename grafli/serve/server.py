@@ -17,6 +17,11 @@
   whether it ``follow``s. When the presenter opens another board, the tabs
   on every other board get ``{"t": "away", "board", "href"}`` (``board``
   None once no board has the presenter).
+* Reveal mode — the presenter's ``{"t": "reveal", "id", "do", ...}`` (see
+  ``Room.reveal_step``) — hides part of the board from every other tab;
+  it is answered with ``ack`` or ``error`` like an edit and, like presence,
+  never stored. ``create_app(reveal=True)`` hides every board but its title
+  from its first frame on.
 
 A wrong key closes the socket with code 4401, an unknown board with 4404.
 """
@@ -40,6 +45,7 @@ from urllib.parse import quote
 from grafli.serve.ops import OpError
 from grafli.serve.presence import KINDS as PRESENCE, clean_name
 from grafli.serve.render import RenderWorker, board_name
+from grafli.serve.reveal import RevealState
 from grafli.serve.room import Client, Room
 
 DEFAULT_HOST = "127.0.0.1"
@@ -111,7 +117,8 @@ class Hub:
     """The rooms of one server, opened on the first tab, closed after the
     last."""
 
-    def __init__(self, root: Path, renderer, log: Callable[[str], None]):
+    def __init__(self, root: Path, renderer, log: Callable[[str], None],
+                 reveal: bool = False):
         self.root = root
         self.renderer = renderer
         self.log = log
@@ -120,6 +127,10 @@ class Hub:
         # Board → author → their edits; outlives a room, so undo still works
         # after the last tab on a board reloaded.
         self.history: dict[Path, dict] = {}
+        # Board → its reveal mode, kept like the history; *reveal* starts
+        # every board hidden.
+        self.reveal = reveal
+        self.reveals: dict[Path, RevealState] = {}
         # The board the presenter's latest tab is on.
         self.lead_room: Room | None = None
         self._shell: str | None = None
@@ -134,7 +145,9 @@ class Hub:
         if room is None:
             room = Room(path, name, self.root, self.renderer, self.fonts,
                         log=self.log,
-                        history=self.history.setdefault(path, {}))
+                        history=self.history.setdefault(path, {}),
+                        reveal_state=self.reveals.setdefault(
+                            path, RevealState(on_open=self.reveal)))
             self.rooms[path] = room
             room.start()
         return room
@@ -180,15 +193,17 @@ class Hub:
 
 
 def create_app(root: Path, keys: Keys, renderer=None,
-               log: Callable[[str], None] | None = None):
-    """The ASGI app serving the boards under *root*."""
+               log: Callable[[str], None] | None = None, reveal: bool = False):
+    """The ASGI app serving the boards under *root*; with *reveal*, each
+    board starts with only its title showing."""
     from starlette.applications import Starlette
     from starlette.responses import HTMLResponse, PlainTextResponse
     from starlette.routing import Route, WebSocketRoute
     from starlette.websockets import WebSocket, WebSocketDisconnect
 
     root = Path(root).resolve()
-    hub = Hub(root, renderer or RenderWorker(), log or (lambda _m: None))
+    hub = Hub(root, renderer or RenderWorker(), log or (lambda _m: None),
+              reveal=reveal)
 
     async def page(request):
         # The same page for every name: what exists is told only after the key.
@@ -243,6 +258,8 @@ def create_app(root: Path, keys: Keys, renderer=None,
                 kind = msg.get("t")
                 if kind in ("edit", "undo"):
                     await _edit(room, client, msg, send)
+                elif kind == "reveal":
+                    await _reveal(room, client, msg, send)
                 elif kind in PRESENCE:
                     await room.presence(client, msg)
         except (WebSocketDisconnect, json.JSONDecodeError, RuntimeError):
@@ -298,6 +315,20 @@ async def _edit(room: Room, client: Client, msg: dict, send) -> None:
     await send({"t": "ack", "id": req_id, **result})
 
 
+async def _reveal(room: Room, client: Client, msg: dict, send) -> None:
+    req_id = msg.get("id")
+    if client.role != "presenter":
+        await send({"t": "error", "id": req_id,
+                    "message": "only the present link reveals"})
+        return
+    try:
+        result = await room.reveal_step(msg)
+    except OpError as e:
+        await send({"t": "error", "id": req_id, "message": str(e)})
+        return
+    await send({"t": "ack", "id": req_id, **result})
+
+
 def bind(host: str, port: int) -> socket.socket:
     """A listening socket on *host* only — never every interface unless
     *host* says so."""
@@ -323,8 +354,10 @@ def every_interface(host: str) -> bool:
 
 def run(root: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
         theme: str = "light", verbose: bool = False,
-        out=sys.stdout, open_board: str | None = None) -> int:
-    """Serve the boards under *root* until Ctrl+C; prints the links."""
+        out=sys.stdout, open_board: str | None = None,
+        reveal: bool = False) -> int:
+    """Serve the boards under *root* until Ctrl+C; prints the links. With
+    *reveal*, every board starts with only its title showing."""
     import uvicorn
 
     root = Path(root).resolve()
@@ -336,12 +369,15 @@ def run(root: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
         if verbose:
             print(msg, file=out, flush=True)
 
-    app = create_app(root, keys, RenderWorker(theme), log)
+    app = create_app(root, keys, RenderWorker(theme), log, reveal=reveal)
     names = [open_board] if open_board else listed_boards(root)
     print(f"grafli serve: {root} on {host}:{port} — your network or VPN only; "
           "Ctrl+C stops it", file=out)
     if every_interface(host):
         print(f"Warning: {host} listens on every interface", file=out)
+    if reveal:
+        print("Reveal mode: every board shows only its title until the "
+              "present link's tab reveals it (v)", file=out)
     if not names:
         print("No boards here yet; a board's link is "
               + link(host, port, "<board>", keys.viewer), file=out)

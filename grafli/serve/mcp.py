@@ -22,8 +22,9 @@ session can hear them only as far as this side can tell (it cannot).
 The JSON-RPC here is the small part of MCP a stdio server needs:
 ``initialize``, ``ping``, ``tools/list``, ``tools/call``, ``prompts/list``
 and ``prompts/get``; one JSON message per line. It answers with protocol
-revision ``2025-06-18`` at the newest, which Claude Code accepts and under
-which it delivers channel notifications.
+revision ``2025-06-18`` at the newest: Claude Code's docs say a channel
+server on revision ``2026-07-28`` cannot deliver channel messages, and that
+``MCP_PROTOCOL_NEGOTIATION=legacy`` in the session's environment avoids it.
 """
 
 from __future__ import annotations

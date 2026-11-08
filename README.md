@@ -108,7 +108,9 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
   with the mouse: click, double-click to rename, drag to move, drag from an
   edge to connect, right-click for a `Q:` question. With `--reveal` a
   prepared board shows only its title until the presenter reveals it by jump
-  label (`v`), in any order.
+  label (`v`), in any order. A Claude Code session you already run connects
+  as the boards' agent (`grafli agent`, over MCP): the tabs show it by name,
+  and as gone when it drops.
 - Bookmarks & flows — save labeled viewpoints (semantic anchors, not pixel
   coords) and string them into guided tours: step through, auto-play, present
   fullscreen (<kbd>F5</kbd>), or export a slide PDF (`grafli export … --flow`).

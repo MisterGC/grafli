@@ -270,6 +270,8 @@ same key.
   that board's links.
 - `--reveal` starts every board with only its title showing; see
   [Reveal a prepared board](#reveal-a-prepared-board-as-you-talk).
+- A Claude Code session you already run can be the boards' agent; see
+  [Connect your agent](#connect-your-agent-a-claude-code-session-you-run).
 
 An edit link's tab can change the board: each edit is a small operation
 (move, rename, add a box, connect, delete, a `Q:` question, grafli lines)
@@ -384,6 +386,67 @@ still hidden as faint dashed outlines, and the bar counts it
 ("revealing · 3 hidden"). What is hidden lives in the server's memory only:
 it is never written to the board file, survives a reload of your tab and
 ends when `grafli serve` stops.
+
+### Connect your agent: a Claude Code session you run
+
+The boards' agent is a Claude Code session you are already running on the
+machine that runs `grafli serve`. grafli never starts a session; without a
+connected one there is no agent.
+
+Once, register grafli's MCP server with Claude Code for every project:
+
+```bash
+claude mcp add -s user grafli -- grafli agent
+```
+
+Claude Code starts `grafli agent` with each session; it does nothing until
+you connect it. To connect, while `grafli serve` runs, type
+`/mcp__grafli__connect` in the session (or ask it to connect to grafli).
+Every tab on the board shows the agent in the bar by name, in purple —
+"Serein's agent" after the presenter's name, or the name you give it — and
+says it connected. The session can then:
+
+- read a board (`read_board`): its text, its version, what you selected in
+  the present link's tab and your view;
+- write it (`write_board`): the whole text, against the version it read,
+  merged into the file the way every tab's edit is, so what others changed
+  in the meantime stays;
+- look at it (`render_board`): the board drawn as a PNG.
+
+Without a board name the session works on the board your present link's
+tab is on.
+
+**A request from the board reaches the session** as a Claude Code
+*channel* message: `grafli agent` forwards it into the conversation, where
+it arrives as a `<channel source="grafli">` turn the session acts on
+without anyone typing in it. Claude Code takes channel messages only from a
+session started with the channel named, which for a server you added
+yourself means
+
+```bash
+claude --dangerously-load-development-channels server:grafli
+```
+
+Claude Code asks you to confirm the flag. In a session started without it,
+the tools work but requests from the board do not arrive. `grafli agent`
+answers Claude Code with MCP revision `2025-06-18`, because Claude Code
+does not deliver channel messages over the newer `2026-07-28`; if requests
+still do not arrive, start the session with
+`MCP_PROTOCOL_NEGOTIATION=legacy` set. Channels are a
+research preview in Claude Code: they need a claude.ai login or a Console
+API key, and a Team or Enterprise organisation must allow them.
+
+**When the session drops** — it ends, or its `grafli agent` stops — every
+tab shows the agent dashed, "Serein's agent · gone", and nothing is sent to
+it. Connect again from the same session (`/mcp` → Reconnect `grafli`, then
+`/mcp__grafli__connect`) or from another one, and it is present again. One
+session is the agent at a time: connecting a second takes the seat over,
+and the first is told so.
+
+`grafli serve` keeps where it listens and the agent's key in a file only
+your user can read (`~/.local/state/grafli/serve-<port>.json`, removed when
+it stops); the key is in no link, so no tab can take the agent's seat. With
+several servers running, `connect` takes the latest unless you name a port.
 
 ## When you want to *explain* the path
 

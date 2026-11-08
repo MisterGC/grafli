@@ -55,6 +55,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reaches them; the presenter sees the rest as faint dashed outlines. What
   is hidden is never written to the board file.
   ([#266](https://github.com/MisterGC/grafli/issues/266))
+- **Connect a Claude Code session you run as the boards' agent.**
+  `grafli agent` is an MCP server Claude Code starts with each session
+  (`claude mcp add -s user grafli -- grafli agent`); `/mcp__grafli__connect`
+  joins the running `grafli serve`, and every tab shows the agent in the
+  bar by name. The session reads a board (text, version, the presenter's
+  selection and view), writes it through the same merge as every tab's
+  edit, and gets it drawn as a PNG. A request pushed from the board reaches
+  the session as a Claude Code channel message, in a session started with
+  `--dangerously-load-development-channels server:grafli`. When the session
+  drops, the tabs show the agent as gone until it, or another, connects
+  again. grafli never starts a session itself.
+  ([#267](https://github.com/MisterGC/grafli/issues/267))
 - **`grafli fmt` — canonical form for hand- and agent-authored boards.**
   Boards written outside the app never pass through its save path, so their
   coordinates and token spacing drift from what the app would write and the

@@ -1,5 +1,7 @@
 """Shared test fixtures."""
 
+import gc
+
 import pytest
 
 from grafli import theme
@@ -28,3 +30,20 @@ def _private_serve_state(tmp_path_factory, monkeypatch):
     ``grafli agent`` on this machine never finds a test's server."""
     monkeypatch.setenv("GRAFLI_STATE_DIR",
                        str(tmp_path_factory.mktemp("serve-state")))
+
+
+@pytest.fixture(autouse=True)
+def _qt_garbage_freed_on_main_thread(request):
+    """Free the Qt views earlier tests left behind before a serve test.
+
+    A dropped ``GrafliView`` sits in a reference cycle, so only the cyclic
+    garbage collector frees it — on whichever thread happens to trigger it.
+    A serve test runs uvicorn in a thread; a collection there destroys Qt
+    widgets off the GUI thread, and the suite died later in Qt's event
+    processing (a segfault or bus error) or timed out a websocket
+    handshake. Collecting on the main thread first leaves that thread
+    nothing of Qt's to free."""
+    module = request.node.module.__name__.rsplit(".", 1)[-1]
+    if module.startswith("test_serve"):
+        gc.collect()
+    yield

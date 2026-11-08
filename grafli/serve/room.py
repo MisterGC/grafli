@@ -481,7 +481,9 @@ class Room:
 
         Returns ``{"conflicts": [...], "version": the version that shows
         it}`` once that version is drawn and pushed; raises ``OpError`` when
-        it cannot be written.
+        it cannot be written — also when *text* holds no element while
+        version *base* has some, which would empty the board (prose sent in
+        place of the board, say).
         """
         if not isinstance(text, str) or not text.strip():
             raise OpError("the board text is empty")
@@ -497,6 +499,11 @@ class Room:
             local = parse(text)
             if is_newer(local):
                 raise OpError("the text is marked for a newer grafli")
+            if _count_elements(base_board) and not _count_elements(local):
+                raise OpError("the text holds no board elements (boxes, "
+                              "notes, images, arrows), so writing it would "
+                              "empty the board; send the whole board text "
+                              "read_board returned, changed")
             disk_text, remote = self._read_disk()
             merged, conflicts = self._merge(base_board, local, disk_text, remote)
             if merged != disk_text and author:
@@ -555,6 +562,11 @@ class Room:
         if text != disk_text:
             atomic_write(self.path, text)
         return await self._refresh(force=True)
+
+
+def _count_elements(board: Board) -> int:
+    return (len(board.boxes) + len(board.notes) + len(board.images)
+            + len(board.arrows))
 
 
 def _drop_loose_arrows(merged: Board, remote: Board) -> None:

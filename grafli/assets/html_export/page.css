@@ -57,6 +57,17 @@ body {
   font-size: 11px; font-weight: 700;
 }
 #peers .peer.me { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--ink); }
+#agent {
+  --agent: #7048e8;
+  padding: 1px 8px 1px 6px; border-radius: 10px; font-weight: 600;
+  color: #fff; background: var(--agent); white-space: nowrap;
+}
+#agent::before { content: "\2726"; margin-right: 4px; }
+#agent:not([data-present="1"]) {
+  color: var(--agent); background: transparent;
+  border: 1px dashed var(--agent); opacity: 0.75;
+}
+#agent[hidden] { display: none; }
 #bar #follow, #bar #me { font-size: 12px; padding: 2px 8px; border-width: 2px; }
 #bar #follow[data-on="1"] { opacity: 0.85; }
 #followers { opacity: 0.8; }

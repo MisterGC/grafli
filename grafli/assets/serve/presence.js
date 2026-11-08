@@ -9,6 +9,11 @@
 // what the presenter's tab shows, and goes along to another board. Panning
 // or zooming yourself stops it; the button in the bar starts and stops it.
 // The name others see is the button "You: …" in the bar.
+//
+// The board's agent — a Claude Code session the presenter connected — shows
+// in the bar by name, in purple, while it is present, and dashed as "gone"
+// once the session drops, until it (or another) connects again. The
+// presenter's tab tells the server what it selected, for the agent to read.
 (() => {
   "use strict";
   const page = window.grafliPage, live = window.grafliLive;
@@ -34,6 +39,7 @@
   const cursors = new Map(); // id → {x, y} in board units
   const trails = new Map();  // id → [{x, y, t}]
   let me = null, lead = null, presenterView = null, away = null;
+  let agent = null;          // {name, color, present}, null before any agent
   let following = stored("sessionStorage", "grafli-follow") !== "off";
   let laser = false;
 
@@ -48,6 +54,7 @@
   const bar = document.createElement("span");
   bar.id = "presence";
   bar.innerHTML = '<span id="peers"></span>'
+    + '<span id="agent" hidden></span>'
     + '<button id="follow" type="button" hidden></button>'
     + '<span id="followers" hidden></span>'
     + '<button id="me" type="button" title="The name the others see; click to change it"></button>'
@@ -69,6 +76,7 @@
       dots.push(d);
     }
     $("peers").replaceChildren(...dots);
+    showAgent();
     const self = peers.get(me);
     meBtn.textContent = self ? `You: ${self.name}` : "You";
     meBtn.style.borderColor = self ? self.color : "";
@@ -96,6 +104,19 @@
     } else {
       followBtn.hidden = true;
     }
+  }
+
+  function showAgent() {
+    const chip = $("agent");
+    chip.hidden = !agent;
+    if (!agent) return;
+    chip.textContent = agent.present ? agent.name : `${agent.name} · gone`;
+    chip.dataset.present = agent.present ? "1" : "";
+    chip.style.setProperty("--agent", agent.color);
+    chip.title = agent.present
+      ? `${agent.name} · the board's agent, a Claude Code session the presenter connected`
+      : `${agent.name} · gone: the session dropped; the presenter connects it (or another) again`;
+    chip.setAttribute("aria-label", chip.title);
   }
 
   followBtn.addEventListener("click", (e) => {
@@ -328,10 +349,27 @@
     if (m.role === "presenter") {
       following = false;
       if (page.current()) sendView();
+      sendSelection(page.selectedEl());
     }
   });
 
+  // What the presenter selected, for the agent to read.
+  function sendSelection(el) {
+    if (presenting()) live.post({ t: "select", id: el ? el.id : null });
+  }
+  page.onSelect(sendSelection);
+
   live.on("peers", (m) => {
+    const had = agent;
+    agent = m.agent || null;
+    if (had && agent && had.present !== agent.present) {
+      page.toast(agent.present ? `${agent.name} connected`
+                               : `${agent.name} is gone`);
+    } else if (!had && agent && agent.present && me) {
+      page.toast(`${agent.name} connected`);
+    } else if (had && agent && had.name !== agent.name && agent.present) {
+      page.toast(`${agent.name} is the agent now`);
+    }
     me = m.you;
     const was = lead;
     lead = m.lead;
@@ -388,5 +426,8 @@
     // The names on the cursors drawn now.
     shown: () => Array.from(layer.querySelectorAll(".cursor text")).map((t) => t.textContent),
     away: () => (away ? { ...away } : null),
+    agent: () => (agent ? { ...agent } : null),
+    // The agent as the bar shows it: its text, or null when hidden.
+    agentShown: () => ($("agent").hidden ? null : $("agent").textContent),
   };
 })();

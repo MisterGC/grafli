@@ -51,7 +51,7 @@
 
   // grafli serve listens: to every camera change, and to the ones the
   // viewer made with the mouse or a camera key.
-  const viewListeners = [], userViewListeners = [];
+  const viewListeners = [], userViewListeners = [], selectListeners = [];
 
   function setView(v) {
     vb = v;
@@ -309,6 +309,7 @@
       }
     }
     showLegend();
+    for (const fn of selectListeners) fn(el);
   }
 
   function openPeek(el) {
@@ -931,6 +932,8 @@
     frame: (r) => { cancelGlide(); setView(frameRect(r, 0)); },
     onView: (fn) => { viewListeners.push(fn); },
     onUserView: (fn) => { userViewListeners.push(fn); },
+    // fn(el or null) after each change of the selection.
+    onSelect: (fn) => { selectListeners.push(fn); },
     board: () => (board ? board.id : null), depth: () => stack.length,
     selected: () => (selected ? selected.id : null),
     peek: () => (peeked ? peeked.id : null),

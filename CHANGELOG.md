@@ -530,6 +530,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **An arrow into a box inside a container draws unbroken across the
+  container's title strip.** The title strip used to sit above every arrow,
+  so an arrow faded out right where it entered the container. An arrow now
+  draws above every container that holds one of its ends, title strip
+  included, and behind any container it only passes — on the canvas, in
+  `grafli render` and in the HTML, PDF and PPTX exports.
+  ([#283](https://github.com/MisterGC/grafli/issues/283))
 - **A box that holds other items keeps its doc line.** A `&doc` container,
   a `!card` with children and a box holding only a note now draw their
   doc's first sentence under the title — on the canvas, in `grafli render`

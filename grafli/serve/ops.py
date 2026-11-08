@@ -104,7 +104,9 @@ def _move(board: Board, op: dict) -> dict:
     """Move a box, note or image to x, y — or by dx, dy, as a drag in the
     tab does: the tab knows how far the pointer went, not where the file
     puts the element. With ``parent`` it also goes into that box ("" for
-    none), as a drop in the app nests what it drops."""
+    none), as a drop in the app nests what it drops. ``carry`` names what
+    else goes along: what the drawing shows inside a container though the
+    file gives it no ``>parent``."""
     elem_id = _text(op, "id")
     el = _placed(board, elem_id)
     if el is None:
@@ -114,14 +116,25 @@ def _move(board: Board, op: dict) -> dict:
     else:
         x, y = _number(op, "x"), _number(op, "y")
         dx, dy = x - el.x, y - el.y
+    carry = op.get("carry", [])
+    if not (isinstance(carry, list) and all(isinstance(c, str) for c in carry)):
+        raise OpError("'carry' must be a list of ids")
+    carried = []
+    for ref in carry:
+        other = _placed(board, ref)
+        if other is None:
+            raise OpError(f"no box, note or image '{ref}' to carry")
+        if other is not el:
+            carried.append(other)
     if "parent" in op:
         el.parent = _parent_for(board, el, op)
     el.x, el.y = el.x + dx, el.y + dy
     # A container carries what it holds, as a drag in the app does.
     if isinstance(el, Box):
-        for child in _descendants(board, el.id):
-            child.x += dx
-            child.y += dy
+        carried.extend(_descendants(board, el.id))
+    for child in {id(c): c for c in carried}.values():
+        child.x += dx
+        child.y += dy
     return {"id": elem_id}
 
 

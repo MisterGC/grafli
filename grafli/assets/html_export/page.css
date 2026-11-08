@@ -119,6 +119,7 @@ body {
 #stage[data-grab="body"] { cursor: move; }
 #stage[data-grab="moving"] { cursor: grabbing; }
 #stage[data-grab="edge"], #stage[data-grab="connecting"] { cursor: crosshair; }
+.ghost rect.target { fill: none; stroke-dasharray: none; animation: none; }
 
 #stage-wrap { position: relative; overflow: hidden; min-height: 0; }
 #stage {

@@ -139,7 +139,7 @@
       const g = el("g", { class: "ghost" });
       el("line", { x1: a.x, y1: a.y, x2: p.x, y2: p.y }, g);
       if (to) el("rect", { x: to.rect[0], y: to.rect[1], width: to.rect[2],
-                           height: to.rect[3], rx: 6 }, g);
+                           height: to.rect[3], rx: 6, class: "target" }, g);
       preview.replaceChildren(g);
     }
   });

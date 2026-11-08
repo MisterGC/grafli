@@ -42,7 +42,7 @@ from grafli.format import Board, is_newer, parse, serialize
 from grafli.serve import presence, reveal
 from grafli.serve.agent import AGENT_COLOR
 from grafli.serve.changes import (PROPOSE_OVER, Changes, Proposal, changes,
-                                  shapes)
+                                  element_key, shapes)
 from grafli.serve.ops import OpError, apply_op
 from grafli.sync import atomic_write, merge_boards
 
@@ -646,8 +646,12 @@ class Room:
         touched = sorted({**done.added, **done.changed})
         hidden: set[str] = set()
         if self.reveal.hidden and self.frame is not None:
-            hidden = reveal.hidden_now(parse(self.frame.text),
-                                       self.reveal.hidden)
+            board = parse(self.frame.text)
+            hidden = reveal.hidden_now(board, self.reveal.hidden)
+            # An arrow to a hidden element is not drawn for the guests
+            # (``reveal.guest_board``), so its key names a hidden element.
+            hidden |= {element_key(a) for a in board.arrows
+                       if a.from_id in hidden or a.to_id in hidden}
         for client in list(self.clients):
             ids = touched if client.role == "presenter" else [
                 i for i in touched if i not in hidden]

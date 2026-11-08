@@ -92,12 +92,15 @@ class Proposal:
 
     def message(self, color: str, shapes: bool = True) -> dict:
         """What a tab is told of it; without *shapes* only who proposes how
-        much (a guest's tab while reveal mode hides part of the board)."""
+        much (a guest's tab while reveal mode hides part of the board): no
+        outlines, and not what the agent says it does, which may name a
+        hidden element."""
         msg = {"id": self.id, "by": self.by, "color": color,
                "count": self.changes.count,
-               "summary": self.changes.summary(), "about": self.about}
+               "summary": self.changes.summary()}
         if shapes:
-            msg.update(added=self.added, changed=self.changed,
+            msg.update(about=self.about, added=self.added,
+                       changed=self.changed,
                        removed=sorted(self.changes.removed))
         return msg
 

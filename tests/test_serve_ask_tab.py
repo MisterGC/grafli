@@ -178,3 +178,22 @@ def test_plain_language_and_ask_reach_the_agent_and_come_back_as_an_edit(
     presenter.wait(f"{TOAST}.startsWith(\"Serein's agent is gone, so nothing was sent\")")
     guest.click_element("ask")
     guest.wait(f"{TOAST}.startsWith(\"Serein's agent is gone, so nothing is asked\")")
+
+
+def test_the_open_line_says_where_its_text_goes_as_the_agent_comes_and_goes(
+        browsers, served, sessions):
+    presenter, _guest = browsers
+    _open(browsers, served, "follows")
+    route = _command(presenter, ASK)
+    assert route == {"text": "plain language: no agent connected", "to": "none"}
+
+    # Nothing typed after this: the line follows the agent on its own.
+    session = sessions()
+    assert not session.tool("connect").get("isError")
+    presenter.wait("grafliEdit.route().text === \"plain language → Serein's agent\""
+                   " && grafliEdit.route().to === 'agent'")
+    session.kill()
+    presenter.wait("grafliEdit.route().text === "
+                   "\"plain language: Serein's agent is gone\""
+                   " && grafliEdit.route().to === 'none'")
+    presenter.key("Escape")

@@ -209,6 +209,38 @@ def test_run_warns_when_told_to_listen_everywhere(tmp_path, monkeypatch):
     assert "Warning: 0.0.0.0 listens on every interface" in out.getvalue()
 
 
+def test_the_reveal_flag_reaches_run_only_when_given(tmp_path, monkeypatch):
+    from grafli import app
+    seen = {}
+    monkeypatch.setattr(srv, "run", lambda root, **kw: seen.update(kw) or 0)
+    assert app._cmd_serve([str(tmp_path), "--reveal"]) == 0
+    assert seen["reveal"] is True
+    assert app._cmd_serve([str(tmp_path)]) == 0
+    assert seen["reveal"] is False
+
+
+def test_run_with_reveal_says_so_and_starts_the_boards_hidden(tmp_path,
+                                                              monkeypatch):
+    import uvicorn
+    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
+    made = {}
+    real = srv.create_app
+
+    def create_app(*args, **kw):
+        made.update(kw)
+        return real(*args, **kw)
+    monkeypatch.setattr(srv, "create_app", create_app)
+    out = io.StringIO()
+    assert srv.run(tmp_path, host="127.0.0.1", port=0, out=out,
+                   reveal=True) == 0
+    assert "Reveal mode: every board shows only its title" in out.getvalue()
+    assert made["reveal"] is True
+    out = io.StringIO()
+    srv.run(tmp_path, host="127.0.0.1", port=0, out=out)
+    assert "Reveal mode" not in out.getvalue()
+    assert made["reveal"] is False
+
+
 def test_board_names_stay_under_the_served_directory(tmp_path):
     (tmp_path / "ok.grafli").write_text(BOARD)
     (tmp_path / "ok-res").mkdir()

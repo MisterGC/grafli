@@ -48,18 +48,18 @@ def _write(tmp_path: Path) -> Path:
     return path
 
 
-def test_the_example_passes_diagnose_strict_but_for_unrelated_boxes(
-        tmp_path: Path, capsys):
-    # The example's layers hold boxes with no arrow between them, which
-    # diagnose reports as `unrelated-board` (#259); that is the one
-    # finding --strict may gate it on until the example draws its edges.
+def test_the_example_passes_diagnose_strict(tmp_path: Path, capsys):
+    # Its layers' parts are related by arrows, so diagnose no longer reads
+    # the board as a list (`unrelated-board`, #259; #285).
     path = _write(tmp_path)
+    capsys.readouterr()
+    assert _cmd_diagnose([str(path), "--strict"]) == 0
     capsys.readouterr()
     _cmd_diagnose([str(path), "--strict", "--json"])
     findings = json.loads(capsys.readouterr().out)
-    gated = {d["code"] for d in findings
-             if d["severity"] in ("error", "warning")}
-    assert gated <= {"unrelated-board"}
+    codes = {d["code"] for d in findings}
+    assert "unrelated-board" not in codes
+    assert "unrelated-children" not in codes
 
 
 def test_zoomed_out_the_example_is_a_stack_of_named_layers(tmp_path: Path):

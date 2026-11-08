@@ -398,6 +398,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#261](https://github.com/MisterGC/grafli/issues/261))
 
 ### Changed
+- **`grafli layout` draws the arrows it places at right angles, and around
+  the layer between.** After a run, every arrow between two boxes the
+  layout placed that had no routing gets `!ortho`, so a laid-out board
+  reads like a wiring diagram instead of a fan of slanted lines. A stair
+  that no turn can keep clear of the boxes in its way — an arrow that
+  skips a layer, with a box of that layer right under it — now steps
+  around them: it turns in the gap before the layer, runs beside its
+  boxes and turns back in the gap after. This holds for every `!ortho`
+  arrow, in the app, in `grafli render` and in the exports; before, such
+  a stair ran straight through the box. A new `!straight` flag keeps an
+  arrow a direct line across layout runs; a board using it is written
+  `#!grafli v4`. `=` in the app moves boxes as before and leaves the
+  arrows' routing alone.
+  ([#284](https://github.com/MisterGC/grafli/issues/284))
 - **`examples/layers-map.grafli` is drawn as layered dependencies.** Its
   top board was three bands of three boxes and two arrows. It now opens
   with a claim, every arrow points at what a part depends on and names

@@ -150,17 +150,26 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   enough for the labels of the arrows between them.
 - `!routing` *(arrows)* — how the connector travels between its ends:
   omitted for a **direct** line (the default), `!spline` for a curve, `!ortho`
-  for a right-angle stair. Independent of `!pattern` and `!thickness`, so
+  for a right-angle stair, `!straight` for a direct line that `grafli layout`
+  leaves direct. Independent of `!pattern` and `!thickness`, so
   `!dashed !ortho` is a dashed stair. A routed connector leaves each box
   perpendicular to the side that faces the other end, and several connectors
   sharing a side are spread along it automatically — anchors are always
   derived from the board, never written into the file, so a board renders the
-  same in the app and in `grafli render`. A stair also slides its turn clear of
-  boxes standing in the gap, but it never detours around them: the whole route
-  stays inside the span between its two ends, so moving a box shifts a stair
-  predictably instead of sending it off on a new path. A connector that still
-  cuts across your layout is a layout decision, and `grafli diagnose` is the
-  place to catch it.
+  same in the app and in `grafli render`. A stair slides its turn clear of
+  boxes standing in the gap. Where no turn clears them — an arrow that skips
+  a layer, with a box of the layer between right in its way — a stair whose
+  two ends face each other steps around them: it turns in the gap before the
+  first box in its way, runs beside the boxes along the free column nearest
+  the straight line, and turns back in the gap after the last one. It never
+  turns behind either of its ends. A stair with no such column keeps its
+  plain route, and `grafli diagnose` is the place to catch it.
+  `grafli layout` gives `!ortho` to every arrow between two boxes it places
+  (not `!pin` boxes) that has no routing flag yet, so a laid-out board is
+  drawn at right angles; an arrow to a note or an image and a loop keep their
+  shape. `!straight` keeps an arrow direct across layout runs, and `!spline`
+  or `!ortho` written by hand stay as they are. A board with a `!straight`
+  arrow carries a `#!grafli v4` header.
 - `~from=<side>` / `~to=<side>` *(arrows)* — pin the side the connector
   leaves its from element by and the side it enters its to element at:
   `top`, `right`, `bottom` or `left`. A pinned end sits on the middle of its

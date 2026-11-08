@@ -254,7 +254,11 @@ in `references/genres.md` instead.)
    run headless — then adjust by hand: the claim's boxes where the eye
    lands, related boxes side by side, no arrow through a box. A box
    you placed on purpose gets `!pin`: the next `grafli layout` keeps
-   it there and places the others around it. For a
+   it there and places the others around it. The layout also gives
+   `!ortho` to every arrow between two boxes it places that has no
+   routing yet, and a stair steps around the boxes of a layer it
+   skips; an arrow that must stay a direct line gets `!straight`
+   (`#!grafli v4`), which the next `grafli layout` leaves alone. For a
    matrix, mirror, proportional strip or before / after, the
    coordinates *are* the content: compute them from the encoding's rule
    and don't run the layout over them. If your grafli has no `layout`
@@ -388,7 +392,7 @@ in `references/genres.md` instead.)
 ```
 # Comments and titles
 @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent] [# annotation]
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [!dot] [~size] [~from=<side>] [~to=<side>] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho|!straight] [!dot] [~size] [~from=<side>] [~to=<side>] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [# annotation]

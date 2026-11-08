@@ -111,7 +111,7 @@ detail lives in notes adjacent to it or in the box's own `&doc`.
 ## Arrow syntax
 
 ```
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [!dot] [~size] [~kind=graph|annotation] [~from=<side>] [~to=<side>] [~id=<id>] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [!routing] [!dot] [~size] [~kind=graph|annotation] [~from=<side>] [~to=<side>] [~id=<id>] [# annotation]
 ```
 
 | Feature | Syntax | Effect |
@@ -128,6 +128,10 @@ detail lives in notes adjacent to it or in the box's own `&doc`.
 | Thickness | (default) | width tracks the linked nodes' size |
 | Thickness | `!thin` | half-width line |
 | Thickness | `!thick` | double-width line |
+| Routing | (default) | direct line; `grafli layout` makes it `!ortho` between two boxes it places |
+| Routing | `!ortho` | right-angle stair; steps around the boxes of a layer it skips |
+| Routing | `!spline` | curve leaving each end along its side |
+| Routing | `!straight` | direct line that `grafli layout` leaves direct; `#!grafli v4` |
 | Dot ends | `!dot` | each headed end draws a dot instead of an arrowhead; `#!grafli v4` |
 | Text size | `~size` | as for boxes |
 | Connector kind | `~kind=graph` / `~kind=annotation` | override the endpoint default (see below) |

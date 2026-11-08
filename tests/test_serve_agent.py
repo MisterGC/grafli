@@ -277,6 +277,24 @@ def test_a_text_that_holds_no_board_is_refused_and_the_file_stays(
     assert board.read_bytes() == before
 
 
+def test_the_agent_writes_a_board_no_tab_is_on(served, board, sessions):
+    name = board.stem
+    session = sessions()
+    session.tool("connect")
+    # No tab on the board: each request opens a room and closes it again.
+    assert board.resolve() not in _hub(served).rooms
+    read = session.tool("read_board", board=name)
+    meta = json.loads(_text(read))
+    assert board.resolve() not in _hub(served).rooms
+    text = read["content"][1]["text"].replace('"A"', '"Gateway"')
+    got = session.tool("write_board", board=name,
+                       base_version=meta["version"], text=text)
+    assert not got.get("isError"), got
+    wrote = json.loads(_text(got))
+    assert wrote["conflicts"] == [] and wrote["version"] > meta["version"]
+    assert '"Gateway"' in board.read_text(encoding="utf-8")
+
+
 def test_a_request_pushed_from_the_board_reaches_the_session_as_a_channel(
         served, board, sessions):
     name = board.stem

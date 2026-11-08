@@ -22,6 +22,11 @@
   it is answered with ``ack`` or ``error`` like an edit and, like presence,
   never stored. ``create_app(reveal=True)`` hides every board but its title
   from its first frame on.
+* ``WS /agent`` — the board's agent: a Claude Code session the presenter
+  runs, through its ``grafli agent`` bridge, with the run's agent key from
+  the state file (never in a link); see ``grafli.serve.agent``. One session
+  holds the seat at a time; every tab sees it in ``peers`` as present or
+  gone.
 
 A wrong key closes the socket with code 4401, an unknown board with 4404.
 """
@@ -36,12 +41,14 @@ import re
 import secrets
 import socket
 import sys
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 from urllib.parse import quote
 
+from grafli.serve import agent as agents
 from grafli.serve.ops import OpError
 from grafli.serve.presence import KINDS as PRESENCE, clean_name
 from grafli.serve.render import RenderWorker, board_name
@@ -65,14 +72,20 @@ def _key() -> str:
 
 @dataclass
 class Keys:
-    """The run's three keys; a link carries one of them after ``#k=``."""
+    """The run's keys: a link carries one of the first three after
+    ``#k=``; the agent's is only in the run's state file."""
     viewer: str = field(default_factory=_key)
     editor: str = field(default_factory=_key)
     presenter: str = field(default_factory=_key)
+    agent: str = field(default_factory=_key)
 
     def __post_init__(self):
-        if len({self.viewer, self.editor, self.presenter}) != 3:
-            raise ValueError("the viewer, editor and presenter keys must differ")
+        if len({self.viewer, self.editor, self.presenter, self.agent}) != 4:
+            raise ValueError("the viewer, editor, presenter and agent keys "
+                             "must differ")
+
+    def is_agent(self, key) -> bool:
+        return isinstance(key, str) and hmac.compare_digest(key, self.agent)
 
     def role(self, key) -> str | None:
         if not isinstance(key, str):
@@ -127,12 +140,16 @@ class Hub:
         # Board → author → their edits; outlives a room, so undo still works
         # after the last tab on a board reloaded.
         self.history: dict[Path, dict] = {}
+        # Board → the texts of its recent versions, kept the same way.
+        self.texts: dict[Path, OrderedDict] = {}
         # Board → its reveal mode, kept like the history; *reveal* starts
         # every board hidden.
         self.reveal = reveal
         self.reveals: dict[Path, RevealState] = {}
         # The board the presenter's latest tab is on.
         self.lead_room: Room | None = None
+        # The agent's seat: None until a session first connects.
+        self.seat: agents.Seat | None = None
         self._shell: str | None = None
 
     async def shell(self) -> str:
@@ -147,7 +164,9 @@ class Hub:
                         log=self.log,
                         history=self.history.setdefault(path, {}),
                         reveal_state=self.reveals.setdefault(
-                            path, RevealState(on_open=self.reveal)))
+                            path, RevealState(on_open=self.reveal)),
+                        agent=self.agent_info,
+                        texts=self.texts.setdefault(path, OrderedDict()))
             self.rooms[path] = room
             room.start()
         return room
@@ -184,6 +203,69 @@ class Hub:
         for room in list(self.rooms.values()):
             if room is not self.lead_room:
                 await room.broadcast(self.away(room))
+
+    # ── The agent's seat ──
+
+    def agent_info(self) -> dict | None:
+        return self.seat.info() if self.seat else None
+
+    def presenter_name(self) -> str:
+        lead = self.lead_room.lead if self.lead_room else None
+        return lead.name if lead else ""
+
+    async def seat_agent(self, conn: agents.AgentConn) -> None:
+        """Give *conn* the seat; a session that held it is told and let go."""
+        old = self.seat.conn if self.seat else None
+        self.seat = agents.Seat(conn.name, conn)
+        if old is not None and old is not conn:
+            try:
+                await old.send({"t": "replaced", "by": conn.name})
+                await old.close()
+            except Exception:
+                pass
+        self.log(f"agent: {conn.name} connected")
+        await self._tell_peers()
+
+    async def unseat_agent(self, conn: agents.AgentConn) -> None:
+        """*conn* went: the tabs show its agent as gone."""
+        if self.seat is not None and self.seat.conn is conn:
+            self.seat.conn = None
+            self.log(f"agent: {conn.name} is gone")
+            await self._tell_peers()
+
+    async def ask_agent(self, board: str, text: str, asked_by: str) -> bool:
+        """Push a plain-language request to the agent's session; False when
+        no session holds the seat, so nothing waits unseen."""
+        conn = self.seat.conn if self.seat else None
+        if conn is None:
+            return False
+        try:
+            await conn.send({"t": "request", "board": board, "text": text,
+                             "from": asked_by})
+        except Exception:
+            return False
+        return True
+
+    async def _tell_peers(self) -> None:
+        for room in list(self.rooms.values()):
+            await room.send_peers()
+
+    def agent_board(self, name) -> tuple[Path, str]:
+        """The board an agent request names, else the presenter's, else the
+        only one; raises ``OpError`` naming the boards when none fits."""
+        if isinstance(name, str) and name:
+            path = board_path(self.root, name)
+            if path is None:
+                raise OpError(f"no board '{name}'; boards: "
+                              + ", ".join(listed_boards(self.root)))
+            return path, name
+        if self.lead_room is not None:
+            return self.lead_room.path, self.lead_room.name
+        names = listed_boards(self.root)
+        if len(names) == 1:
+            return board_path(self.root, names[0]), names[0]
+        raise OpError("the presenter has no board open; name one of: "
+                      + (", ".join(names) or "(none here)"))
 
     async def close(self) -> None:
         for room in list(self.rooms.values()):
@@ -269,6 +351,40 @@ def create_app(root: Path, keys: Keys, renderer=None,
             await hub.departed(room)
             await hub.release(room)
 
+    async def agent_ws(ws: WebSocket):
+        await ws.accept()
+        try:
+            hello = await asyncio.wait_for(ws.receive_json(), HELLO_TIMEOUT_S)
+        except (TimeoutError, WebSocketDisconnect, json.JSONDecodeError,
+                KeyError):
+            await _close(ws, CLOSE_BAD_KEY, "no key")
+            return
+        if not (isinstance(hello, dict) and keys.is_agent(hello.get("key"))):
+            await _close(ws, CLOSE_BAD_KEY, "wrong key")
+            return
+        send_lock = asyncio.Lock()
+
+        async def send(msg: dict) -> None:
+            async with send_lock:
+                await ws.send_text(json.dumps(msg, ensure_ascii=False))
+
+        conn = agents.AgentConn(
+            send, lambda: _close(ws, 1000, "another session is the agent"),
+            agents.agent_name(hello.get("name"), hub.presenter_name()))
+        lead = hub.lead_room.name if hub.lead_room else None
+        await send({"t": "welcome", "name": conn.name, "board": lead,
+                    "boards": listed_boards(root)})
+        await hub.seat_agent(conn)
+        try:
+            while True:
+                msg = await ws.receive_json()
+                if isinstance(msg, dict) and hub.seat and hub.seat.conn is conn:
+                    await _agent_request(hub, conn, msg, send)
+        except (WebSocketDisconnect, json.JSONDecodeError, RuntimeError):
+            pass
+        finally:
+            await hub.unseat_agent(conn)
+
     @asynccontextmanager
     async def lifespan(_app):
         yield
@@ -278,6 +394,7 @@ def create_app(root: Path, keys: Keys, renderer=None,
         Route("/", index),
         Route("/b/{board:path}", page),
         WebSocketRoute("/ws/{board:path}", live),
+        WebSocketRoute("/agent", agent_ws),
     ], lifespan=lifespan)
     app.state.hub = hub
     return app
@@ -329,6 +446,48 @@ async def _reveal(room: Room, client: Client, msg: dict, send) -> None:
     await send({"t": "ack", "id": req_id, **result})
 
 
+async def _agent_request(hub: Hub, conn: agents.AgentConn, msg: dict,
+                         send) -> None:
+    """Answer one of the agent's ``read``, ``write`` or ``render``."""
+    req_id, kind = msg.get("id"), msg.get("t")
+    if kind not in ("read", "write", "render"):
+        await send({"t": "error", "id": req_id,
+                    "message": f"no agent request '{kind}'"})
+        return
+    try:
+        path, name = hub.agent_board(msg.get("board"))
+        room = hub.room(path, name)
+        try:
+            frame = await room.ready()
+            if frame is None:
+                raise OpError(f"{name} did not render")
+            if kind == "read":
+                lead = room.lead is not None
+                result = {"board": name, "version": frame.version,
+                          "text": frame.text,
+                          "selection": [room.selection] if room.selection
+                          else [],
+                          "view": room.view if lead else None}
+            elif kind == "write":
+                result = {"board": name, **await room.write(
+                    msg.get("base"), msg.get("text"), f"agent:{conn.name}")}
+            else:
+                drawing = await hub.renderer.png(path, frame.text, hub.root)
+                result = {"board": name, "version": frame.version,
+                          "png": drawing["png"], "width": drawing["width"],
+                          "height": drawing["height"]}
+        finally:
+            await hub.release(room)
+    except OpError as e:
+        await send({"t": "error", "id": req_id, "message": str(e)})
+        return
+    except Exception as e:
+        await send({"t": "error", "id": req_id,
+                    "message": f"{kind} failed: {type(e).__name__}: {e}"})
+        return
+    await send({"t": "ack", "id": req_id, **result})
+
+
 def bind(host: str, port: int) -> socket.socket:
     """A listening socket on *host* only — never every interface unless
     *host* says so."""
@@ -370,6 +529,7 @@ def run(root: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
             print(msg, file=out, flush=True)
 
     app = create_app(root, keys, RenderWorker(theme), log, reveal=reveal)
+    state = agents.write_state(host, port, keys.agent, root)
     names = [open_board] if open_board else listed_boards(root)
     print(f"grafli serve: {root} on {host}:{port} — your network or VPN only; "
           "Ctrl+C stops it", file=out)
@@ -386,6 +546,8 @@ def run(root: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
         print(f"    watch:   {link(host, port, name, keys.viewer)}", file=out)
         print(f"    edit:    {link(host, port, name, keys.editor)}", file=out)
         print(f"    present: {link(host, port, name, keys.presenter)}", file=out)
+    print("Agent: a Claude Code session you run connects with "
+          "/mcp__grafli__connect (setup: grafli agent --help)", file=out)
     out.flush()
     config = uvicorn.Config(app, log_level="warning", ws="auto",
                             lifespan="on", ws_max_size=1024 * 1024)
@@ -396,4 +558,5 @@ def run(root: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
         pass
     finally:
         sock.close()
+        agents.remove_state(state)
     return 0

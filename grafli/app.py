@@ -2974,7 +2974,7 @@ def main():
     if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
                                               "export", "export-html",
                                               "vault", "inspect", "fmt",
-                                              "layout", "serve"):
+                                              "layout", "serve", "agent"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
         if sub == "export-html":
@@ -2995,12 +2995,16 @@ def main():
             sys.exit(_cmd_layout(rest))
         if sub == "serve":
             sys.exit(_cmd_serve(rest))
+        if sub == "agent":
+            from grafli.serve.mcp import main as agent_main
+            sys.exit(agent_main(rest))
         sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
         description="Grafli whiteboard. Subcommands: skill, render, diagnose, "
-                    "inspect, export, export-html, vault, fmt, layout, serve.",
+                    "inspect, export, export-html, vault, fmt, layout, serve, "
+                    "agent.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

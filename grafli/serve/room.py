@@ -12,6 +12,13 @@ Undo is per author and version-based: each edit keeps the text before and
 after it, and undoing it merges "after → before" into the file as it is now,
 so what others changed since stays.
 
+The agent's whole-board write (``Room.write``) lands the same way when it
+changes at most ``changes.PROPOSE_OVER`` elements, and every tab is told
+which elements it touched (``{"t": "marked"}``) so they glow in the agent's
+colour with its name. A larger write waits as the board's proposal
+(``{"t": "proposal"}`` to every tab) until the presenter takes it or drops
+it; the file stays as it was meanwhile.
+
 Presence (``grafli.serve.presence``) lives here too, in memory only: who is
 on the board, their cursors and laser, and the presenter's view. None of it
 touches the file or makes a frame. Reveal mode (``grafli.serve.reveal``) is
@@ -33,6 +40,9 @@ from typing import Awaitable, Callable, Protocol
 
 from grafli.format import Board, is_newer, parse, serialize
 from grafli.serve import presence, reveal
+from grafli.serve.agent import AGENT_COLOR
+from grafli.serve.changes import (PROPOSE_OVER, Changes, Proposal, changes,
+                                  shapes)
 from grafli.serve.ops import OpError, apply_op
 from grafli.sync import atomic_write, merge_boards
 
@@ -135,7 +145,9 @@ class Room:
                  history: dict[str, list[Step]] | None = None,
                  reveal_state: reveal.RevealState | None = None,
                  agent: Callable[[], dict | None] | None = None,
-                 texts: OrderedDict[int, str] | None = None):
+                 texts: OrderedDict[int, str] | None = None,
+                 proposals: dict[Path, Proposal] | None = None,
+                 tell_agent: Callable[[dict], Awaitable[None]] | None = None):
         self.path = path
         self.name = name
         self.root = root
@@ -161,6 +173,11 @@ class Room:
         self.history: dict[str, list[Step]] = {} if history is None else history
         # Kept by the server too, so a reload finds the board as it was left.
         self.reveal = reveal_state or reveal.RevealState()
+        # Board → the agent's change waiting for the presenter; kept by the
+        # server, so it waits for a presenter who opens the board later.
+        self._proposals: dict[Path, Proposal] = ({} if proposals is None
+                                                 else proposals)
+        self._tell_agent = tell_agent
         self._sig: tuple = ()
         self._first = asyncio.Event()
         self._edit_lock = asyncio.Lock()
@@ -317,6 +334,8 @@ class Room:
             await self._send_frame(client)
         else:
             await self.ready()
+        if self.proposal is not None:
+            await self.send_to(client, self._proposal_message(client))
 
     async def leave(self, client: Client) -> None:
         self.clients.discard(client)
@@ -475,15 +494,24 @@ class Room:
         return {"touched": touched["id"], "conflicts": conflicts,
                 "version": version}
 
-    async def write(self, base: int, text: str, author: str = "") -> dict:
+    async def write(self, base: int, text: str, author: str = "",
+                    by: str = "", about: str = "") -> dict:
         """Merge the whole board *text*, written against version *base*,
-        into the file — the agent's edit; what changed since *base* stays.
+        into the file — the agent's edit, by the agent named *by*; what
+        changed since *base* stays.
 
         Returns ``{"conflicts": [...], "version": the version that shows
-        it}`` once that version is drawn and pushed; raises ``OpError`` when
-        it cannot be written — also when *text* holds no element while
-        version *base* has some, which would empty the board (prose sent in
-        place of the board, say).
+        it, "changes": how many elements it changed, "summary"}`` once that
+        version is drawn and pushed, and tells every tab which elements it
+        touched. A change of more than ``PROPOSE_OVER`` elements is not
+        written: it becomes the board's proposal (in place of one waiting
+        already), *about* says what it does, and the answer is
+        ``{"proposed": its id, "changes", "summary", "conflicts",
+        "version": the version on screen, still}``.
+
+        Raises ``OpError`` when it cannot be written — also when *text*
+        holds no element while version *base* has some, which would empty
+        the board (prose sent in place of the board, say).
         """
         if not isinstance(text, str) or not text.strip():
             raise OpError("the board text is empty")
@@ -506,12 +534,150 @@ class Room:
                               "read_board returned, changed")
             disk_text, remote = self._read_disk()
             merged, conflicts = self._merge(base_board, local, disk_text, remote)
+            done = changes(remote, parse(merged))
+            if done.count > PROPOSE_OVER:
+                return await self._propose(Proposal(
+                    by, author, disk_text, merged, done,
+                    about=about.strip()[:200] if isinstance(about, str)
+                    else ""), conflicts)
             if merged != disk_text and author:
                 steps = self.history.setdefault(author, [])
                 steps.append(Step(disk_text, merged, ""))
                 del steps[:-KEEP_UNDO]
             version = await self._land(merged, disk_text)
-        return {"conflicts": conflicts, "version": version}
+            if done.count:
+                await self._mark(by, done, version)
+        return {"conflicts": conflicts, "version": version,
+                "changes": done.count, "summary": done.summary()}
+
+    # ── The agent's proposal: a large change the presenter takes or drops ──
+
+    @property
+    def proposal(self) -> Proposal | None:
+        return self._proposals.get(self.path)
+
+    async def _propose(self, proposal: Proposal, conflicts: list) -> dict:
+        try:
+            drawing = await self._renderer.render(self.path, proposal.text,
+                                                  self.root)
+        except Exception as e:
+            raise OpError(f"the proposal did not render: {e}") from e
+        drawing.pop("fonts", None)
+        proposal.added = shapes(drawing, proposal.changes.added)
+        proposal.changed = shapes(drawing, proposal.changes.changed)
+        replaced = self.proposal is not None
+        self._proposals[self.path] = proposal
+        self._log(f"{self.name}: {proposal.by} proposes "
+                  f"{proposal.changes.count} changes")
+        await self._send_proposal()
+        return {"proposed": proposal.id, "replaced": replaced,
+                "changes": proposal.changes.count,
+                "summary": proposal.changes.summary(),
+                "conflicts": conflicts,
+                "version": self.frame.version if self.frame else None}
+
+    def _proposal_message(self, client: Client) -> dict:
+        p = self.proposal
+        if p is None:
+            return {"t": "proposal", "proposal": None}
+        # Nothing of a hidden element reaches a guest: in reveal mode only
+        # the presenter sees what the proposal draws where.
+        whole = client.role == "presenter" or not self.reveal.hidden
+        return {"t": "proposal", "proposal": p.message(AGENT_COLOR, whole)}
+
+    async def _send_proposal(self) -> None:
+        await asyncio.gather(*(self.send_to(c, self._proposal_message(c))
+                               for c in list(self.clients)))
+
+    async def settle(self, do: str, proposal_id=None) -> dict:
+        """The presenter takes (*do* ``"take"``) or drops (``"drop"``) the
+        board's proposal, the one *proposal_id* names when given.
+
+        A taken proposal is merged into the file as it is now — what others
+        changed since it was made stays — and joins its agent's undo
+        history; the tabs mark it as the agent's edit. Returns ``{"taken" or
+        "dropped": how many changes, "version", "conflicts"}``; raises
+        ``OpError`` when there is no such proposal.
+        """
+        if do not in ("take", "drop"):
+            raise OpError(f"no proposal step '{do}'")
+        async with self._edit_lock:
+            p = self.proposal
+            if p is None:
+                raise OpError("no proposal waits on this board")
+            if proposal_id is not None and proposal_id != p.id:
+                raise OpError("the proposal changed since this tab showed it; "
+                              "look at it again")
+            if do == "drop":
+                del self._proposals[self.path]
+                await self._send_proposal()
+                await self._notice(
+                    f"The presenter dropped your proposal on {self.name} "
+                    f"({p.changes.summary()}); the board stays as it was.",
+                    "dropped")
+                return {"dropped": p.changes.count, "conflicts": [],
+                        "version": self.frame.version if self.frame else None}
+            disk_text, remote = self._read_disk()
+            merged, conflicts = self._merge(parse(p.before), parse(p.text),
+                                            disk_text, remote)
+            done = changes(remote, parse(merged))
+            if merged != disk_text and p.author:
+                steps = self.history.setdefault(p.author, [])
+                steps.append(Step(disk_text, merged, ""))
+                del steps[:-KEEP_UNDO]
+            del self._proposals[self.path]
+            version = await self._land(merged, disk_text)
+            await self._send_proposal()
+            if done.count:
+                await self._mark(p.by, done, version)
+            await self._notice(
+                f"The presenter took your proposal on {self.name} "
+                f"({p.changes.summary()}); it is version {version} now.",
+                "taken")
+        return {"taken": p.changes.count, "conflicts": conflicts,
+                "version": version}
+
+    # ── Marking the agent's edits ──
+
+    async def _mark(self, by: str, done, version: int | None,
+                    undone: bool = False) -> None:
+        """Tell every tab which elements the agent *by* just changed, so
+        they glow in its colour with its name."""
+        touched = sorted({**done.added, **done.changed})
+        hidden: set[str] = set()
+        if self.reveal.hidden and self.frame is not None:
+            hidden = reveal.hidden_now(parse(self.frame.text),
+                                       self.reveal.hidden)
+        for client in list(self.clients):
+            ids = touched if client.role == "presenter" else [
+                i for i in touched if i not in hidden]
+            await self.send_to(client, {
+                "t": "marked", "by": by, "color": AGENT_COLOR,
+                "version": version, "ids": ids,
+                "removed": len(done.removed), "summary": done.summary(),
+                "undone": undone})
+
+    async def _notice(self, text: str, event: str) -> None:
+        if self._tell_agent is not None:
+            await self._tell_agent({"t": "notice", "board": self.name,
+                                    "text": text, "event": event})
+
+    async def undo_agent(self, author: str, by: str, who: str = "") -> dict:
+        """Take back the agent's last edit (*author* in the undo history,
+        *by* as the tabs name it): the agent's own undo when *who* is empty,
+        else the presenter *who* undoing it, and the agent is told."""
+        async with self._edit_lock:
+            result, done = await self._undo(
+                author, f"{by or 'the agent'} has no edit on {self.name} "
+                        "left to undo")
+            if not who and done.count:
+                await self._mark(by, done, result["version"], undone=True)
+        if who:
+            await self._notice(
+                f"{who} undid your last edit on {self.name}"
+                + (" (a later change by someone else stays)"
+                   if result["conflicts"] else "") + ".", "undone")
+        return result
 
     async def undo(self, author: str) -> dict:
         """Take back *author*'s last edit that still changes something.
@@ -522,18 +688,22 @@ class Room:
         ``OpError`` when the author has nothing left to undo.
         """
         async with self._edit_lock:
-            steps = self.history.get(author) or []
-            disk_text, remote = self._read_disk()
-            while steps:
-                step = steps.pop()
-                text, conflicts = self._merge(parse(step.after),
-                                              parse(step.before),
-                                              disk_text, remote)
-                if text != disk_text:
-                    version = await self._land(text, disk_text)
-                    return {"touched": step.touched, "conflicts": conflicts,
-                            "version": version, "undone": True}
-            raise OpError("nothing of yours to undo")
+            return (await self._undo(author, "nothing of yours to undo"))[0]
+
+    async def _undo(self, author: str, none: str) -> tuple[dict, Changes]:
+        steps = self.history.get(author) or []
+        disk_text, remote = self._read_disk()
+        while steps:
+            step = steps.pop()
+            text, conflicts = self._merge(parse(step.after),
+                                          parse(step.before),
+                                          disk_text, remote)
+            if text != disk_text:
+                version = await self._land(text, disk_text)
+                return ({"touched": step.touched, "conflicts": conflicts,
+                         "version": version, "undone": True},
+                        changes(remote, parse(text)))
+        raise OpError(none)
 
     def _read_disk(self) -> tuple[str, Board]:
         try:

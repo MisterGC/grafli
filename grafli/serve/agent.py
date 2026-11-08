@@ -14,16 +14,24 @@ requests carries an ``id`` and is answered with ``ack`` or ``error``:
 * ``{"t": "read", "board"}`` → ``{"board", "version", "text", "selection",
   "view"}``: the text on screen now, what the presenter selected and the
   presenter's camera (``None`` when the presenter is elsewhere);
-* ``{"t": "write", "board", "base", "text"}`` → ``{"version",
-  "conflicts"}``: the whole board as the agent wrote it, merged into the
-  file against version *base*, the way a tab's edit is;
+* ``{"t": "write", "board", "base", "text", "about"}`` → ``{"version",
+  "conflicts", "changes", "summary"}``: the whole board as the agent wrote
+  it, merged into the file against version *base*, the way a tab's edit is;
+  the tabs mark what it changed. A change of more than
+  ``changes.PROPOSE_OVER`` elements is held as a proposal instead, which the
+  presenter takes or drops: ``{"proposed": its id, "changes", "summary",
+  "version"}``, and *about* (a few words) says on the board what it does;
+* ``{"t": "undo", "board"}`` → ``{"version", "conflicts"}``: the agent's
+  own last edit on the board taken back, what others changed since staying;
 * ``{"t": "render", "board"}`` → ``{"board", "version", "png", "width",
   "height"}``: the board drawn as a PNG (base64), so the agent sees it.
 
 ``board`` may be left out: it is then the presenter's board, or the only
 one. The server pushes ``{"t": "request", "board", "text", "from"}`` for a
-plain-language request from a tab, and ``{"t": "replaced", "by"}`` when
-another session took the seat.
+plain-language request from a tab, ``{"t": "notice", "board", "text",
+"event"}`` when the presenter took or dropped its proposal or undid its
+edit (*event* ``taken``, ``dropped`` or ``undone``), and ``{"t":
+"replaced", "by"}`` when another session took the seat.
 
 Every tab sees the seat in its ``peers`` message as ``agent``: ``None``
 before any session connected, else ``{"name", "color", "present"}``;
@@ -147,6 +155,11 @@ class Seat:
     def info(self) -> dict:
         return {"name": self.name, "color": self.color,
                 "present": self.present}
+
+
+def author(name: str) -> str:
+    """Whose edits the agent *name*'s are in a board's undo history."""
+    return f"agent:{name}"
 
 
 def agent_name(asked, presenter_name: str = "") -> str:

@@ -10,7 +10,14 @@
   "op"}`` and gets ``ack`` or ``error`` with the same ``id``, the ack once
   the frame that shows the edit is pushed (its ``version``). ``{"t":
   "undo", "id"}`` takes back the last edit of the tab's author, the
-  ``author`` its hello named (a tab keeps it across reloads).
+  ``author`` its hello named (a tab keeps it across reloads); the
+  presenter's ``{"t": "undo", "id", "of": "agent"}`` takes back the agent's
+  last edit instead.
+* The agent's edits — ``{"t": "marked"}`` names the elements one touched;
+  ``{"t": "proposal", "proposal"}`` carries the agent's large change that
+  waits (``None`` once there is none), and the presenter's ``{"t":
+  "proposal", "id", "do": "take" | "drop", "proposal": its id}`` settles it
+  (see ``Room.write`` and ``Room.settle``).
 * Presence — cursors, the laser, the presenter's view, who follows, names —
   is passed between the tabs of a board and never stored; see
   ``grafli.serve.presence``. The hello may carry the tab's ``name`` and
@@ -150,6 +157,8 @@ class Hub:
         self.lead_room: Room | None = None
         # The agent's seat: None until a session first connects.
         self.seat: agents.Seat | None = None
+        # Board → the agent's proposal waiting for the presenter.
+        self.proposals: dict = {}
         self._shell: str | None = None
 
     async def shell(self) -> str:
@@ -166,7 +175,9 @@ class Hub:
                         reveal_state=self.reveals.setdefault(
                             path, RevealState(on_open=self.reveal)),
                         agent=self.agent_info,
-                        texts=self.texts.setdefault(path, OrderedDict()))
+                        texts=self.texts.setdefault(path, OrderedDict()),
+                        proposals=self.proposals,
+                        tell_agent=self.tell_agent)
             self.rooms[path] = room
             room.start()
         return room
@@ -245,6 +256,16 @@ class Hub:
         except Exception:
             return False
         return True
+
+    async def tell_agent(self, msg: dict) -> None:
+        """Push *msg* to the agent's session, if one holds the seat."""
+        conn = self.seat.conn if self.seat else None
+        if conn is None:
+            return
+        try:
+            await conn.send(msg)
+        except Exception:
+            pass
 
     async def _tell_peers(self) -> None:
         for room in list(self.rooms.values()):
@@ -338,8 +359,12 @@ def create_app(root: Path, keys: Keys, renderer=None,
                 if not isinstance(msg, dict):
                     continue
                 kind = msg.get("t")
-                if kind in ("edit", "undo"):
+                if kind == "undo" and msg.get("of") == "agent":
+                    await _undo_agent(hub, room, client, msg, send)
+                elif kind in ("edit", "undo"):
                     await _edit(room, client, msg, send)
+                elif kind == "proposal":
+                    await _settle(room, client, msg, send)
                 elif kind == "reveal":
                     await _reveal(room, client, msg, send)
                 elif kind in PRESENCE:
@@ -432,6 +457,47 @@ async def _edit(room: Room, client: Client, msg: dict, send) -> None:
     await send({"t": "ack", "id": req_id, **result})
 
 
+async def _answer(send, req_id, work) -> None:
+    """Answer request *req_id* with *work*'s result, or with its error."""
+    try:
+        result = await work
+    except OpError as e:
+        await send({"t": "error", "id": req_id, "message": str(e)})
+        return
+    except Exception as e:
+        await send({"t": "error", "id": req_id,
+                    "message": f"it failed: {type(e).__name__}: {e}"})
+        return
+    await send({"t": "ack", "id": req_id, **result})
+
+
+async def _settle(room: Room, client: Client, msg: dict, send) -> None:
+    if client.role != "presenter":
+        await send({"t": "error", "id": msg.get("id"),
+                    "message": "only the present link takes or drops a "
+                               "proposal"})
+        return
+    await _answer(send, msg.get("id"),
+                  room.settle(msg.get("do"), msg.get("proposal")))
+
+
+async def _undo_agent(hub: Hub, room: Room, client: Client, msg: dict,
+                      send) -> None:
+    req_id = msg.get("id")
+    if client.role != "presenter":
+        await send({"t": "error", "id": req_id,
+                    "message": "only the present link undoes the agent's "
+                               "edit"})
+        return
+    if hub.seat is None:
+        await send({"t": "error", "id": req_id,
+                    "message": "no agent has edited here"})
+        return
+    name = hub.seat.name
+    await _answer(send, req_id, room.undo_agent(
+        agents.author(name), name, who=client.shown_name()))
+
+
 async def _reveal(room: Room, client: Client, msg: dict, send) -> None:
     req_id = msg.get("id")
     if client.role != "presenter":
@@ -448,9 +514,10 @@ async def _reveal(room: Room, client: Client, msg: dict, send) -> None:
 
 async def _agent_request(hub: Hub, conn: agents.AgentConn, msg: dict,
                          send) -> None:
-    """Answer one of the agent's ``read``, ``write`` or ``render``."""
+    """Answer one of the agent's ``read``, ``write``, ``render`` or
+    ``undo``."""
     req_id, kind = msg.get("id"), msg.get("t")
-    if kind not in ("read", "write", "render"):
+    if kind not in ("read", "write", "render", "undo"):
         await send({"t": "error", "id": req_id,
                     "message": f"no agent request '{kind}'"})
         return
@@ -463,14 +530,25 @@ async def _agent_request(hub: Hub, conn: agents.AgentConn, msg: dict,
                 raise OpError(f"{name} did not render")
             if kind == "read":
                 lead = room.lead is not None
+                waiting = room.proposal
                 result = {"board": name, "version": frame.version,
                           "text": frame.text,
                           "selection": [room.selection] if room.selection
                           else [],
-                          "view": room.view if lead else None}
+                          "view": room.view if lead else None,
+                          "proposal": None if waiting is None else {
+                              "id": waiting.id, "by": waiting.by,
+                              "changes": waiting.changes.count,
+                              "summary": waiting.changes.summary()}}
             elif kind == "write":
+                about = msg.get("about")
                 result = {"board": name, **await room.write(
-                    msg.get("base"), msg.get("text"), f"agent:{conn.name}")}
+                    msg.get("base"), msg.get("text"),
+                    agents.author(conn.name), by=conn.name,
+                    about=about if isinstance(about, str) else "")}
+            elif kind == "undo":
+                result = {"board": name, **await room.undo_agent(
+                    agents.author(conn.name), conn.name)}
             else:
                 drawing = await hub.renderer.png(path, frame.text, hub.root)
                 result = {"board": name, "version": frame.version,

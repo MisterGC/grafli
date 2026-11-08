@@ -81,7 +81,7 @@ def test_the_bridge_declares_a_claude_code_channel_and_its_tools():
     names = [t["name"] for t in _handle(
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})["result"]["tools"]]
     assert names == ["connect", "disconnect", "read_board", "write_board",
-                     "render_board"]
+                     "undo_board", "render_board"]
     prompt = _handle({"jsonrpc": "2.0", "id": 3, "method": "prompts/get",
                       "params": {"name": "connect",
                                  "arguments": {"name": "Claude"}}})["result"]

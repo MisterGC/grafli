@@ -51,10 +51,15 @@ connect: then call the `connect` tool. While connected, the board's tabs \
 show you by name as present; read the board with `read_board` (its text, \
 version, the presenter's selection and view), change it with `write_board` \
 (the whole text, against the version you read; others' changes since are \
-merged in), and look at it with `render_board`. Requests from people on the \
+merged in), and look at it with `render_board`. Your edit lands at once and \
+glows on the board with your name; one that changes more than 5 elements \
+waits as a proposal the presenter takes or drops, so say in `about` what it \
+does. `undo_board` takes back your last edit. Requests from people on the \
 board arrive as <channel source="grafli" board="..." asked_by="...">the \
 request</channel>: act on them on that board with read_board and \
-write_board, and keep your answer on the board, not only in chat. \
+write_board, and keep your answer on the board, not only in chat. Whether \
+the presenter took or dropped your proposal, or undid your edit, arrives \
+the same way, as <channel source="grafli" board="..." event="...">. \
 `disconnect` leaves the seat; the tabs then show you as gone."""
 
 _BOARD = {"type": "string",
@@ -86,8 +91,12 @@ TOOLS = [
      "description": "Write the whole board text, changed from the version "
                     "you read; it is merged into the file the way every "
                     "tab's edit is, so others' changes since stay, and the "
-                    "tabs show it at once. Returns the new version and any "
-                    "conflicts.",
+                    "tabs show it at once, the elements it changed glowing "
+                    "with your name. A change of more than 5 elements is "
+                    "not written: it waits on the board as a proposal the "
+                    "presenter takes (Enter) or drops (x), and you hear "
+                    "which. Returns the new version (or the proposal), "
+                    "what changed and any conflicts.",
      "inputSchema": {"type": "object", "required": ["base_version", "text"],
                      "properties": {
                          "base_version": {"type": "integer",
@@ -95,7 +104,16 @@ TOOLS = [
                                           "read_board returned"},
                          "text": {"type": "string",
                                   "description": "The whole .grafli text"},
+                         "about": {"type": "string",
+                                   "description": "What the change does, in "
+                                   "a few words (\"split Payments\"); the "
+                                   "board shows it with a proposal"},
                          "board": _BOARD}}},
+    {"name": "undo_board",
+     "description": "Take back your last edit on the board; what others "
+                    "changed since stays. Returns the new version and any "
+                    "conflicts.",
+     "inputSchema": {"type": "object", "properties": {"board": _BOARD}}},
     {"name": "render_board",
      "description": "The board drawn as a PNG, as the tabs show it, so you "
                     "can see what you wrote.",
@@ -197,6 +215,8 @@ class Bridge:
                         fut.set_result(msg)
                 elif kind == "request":
                     self.push(msg)
+                elif kind == "notice":
+                    self.push_notice(msg)
                 elif kind == "replaced":
                     why = (f"another session took the agent's seat "
                            f"({msg.get('by')})")
@@ -236,6 +256,15 @@ class Bridge:
         """A request from a tab, into the conversation as a channel turn."""
         meta = {"board": str(msg.get("board") or ""),
                 "asked_by": str(msg.get("from") or "")}
+        self.write({"jsonrpc": "2.0", "method": "notifications/claude/channel",
+                    "params": {"content": str(msg.get("text") or ""),
+                               "meta": {k: v for k, v in meta.items() if v}}})
+
+    def push_notice(self, msg: dict) -> None:
+        """What the presenter did with this agent's edit, into the
+        conversation as a channel turn."""
+        meta = {"board": str(msg.get("board") or ""),
+                "event": str(msg.get("event") or "")}
         self.write({"jsonrpc": "2.0", "method": "notifications/claude/channel",
                     "params": {"content": str(msg.get("text") or ""),
                                "meta": {k: v for k, v in meta.items() if v}}})
@@ -323,13 +352,30 @@ class Bridge:
             if name == "read_board":
                 got = await self.ask({"t": "read", "board": args.get("board")})
                 meta = {k: got[k] for k in ("board", "version", "selection",
-                                            "view")}
+                                            "view", "proposal")}
                 return {"content": [{"type": "text", "text": json.dumps(meta)},
                                     {"type": "text", "text": got["text"]}]}
             if name == "write_board":
+                about = args.get("about")
                 got = await self.ask({"t": "write", "board": args.get("board"),
                                       "base": args.get("base_version"),
-                                      "text": args.get("text")})
+                                      "text": args.get("text"),
+                                      "about": about if isinstance(about, str)
+                                      else ""})
+                out = {k: got[k] for k in ("board", "version", "conflicts",
+                                           "changes", "summary") if k in got}
+                if got.get("proposed") is not None:
+                    out["proposed"] = got["proposed"]
+                    out["note"] = (
+                        f"{got['changes']} changes are more than 5, so the "
+                        "board shows them as a proposal and the file is "
+                        "unchanged; the presenter takes it with Enter or "
+                        "drops it with x, and you hear which"
+                        + (" (it replaced your earlier proposal)"
+                           if got.get("replaced") else ""))
+                return _text(json.dumps(out))
+            if name == "undo_board":
+                got = await self.ask({"t": "undo", "board": args.get("board")})
                 return _text(json.dumps({k: got[k] for k in
                                          ("board", "version", "conflicts")}))
             if name == "render_board":

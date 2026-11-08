@@ -11,7 +11,10 @@ stdout, carrying back the request's ``seq``:
   "svgs", "docs", "fonts", "warnings", "ms"}``: *text* drawn as the board at
   *path*, exactly as ``grafli export-html`` draws it. A level into another
   board under *root* becomes a link to that board's live page. ``fonts``
-  holds only the faces this worker has not handed out before.
+  holds only the faces this worker has not handed out before;
+* ``{"t": "png", "path", "text", "root"}`` → ``{"ok": true, "png",
+  "width", "height"}``: *text* drawn as a PNG (base64), at most
+  ``PNG_MAX_PX`` wide and high — what the board's agent looks at.
 
 ``RenderWorker`` is the server's side: it starts the process, sends one
 request at a time and restarts the process when it dies. Nothing here
@@ -36,6 +39,9 @@ PRESENCE_JS = LIVE_JS.with_name("presence.js")
 MOUSE_JS = LIVE_JS.with_name("mouse.js")
 # Reveal mode's keys take their jump labels from the presenter's keys.
 REVEAL_JS = LIVE_JS.with_name("reveal.js")
+
+# The longer side of a PNG for the agent, in pixels.
+PNG_MAX_PX = 1600
 
 # Large enough for a board with many overlays; a frame is one line.
 _LINE_LIMIT = 256 * 1024 * 1024
@@ -96,6 +102,10 @@ class RenderWorker:
 
     async def render(self, path: Path, text: str, root: Path) -> dict:
         return await self.request({"t": "render", "path": str(path),
+                                   "text": text, "root": str(root)})
+
+    async def png(self, path: Path, text: str, root: Path) -> dict:
+        return await self.request({"t": "png", "path": str(path),
                                    "text": text, "root": str(root)})
 
     async def close(self) -> None:
@@ -176,6 +186,26 @@ def _live_exporter_class():
                     "text": arrow.label})
             return out
 
+        def png(self, path: Path, text: str, root: Path) -> dict:
+            import base64
+
+            from PySide6.QtCore import QBuffer, QByteArray, QIODevice, Qt
+            self.text = text
+            self.served_root = root
+            self._load(path.resolve())
+            image = self.view._render_png_image(scale=1, padding=40)
+            if max(image.width(), image.height()) > PNG_MAX_PX:
+                image = image.scaled(
+                    PNG_MAX_PX, PNG_MAX_PX, Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation)
+            data = QByteArray()
+            buf = QBuffer(data)
+            buf.open(QIODevice.OpenModeFlag.WriteOnly)
+            image.save(buf, "PNG")
+            buf.close()
+            return {"png": base64.b64encode(bytes(data)).decode("ascii"),
+                    "width": image.width(), "height": image.height()}
+
         def frame(self, path: Path, text: str, root: Path) -> dict:
             self.text = text
             self.served_root = root
@@ -233,6 +263,9 @@ def main(argv: list[str] | None = None) -> int:
             req = json.loads(line)
             if req.get("t") == "shell":
                 answer = {"ok": True, "html": _shell()}
+            elif req.get("t") == "png":
+                answer = {"ok": True, **exporter.png(
+                    Path(req["path"]), req["text"], Path(req["root"]))}
             else:
                 frame = exporter.frame(Path(req["path"]), req["text"],
                                        Path(req["root"]))

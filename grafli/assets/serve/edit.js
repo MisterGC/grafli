@@ -413,8 +413,11 @@
   const BOX_RE = /^@?\s*box\s+(\S+)\s+"((?:[^"\\]|\\.)*)"(.*)$/;
   const PLACE_RE = /^\s+-?[\d.]+,\s*-?[\d.]+\s+[\d.]+x[\d.]+/;
 
-  // The agent as the tabs know it: {name, present}, or null before any.
-  const agent = () => (window.grafliPresence && window.grafliPresence.agent()) || null;
+  // The agent as the last peers message gave it: {name, present}, or null
+  // before any. Kept here, not read from presence.js, whose own peers
+  // listener runs after this one.
+  let seat = null;
+  const agent = () => seat;
 
   // Where the text on the line goes, said beside it.
   function route() {
@@ -429,7 +432,10 @@
   }
 
   cmdInput.addEventListener("input", route);
-  live.on("peers", () => { if (!cmd.hidden) route(); });
+  live.on("peers", (m) => {
+    seat = m.agent || null;
+    if (!cmd.hidden) route();
+  });
 
   // Send *text* to the board's agent, *about* an element id or null; the
   // server says whether a session took it. Nothing waits in the tab.

@@ -19,3 +19,12 @@ def _pinned_theme():
     yield
     theme.set_theme("light")
     theme.set_map_palette({})
+
+
+@pytest.fixture(autouse=True)
+def _private_serve_state(tmp_path_factory, monkeypatch):
+    """Keep ``grafli serve``'s state file (its agent key) out of the real
+    ``~/.local/state``: a test that runs the server writes it here, and a
+    ``grafli agent`` on this machine never finds a test's server."""
+    monkeypatch.setenv("GRAFLI_STATE_DIR",
+                       str(tmp_path_factory.mktemp("serve-state")))

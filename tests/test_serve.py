@@ -201,6 +201,44 @@ def test_run_prints_a_watch_an_edit_and_a_present_link_per_board(
     assert "every interface" not in text
 
 
+def test_run_leaves_a_private_state_file_for_the_agent_while_it_serves(
+        tmp_path, monkeypatch):
+    import uvicorn
+    from grafli.serve import agent as agents
+    state = tmp_path / "state"
+    monkeypatch.setenv("GRAFLI_STATE_DIR", str(state))
+    keys, seen = [], {}
+    real = srv.create_app
+
+    def create_app(root, k, *args, **kw):
+        keys.append(k)
+        return real(root, k, *args, **kw)
+
+    def serve(self, sockets=None):
+        port = sockets[0].getsockname()[1]
+        path = state / f"serve-{port}.json"
+        seen.update(port=port, path=path, mode=path.stat().st_mode & 0o777,
+                    data=json.loads(path.read_text()))
+    monkeypatch.setattr(srv, "create_app", create_app)
+    monkeypatch.setattr(uvicorn.Server, "run", serve)
+    out = io.StringIO()
+    assert srv.run(tmp_path, host="127.0.0.1", port=0, out=out) == 0
+    assert seen["port"] != 0 and seen["data"]["port"] == seen["port"]
+    assert seen["data"]["key"] == keys[0].agent
+    assert seen["data"]["host"] == "127.0.0.1"
+    assert seen["mode"] == 0o600
+    assert agents.state_dir() == state
+    assert not seen["path"].exists()
+    assert "/mcp__grafli__connect" in out.getvalue()
+
+
+def test_no_test_writes_serve_state_under_the_real_home():
+    from grafli.serve import agent as agents
+    real = Path.home() / ".local" / "state" / "grafli"
+    assert agents.state_dir() != real
+    assert os.environ["GRAFLI_STATE_DIR"]
+
+
 def test_run_warns_when_told_to_listen_everywhere(tmp_path, monkeypatch):
     import uvicorn
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)

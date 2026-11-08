@@ -478,3 +478,22 @@ def test_pin_on_a_v1_box_lifts_the_board_to_v4():
     board = parse('#!grafli v1\n@ box b "Title" 0,0 200x80\n')
     board.boxes[0].pinned = True
     assert serialize(board).splitlines()[0] == "#!grafli v4"
+
+
+STRAIGHT = ('#!grafli v4\n@ box a "A" 0,0 160x80\n'
+            '@ box b "B" 0,200 160x80\n@ arrow a -> b !straight\n')
+
+
+def test_a_straight_arrow_round_trips_and_writes_v4():
+    board = parse(STRAIGHT)
+    assert board.arrows[0].routing == "straight"
+    assert required_version(board) == 4
+    assert serialize(board) == STRAIGHT
+
+
+def test_straight_on_a_v1_arrow_lifts_the_board_to_v4():
+    board = parse('#!grafli v1\n@ box a "A" 0,0 160x80\n'
+                  '@ box b "B" 0,200 160x80\n@ arrow a -> b\n')
+    assert required_version(board) == 1
+    board.arrows[0].routing = "straight"
+    assert serialize(board).splitlines()[0] == "#!grafli v4"

@@ -1956,6 +1956,23 @@ def test_arrow_spline_roundtrip():
     assert serialize(board) == HEADER + "\n" + text
 
 
+def test_arrow_straight_roundtrip():
+    """#284: `!straight` is a routing of its own — a direct line that
+    `grafli layout` leaves direct."""
+    text = '#!grafli v4\n@ arrow a -> b "x" !dashed !straight\n'
+    board = parse(text)
+    arrow = board.arrows[0]
+    assert (arrow.style, arrow.routing) == ("dashed", "straight")
+    assert not arrow.routed
+    assert serialize(board) == text
+
+
+def test_only_spline_and_ortho_are_routed():
+    assert [parse(f'@ arrow a -> b{flag}\n').arrows[0].routed
+            for flag in ("", " !straight", " !spline", " !ortho")] == [
+        False, False, True, True]
+
+
 def test_routing_is_independent_of_pattern_and_thickness():
     """The reason routing is its own field: all three combine on one connector."""
     text = '@ arrow a -> b "x" !dashed !thick !ortho\n'

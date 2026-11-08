@@ -401,6 +401,21 @@ def test_no_ortho_connector_crosses_a_box_on_any_example_board():
     assert not offenders, f"stairs now cut through boxes: {offenders}"
 
 
+def test_a_straight_connector_draws_like_a_direct_one():
+    """#284: `!straight` only keeps `grafli layout` from routing an arrow;
+    on the board it is the direct line it always was."""
+    from grafli.items import ArrowLineItem
+
+    def drawn(flag: str) -> list:
+        view = _view(_BOARD + "@ arrow a -> c" + flag + "\n"
+                     "@ arrow a -> c" + flag + "\n")
+        return [[(p.x(), p.y()) for poly in gfx.path().toSubpathPolygons()
+                 for p in poly]
+                for gfx in view._arrow_items if isinstance(gfx, ArrowLineItem)]
+
+    assert drawn(" !straight") == drawn("")
+
+
 # ── Label position (#260) ──────────────────────────────────────────
 
 def test_a_stair_label_sits_on_its_longest_run_not_its_jog():

@@ -120,6 +120,17 @@ def test_a_move_without_parent_keeps_the_container():
     assert b.box_by_id("a").parent == "lane"
 
 
+def test_a_move_carries_what_the_drawing_holds_inside_it():
+    """A box drawn inside a container without a ``>parent`` in the file
+    goes along when the tab names it; each element moves once."""
+    b = parse(BOARD + '@ box c "C" 40,120 80x40\n')
+    apply_op(b, {"op": "move", "id": "lane", "dx": 100, "dy": 0,
+                 "carry": ["c", "a", "lane"]})
+    assert b.box_by_id("c").x == 140
+    assert b.box_by_id("a").x == 120
+    assert b.box_by_id("lane").x == 100
+
+
 def test_a_comment_is_a_question_note_at_the_point():
     b = board()
     assert apply_op(b, {"op": "comment", "text": "why a lane?",
@@ -159,6 +170,8 @@ def test_a_comment_takes_an_id_nothing_else_has():
     ({"op": "move", "id": "a", "dx": 1, "dy": 1, "parent": "zz"}, "no box 'zz'"),
     ({"op": "move", "id": "lane", "dx": 1, "dy": 1, "parent": "a"}, "inside itself"),
     ({"op": "move", "id": "lane", "dx": 1, "dy": 1, "parent": "lane"}, "inside itself"),
+    ({"op": "move", "id": "lane", "dx": 1, "dy": 1, "carry": "a"}, "list of ids"),
+    ({"op": "move", "id": "lane", "dx": 1, "dy": 1, "carry": ["zz"]}, "'zz' to carry"),
     ({"op": "comment", "text": "  ", "x": 0, "y": 0}, "empty question"),
     ({"op": "comment", "text": "why?", "x": 0}, "'y' must be a number"),
     ({"op": "comment", "text": "why?", "x": 0, "y": 0, "parent": "zz"}, "no box 'zz'"),

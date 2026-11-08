@@ -343,6 +343,51 @@ def test_a_viewer_tab_cannot_edit(served, board):
     tab.close()
 
 
+# The edits the tab's mouse gestures send: a drag, a double-click rename, a
+# drag from a box's edge, a right-click question.
+GESTURES = [
+    {"op": "move", "id": "b", "dx": 40, "dy": 20, "parent": ""},
+    {"op": "rename", "id": "a", "label": "Api"},
+    {"op": "comment", "text": "why two?", "x": 0, "y": 120},
+    {"op": "connect", "from": "b", "to": "n1"},
+]
+
+
+def test_a_viewer_key_allows_none_of_the_mouse_edits(served, board):
+    tab = Tab(served, board.stem, served.keys.viewer)
+    _welcome, frame = tab.open()
+    for op in GESTURES:
+        msg = tab.edit(frame["version"], op)
+        assert msg["t"] == "error" and "editor link" in msg["message"], op
+    assert board.read_text() == BOARD
+    tab.close()
+
+
+@pytest.mark.parametrize("key", ["editor", "presenter"])
+def test_an_editor_key_allows_every_mouse_edit_and_every_tab_sees_it(
+        served, board, key):
+    tab = Tab(served, board.stem, getattr(served.keys, key))
+    watcher = Tab(served, board.stem, served.keys.viewer)
+    tab.open()
+    watcher.open()
+    for op in GESTURES:
+        ack = tab.edit(tab.latest()["version"], op)
+        assert ack["t"] == "ack", (op, ack)
+        # The watching tab gets the frame that shows it.
+        while watcher.recv_until("frame")["version"] < ack["version"]:
+            pass
+    text = board.read_text()
+    assert '@ box b "B" 280,20 120x60' in text
+    assert '@ box a "Api" 0,0 120x60' in text
+    assert "@ arrow b -> n1" in text
+    assert '@ note n1 0,120 "Q: why two?"' in text
+    shown = {e["id"]: e for e in watcher.latest()["board"]["elements"]}
+    assert shown["a"]["label"] == "Api" and "b->n1" in shown
+    assert shown["n1"]["text"] == "Q: why two?"
+    tab.close()
+    watcher.close()
+
+
 def test_an_edit_merges_with_a_change_it_did_not_see(served, board):
     """The tab moves a box on the version it saw while an agent renamed the
     other box on disk: the merge keeps both."""

@@ -94,6 +94,54 @@ def test_delete_an_arrow():
     assert b.arrows == []
 
 
+def test_move_by_an_offset_as_a_drag_sends_it():
+    b = board()
+    apply_op(b, {"op": "move", "id": "b", "dx": 30, "dy": -15})
+    assert (b.box_by_id("b").x, b.box_by_id("b").y) == (230, 25)
+    apply_op(b, {"op": "move", "id": "lane", "dx": 10, "dy": 10})
+    assert (b.box_by_id("a").x, b.box_by_id("a").y) == (30, 50)
+    assert (b.note_by_id("n1").x, b.note_by_id("n1").y) == (30, 310)
+
+
+def test_a_drop_puts_the_element_into_the_box_it_lands_on():
+    b = board()
+    apply_op(b, {"op": "move", "id": "b", "dx": -100, "dy": 0, "parent": "lane"})
+    assert b.box_by_id("b").parent == "lane"
+    apply_op(b, {"op": "move", "id": "a", "dx": 0, "dy": 400, "parent": ""})
+    assert b.box_by_id("a").parent == ""
+    apply_op(b, {"op": "move", "id": "n1", "dx": 0, "dy": 0, "parent": "b"})
+    assert b.note_by_id("n1").parent == "b"
+    assert '@ box b "B" 100,40 100x60 >lane' in serialize(b)
+
+
+def test_a_move_without_parent_keeps_the_container():
+    b = board()
+    apply_op(b, {"op": "move", "id": "a", "dx": 5, "dy": 5})
+    assert b.box_by_id("a").parent == "lane"
+
+
+def test_a_comment_is_a_question_note_at_the_point():
+    b = board()
+    assert apply_op(b, {"op": "comment", "text": "why a lane?",
+                        "x": 500, "y": 300}) == {"id": "n2"}
+    note = b.note_by_id("n2")
+    assert (note.text, note.x, note.y, note.parent) == ("Q: why a lane?", 500, 300, "")
+    assert '@ note n2 500,300 "Q: why a lane?"' in serialize(b)
+
+
+def test_a_comment_in_a_container_and_one_already_a_question():
+    b = board()
+    apply_op(b, {"op": "comment", "text": "  question: who owns it? ",
+                 "x": 200, "y": 150, "parent": "lane"})
+    note = b.note_by_id("n2")
+    assert (note.text, note.parent) == ("question: who owns it?", "lane")
+
+
+def test_a_comment_takes_an_id_nothing_else_has():
+    b = parse(BOARD + '@ box n2 "Named like a note" 600,0 100x60\n')
+    assert apply_op(b, {"op": "comment", "text": "?", "x": 0, "y": 0})["id"] == "n2x"
+
+
 @pytest.mark.parametrize("op, message", [
     ({"op": "fly"}, "unknown edit"),
     ("move", "JSON object"),
@@ -107,6 +155,14 @@ def test_delete_an_arrow():
     ({"op": "connect", "from": "a", "to": "b"}, "already connected"),
     ({"op": "connect", "from": "a", "to": "a"}, "two different ends"),
     ({"op": "delete", "id": "zz"}, "no element 'zz'"),
+    ({"op": "move", "id": "a", "dx": 1}, "'dy' must be a number"),
+    ({"op": "move", "id": "a", "dx": 1, "dy": 1, "parent": "zz"}, "no box 'zz'"),
+    ({"op": "move", "id": "lane", "dx": 1, "dy": 1, "parent": "a"}, "inside itself"),
+    ({"op": "move", "id": "lane", "dx": 1, "dy": 1, "parent": "lane"}, "inside itself"),
+    ({"op": "comment", "text": "  ", "x": 0, "y": 0}, "empty question"),
+    ({"op": "comment", "text": "why?", "x": 0}, "'y' must be a number"),
+    ({"op": "comment", "text": "why?", "x": 0, "y": 0, "parent": "zz"}, "no box 'zz'"),
+    ({"op": "comment", "text": "why?", "x": 0, "y": 0, "parent": "n1"}, "no box 'n1'"),
 ])
 def test_edits_that_do_not_fit_say_why(op, message):
     b = board()

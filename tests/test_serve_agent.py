@@ -263,6 +263,20 @@ def test_a_write_against_an_old_version_keeps_what_others_changed(
     presenter.close()
 
 
+def test_a_text_that_holds_no_board_is_refused_and_the_file_stays(
+        served, board, sessions):
+    name = board.stem
+    session = sessions()
+    session.tool("connect")
+    meta = json.loads(_text(session.tool("read_board", board=name)))
+    before = board.read_bytes()
+    got = session.tool("write_board", board=name,
+                       base_version=meta["version"],
+                       text="I added a cache between A and B.")
+    assert got["isError"] and "no board elements" in _text(got)
+    assert board.read_bytes() == before
+
+
 def test_a_request_pushed_from_the_board_reaches_the_session_as_a_channel(
         served, board, sessions):
     name = board.stem

@@ -408,9 +408,9 @@ The subject is grafli itself. `map-res/palette.json`:
 @ note case 0,-140 "Example, not the scope: one box, API, followed through every layer" ~small
 
 @ box export "Exports" 0,-60 1140x180 %export ^left
-@ box render "Render" 30,0 240x90 ^topcenter !flat &graph:render >export
-@ box slides "PDF / PPTX" 300,0 240x90 ^topcenter !flat &graph:slides >export
-@ box html "HTML page" 570,0 240x90 ^topcenter !flat &doc:html >export
+@ box slides "PDF / PPTX" 30,0 240x90 ^topcenter !flat &graph:slides >export
+@ box html "HTML page" 300,0 240x90 ^topcenter !flat &doc:html >export
+@ box render "Render" 570,0 240x90 ^topcenter !flat &graph:render >export
 @ note case_export 850,15 "API is a box on a slide" ~small >export
 
 @ box shell "App shell" 0,140 1140x180 %shell ^left
@@ -420,16 +420,21 @@ The subject is grafli itself. `map-res/palette.json`:
 @ note case_shell 850,215 "Moving API is saved to the file" ~small >shell
 
 @ box canvas "Canvas" 0,340 1140x180 %canvas ^left
-@ box items "Items" 30,400 240x90 ^topcenter !flat &graph:items >canvas
-@ box edit "Edit modes" 300,400 240x90 ^topcenter !flat &doc:edit >canvas
+@ box edit "Edit modes" 30,400 240x90 ^topcenter !flat &doc:edit >canvas
+@ box items "Items" 300,400 240x90 ^topcenter !flat &graph:items >canvas
 @ box lod "Zoom levels" 570,400 240x90 ^topcenter !flat &doc:lod >canvas
 @ note case_canvas 850,415 "API is drawn and dragged" ~small >canvas
 
 @ box format "Format" 0,540 1140x180 %format ^left
-@ box parser "Parser" 30,600 240x90 ^topcenter !flat &graph:parser >format
-@ box writer "Writer" 300,600 240x90 ^topcenter !flat &doc:writer >format
-@ box vault "Resource vault" 570,600 240x90 ^topcenter !flat &doc:vault >format
+@ box vault "Resource vault" 30,600 240x90 ^topcenter !flat &doc:vault >format
+@ box parser "Parser" 300,600 240x90 ^topcenter !flat &graph:parser >format
+@ box writer "Writer" 570,600 240x90 ^topcenter !flat &doc:writer >format
 @ note case_format 850,615 "API is one line: @ box api …" ~small >format
+
+@ arrow window -> slides "call: export" !ortho
+@ arrow stack -> items "call: load_board" !ortho
+@ arrow parser -> items "data: Board" !ortho
+@ arrow autosave -> writer "call: serialize" !ortho
 
 @ note evidence 0,760 """
 code:
@@ -444,7 +449,10 @@ split by the modules that own each layer
 The problem and the shape of the answer come first; the four layers are
 stacked full-width containers in their palette colours, the name on the
 left; one box, `API`, is followed through every layer and the board says
-it is an example; how parsing, items, the board stack and rendering work
+it is an example; one arrow per relation between layers names the call
+or the data that crosses it (`call: export`, `call: load_board`,
+`data: Board`, `call: serialize`), and `!ortho` steps the one that skips
+a layer around it; how parsing, items, the board stack and rendering work
 is a level down (`&graph`), what a part is a doc away (`&doc`). Zoomed out
 (`grafli render --lod map.grafli out.png`) the board is four named bands.
 

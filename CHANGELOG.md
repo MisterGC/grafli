@@ -76,6 +76,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it adds, changes and removes; Enter takes it, x drops it, and the agent
   hears which. The agent can undo its own last edit too (`undo_board`).
   ([#268](https://github.com/MisterGC/grafli/issues/268))
+- **Ask the agent from the live tab, in plain language.** On the tab's `:`
+  line, anything that isn't a grafli line — "add a cache between api and
+  db" — goes to the connected session, and its answer comes back as an edit
+  on the board. The **✦ ask** chip beside a selection (or `a`) asks about
+  that element, and the session hears which one. The line says as you type
+  whether the text is applied or goes to the agent. With no session
+  connected, or one that dropped, the tab says so and nothing is sent
+  later.
+  ([#269](https://github.com/MisterGC/grafli/issues/269))
 - **`grafli fmt` — canonical form for hand- and agent-authored boards.**
   Boards written outside the app never pass through its save path, so their
   coordinates and token spacing drift from what the app would write and the

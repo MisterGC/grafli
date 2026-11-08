@@ -300,7 +300,8 @@ with a few of the app's keys:
 | <kbd>e</kbd> | Rename the selected box, note or arrow; <kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> drops it |
 | <kbd>x</kbd> / <kbd>Delete</kbd> | Delete the selection, with its arrows |
 | <kbd>u</kbd> / <kbd>⌘</kbd>+<kbd>Z</kbd> | Undo your last edit in this tab |
-| <kbd>:</kbd> | A command line for grafli lines: `@ box cache "Cache"`, `@ arrow api -> cache "reads"`. A box line without a place goes below the selection; a line with the id of an element on the board restates that element. <kbd>↑</kbd> brings back the last line |
+| <kbd>:</kbd> | A command line. A grafli line — `@ box cache "Cache"`, `@ arrow api -> cache "reads"` — is applied: a box line without a place goes below the selection; a line with the id of an element on the board restates that element. Anything else is plain language for the agent (see [Ask the agent](#ask-the-agent-plain-language-and-the-ask-chip)). The right end of the line says where what you typed goes. <kbd>↑</kbd> brings back the last line |
+| <kbd>a</kbd> | Ask the agent about the selection (see [Ask the agent](#ask-the-agent-plain-language-and-the-ask-chip)) |
 | <kbd>Shift</kbd>+<kbd>Z</kbd> | Fit the board in view (never closer than 1:1), so every box has a jump label |
 
 A new box lands on the side you asked for; if a box already sits there, it
@@ -315,8 +316,8 @@ changed since: undoing a box you added also drops an arrow someone drew to
 it. The tab keeps its undo history across a reload for as long as
 `grafli serve` runs.
 
-Plain language on the command line ("add a cache between api and db") is
-for a connected agent; until one is connected, the tab says so and changes
+Plain language on the command line ("add a cache between api and db") goes
+to the connected agent; with no agent connected, the tab says so and sends
 nothing.
 
 ### Editing with the mouse
@@ -481,6 +482,35 @@ and the outlines, and in reveal mode only who proposes how much. While a
 proposal waits, <kbd>Enter</kbd> and <kbd>x</kbd> act on it instead of on
 the selection. One proposal waits at a time: a new one from the agent takes
 its place. The session hears whether you took it or dropped it.
+
+### Ask the agent: plain language and the ask chip
+
+In an edit or present link's tab there are two ways to ask the agent for a
+change:
+
+- **On the command line.** <kbd>:</kbd>, then plain language — "add a cache
+  between api and db" — and <kbd>Enter</kbd>. A line that starts with `@`,
+  or reads like a grafli line without it (`box cache "Cache"`), is applied
+  to the board instead. While you type, the right end of the line says where
+  it goes: "grafli line → applied" or "plain language → Serein's agent".
+- **On the selection.** A purple **✦ ask** chip sits beside the selected
+  element; click it, or press <kbd>a</kbd>, type the request in the field
+  over the element, <kbd>Enter</kbd>. The session hears which element the
+  request is about.
+
+The request reaches the session as a `<channel source="grafli">` turn with
+who asked, and the element when there is one; its answer comes back as an
+edit on the board, glowing with its name (see
+[The agent's edits](#the-agents-edits-marked-undoable-big-ones-proposed)).
+A reply takes seconds to tens of seconds. A toast says the request was
+sent.
+
+**With no agent connected**, the line reads "plain language: no agent
+connected", the chip is dashed, and asking says "No agent is connected, so
+nothing was sent". When the session dropped, both say the agent is gone.
+Nothing waits to be sent later: a session that connects afterwards gets
+only what is asked from then on. A watch link's tab cannot ask, and in
+reveal mode a guest cannot ask about what is still hidden.
 
 ## When you want to *explain* the path
 

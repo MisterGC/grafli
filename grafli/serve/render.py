@@ -5,8 +5,9 @@ warm and answers one JSON line per request on stdin with one JSON line on
 stdout, carrying back the request's ``seq``:
 
 * ``{"t": "shell"}`` → ``{"ok": true, "html": ...}``: the live page, the
-  export page with no board in it and the live client, its editing keys,
-  presence, mouse gestures and reveal mode added;
+  export page with no board in it and the live client, the agent's marks
+  and proposal, its editing keys, presence, mouse gestures and reveal mode
+  added;
 * ``{"t": "render", "path", "text", "root"}`` → ``{"ok": true, "board",
   "svgs", "docs", "fonts", "warnings", "ms"}``: *text* drawn as the board at
   *path*, exactly as ``grafli export-html`` draws it. A level into another
@@ -39,6 +40,9 @@ PRESENCE_JS = LIVE_JS.with_name("presence.js")
 MOUSE_JS = LIVE_JS.with_name("mouse.js")
 # Reveal mode's keys take their jump labels from the presenter's keys.
 REVEAL_JS = LIVE_JS.with_name("reveal.js")
+# The agent's edits and proposal: its keys are asked before the editing
+# keys, so x drops a waiting proposal rather than deleting the selection.
+AGENT_JS = LIVE_JS.with_name("agent.js")
 
 # The longer side of a PNG for the agent, in pixels.
 PNG_MAX_PX = 1600
@@ -226,7 +230,7 @@ def _shell() -> str:
             "theme": theme.name(), "dwell": DEFAULT_DWELL}
     return _page("grafli", data, [], [],
                  extra_js="\n".join(js.read_text(encoding="utf-8") for js in
-                                    (LIVE_JS, EDIT_JS, PRESENCE_JS,
+                                    (LIVE_JS, AGENT_JS, EDIT_JS, PRESENCE_JS,
                                      MOUSE_JS, REVEAL_JS)),
                  generator="grafli serve")
 

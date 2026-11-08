@@ -131,6 +131,51 @@ body {
 #stage[data-grab="moving"] { cursor: grabbing; }
 #stage[data-grab="edge"], #stage[data-grab="connecting"] { cursor: crosshair; }
 .ghost rect.target { fill: none; stroke-dasharray: none; animation: none; }
+/* grafli serve: the agent's edit glows in its colour for a moment, with its
+   name; its proposal is a banner and dashed outlines until it is taken. */
+#agent-marks, #proposal-marks { pointer-events: none; }
+.agent-glow { animation: agent-glow 4s ease-out forwards; }
+.agent-glow .halo {
+  fill: none; stroke: var(--agent); stroke-opacity: 0.25; stroke-width: 10;
+  vector-effect: non-scaling-stroke;
+}
+.agent-glow .edge {
+  fill: none; stroke: var(--agent); stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+.agent-glow.tag rect { fill: var(--agent); }
+.agent-glow.tag text {
+  fill: #fff; dominant-baseline: central; font-weight: 600;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@keyframes agent-glow { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+.proposed rect, .proposed path {
+  stroke: var(--agent); stroke-width: 2; stroke-dasharray: 6 5;
+  vector-effect: non-scaling-stroke;
+}
+.proposed rect { fill: color-mix(in srgb, var(--agent) 9%, var(--bg)); }
+.proposed.changed rect { fill: color-mix(in srgb, var(--agent) 5%, transparent); }
+.proposed path { fill: none; }
+.proposed text {
+  fill: color-mix(in srgb, var(--agent) 60%, var(--ink));
+  text-anchor: middle; dominant-baseline: central;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.proposed.gone rect { fill: color-mix(in srgb, var(--bg) 55%, transparent); }
+.proposed.gone rect, .proposed.gone path, .proposed.gone line {
+  stroke: var(--ink); stroke-opacity: 0.55; stroke-width: 1.5;
+  stroke-dasharray: 5 4; vector-effect: non-scaling-stroke;
+}
+.proposed.gone line { stroke-dasharray: none; stroke-width: 2; }
+#proposal {
+  --agent: #7048e8;
+  position: absolute; z-index: 3; top: 12px; left: 16px; right: 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 14px; border-radius: 8px; background: var(--agent); color: #fff;
+  font-size: 14px; pointer-events: none;
+}
+#proposal .keys { font: 13px ui-monospace, "JetBrains Mono", monospace; white-space: nowrap; }
+#proposal[hidden] { display: none; }
 /* grafli serve: reveal mode — what the others don't see yet, faint, for the
    presenter only. */
 #reveal-outlines { pointer-events: none; }

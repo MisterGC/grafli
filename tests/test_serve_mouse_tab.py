@@ -187,6 +187,33 @@ def test_each_gesture_changes_the_board_and_shows_in_every_tab(browsers, served)
     assert len(board_at(path).notes) == 1
 
 
+@pytest.mark.parametrize("second", ["right-click", "double-click"])
+def test_a_second_field_over_an_open_question_leaves_no_placeholder(
+        browsers, served, second):
+    """A right-click opens the question field with its Q: placeholder; a
+    second right-click or a double-click while it is open replaces the
+    field, and the first placeholder goes with it."""
+    guest, _watcher = browsers
+    path = served.root / f"twice-{second}.grafli"
+    path.write_text(BOARD, encoding="utf-8")
+    before = path.read_bytes()
+    open_tab(guest, served, path.stem, "editor")
+    guest.key("Z", shift=True)
+    guest.wait("grafliPage.busy() === false")
+    guest.click(*guest.at("pay"), button="right")
+    guest.wait("grafliEdit.field() === ''")
+    assert guest.js("document.getElementById('ghosts').children.length") == 1
+    if second == "right-click":
+        guest.click(*guest.at("audit"), button="right")
+    else:
+        guest.click(*guest.at("audit"), count=2)
+        guest.wait("grafliEdit.field() === 'Audit'")
+    guest.key("Escape")
+    guest.wait("grafliEdit.field() === null")
+    assert guest.js("document.getElementById('ghosts').children.length") == 0
+    assert path.read_bytes() == before
+
+
 def test_a_watch_link_allows_none_of_the_gestures(browsers, served):
     _guest, watcher = browsers
     path = served.root / "watched.grafli"

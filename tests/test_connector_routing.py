@@ -314,12 +314,14 @@ def test_a_clear_stair_does_not_move():
     assert _stair(start, end, far_away) == _stair(start, end, None)
 
 
-def test_a_stair_slides_but_never_detours():
+def test_a_stair_turns_only_between_its_ends():
     """The line that separates this from a router.
 
-    Every corner stays inside the bounding box of the two anchors, so a route
-    can shift within the gap but can never wander off around an obstacle. If
-    this ever fails, the change has grown into the thing D4 ruled out.
+    A stair that no mid-line clears steps around the boxes in its way
+    (#284), but it never turns behind either end: every corner lies between
+    the two anchors along the way they face, and only the run beside the
+    boxes may leave the span across. Five runs at most — a detour, not a
+    search for any path.
     """
     start, end = QPointF(0, 0), QPointF(600, 300)
     # A wall of boxes filling most of the gap — maximum pressure to escape.
@@ -327,7 +329,38 @@ def test_a_stair_slides_but_never_detours():
     pts = _stair(start, end, walls)
     for p in pts:
         assert -0.01 <= p.x() <= 600.01
-        assert -0.01 <= p.y() <= 300.01
+    assert len(pts) <= 6
+    assert arrows._crossed(pts, walls) == 0
+
+
+def test_a_stair_steps_around_the_layer_it_skips():
+    """#284: two layers apart, a box of the layer between sits right under
+    the start. No mid-line clears it — both runs down cross it — so the
+    stair turns in the gap above it, passes it beside it and turns back in
+    the gap below."""
+    top, below = QRectF(0, 0, 160, 80), QRectF(0, 240, 160, 80)
+    between = QRectF(0, 120, 160, 80)
+    start = QPointF(top.center().x(), top.bottom())
+    end = QPointF(below.center().x(), below.top())
+    plain = arrows.ortho_points(start, "s", end, "n", None)
+    assert arrows._crossed(plain, [between]) == 1
+
+    pts = arrows.ortho_points(start, "s", end, "n", [between])
+    assert arrows._crossed(pts, [between]) == 0
+    assert len(pts) == 6
+    turns = sorted({round(p.y()) for p in pts[1:-1]})
+    assert turns == [100, 220]       # the middle of each layer gap
+    for a, b in zip(pts, pts[1:]):
+        assert abs(a.x() - b.x()) < 0.01 or abs(a.y() - b.y()) < 0.01
+
+
+def test_a_detour_takes_the_gap_nearest_the_straight_line():
+    """Of two ways around, the one closer to the line between the ends."""
+    start, end = QPointF(100, 80), QPointF(100, 320)
+    between = QRectF(0, 120, 160, 80)    # its right edge 60 from the line
+    pts = arrows.ortho_points(start, "s", end, "n", [between])
+    column = {round(p.x()) for p in pts[1:-1]} - {100}
+    assert column == {170}
 
 
 def test_a_hopeless_stair_keeps_the_plain_route():

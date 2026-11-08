@@ -125,7 +125,31 @@ pytest.importorskip("starlette")
 pytest.importorskip("uvicorn")
 pytest.importorskip("websockets.sync.client")
 
-from tests.test_serve import Served, Tab  # noqa: E402
+from tests.test_serve import Served, Tab as _Tab  # noqa: E402
+
+_open: list = []
+
+
+class Tab(_Tab):
+    """A tab closed after its test even when the test fails, so no socket
+    thread outlives it into the next tests."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.closed = False
+        _open.append(self)
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            super().close()
+
+
+@pytest.fixture(autouse=True)
+def _close_tabs():
+    yield
+    while _open:
+        _open.pop().close()
 
 
 @pytest.fixture(scope="module")

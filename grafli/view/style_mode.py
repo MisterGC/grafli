@@ -1065,6 +1065,16 @@ class StyleModeMixin:
         for a in self._selected_arrows:
             setattr(a, field, value)
 
+    def _set_all_routing(self, value: str):
+        """Unify the selected connectors' routing to the pick. Direct keeps
+        an arrow that was `!straight` when the overlay opened: both draw
+        the same line, and dropping the flag would let the next `grafli
+        layout` turn the arrow into a stair (#284)."""
+        for a in self._selected_arrows:
+            was = self._elem_overlay_original.get(id(a), {}).get(
+                "routing", a.routing)
+            a.routing = "straight" if not value and was == "straight" else value
+
     def _connector_axes(self) -> list:
         """The axis spec for the active overlay kind. ``get`` reads the primary
         connector (what the matrix highlights); ``set`` unifies every selected
@@ -1098,7 +1108,7 @@ class StyleModeMixin:
              # `!straight` draws direct, so the Direct cell shows it.
              "get": lambda: ("" if primary.routing == "straight"
                              else primary.routing),
-             "set": lambda v: self._set_all_arrows("routing", v)},
+             "set": self._set_all_routing},
             {"label": "Leaves from", "kind": "side",
              "options": list(self._CONN_SIDE_OPTIONS),
              "get": lambda: primary.from_side,

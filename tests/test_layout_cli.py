@@ -155,3 +155,153 @@ def test_layout_leaves_room_for_an_arrow_label_between_layers(tmp_path: Path):
     label_w, _ = _make_arrow_label_size_provider()(parse(f.read_text()).arrows[0])
     gap = rects["b"][0] - (rects["a"][0] + rects["a"][2])
     assert gap >= label_w + 8
+
+
+# ── Right-angle routing (#284) ─────────────────────────────────────
+
+ROUTING = ('#!grafli v4\n'
+           '@ box a "A" 0,0 160x80\n'
+           '@ box b "B" 0,0 160x80\n'
+           '@ box c "C" 0,0 160x80\n'
+           '@ box d "D" 0,0 160x80\n'
+           '@ box p "P" 600,600 160x80 !pin\n'
+           '@ note n 900,0 "aside"\n'
+           '@ arrow a -> b\n'
+           '@ arrow a -> d\n'
+           '@ arrow a -> c !spline\n'
+           '@ arrow b -> c !straight\n'
+           '@ arrow c -> p\n'
+           '@ arrow a -> n\n'
+           '@ arrow a -> a\n')
+
+# The test board: `ui -> db` skips the layer of `api` and the layer of
+# `auth` and `jobs`, and `api -> db` skips the second of them.
+SKIP = ('#!grafli v4\n'
+        '@ box ui "UI" 0,0 160x80\n'
+        '@ box api "API" 0,0 160x80\n'
+        '@ box auth "Auth" 0,0 160x80\n'
+        '@ box jobs "Jobs" 0,0 160x80\n'
+        '@ box db "Database" 0,0 160x80\n'
+        '@ arrow ui -> api\n'
+        '@ arrow api -> auth\n'
+        '@ arrow api -> jobs\n'
+        '@ arrow auth -> db\n'
+        '@ arrow jobs -> db\n'
+        '@ arrow ui -> db "reads"\n'
+        '@ arrow api -> db\n')
+
+
+def _view_of(path: Path):
+    from PySide6.QtWidgets import QApplication
+
+    from grafli.view import GrafliView
+    QApplication.instance() or QApplication([])
+    view = GrafliView()
+    view.load_board(parse(path.read_text(encoding="utf-8")))
+    return view
+
+
+def _drawn(view, from_id: str, to_id: str):
+    """The line items drawn for the arrow *from_id* -> *to_id*."""
+    from grafli.items import ArrowLineItem
+    return [gfx for gfx in view._arrow_items
+            if isinstance(gfx, ArrowLineItem)
+            and (gfx.data(0).from_id, gfx.data(0).to_id) == (from_id, to_id)]
+
+
+def _straight_runs(gfx) -> list[tuple[float, float, float, float]]:
+    """The straight runs of a drawn path, as (x0, y0, x1, y1); an eased
+    corner between two runs is a curve and not among them."""
+    from PySide6.QtGui import QPainterPath
+    path = gfx.path()
+    runs, prev = [], None
+    for i in range(path.elementCount()):
+        el = path.elementAt(i)
+        if el.type == QPainterPath.ElementType.LineToElement and prev:
+            runs.append((*prev, el.x, el.y))
+        prev = (el.x, el.y)
+    return runs
+
+
+def test_layout_routes_unflagged_arrows_between_placed_boxes(tmp_path: Path):
+    f = tmp_path / "routing.grafli"
+    f.write_text(ROUTING, encoding="utf-8")
+    assert _cmd_layout([str(f)]) == 0
+    routing = {(a.from_id, a.to_id): a.routing
+               for a in parse(f.read_text(encoding="utf-8")).arrows}
+    assert routing == {
+        ("a", "b"): "ortho",       # two placed boxes, no flag
+        ("a", "d"): "ortho",
+        ("a", "c"): "spline",      # a flag of its own stays
+        ("b", "c"): "straight",
+        ("c", "p"): "",            # the layout does not place a !pin box
+        ("a", "n"): "",            # a note is not a box
+        ("a", "a"): "",            # a loop keeps its loop
+    }
+
+
+def test_a_placed_arrow_is_drawn_at_right_angles(tmp_path: Path):
+    f = tmp_path / "routing.grafli"
+    f.write_text(ROUTING, encoding="utf-8")
+    assert _cmd_layout([str(f)]) == 0
+    view = _view_of(f)
+    for to_id in ("b", "d"):
+        (line,) = _drawn(view, "a", to_id)
+        runs = _straight_runs(line)
+        # `b` and `d` share a layer below `a`, so neither sits straight
+        # under it: a direct line would be a slant, the stair turns.
+        assert len(runs) == 3, to_id
+        for x0, y0, x1, y1 in runs:
+            assert abs(x0 - x1) < 0.01 or abs(y0 - y1) < 0.01
+
+
+def test_straight_keeps_an_arrow_direct_across_layout_runs(tmp_path: Path):
+    f = tmp_path / "routing.grafli"
+    f.write_text(ROUTING, encoding="utf-8")
+    assert _cmd_layout([str(f)]) == 0
+    assert _cmd_layout([str(f)]) == 0
+    text = f.read_text(encoding="utf-8")
+    assert "@ arrow b -> c !straight\n" in text
+    (line,) = _drawn(_view_of(f), "b", "c")
+    assert len(_straight_runs(line)) == 1
+
+
+def test_an_arrow_that_skips_a_layer_crosses_no_box(tmp_path: Path):
+    from PySide6.QtCore import QLineF, QPointF, QRectF
+
+    from grafli import arrows
+
+    f = tmp_path / "skip.grafli"
+    f.write_text(SKIP, encoding="utf-8")
+    assert _cmd_layout(["--direction", "ttb", str(f)]) == 0
+    rects = {bid: QRectF(*r) for bid, r in _rects(f).items()}
+    # The board does what it is for: one layer per row, and a straight
+    # line from `ui` to `db` would run through `api`.
+    assert (rects["ui"].top() < rects["api"].top() < rects["auth"].top()
+            == rects["jobs"].top() < rects["db"].top())
+    ray = QLineF(rects["ui"].center(), rects["db"].center())
+    assert arrows._crossed([ray.p1(), ray.p2()], [rects["api"]]) == 1
+
+    view = _view_of(f)
+    crossings = {}
+    for a in parse(f.read_text(encoding="utf-8")).arrows:
+        assert a.routing == "ortho"
+        lines = _drawn(view, a.from_id, a.to_id)
+        assert lines, (a.from_id, a.to_id)
+        others = [r for bid, r in rects.items()
+                  if bid not in (a.from_id, a.to_id)]
+        hit = sum(arrows._crossed([QPointF(p) for p in poly], others)
+                  for gfx in lines
+                  for poly in gfx.path().toSubpathPolygons())
+        if hit:
+            crossings[f"{a.from_id} -> {a.to_id}"] = hit
+    assert not crossings
+
+
+def test_a_routed_board_changes_nothing_on_a_second_run(tmp_path: Path):
+    f = tmp_path / "skip.grafli"
+    f.write_text(SKIP, encoding="utf-8")
+    assert _cmd_layout([str(f)]) == 0
+    text = f.read_text(encoding="utf-8")
+    assert _cmd_layout(["--check", str(f)]) == 0
+    assert f.read_text(encoding="utf-8") == text

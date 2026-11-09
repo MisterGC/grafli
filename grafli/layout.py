@@ -49,6 +49,8 @@ def compute_layout(
     # Without a parent the area is the boxes' own bounding box, which the
     # layout itself changes: centring in it would shift every rerun.
     in_parent = bool(parent_id and board.box_by_id(parent_id))
+    if in_parent:
+        constraint = _inner_on_grid(constraint, grid)
 
     def _place_in(d: Direction, area: Rect) -> dict[str, tuple[float, float]]:
         layers = _assign_layers(target_ids, adj, radj)
@@ -234,10 +236,12 @@ def _layout_group(
                              for bid, (nx, ny) in new_positions.items())
             needed_w = max_right + LAYOUT_PADDING - parent.x
             needed_h = max_bottom + LAYOUT_PADDING - parent.y
+            # Round up: rounding to the nearest cell would take up to half
+            # a cell off the padding below and right of the children.
             if needed_w > parent.w:
-                parent.w = _snap(needed_w, grid)
+                parent.w = _snap_up(needed_w, grid)
             if needed_h > parent.h:
-                parent.h = _snap(needed_h, grid)
+                parent.h = _snap_up(needed_h, grid)
 
     # Apply positions and carry descendants and notes along
     for bid, (nx, ny) in new_positions.items():
@@ -308,8 +312,10 @@ def _layout_single(
     inner_h = parent.h - label_height - 2 * LAYOUT_PADDING
     cx = inner_x + (inner_w - bw) / 2
     cy = inner_y + (inner_h - bh) / 2
-    cx = _snap(cx, grid)
-    cy = _snap(cy, grid)
+    # A child larger than the inner area starts at its edge, not past it:
+    # the parent then grows on the far side to hold it.
+    cx = max(_snap(cx, grid), _snap_up(inner_x, grid))
+    cy = max(_snap(cy, grid), _snap_up(inner_y, grid))
     return {box_id: (cx, cy)}
 
 
@@ -343,6 +349,17 @@ def _constraint_rect(
     if not xs:
         return (0, 0, 400, 300)
     return (min(xs), min(ys), max(xes) - min(xs), max(yes) - min(ys))
+
+
+def _inner_on_grid(area: Rect, grid: float) -> Rect:
+    """Move the start of a container's inner area onto the next grid line.
+
+    Positions snap to the nearest grid point; an inner area starting off
+    the grid (a measured title band) would let the first child round
+    back into the title or out to the edge."""
+    x, y, w, h = area
+    nx, ny = _snap_up(x, grid), _snap_up(y, grid)
+    return (nx, ny, max(w - (nx - x), 0), max(h - (ny - y), 0))
 
 
 def _auto_direction(

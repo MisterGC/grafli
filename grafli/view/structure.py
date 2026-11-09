@@ -355,8 +355,9 @@ class StructureMixin:
         leaf_z = max_depth + 2
         # Notes and arrow labels above leaf boxes
         note_z = max_depth + 3
-        # Box labels always on top
-        box_label_z = max_depth + 4
+        # Box labels always on top: above the deepest leaf box, which sits
+        # at leaf_z + max_depth, and above notes (#293)
+        box_label_z = max(leaf_z + max_depth, note_z) + 1
         # A container normally sits behind arrows (it's a backdrop for its
         # children). But a LoD-collapsed container is a solid tile, so it
         # rises above arrows like a leaf — an arrow crossing it passes behind,

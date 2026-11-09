@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import heapq
 import math
 
@@ -577,10 +578,14 @@ def ortho_points(start: QPointF, start_side: str,
         pts = [start, QPointF(start.x(), end.y()), end]
 
     pts = _tidy(pts)
-    if ends is None or _keeps_to_sides(pts, start_side, end_side):
+    if ends is None:
         return pts
-    return _pinned_stair(start, start_side, end, end_side,
-                         [*ends, *(obstacles or [])])
+    blockers = [*ends, *(obstacles or [])]
+    if not _keeps_to_sides(pts, start_side, end_side):
+        pts = _pinned_stair(start, start_side, end, end_side, blockers)
+    if _crossed(pts, blockers, 1):
+        pts = _route_around(start, start_side, end, end_side, blockers) or pts
+    return pts
 
 
 # How far apart the turn lines of two right-angle arrows leaving one side of a
@@ -763,6 +768,169 @@ def _pinned_stair(start: QPointF, start_side: str,
         if best_key is None or key < best_key:
             best, best_key = pts, key
     return best
+
+
+# The shortest-way search for a pinned stair that crosses a box (#306). A turn
+# costs as much as this much more length, so of two ways around, the one with
+# fewer turns wins unless it is much longer.
+ORTHO_TURN_COST = 40.0
+# How far past the outermost box in its reach the search may run.
+ORTHO_AROUND_MARGIN = 30.0
+# How far beyond that the boxes still count, as the far side of a gap.
+ORTHO_AROUND_RING = 120.0
+# What a unit of run along a stub's tip line costs, against 1 for a gap's middle.
+ORTHO_HUG_COST = 1.5
+# How many boxes the search looks at, nearest the two ends first: the cost of
+# one search grows with the square of this.
+ORTHO_AROUND_MAX = 48
+
+# The four ways a run can head, and the one that reverses each.
+_HEADINGS = ((1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0))
+_REVERSE = (1, 0, 3, 2)
+
+
+def _route_around(start: QPointF, start_side: str,
+                  end: QPointF, end_side: str,
+                  blockers: list[QRectF]) -> list[QPointF] | None:
+    """The shortest right-angle way between two pinned ends that touches no
+    box, or None (#306).
+
+    Each end steps out of its side, then the route runs along lines in the
+    middle of the gaps between the boxes in reach, and turns only where a
+    turn pays its ``ORTHO_TURN_COST``. Every line where a run can be free is
+    in that set: whether a line is clear only changes at a box edge, so the
+    middle of each gap stands for the whole gap. Searching only the boxes in
+    reach keeps the route near its ends: it goes round the outside of
+    everything only when no way through is shorter.
+    """
+    sn, en = _NORMALS[start_side], _NORMALS[end_side]
+    p1 = QPointF(start.x() + sn[0] * PINNED_STUB,
+                 start.y() + sn[1] * PINNED_STUB)
+    p2 = QPointF(end.x() + en[0] * PINNED_STUB, end.y() + en[1] * PINNED_STUB)
+
+    # The boxes in reach: those touching the box spanned by the two ends,
+    # grown until it holds every box it touches, so a way around one box is
+    # checked against its neighbours too — and then the boxes one ring
+    # further out, so a run just outside them keeps to the middle of the gap
+    # to whatever lies beyond.
+    m = ORTHO_AROUND_MARGIN
+    reach = QRectF(p1, p2).normalized().adjusted(-m, -m, m, m)
+    near: list[QRectF] = []
+    for _ in range(4):
+        found = [r for r in blockers if r.intersects(reach)]
+        if len(found) == len(near):
+            break
+        near = found
+        for r in near:
+            reach = reach.united(r.adjusted(-m, -m, m, m))
+    ring = reach.adjusted(-ORTHO_AROUND_RING, -ORTHO_AROUND_RING,
+                          ORTHO_AROUND_RING, ORTHO_AROUND_RING)
+    near = [r for r in blockers if r.intersects(ring)]
+    if len(near) > ORTHO_AROUND_MAX:
+        mid = (p1 + p2) / 2
+
+        def distance(r: QRectF) -> tuple:
+            dx = max(r.left() - mid.x(), mid.x() - r.right(), 0.0)
+            dy = max(r.top() - mid.y(), mid.y() - r.bottom(), 0.0)
+            return (dx + dy, r.left(), r.top())
+
+        near = sorted(near, key=distance)[:ORTHO_AROUND_MAX]
+
+    def gaps(edges: list[float]) -> set[float]:
+        """The middle of every gap between two box edges, and a line just
+        outside the outermost ones."""
+        edges = sorted(set(edges))
+        if not edges:
+            return set()
+        out = {edges[0] - m, edges[-1] + m}
+        out.update((a + b) / 2 for a, b in zip(edges, edges[1:]))
+        return out
+
+    gap_xs = gaps([v for r in near for v in (r.left(), r.right())])
+    gap_ys = gaps([v for r in near for v in (r.top(), r.bottom())])
+    xs = sorted(gap_xs | {p1.x(), p2.x()})
+    ys = sorted(gap_ys | {p1.y(), p2.y()})
+    # The line through a stub's tip, across the stub, is there so the route
+    # can start and end; running along it hugs the box it steps out of, so
+    # it costs more than a gap's middle and is taken only when it saves.
+    hug_xs = {p.x() for p, side in ((p1, start_side), (p2, end_side))
+              if side in ("e", "w")} - gap_xs
+    hug_ys = {p.y() for p, side in ((p1, start_side), (p2, end_side))
+              if side in ("n", "s")} - gap_ys
+
+    # Which runs between two neighbouring lines a box blocks: a run along
+    # ``ys[i]`` from ``xs[j]`` to ``xs[j + 1]`` is ``h_open[i][j]``.
+    def open_runs(rows: list[float], cols: list[float],
+                  across: bool) -> list[list[bool]]:
+        free = [[True] * (len(cols) - 1) for _ in rows]
+        for r in near:
+            r_lo, r_hi = ((r.left(), r.right()) if across
+                          else (r.top(), r.bottom()))
+            c_lo, c_hi = ((r.top(), r.bottom()) if across
+                          else (r.left(), r.right()))
+            first = max(bisect.bisect_right(cols, c_lo) - 1, 0)
+            last = bisect.bisect_left(cols, c_hi)
+            for i, row in enumerate(rows):
+                if r_lo <= row <= r_hi:
+                    for j in range(first, min(last, len(cols) - 1)):
+                        free[i][j] = False
+        return free
+
+    h_open = open_runs(ys, xs, False)       # rows are y, runs along x
+    v_open = open_runs(xs, ys, True)        # columns are x, runs along y
+
+    def heading_of(normal: tuple[float, float]) -> int:
+        return _HEADINGS.index(normal)
+
+    goal = (xs.index(p2.x()), ys.index(p2.y()))
+    last_heading = heading_of((-en[0], -en[1]))
+    first = (xs.index(p1.x()), ys.index(p1.y()), heading_of(sn))
+    best = {first: 0.0}
+    came: dict[tuple, tuple | None] = {first: None}
+    heap = [(0.0, *first)]
+    found = None
+    while heap:
+        cost, j, i, h = heapq.heappop(heap)
+        if cost > best.get((j, i, h), math.inf):
+            continue
+        if (j, i) == goal and h != _REVERSE[last_heading]:
+            found = (j, i, h)
+            break
+        for nh, (dx, dy) in enumerate(_HEADINGS):
+            if nh == _REVERSE[h]:
+                continue
+            nj, ni = j + int(dx), i + int(dy)
+            if not (0 <= nj < len(xs) and 0 <= ni < len(ys)):
+                continue
+            if dx and not h_open[i][min(j, nj)]:
+                continue
+            if dy and not v_open[j][min(i, ni)]:
+                continue
+            step = abs(xs[nj] - xs[j]) + abs(ys[ni] - ys[i])
+            if (ys[i] in hug_ys) if dx else (xs[j] in hug_xs):
+                step *= ORTHO_HUG_COST
+            turn = ORTHO_TURN_COST if nh != h else 0.0
+            if (nj, ni) == goal and nh != last_heading:
+                turn += ORTHO_TURN_COST       # one more turn into the end
+            new = cost + step + turn
+            key = (nj, ni, nh)
+            if new < best.get(key, math.inf):
+                best[key] = new
+                came[key] = (j, i, h)
+                heapq.heappush(heap, (new, nj, ni, nh))
+    if found is None:
+        return None
+
+    corners: list[QPointF] = []
+    state: tuple | None = found
+    while state is not None:
+        corners.append(QPointF(xs[state[0]], ys[state[1]]))
+        state = came[state]
+    pts = _tidy([start, *reversed(corners), end])
+    if _crossed(pts, blockers, 1) or not _keeps_to_sides(pts, start_side,
+                                                         end_side):
+        return None
+    return pts
 
 
 def pinned_direct_points(start: QPointF, start_side: str,

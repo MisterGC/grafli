@@ -22,7 +22,9 @@
   "text", "about"}`` (*about* an element's id, or left out) goes to the
   agent's session as a ``request`` and is answered with ``ack`` naming the
   ``agent``; with no session connected, or one that is gone, it is answered
-  with ``error`` saying so, and nothing waits to be sent later.
+  with ``error`` saying so, and nothing waits to be sent later. Until the
+  agent's next write, proposal or undo, every tab gets ``{"t": "work"}``
+  saying what it works on (see ``grafli.serve.agent``).
 * Presence — cursors, the laser, the presenter's view, who follows, names —
   is passed between the tabs of a board and never stored; see
   ``grafli.serve.presence``. The hello may carry the tab's ``name`` and
@@ -53,6 +55,7 @@ import re
 import secrets
 import socket
 import sys
+import time
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -170,6 +173,12 @@ class Hub:
         self.seat: agents.Seat | None = None
         # Board → the agent's proposal waiting for the presenter.
         self.proposals: dict = {}
+        # The requests sent to the agent and not answered yet, oldest
+        # first; what it is doing on the oldest; when that one is late.
+        self.open: list[agents.Request] = []
+        self.doing = ""
+        self.late_s: float = agents.LATE_S
+        self._late: asyncio.TimerHandle | None = None
         self._shell: str | None = None
 
     async def shell(self) -> str:
@@ -247,28 +256,109 @@ class Hub:
                 pass
         self.log(f"agent: {conn.name} connected")
         await self._tell_peers()
+        if old is not conn:
+            # The new session never heard the requests sent to the old one.
+            await self.drop_work()
 
     async def unseat_agent(self, conn: agents.AgentConn) -> None:
-        """*conn* went: the tabs show its agent as gone."""
+        """*conn* went: the tabs show its agent as gone, working on
+        nothing."""
         if self.seat is not None and self.seat.conn is conn:
             self.seat.conn = None
             self.log(f"agent: {conn.name} is gone")
             await self._tell_peers()
+            await self.drop_work()
+
+    # ── What the agent is working on, until its answer lands ──
+
+    async def agent_doing(self, doing: str) -> None:
+        """The agent reads or renders a board while a request is open."""
+        if self.open and doing != self.doing:
+            self.doing = doing
+            await self.send_work()
+
+    async def answered(self) -> None:
+        """The agent wrote, proposed or undid: the oldest request is
+        answered."""
+        if not self.open:
+            return
+        self.open.pop(0)
+        self.doing = ""
+        self._time_late()
+        await self.send_work()
+
+    async def drop_work(self) -> None:
+        """No open request is worked on any more: the session is gone."""
+        if not self.open:
+            return
+        self.open.clear()
+        self.doing = ""
+        self._time_late()
+        await self.send_work()
+
+    def _time_late(self) -> None:
+        """Tell the tabs again once the oldest request is late."""
+        if self._late is not None:
+            self._late.cancel()
+            self._late = None
+        if not self.open:
+            return
+        loop = asyncio.get_running_loop()
+        left = self.open[0].since + self.late_s - time.monotonic()
+        self._late = loop.call_later(max(left, 0),
+                                     lambda: loop.create_task(self.send_work()))
+
+    def work_message(self, client: Client) -> dict:
+        """What *client*'s tab shows of the agent's work now."""
+        seat = self.seat
+        if not self.open or seat is None or not seat.present:
+            return {"t": "work", "work": None}
+        r = self.open[0]
+        hidden = r.private and client.role != "presenter"
+        return {"t": "work", "work": {
+            "by": seat.name, "color": seat.color, "board": r.board,
+            "text": None if hidden else r.text, "from": r.asked_by,
+            "doing": self.doing,
+            "late": time.monotonic() - r.since >= self.late_s,
+            "late_after": self.late_s, "more": len(self.open) - 1}}
+
+    async def send_work(self) -> None:
+        for room in list(self.rooms.values()):
+            await asyncio.gather(*(room.send_to(c, self.work_message(c))
+                                   for c in list(room.clients)))
 
     async def ask_agent(self, board: str, text: str, asked_by: str,
-                        about: dict | None = None) -> bool:
+                        about: dict | None = None,
+                        private: bool = False) -> bool:
         """Push a plain-language request to the agent's session, *about* an
-        element (``{"id", "label"}``) when one is named; False when no
-        session holds the seat, so nothing waits unseen."""
+        element (``{"id", "label"}``) when one is named, and show it on
+        every tab as worked on (its text on the presenter's tabs only when
+        *private*); False when no session holds the seat, so nothing waits
+        unseen."""
         conn = self.seat.conn if self.seat else None
         if conn is None:
             return False
+        request = agents.Request(board, text, asked_by, private)
+        # Open before it is sent: an answer can come back before the send
+        # returns.
+        self.open.append(request)
         try:
-            await conn.send({"t": "request", "board": board, "text": text,
-                             "from": asked_by, "about": about})
+            await conn.send({"t": "request", "board": request.board,
+                             "text": request.text, "from": request.asked_by,
+                             "about": about})
         except Exception:
+            if request in self.open:
+                self.open.remove(request)
             return False
+        if request in self.open:
+            await self._opened(request)
         return True
+
+    async def _opened(self, request: agents.Request) -> None:
+        if self.open[0] is request:
+            self.doing = ""
+            self._time_late()
+        await self.send_work()
 
     async def tell_agent(self, msg: dict) -> None:
         """Push *msg* to the agent's session, if one holds the seat."""
@@ -302,6 +392,8 @@ class Hub:
                       + (", ".join(names) or "(none here)"))
 
     async def close(self) -> None:
+        if self._late is not None:
+            self._late.cancel()
         for room in list(self.rooms.values()):
             await room.stop()
         self.rooms.clear()
@@ -367,6 +459,8 @@ def create_app(root: Path, keys: Keys, renderer=None,
         try:
             await room.join(client)
             await hub.arrived(room, client)
+            if hub.open:
+                await room.send_to(client, hub.work_message(client))
             while True:
                 msg = await ws.receive_json()
                 if not isinstance(msg, dict):
@@ -546,7 +640,11 @@ async def _ask(hub: Hub, room: Room, client: Client, msg: dict,
     if seat is None:
         await send({"t": "error", "id": req_id, "message": NO_AGENT})
         return
-    if not await hub.ask_agent(room.name, text, client.shown_name(), about):
+    # Only the presenter's tabs see what the presenter asks while the
+    # board hides something from the others.
+    private = client.role == "presenter" and bool(room.reveal.hidden)
+    if not await hub.ask_agent(room.name, text, client.shown_name(), about,
+                               private):
         await send({"t": "error", "id": req_id,
                     "message": f"{seat.name} is gone, so nothing was sent; "
                                "the presenter connects a session again"})
@@ -580,6 +678,10 @@ async def _agent_request(hub: Hub, conn: agents.AgentConn, msg: dict,
         return
     try:
         path, name = hub.agent_board(msg.get("board"))
+        if kind == "read":
+            await hub.agent_doing(agents.READING)
+        elif kind == "render":
+            await hub.agent_doing(agents.RENDERING)
         room = hub.room(path, name)
         try:
             frame = await room.ready()
@@ -620,6 +722,9 @@ async def _agent_request(hub: Hub, conn: agents.AgentConn, msg: dict,
         await send({"t": "error", "id": req_id,
                     "message": f"{kind} failed: {type(e).__name__}: {e}"})
         return
+    if kind in ("write", "undo"):
+        # Its edit or proposal is on the tabs: the request is answered.
+        await hub.answered()
     await send({"t": "ack", "id": req_id, **result})
 
 

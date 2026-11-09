@@ -38,7 +38,15 @@ Every tab sees the seat in its ``peers`` message as ``agent``: ``None``
 before any session connected, else ``{"name", "color", "present"}``;
 ``present`` turns false when the session drops (its process ends, or it
 disconnects) and true again when the same or another session connects.
-No Qt.
+
+While a request from a tab waits for its answer — the agent's next write,
+proposal or undo — every tab gets ``{"t": "work", "work": {"by", "color",
+"board", "text", "from", "doing", "late", "late_after", "more"}}``: the
+oldest open request (*text* None for a tab that may not see it), what the
+agent does as far as the server sees it (*doing* ``"reading the board"``,
+``"rendering the board"`` or ``""``), whether ``late_after`` seconds passed
+without an answer, and how many more requests wait behind it. ``"work":
+None`` once none is open, and when the session is gone. No Qt.
 """
 
 from __future__ import annotations
@@ -54,6 +62,11 @@ from grafli.serve.presence import clean_name
 
 # Purple is the agent's alone; the presenter and the guests never get it.
 AGENT_COLOR = "#7048e8"
+# How long a request waits for its answer before the tabs say it is late.
+LATE_S = 120
+# What the agent is doing on a request, as far as the server sees it.
+READING = "reading the board"
+RENDERING = "rendering the board"
 
 
 def state_dir() -> Path:
@@ -156,6 +169,18 @@ class Seat:
     def info(self) -> dict:
         return {"name": self.name, "color": self.color,
                 "present": self.present}
+
+
+@dataclass
+class Request:
+    """A request a tab sent the agent, open until its answer lands.
+    *private*: the presenter asked it while the board hid something from
+    the guests, so only the presenter's tabs see its text."""
+    board: str
+    text: str
+    asked_by: str
+    private: bool = False
+    since: float = field(default_factory=time.monotonic)
 
 
 def author(name: str) -> str:

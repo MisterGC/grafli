@@ -31,6 +31,8 @@ from grafli.constants import (
     LAYOUT_PADDING,
     MIN_BOX_SIZE,
     Mode,
+    container_title_px,
+    resolve_textsize_px,
 )
 from grafli.format import Arrow, Box, Note
 from grafli.items import BoxItem, ImageItem, LabelItem, NoteItem
@@ -399,11 +401,65 @@ class StructureMixin:
         self._refresh_container_titles()
 
     def _refresh_container_titles(self):
-        """Re-set the label of each box whose title size or weight no longer
-        matches its place in the nesting."""
-        for item in self._box_items.values():
-            if item._label.font() != item._box_font():
+        """Re-set the label of each box whose title size no longer matches
+        its place in the nesting."""
+        sizes = self._container_title_sizes()
+        for box_id, item in self._box_items.items():
+            px = sizes.get(box_id)
+            if item._title_px != px:
+                item._title_px = px
                 item.refresh_auto_layout()
+
+    def _container_title_sizes(self) -> dict[str, int]:
+        """The title size of each box drawn as a container with no size set:
+        its level's size, raised a point above the largest label among its
+        direct child boxes where one reaches it, so every title stays above
+        the labels inside it however deep the nesting goes (#294). One pass
+        over the board."""
+        board = self._board
+        if not board:
+            return {}
+        boxes = {b.id: b for b in board.boxes}
+        kids: dict[str, list] = {}
+        holders: set[str] = set()
+        for b in board.boxes:
+            if b.parent:
+                kids.setdefault(b.parent, []).append(b)
+                holders.add(b.parent)
+        for el in (*board.notes, *board.images):
+            if el.parent:
+                holders.add(el.parent)
+
+        def depth(box_id: str) -> int:
+            d, current, seen = 0, box_id, set()
+            while current and current not in seen:
+                seen.add(current)
+                b = boxes.get(current)
+                if not b or not b.parent:
+                    break
+                d += 1
+                current = b.parent
+            return d
+
+        sizes: dict[str, int] = {}
+
+        def label_px(b, seen: set[str]) -> int:
+            if b.textsize or b.style == "card" or b.id not in holders:
+                return resolve_textsize_px(b.textsize, "")
+            if b.id in sizes:
+                return sizes[b.id]
+            px = container_title_px(depth(b.id))
+            if b.id in seen:   # a parent cycle: stop at the level's size
+                return px
+            seen.add(b.id)
+            for kid in kids.get(b.id, ()):
+                px = max(px, label_px(kid, seen) + 1)
+            sizes[b.id] = px
+            return px
+
+        for b in board.boxes:
+            label_px(b, set())
+        return sizes
 
     def _element_parent(self, eid: str) -> str:
         """The parent box id of a box, note or image, or ''."""

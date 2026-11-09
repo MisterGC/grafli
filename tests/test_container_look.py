@@ -34,9 +34,6 @@ DEEP = ('#!grafli v4\n'
         '@ box repo "Repository" 80,200 200x100 >svc\n'
         '@ box mon "Monitor" 950,0 200x100\n')
 
-# Level of each box in DEEP; the leaves are repo and mon.
-DEPTHS = {"host": 0, "sw": 1, "api": 2, "svc": 3, "repo": 4, "mon": 0}
-
 
 def _app():
     return QApplication.instance() or QApplication([])
@@ -139,18 +136,22 @@ def test_a_container_title_is_bold_and_above_its_childrens_labels():
         assert title.pointSize() > label.pointSize(), bid
 
 
+THREE = ('#!grafli v4\n'
+         '@ box host "Host" 0,0 900x600\n'
+         '@ box sw "Software" 20,40 860x540 >host\n'
+         '@ box api "Api" 40,80 500x400 >sw\n'
+         '@ box ctl "Controller" 60,140 200x100 >api\n')
+
+
 def test_container_titles_step_down_by_level():
-    view = _view(DEEP)
+    view = _view(THREE)
     sizes = {bid: view._box_items[bid]._label.font().pointSize()
-             for bid in DEPTHS}
-    assert sizes["host"] == CONTAINER_TITLE_PX[0]
-    assert sizes["sw"] == CONTAINER_TITLE_PX[1]
-    assert sizes["host"] > sizes["sw"] > sizes["api"]
-    # Past the table each level takes its last entry, still above a leaf.
-    assert sizes["api"] == sizes["svc"] == CONTAINER_TITLE_PX[-1]
-    leaf = BOX_FONT_SIZES[""]
-    assert sizes["repo"] == sizes["mon"] == leaf
-    assert min(CONTAINER_TITLE_PX) > leaf
+             for bid in ("host", "sw", "api", "ctl")}
+    assert sizes == {"host": CONTAINER_TITLE_PX[0],
+                     "sw": CONTAINER_TITLE_PX[1],
+                     "api": CONTAINER_TITLE_PX[2],
+                     "ctl": BOX_FONT_SIZES[""]}
+    assert min(CONTAINER_TITLE_PX) > BOX_FONT_SIZES[""]
 
 
 def test_a_set_title_size_is_honoured_and_stays_bold():

@@ -128,13 +128,16 @@ _ARROW_STYLE_CYCLE = ["", "dashed", "dotted"]       # line pattern only
 # container first, each level inside a step smaller, every one above a
 # node's label (BOX_FONT_SIZES[""]); past the table, the last entry. The
 # largest still clears children 40 px below the container's top edge, the
-# margin a container with an unset size is laid out with (#294).
+# margin a container with an unset size is laid out with (#294). The view
+# raises a title a point above any direct child's label that reaches it
+# (StructureMixin._container_title_sizes), so on a board more than three
+# container levels deep the outer titles grow past this table.
 CONTAINER_TITLE_PX = (16, 15, 14)
 
 
 def container_title_px(depth: int) -> int:
-    """Title size of a container *depth* levels inside others (0 = top
-    level) whose size is unset."""
+    """Level size of the title of a container *depth* levels inside others
+    (0 = top level) whose size is unset."""
     return CONTAINER_TITLE_PX[min(max(depth, 0), len(CONTAINER_TITLE_PX) - 1)]
 
 

@@ -735,6 +735,9 @@ class BoxItem(QGraphicsRectItem):
         self._resizing = False
         self._scaling = False
         self._is_parent = False
+        # A container's title size, set by the view from the nesting: its
+        # level's size, or above its largest child's label (#294).
+        self._title_px: int | None = None
         # Level-of-Detail: when the view zooms out far enough that this box's
         # label would be illegible, the view marks it simplified — the box
         # paints as a bare coloured shell (no icon; its label item is hidden).
@@ -793,8 +796,11 @@ class BoxItem(QGraphicsRectItem):
 
     def label_px(self) -> int:
         """The label's size: an explicit one, else a container's title size
-        for its level, else a node's."""
+        (the view's, or its level's before the view has set one), else a
+        node's."""
         if not self.box.textsize and self._has_container_label():
+            if self._title_px is not None:
+                return self._title_px
             return container_title_px(self._container_depth())
         return resolve_textsize_px(self.box.textsize, "")
 

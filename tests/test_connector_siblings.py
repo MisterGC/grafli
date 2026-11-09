@@ -451,6 +451,83 @@ def _same_line(one, two) -> bool:
         for (x0, y0), (x1, y1) in zip(one, two))
 
 
+def _render_svg(tmp_path, src: str) -> str:
+    from grafli.app import _cmd_render
+    board = tmp_path / "board.grafli"
+    board.write_text(src, encoding="utf-8")
+    out = tmp_path / "board.svg"
+    assert _cmd_render([str(board), str(out)]) == 0
+    return out.read_text(encoding="utf-8")
+
+
+def _svg_tips(svg: str) -> list[tuple[float, float]]:
+    """The tip of every arrowhead in a rendered SVG — its first point."""
+    return [tuple(float(v) for v in pts.split()[0].split(","))
+            for pts in re.findall(r'<polygon [^>]*\bpoints="([^"]*)"', svg)]
+
+
+# ── Self-connectors in the app and in `grafli render` (#139) ───────
+#
+# Each entry lists the loops on ``a`` by label and the sides the loop must
+# keep off: beside ``a -> b`` the loop leaves the east side to that arrow.
+
+_LOOPS = {
+    "lone": ('@ arrow a -> a "retry"\n', ["retry"], set()),
+    "beside-an-arrow": ('@ arrow a -> b\n@ arrow a -> a "retry"\n',
+                        ["retry"], {"e"}),
+    "two": ('@ arrow a -> a "x"\n@ arrow a -> a "y"\n', ["x", "y"], set()),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_LOOPS))
+def test_grafli_render_draws_the_loop_the_app_draws(tmp_path, name):
+    """Same loop on the same corner, its head and label in the same place."""
+    src, labels, kept_off = _LOOPS[name]
+    svg = _render_svg(tmp_path, _BOARD + src)
+    view = _view(_BOARD + src)
+
+    drawn, canvas = _svg_lines(svg), _canvas_lines(view)
+    assert len(drawn) == len(canvas)
+    assert all(any(_same_line(line, c) for c in canvas) for line in drawn)
+
+    anchors = view._connector_anchors(_render_list(view))
+    rect = (0.0, 0.0, 200.0, 100.0)
+    starts = [line[0] for line in drawn]
+    ends = [line[-1] for line in drawn]
+    tips = _svg_tips(svg)
+    svg_labels = _svg_labels(svg)
+    corners = set()
+    for idx, arrow in enumerate(view.board.arrows):
+        if arrow.from_id != arrow.to_id:
+            continue
+        start, s_side, end, e_side, _moved = anchors[idx]
+        assert (s_side, e_side) in arrows.SELF_LOOP_SIDES
+        assert not kept_off & {s_side, e_side}
+        corners.add((s_side, e_side))
+        # The rendered loop leaves and re-enters where the app's does.
+        out_at = min(starts, key=lambda p: math.hypot(p[0] - start.x(),
+                                                      p[1] - start.y()))
+        in_at = min(ends, key=lambda p: math.hypot(p[0] - end.x(),
+                                                   p[1] - end.y()))
+        assert math.hypot(out_at[0] - start.x(), out_at[1] - start.y()) < 0.05
+        assert math.hypot(in_at[0] - end.x(), in_at[1] - end.y()) < 0.05
+        assert arrows.side_of_point(rect, QPointF(*out_at)) == s_side
+        assert arrows.side_of_point(rect, QPointF(*in_at)) == e_side
+        # It is a loop hanging off the box, not a chord across the corner.
+        line = next(ln for ln in drawn if ln[0] == out_at)
+        assert len(line) > 2
+        assert any(not _A_RECT.adjusted(-10, -10, 10, 10).contains(QPointF(*p))
+                   for p in line)
+        # Its head is drawn at the end of the loop.
+        assert any(math.hypot(tx - end.x(), ty - end.y()) < 0.05
+                   for tx, ty in tips)
+        # Its label is where the app puts it.
+        tx, ty = svg_labels[arrow.label]
+        pos = _label_rect(view, arrow.label).topLeft()
+        assert abs(tx - pos.x()) < 0.05 and abs(ty - pos.y()) < 0.05
+    assert len(corners) == len(labels)
+
+
 @pytest.mark.parametrize("name", sorted(_FANS))
 def test_grafli_render_draws_the_fan_the_app_draws(tmp_path, name):
     """Same lines, same labels at the same places, so the same order."""

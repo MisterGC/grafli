@@ -564,6 +564,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **`%subtle` is a quiet grey.** A `%subtle` box used to be filled dark
+  grey, darker than `%muted`, so a box meant to sit in the background
+  was the loudest thing on the board. It now sits between `%muted` and
+  an unfilled box — quieter than `%muted`, a shade off an unfilled box —
+  in the light and the dark theme, on the canvas and in `grafli render`. `grafli diagnose` now suggests
+  `%primary`, not `%subtle`, for an unknown `%black` or `%dark`.
+  ([#309](https://github.com/MisterGC/grafli/issues/309))
 - **A box three or more containers deep shows its label.** Such a box
   used to draw over its own label and showed up as a blank coloured
   plate. Its label now draws above it at any depth, on the canvas, in

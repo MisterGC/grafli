@@ -571,6 +571,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the light and the dark theme, on the canvas and in `grafli render`. `grafli diagnose` now suggests
   `%primary`, not `%subtle`, for an unknown `%black` or `%dark`.
   ([#309](https://github.com/MisterGC/grafli/issues/309))
+- **`grafli layout` keeps the container margin around a container's
+  children.** A container the layout grew could end up only 10 to 15 px
+  below or beside its children, because its new size was rounded to the
+  nearest 20 px step instead of up. It now always leaves 20 px at the
+  sides and bottom and starts the children 40 px below the title, 60 px
+  for a `~large` one — a title size given in points such as `~23` or
+  `~18` counts as large too. A single child wider than its container
+  starts at the margin instead of over the edge, and a picture inside a
+  container moves along with it. `grafli inspect` reports the same top
+  margin, and `=` in the app no longer rounds into the margin either.
+  ([#304](https://github.com/MisterGC/grafli/issues/304))
 - **A box three or more containers deep shows its label.** Such a box
   used to draw over its own label and showed up as a blank coloured
   plate. Its label now draws above it at any depth, on the canvas, in

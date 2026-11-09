@@ -18,8 +18,9 @@ Every diagram needs a clear reading order:
   out. `!flat` on a container changes nothing; leave a container
   uncoloured unless its colour carries meaning.
 * **Visual weight**: darker / saturated colors (`%primary`,
-  `%subtle`) feel heavier and anchor the eye — place them at focal
-  points. Lighter tokens (`%muted`, `%base`) recede.
+  `%accent`) feel heavier and anchor the eye — place them at focal
+  points. Lighter tokens (`%muted`, `%subtle`, `%base`) recede;
+  `%subtle` is the quietest filled grey, just off an unfilled box.
 
 ### Typography scale
 

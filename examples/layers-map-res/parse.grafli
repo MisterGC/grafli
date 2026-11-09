@@ -34,7 +34,7 @@ code:
 split by where the Board is made and read
   @grafli/format.py:929 parse
   @grafli/format.py:1526 serialize
-  @grafli/view/selection.py:287 load_board
+  @grafli/view/selection.py:288 load_board
   @grafli/app.py:1915 _cmd_render
   @grafli/app.py:2202 _cmd_export
 """ ~small

@@ -498,7 +498,7 @@ code:
 split by where the Board is made and read
   @grafli/format.py:915
   @grafli/format.py:1505
-  @grafli/view/selection.py:287
+  @grafli/view/selection.py:288
   @grafli/app.py:1915
   @grafli/app.py:2202
 """ ~small

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from grafli import theme
+from grafli.arrows import LABEL_PAD
 from grafli.constants import (
     BOX_BORDER_WIDTH,
     BOX_FONT_SIZES,
@@ -3929,7 +3930,7 @@ class ImageItem(QGraphicsPixmapItem):
 class LabelItem(QGraphicsSimpleTextItem):
     """Arrow label with semi-transparent background."""
 
-    _PAD = 4
+    _PAD = LABEL_PAD
     _BADGE_HPAD = 5
     _BADGE_RADIUS = 3
     _GAP = 5

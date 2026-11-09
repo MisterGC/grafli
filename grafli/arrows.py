@@ -806,8 +806,9 @@ def label_point(path: QPainterPath) -> QPointF:
 # is clear there, and otherwise moves it to the nearest free spot along its
 # connector: on the line where there is room, beside it where there is not.
 
-# The plate drawn behind a label reaches this far past its text on each side —
-# the same margin the line is clipped by (``LabelItem._PAD``).
+# The plate drawn behind a label reaches this far past its text on each side.
+# The one definition: ``LabelItem`` paints its plate with it, the line is
+# clipped around it, and placement and ``grafli diagnose`` size plates by it.
 LABEL_PAD = 4.0
 # How finely a label slides along its connector looking for room.
 LABEL_SLIDE_STEP = 6.0

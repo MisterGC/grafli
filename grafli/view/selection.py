@@ -25,6 +25,7 @@ from grafli.arrows import (
     _line_rect_clip,
     _rect_centre,
     ANCHOR_MIN_SEP,
+    LABEL_PAD,
     ROUTED_CENTRE_BIAS,
     SIDE_NAMES,
     bowed_path,
@@ -1044,10 +1045,10 @@ class SelectionMixin:
             label_x = mid.x() - br.width() / 2 + fwd.label_dx
             label_y = mid.y() - br.height() / 2 + fwd.label_dy
 
-            pad = 4
+            # The line breaks around the label's painted plate.
             gap = QRectF(
-                label_x - pad, label_y - pad,
-                br.width() + 2 * pad, br.height() + 2 * pad,
+                label_x - LABEL_PAD, label_y - LABEL_PAD,
+                br.width() + 2 * LABEL_PAD, br.height() + 2 * LABEL_PAD,
             )
 
             label.setPos(label_x, label_y)

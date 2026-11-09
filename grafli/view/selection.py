@@ -704,25 +704,23 @@ class SelectionMixin:
         if not self._board:
             return
 
-        # Merge opposite arrow pairs (A->B + B->A) into one line.
-        # Build directed lookup: (from, to) -> arrow
-        directed: dict[tuple[str, str], Arrow] = {}
+        # Merge opposite arrow pairs (A->B + B->A) into one line. Each arrow
+        # pairs with the first opposite one after it in the file that no
+        # earlier arrow took, so a third arrow between the pair stays its own
+        # line instead of merging an arrow a second time (#140).
+        arrows_ = self._board.arrows
         merged: set[int] = set()  # indices of arrows consumed by merge
         # Each entry: (from_box_id, to_box_id, draw_head_to, draw_head_from, fwd_arrow, rev_arrow|None)
         render_list: list[tuple[str, str, bool, bool, Arrow, Arrow | None]] = []
 
-        for i, arrow in enumerate(self._board.arrows):
-            directed[(arrow.from_id, arrow.to_id)] = arrow
+        # (from, to) -> indices of the arrows running that way, in file order
+        directed: dict[tuple[str, str], list[int]] = {}
+        for i, arrow in enumerate(arrows_):
+            directed.setdefault((arrow.from_id, arrow.to_id), []).append(i)
 
-        for i, arrow in enumerate(self._board.arrows):
-            if i in merged:
-                continue
-            reverse_key = (arrow.to_id, arrow.from_id)
-            reverse = directed.get(reverse_key)
-            if (
-                reverse is not None
-                and reverse is not arrow
-                and arrow.from_id != arrow.to_id   # two loops aren't a pair
+        def mergeable(arrow: Arrow, reverse: Arrow) -> bool:
+            return (
+                arrow.from_id != arrow.to_id   # two loops aren't a pair
                 and not (arrow.head_from and arrow.head_to)
                 and not (reverse.head_from and reverse.head_to)
                 # A pinned side belongs to one direction; merging would drop
@@ -732,10 +730,18 @@ class SelectionMixin:
                 # One line draws one end shape; a dot-ended arrow and an
                 # arrowheaded one stay two lines (#210).
                 and arrow.head_shape == reverse.head_shape
-                and id(reverse) not in {id(self._board.arrows[j]) for j in merged}
-            ):
+            )
+
+        for i, arrow in enumerate(arrows_):
+            if i in merged:
+                continue
+            j = next((j for j in directed.get((arrow.to_id, arrow.from_id), ())
+                      if j > i and j not in merged
+                      and mergeable(arrow, arrows_[j])), None)
+            if j is not None:
+                reverse = arrows_[j]
                 # Merge: combine head flags from both arrows
-                merged.add(self._board.arrows.index(reverse))
+                merged.add(j)
                 # The merged line carries only the forward arrow; remember the
                 # reverse so emphasising it by id finds the line.
                 self._merged_reverse[id(arrow)] = reverse

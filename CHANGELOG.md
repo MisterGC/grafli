@@ -405,8 +405,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than the canvas, each level inside a shade deeper, with an outline where
   arrows end. Its title is bold and larger than its children's labels,
   stepping down by level: 16 pt for a top-level container, 15 pt one level
-  in, 14 pt from there on, against 13 pt for a box label. A size set with
-  `~size` still wins. This holds on the canvas, in `grafli render`, in
+  in, 14 pt from there on, against 13 pt for a box label. Where a label
+  inside reaches that size — a fourth level of containers, or a child set
+  `~large` — the title takes a point more, so it stays above every label
+  it holds. A size set with `~size` still wins. This holds on the canvas, in `grafli render`, in
   `grafli export-html` and in the live tab.
   ([#294](https://github.com/MisterGC/grafli/issues/294))
 - **`grafli layout` draws the arrows it places at right angles, and around

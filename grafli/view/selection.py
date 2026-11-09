@@ -10,8 +10,9 @@ machinery.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QPen, QTransform
+from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import (
     QGraphicsLineItem,
     QGraphicsPolygonItem,
@@ -68,6 +69,24 @@ from grafli.items import (
 from grafli.lod import LodModel
 from grafli.map_palette import attach_names
 from pathlib import Path
+
+
+@dataclass
+class _Connector:
+    """One connector as ``_redraw_arrows`` resolved it, ready to draw."""
+    fwd: Arrow
+    rev: Arrow | None
+    start: QPointF
+    end: QPointF
+    path: QPainterPath | None
+    pen: QPen
+    color: QColor
+    head_size: float
+    head_to: bool
+    head_from: bool
+    label_dropped: bool
+    label: LabelItem | None = None
+    label_anchor: QPointF | None = None
 
 
 class SelectionMixin:
@@ -686,6 +705,7 @@ class SelectionMixin:
                 ))
 
         conn_anchors = self._connector_anchors(render_list)
+        connectors: list[_Connector] = []
         conn_offsets = self._parallel_offsets(render_list)
         obstacle_rects = self._routing_obstacles()
 
@@ -829,168 +849,24 @@ class SelectionMixin:
                             else side_of_point(self._elem_rect(from_elem), start))
                 conn_path = bowed_path(start, end, bow_side, offset)
 
-            dx = end.x() - start.x()
-            dy = end.y() - start.y()
+            connectors.append(_Connector(
+                fwd=fwd, rev=rev, start=start, end=end, path=conn_path,
+                pen=pen, color=arrow_color, head_size=head_size,
+                head_to=draw_head_to, head_from=draw_head_from,
+                # Drop the connector label when either end is a LoD-collapsed
+                # node (tile or hull) — its authored size would render as
+                # illegible clutter on a rerouted edge.
+                label_dropped=(from_hull is not None or to_hull is not None
+                               or from_id in self._lod_collapsed
+                               or to_id in self._lod_collapsed),
+            ))
 
-            # A dot-ended connector (`!dot`, #210) draws a filled dot centred
-            # on each end that would carry a head, wide enough to read past
-            # the line's own width.
-            if fwd.head_shape == "dot":
-                radius = max(head_size * 0.4, pen.widthF() * 1.1)
-                for tip, wanted in ((end, draw_head_to), (start, draw_head_from)):
-                    if not wanted:
-                        continue
-                    dot = QGraphicsPolygonItem(_dot_polygon(tip, radius))
-                    dot.setPen(QPen(arrow_color, 1))
-                    dot.setBrush(QBrush(arrow_color))
-                    dot.setData(0, fwd)
-                    self._scene.addItem(dot)
-                    self._arrow_items.append(dot)
-                draw_head_to = draw_head_from = False
-
-            # Forward arrowhead (at to_id end)
-            if draw_head_to:
-                angle = (path_end_angle(conn_path, True) if conn_path is not None
-                         else math.atan2(dy, dx))
-                head = QGraphicsPolygonItem(_arrowhead_polygon(end, angle, head_size))
-                head.setPen(QPen(arrow_color, 1))
-                head.setBrush(QBrush(arrow_color))
-                head.setData(0, fwd)
-                self._scene.addItem(head)
-                self._arrow_items.append(head)
-
-            # Backward arrowhead (at from_id end)
-            if draw_head_from:
-                back_angle = (path_end_angle(conn_path, False)
-                              if conn_path is not None else math.atan2(-dy, -dx))
-                back_head = QGraphicsPolygonItem(
-                    _arrowhead_polygon(start, back_angle, head_size)
-                )
-                back_head.setPen(QPen(arrow_color, 1))
-                back_head.setBrush(QBrush(arrow_color))
-                back_head.setData(0, fwd)
-                self._scene.addItem(back_head)
-                self._arrow_items.append(back_head)
-
-            # Collect labels: for merged pairs show both, stacked vertically
-            label_texts: list[str] = []
-            label_tooltips: list[str] = []
-            if fwd.label:
-                label_texts.append(fwd.label)
-            if fwd.url:
-                label_tooltips.append(fwd.url)
-            if rev and rev.label:
-                label_texts.append(rev.label)
-            if rev and rev.url:
-                label_tooltips.append(rev.url)
-
-            total_len = math.hypot(dx, dy)
-            # What label_anchor needs, kept so the inline editor and the
-            # arrow-mode badge open where this label is drawn.
-            for arrow in (fwd, rev):
-                if arrow is not None:
-                    self._arrow_label_geometry[id(arrow)] = (start, end, conn_path)
-            # Drop the connector label when either end is a LoD-collapsed node
-            # (tile or hull) — its authored size would render as illegible
-            # clutter on a rerouted edge.
-            endpoint_collapsed = (
-                from_hull is not None or to_hull is not None
-                or from_id in self._lod_collapsed or to_id in self._lod_collapsed)
-            # Illegible at this zoom (set by _refresh_lod): the label is kept in
-            # the scene (hidden) so it's still tracked, but the line draws
-            # unbroken — no leftover gap where the caption sat.
-            label_too_small = (fwd.from_id, fwd.to_id) in self._lod_arrow_labels_hidden
-            has_label = False
-            if label_texts and total_len > 0 and not endpoint_collapsed:
-                # The label rides the connector, so on a routed one it sits on
-                # the path's longest straight run — the chord midpoint of an
-                # L-bend sits off in empty space, and the path's own middle can
-                # land on a short jog.
-                mid = label_anchor(start, end, conn_path)
-                mid_x, mid_y = mid.x(), mid.y()
-
-                combined = "\n".join(label_texts)
-                label = LabelItem(combined)
-                label.setFont(arrow_label_font(fwd.textsize))
-                label.setBrush(QBrush(QColor(theme.INK_MUTED)))
-                label.setData(0, fwd)
-                if label_tooltips:
-                    label.setToolTip("\n".join(label_tooltips))
-                br = label.boundingRect()
-                label_x = mid_x - br.width() / 2 + fwd.label_dx
-                label_y = mid_y - br.height() / 2 + fwd.label_dy
-
-                pad = 4
-                gap = QRectF(
-                    label_x - pad, label_y - pad,
-                    br.width() + 2 * pad, br.height() + 2 * pad,
-                )
-
-                label.setPos(label_x, label_y)
-                label.setVisible(not label_too_small)
-                self._scene.addItem(label)
-                self._arrow_items.append(label)
-                has_label = not label_too_small
-
-            # Draw line (split around label gap if needed)
-            if conn_path is not None:
-                # A path has no single parametric line to clip, so the label
-                # gap is walked out of it instead — one piece when the label
-                # misses the connector, two when it interrupts it.
-                pieces = (split_path_at_rect(conn_path, gap) if has_label
-                          else [conn_path])
-                tooltip_parts = [a.annotation for a in (fwd, rev)
-                                 if a is not None and a.annotation]
-                for piece in pieces:
-                    line = ArrowLineItem(piece)
-                    line.setPen(pen)
-                    line.setData(0, fwd)
-                    if tooltip_parts and not has_label:
-                        line.setToolTip("\n".join(tooltip_parts))
-                    self._scene.addItem(line)
-                    self._arrow_items.append(line)
-            elif has_label:
-                seg1_end, seg2_start = _line_rect_clip(start, end, gap)
-                # If gap doesn't intersect the line, draw one unbroken line
-                if ((seg1_end - start).manhattanLength() < 1
-                        and (end - seg2_start).manhattanLength() < 1):
-                    line = ArrowLineItem(
-                        start.x(), start.y(), end.x(), end.y()
-                    )
-                    line.setPen(pen)
-                    line.setData(0, fwd)
-                    self._scene.addItem(line)
-                    self._arrow_items.append(line)
-                else:
-                    line1 = ArrowLineItem(
-                        start.x(), start.y(), seg1_end.x(), seg1_end.y()
-                    )
-                    line1.setPen(pen)
-                    line1.setData(0, fwd)
-                    self._scene.addItem(line1)
-                    self._arrow_items.append(line1)
-                    line2 = ArrowLineItem(
-                        seg2_start.x(), seg2_start.y(), end.x(), end.y()
-                    )
-                    line2.setPen(pen)
-                    line2.setData(0, fwd)
-                    self._scene.addItem(line2)
-                    self._arrow_items.append(line2)
-            else:
-                line = ArrowLineItem(
-                    start.x(), start.y(), end.x(), end.y()
-                )
-                line.setPen(pen)
-                line.setData(0, fwd)
-                tooltip_parts = []
-                if fwd.annotation:
-                    tooltip_parts.append(fwd.annotation)
-                if rev and rev.annotation:
-                    tooltip_parts.append(rev.annotation)
-                if tooltip_parts:
-                    line.setToolTip("\n".join(tooltip_parts))
-                self._scene.addItem(line)
-                self._arrow_items.append(line)
+        # Every connector's geometry is known before any is drawn, so a label
+        # can be placed knowing what else is on the board.
+        for conn in connectors:
+            self._connector_label(conn)
+        for conn in connectors:
+            self._draw_connector(conn)
 
         self._update_z_values()
         self._invalidate_graph_stats()
@@ -1006,6 +882,170 @@ class SelectionMixin:
                 or self._present_emphasis is not None):
             # Rebuilt arrow gfx start at full opacity — refresh the focus fade.
             self._apply_presentation_focus()
+
+    def _connector_label(self, conn: "_Connector") -> None:
+        """Give ``conn`` its label item and the anchor it is centred on.
+
+        For a merged pair both labels show, stacked vertically. A connector
+        with no label, no length, or an end collapsed by LoD gets none.
+        """
+        fwd, rev, start, end = conn.fwd, conn.rev, conn.start, conn.end
+        # What label_anchor needs, kept so the inline editor and the
+        # arrow-mode badge open where this label is drawn.
+        for arrow in (fwd, rev):
+            if arrow is not None:
+                self._arrow_label_geometry[id(arrow)] = (start, end, conn.path)
+        label_texts = [a.label for a in (fwd, rev) if a is not None and a.label]
+        label_tooltips = [a.url for a in (fwd, rev) if a is not None and a.url]
+        total_len = math.hypot(end.x() - start.x(), end.y() - start.y())
+        if not label_texts or total_len <= 0 or conn.label_dropped:
+            return
+        # The label rides the connector, so on a routed one it sits on
+        # the path's longest straight run — the chord midpoint of an
+        # L-bend sits off in empty space, and the path's own middle can
+        # land on a short jog.
+        conn.label_anchor = label_anchor(start, end, conn.path)
+        label = LabelItem("\n".join(label_texts))
+        label.setFont(arrow_label_font(fwd.textsize))
+        label.setBrush(QBrush(QColor(theme.INK_MUTED)))
+        label.setData(0, fwd)
+        if label_tooltips:
+            label.setToolTip("\n".join(label_tooltips))
+        conn.label = label
+
+    def _draw_connector(self, conn: "_Connector") -> None:
+        """Draw one connector: its end shapes, its label, then its line —
+        split around the label where the label sits on it."""
+        fwd, rev, start, end = conn.fwd, conn.rev, conn.start, conn.end
+        conn_path, pen, arrow_color = conn.path, conn.pen, conn.color
+        head_size = conn.head_size
+        draw_head_to, draw_head_from = conn.head_to, conn.head_from
+        dx = end.x() - start.x()
+        dy = end.y() - start.y()
+
+        # A dot-ended connector (`!dot`, #210) draws a filled dot centred
+        # on each end that would carry a head, wide enough to read past
+        # the line's own width.
+        if fwd.head_shape == "dot":
+            radius = max(head_size * 0.4, pen.widthF() * 1.1)
+            for tip, wanted in ((end, draw_head_to), (start, draw_head_from)):
+                if not wanted:
+                    continue
+                dot = QGraphicsPolygonItem(_dot_polygon(tip, radius))
+                dot.setPen(QPen(arrow_color, 1))
+                dot.setBrush(QBrush(arrow_color))
+                dot.setData(0, fwd)
+                self._scene.addItem(dot)
+                self._arrow_items.append(dot)
+            draw_head_to = draw_head_from = False
+
+        # Forward arrowhead (at to_id end)
+        if draw_head_to:
+            angle = (path_end_angle(conn_path, True) if conn_path is not None
+                     else math.atan2(dy, dx))
+            head = QGraphicsPolygonItem(_arrowhead_polygon(end, angle, head_size))
+            head.setPen(QPen(arrow_color, 1))
+            head.setBrush(QBrush(arrow_color))
+            head.setData(0, fwd)
+            self._scene.addItem(head)
+            self._arrow_items.append(head)
+
+        # Backward arrowhead (at from_id end)
+        if draw_head_from:
+            back_angle = (path_end_angle(conn_path, False)
+                          if conn_path is not None else math.atan2(-dy, -dx))
+            back_head = QGraphicsPolygonItem(
+                _arrowhead_polygon(start, back_angle, head_size)
+            )
+            back_head.setPen(QPen(arrow_color, 1))
+            back_head.setBrush(QBrush(arrow_color))
+            back_head.setData(0, fwd)
+            self._scene.addItem(back_head)
+            self._arrow_items.append(back_head)
+
+        # Illegible at this zoom (set by _refresh_lod): the label is kept in
+        # the scene (hidden) so it's still tracked, but the line draws
+        # unbroken — no leftover gap where the caption sat.
+        label_too_small = (fwd.from_id, fwd.to_id) in self._lod_arrow_labels_hidden
+        has_label = False
+        label = conn.label
+        if label is not None:
+            mid = conn.label_anchor
+            br = label.boundingRect()
+            label_x = mid.x() - br.width() / 2 + fwd.label_dx
+            label_y = mid.y() - br.height() / 2 + fwd.label_dy
+
+            pad = 4
+            gap = QRectF(
+                label_x - pad, label_y - pad,
+                br.width() + 2 * pad, br.height() + 2 * pad,
+            )
+
+            label.setPos(label_x, label_y)
+            label.setVisible(not label_too_small)
+            self._scene.addItem(label)
+            self._arrow_items.append(label)
+            has_label = not label_too_small
+
+        # Draw line (split around label gap if needed)
+        if conn_path is not None:
+            # A path has no single parametric line to clip, so the label
+            # gap is walked out of it instead — one piece when the label
+            # misses the connector, two when it interrupts it.
+            pieces = (split_path_at_rect(conn_path, gap) if has_label
+                      else [conn_path])
+            tooltip_parts = [a.annotation for a in (fwd, rev)
+                             if a is not None and a.annotation]
+            for piece in pieces:
+                line = ArrowLineItem(piece)
+                line.setPen(pen)
+                line.setData(0, fwd)
+                if tooltip_parts and not has_label:
+                    line.setToolTip("\n".join(tooltip_parts))
+                self._scene.addItem(line)
+                self._arrow_items.append(line)
+        elif has_label:
+            seg1_end, seg2_start = _line_rect_clip(start, end, gap)
+            # If gap doesn't intersect the line, draw one unbroken line
+            if ((seg1_end - start).manhattanLength() < 1
+                    and (end - seg2_start).manhattanLength() < 1):
+                line = ArrowLineItem(
+                    start.x(), start.y(), end.x(), end.y()
+                )
+                line.setPen(pen)
+                line.setData(0, fwd)
+                self._scene.addItem(line)
+                self._arrow_items.append(line)
+            else:
+                line1 = ArrowLineItem(
+                    start.x(), start.y(), seg1_end.x(), seg1_end.y()
+                )
+                line1.setPen(pen)
+                line1.setData(0, fwd)
+                self._scene.addItem(line1)
+                self._arrow_items.append(line1)
+                line2 = ArrowLineItem(
+                    seg2_start.x(), seg2_start.y(), end.x(), end.y()
+                )
+                line2.setPen(pen)
+                line2.setData(0, fwd)
+                self._scene.addItem(line2)
+                self._arrow_items.append(line2)
+        else:
+            line = ArrowLineItem(
+                start.x(), start.y(), end.x(), end.y()
+            )
+            line.setPen(pen)
+            line.setData(0, fwd)
+            tooltip_parts = []
+            if fwd.annotation:
+                tooltip_parts.append(fwd.annotation)
+            if rev and rev.annotation:
+                tooltip_parts.append(rev.annotation)
+            if tooltip_parts:
+                line.setToolTip("\n".join(tooltip_parts))
+            self._scene.addItem(line)
+            self._arrow_items.append(line)
 
     # ── Subgraph focus filter ──
 

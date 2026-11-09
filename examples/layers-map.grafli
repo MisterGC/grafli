@@ -48,7 +48,7 @@ code:
 split by the modules that own each layer
   @grafli/format.py:929 parse
   @grafli/resources.py:30 res_dir
-  @grafli/view/selection.py:263 load_board
+  @grafli/view/selection.py:282 load_board
   @grafli/lod.py:88 LodModel
   @grafli/view/structure.py:300 slide_content_ratio
   @grafli/slideplan.py:74 build_slide_plan

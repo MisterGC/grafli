@@ -398,6 +398,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#261](https://github.com/MisterGC/grafli/issues/261))
 
 ### Changed
+- **A container reads as a container.** A box that holds other boxes and
+  has no colour used to draw no fill and no border, with a title smaller
+  than the labels inside it, so it read as a loose caption and an arrow
+  into it ended in empty space. It now draws a quiet plate a shade darker
+  than the canvas, each level inside a shade deeper, with an outline where
+  arrows end. Its title is bold and larger than its children's labels,
+  stepping down by level: 16 pt for a top-level container, 15 pt one level
+  in, 14 pt from there on, against 13 pt for a box label. A size set with
+  `~size` still wins. This holds on the canvas, in `grafli render`, in
+  `grafli export-html` and in the live tab.
+  ([#294](https://github.com/MisterGC/grafli/issues/294))
 - **`grafli layout` draws the arrows it places at right angles, and around
   the layer between.** After a run, every arrow between two boxes the
   layout placed that had no routing gets `!ortho`, so a laid-out board

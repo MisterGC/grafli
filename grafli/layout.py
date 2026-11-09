@@ -256,16 +256,17 @@ def _layout_group(
 
 
 def _propagate_delta(board: Board, box_id: str, dx: float, dy: float) -> None:
-    """Move all descendants and parented notes of *box_id* by (dx, dy)."""
+    """Move all descendants, parented notes and images of *box_id* by
+    (dx, dy)."""
     for box in board.boxes:
         if box.parent == box_id:
             box.x += dx
             box.y += dy
             _propagate_delta(board, box.id, dx, dy)
-    for note in board.notes:
-        if note.parent == box_id:
-            note.x += dx
-            note.y += dy
+    for item in (*board.notes, *board.images):
+        if item.parent == box_id:
+            item.x += dx
+            item.y += dy
 
 
 # ── Internals ────────────────────────────────────────────────────

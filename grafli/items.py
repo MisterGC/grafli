@@ -853,8 +853,11 @@ class BoxItem(QGraphicsRectItem):
             return QColor(theme.SCENE_BG)
         color = self.brush().color()
         a = color.alphaF()
-        if a < 1.0:
-            # A see-through fill reads as its blend over the canvas.
+        if (a < 1.0 and self._container_look()
+                and not theme.resolve_color(self.box.color)):
+            # The uncoloured container's plate is the ink at a few percent:
+            # it reads as its blend over the canvas, not as the ink itself.
+            # A coloured fill keeps picking its ink from its own colour.
             bg = QColor(theme.SCENE_BG)
             return QColor.fromRgbF(
                 bg.redF() + (color.redF() - bg.redF()) * a,

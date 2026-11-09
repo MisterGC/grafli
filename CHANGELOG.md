@@ -85,6 +85,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connected, or one that dropped, the tab says so and nothing is sent
   later.
   ([#269](https://github.com/MisterGC/grafli/issues/269))
+- **See that the agent is working on your request.** From the moment a
+  request is sent until the agent's edit, proposal or undo lands, every
+  tab shows "✦ <agent> is working on: <request>", with "reading the board"
+  or "rendering the board" while it does so. After two minutes without an
+  answer the line says so, and it goes once the session is gone, so a long
+  request no longer looks like it never arrived.
+  ([#295](https://github.com/MisterGC/grafli/issues/295))
 - **`grafli fmt` — canonical form for hand- and agent-authored boards.**
   Boards written outside the app never pass through its save path, so their
   coordinates and token spacing drift from what the app would write and the

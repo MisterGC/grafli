@@ -685,7 +685,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the complexity heatmap. It now loops out over one of the element's corners,
   carrying its arrowhead and label; the corner is the one whose two sides
   carry the fewest other connectors, and a second loop takes the next corner.
-  Boxes, notes, and images all loop.
+  `grafli render` draws the loop on the same corner as the app. Boxes, notes,
+  and images all loop.
   ([#139](https://github.com/MisterGC/grafli/issues/139))
 - **Parallel connectors between the same pair fan apart.** Two arrows between
   one pair had identical geometry, so the second drew on top of the first and

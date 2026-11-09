@@ -60,6 +60,9 @@ ARROW_LABEL_FONT_SIZES = {"": 10, "small": 8, "large": 13, "xlarge": 18, "xxlarg
 
 BOX_RADIUS = 8
 BOX_BORDER_WIDTH = 2
+# An uncoloured container's plate: the ink at this opacity over what is
+# behind it, so each nested level sits a shade deeper (#294).
+CONTAINER_PLATE_ALPHA = 0.05
 ARROW_WIDTH = 2
 ARROWHEAD_SIZE = 10
 ANNOTATION_ARROW_WIDTH = 1

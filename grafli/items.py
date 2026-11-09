@@ -21,6 +21,7 @@ from grafli.constants import (
     BOX_BORDER_WIDTH,
     BOX_FONT_SIZES,
     BOX_RADIUS,
+    CONTAINER_PLATE_ALPHA,
     DEFAULT_BOX_H,
     DEFAULT_BOX_W,
     FONT_FAMILY,
@@ -795,6 +796,17 @@ class BoxItem(QGraphicsRectItem):
             # carries it and a filled box stands out against it. A dashed or
             # dotted outline keeps the full ink: the pattern is the message.
             outline = QColor(theme.INK if self.box.border else theme.BOX_OUTLINE)
+            if self._container_look():
+                # A container is a quiet plate with an outline, a shade
+                # toward the ink, so it reads as one thing and an arrow into
+                # it ends at an edge. Nested plates stack a shade deeper.
+                self.setPen(self._border_pen(outline, False))
+                plate = QColor(theme.INK)
+                plate.setAlphaF(CONTAINER_PLATE_ALPHA)
+                self.setBrush(QBrush(plate))
+                self._label.setDefaultTextColor(self._label_ink())
+                self._label.update()
+                return
             self.setPen(self._border_pen(outline, is_flat))
             if is_flat:
                 fill = QColor(theme.SCENE_BG)
@@ -823,7 +835,16 @@ class BoxItem(QGraphicsRectItem):
         where the box has none."""
         if self.brush().style() == Qt.BrushStyle.NoBrush:
             return QColor(theme.SCENE_BG)
-        return self.brush().color()
+        color = self.brush().color()
+        a = color.alphaF()
+        if a < 1.0:
+            # A see-through fill reads as its blend over the canvas.
+            bg = QColor(theme.SCENE_BG)
+            return QColor.fromRgbF(
+                bg.redF() + (color.redF() - bg.redF()) * a,
+                bg.greenF() + (color.greenF() - bg.greenF()) * a,
+                bg.blueF() + (color.blueF() - bg.blueF()) * a)
+        return color
 
     def _label_ink(self) -> QColor:
         """Label and icon ink: the board ink on its light plate, or with

@@ -497,3 +497,36 @@ def test_straight_on_a_v1_arrow_lifts_the_board_to_v4():
     assert required_version(board) == 1
     board.arrows[0].routing = "straight"
     assert serialize(board).splitlines()[0] == "#!grafli v4"
+
+
+ROUND = ('#!grafli v4\n@ box start "" 0,0 40x40 %ink !round\n'
+         '@ box step "Bubble" 0,80 200x60 !dashed !round !pin\n')
+
+
+def test_round_boxes_round_trip_and_write_v4():
+    board = parse(ROUND)
+    assert board.box_by_id("start").round
+    assert board.box_by_id("step").round
+    assert board.box_by_id("step").border == "dashed"
+    assert required_version(board) == 4
+    assert serialize(board) == ROUND
+
+
+def test_a_square_cornered_box_stays_v1():
+    board = parse('#!grafli v1\n@ box b "Title" 0,0 200x80\n')
+    assert not board.boxes[0].round
+    assert required_version(board) == 1
+
+
+def test_round_on_a_v1_box_lifts_the_board_to_v4():
+    board = parse('#!grafli v1\n@ box b "Title" 0,0 200x80\n')
+    board.boxes[0].round = True
+    assert serialize(board).splitlines()[0] == "#!grafli v4"
+    assert '!round' in serialize(board)
+
+
+def test_a_v3_build_reads_a_round_board_as_newer(monkeypatch):
+    features = {k: v for k, v in fmt.VERSION_FEATURES.items()
+                if v[0] < 4}
+    monkeypatch.setattr(fmt, "VERSION_FEATURES", features)
+    assert is_newer(parse(ROUND))

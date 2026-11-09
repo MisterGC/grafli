@@ -505,6 +505,17 @@ edit on the board, glowing with its name (see
 A reply takes seconds to tens of seconds. A toast says the request was
 sent.
 
+**While the agent works on it**, every tab shows a line at the top left:
+"✦ Serein's agent is working on: add a cache between api and db", followed
+by what the agent does as far as grafli sees it — "reading the board",
+"rendering the board" — and "on payments" when the request was asked on
+another board. The line goes when the agent's edit lands, when its
+proposal shows, or when it undoes its edit; with several requests open it
+shows the oldest and how many more wait. After two minutes without an
+answer it reads "has not answered in 2 minutes", and it goes when the
+session is gone. In reveal mode the other tabs see only that the presenter
+asked something, not what.
+
 **With no agent connected**, the line reads "plain language: no agent
 connected", the chip is dashed, and asking says "No agent is connected, so
 nothing was sent". When the session dropped, both say the agent is gone.

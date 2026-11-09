@@ -409,6 +409,14 @@ def test_unknown_color_flagged_with_suggestion():
     assert "%forest" in d.message
 
 
+def test_black_points_at_the_darkest_token_not_the_quiet_grey():
+    """#309: %subtle is a quiet light grey now, so "black" names %primary."""
+    box = Box(id="b", label="B", x=0, y=0, w=100, h=100, color="%black")
+    (d,) = check_unknown_color(_make_board(boxes=[box]))
+    assert "%primary" in d.message
+    assert "%subtle" not in d.message
+
+
 def test_known_color_and_hex_are_clean():
     box = Box(id="b", label="B", x=0, y=0, w=100, h=100, color="%forest")
     note = Note(id="n", x=0, y=0, text="N", color="#A1B2C3")

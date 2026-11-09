@@ -715,8 +715,8 @@ _COLOR_NAME_HINTS = {
     "red": "clay", "orange": "accent", "yellow": "highlight",
     "gold": "highlight", "purple": "plum", "violet": "plum",
     "pink": "rose", "magenta": "rose", "gray": "muted", "grey": "muted",
-    "lavender": "soft", "white": "base", "black": "subtle",
-    "dark": "subtle", "cyan": "teal",
+    "lavender": "soft", "white": "base", "black": "primary",
+    "dark": "primary", "cyan": "teal",
 }
 
 

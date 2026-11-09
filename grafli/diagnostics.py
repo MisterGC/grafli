@@ -39,6 +39,13 @@ NoteRectFn = Callable[[Note], Optional[tuple]]
 # scene units, using real font metrics. Needed for arrow-label checks.
 ArrowLabelSizeFn = Callable[[Arrow], tuple]
 
+# Optional callable returning every arrow label the canvas draws, as
+# (arrow, (x1, y1, x2, y2)) pairs in scene units. Only the canvas knows
+# where a label lands on a routed, stacked or two-way connector, so the
+# CLI renders the board offscreen to answer it. Needed for the
+# label-on-label check.
+ArrowLabelRectsFn = Callable[[Board], list]
+
 
 ERROR = "error"
 WARNING = "warning"
@@ -555,6 +562,46 @@ def check_arrow_label_covers_head(
     return diags
 
 
+def _arrow_name(a: Arrow) -> str:
+    return f"arrow {a.from_id!r} -> {a.to_id!r} label ({a.label!r})"
+
+
+def check_arrow_labels_overlap(
+    board: Board,
+    arrow_label_rects: ArrowLabelRectsFn | None = None,
+) -> list[Diagnostic]:
+    """Flag two arrow labels drawn on top of each other.
+
+    Two connectors that cross or run close can put their labels in the
+    same spot, and neither stays readable. Each overlapping pair is one
+    finding that names both arrows. Rects come from ``arrow_label_rects``
+    — what the canvas actually draws; without it the check is skipped.
+    """
+    diags: list[Diagnostic] = []
+    if arrow_label_rects is None:
+        return diags
+
+    labels = arrow_label_rects(board)
+    for i, (a, rect_a) in enumerate(labels):
+        for b, rect_b in labels[i + 1:]:
+            if not _rects_overlap(rect_a, rect_b):
+                continue
+            ids = list(dict.fromkeys(
+                [a.from_id, a.to_id, b.from_id, b.to_id]))
+            diags.append(Diagnostic(
+                code="arrow-labels-overlap",
+                severity=WARNING,
+                message=(
+                    f"{_arrow_name(a)} overlaps {_arrow_name(b)} — "
+                    f"offset one label via @dx,dy or move an end so "
+                    f"the arrows part"
+                ),
+                item_ids=ids,
+                fixable=True,
+            ))
+    return diags
+
+
 def check_missing_resource(
     board: Board, base_dir: Path | None
 ) -> list[Diagnostic]:
@@ -829,6 +876,7 @@ def run_all(
     note_rect: NoteRectFn | None = None,
     arrow_label_size: ArrowLabelSizeFn | None = None,
     grafli_path: Path | None = None,
+    arrow_label_rects: ArrowLabelRectsFn | None = None,
 ) -> list[Diagnostic]:
     diags: list[Diagnostic] = []
     diags.extend(check_parse_errors(board))
@@ -847,6 +895,9 @@ def run_all(
     ))
     diags.extend(check_arrow_label_covers_head(
         board, arrow_label_size=arrow_label_size, note_rect=note_rect,
+    ))
+    diags.extend(check_arrow_labels_overlap(
+        board, arrow_label_rects=arrow_label_rects,
     ))
     diags.extend(check_missing_resource(board, base_dir))
     diags.extend(check_code_refs(board, base_dir))

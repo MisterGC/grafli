@@ -2548,6 +2548,43 @@ def _make_arrow_label_size_provider():
     return provider
 
 
+def _make_arrow_label_rects_provider(board_file: Path | None = None):
+    """Return a callable that lists the arrow labels a board draws.
+
+    Renders the board in a never-shown view, as ``grafli export`` does,
+    and reads each label's scene rect back — so a label on a routed,
+    stacked or two-way connector is where the canvas puts it. The view
+    gets a copy of the board; the pairs name the caller's own arrows.
+    """
+    import copy
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    from grafli.items import LabelItem
+    from grafli.view import GrafliView
+
+    view = GrafliView()
+    if board_file is not None:
+        view.base_dir = str(board_file.resolve().parent)
+        view.render_headless(board_file.resolve())
+
+    def provider(board):
+        drawn = copy.deepcopy(board)
+        original = {id(c): a for c, a in zip(drawn.arrows, board.arrows)}
+        view.load_board(drawn)
+        out = []
+        for item in view._scene.items():
+            if not isinstance(item, LabelItem):
+                continue
+            arrow = original.get(id(item.data(0)))
+            if arrow is not None:
+                out.append((arrow, item.sceneBoundingRect().getCoords()))
+        out.sort(key=lambda pair: board.arrows.index(pair[0]))
+        return out
+
+    return provider
+
+
 def _cmd_diagnose(argv: list[str]) -> int:
     import json as _json
     from grafli.diagnostics import run_all
@@ -2557,7 +2594,8 @@ def _cmd_diagnose(argv: list[str]) -> int:
         description=(
             "Run static layout diagnostics on a .grafli file. "
             "Surfaces children outside parents, sibling overlaps, cramped "
-            "containers, likely-truncated labels, missing images, board "
+            "containers, likely-truncated labels, arrow labels drawn on "
+            "top of each other, missing images, board "
             "links and code refs that lead nowhere, unknown colours and the "
             "map's palette.json."
         ),
@@ -2596,6 +2634,7 @@ def _cmd_diagnose(argv: list[str]) -> int:
     from grafli.diagnostics import Diagnostic, apply_fixes
     note_rect = _make_note_rect_provider()
     arrow_label_size = _make_arrow_label_size_provider()
+    arrow_label_rects = _make_arrow_label_rects_provider(args.input)
     from grafli.resources import classify_attachments, vault_docs
 
     def _collect(b) -> list:
@@ -2605,6 +2644,7 @@ def _cmd_diagnose(argv: list[str]) -> int:
             note_rect=note_rect,
             arrow_label_size=arrow_label_size,
             grafli_path=args.input,
+            arrow_label_rects=arrow_label_rects,
         )
         # Vault integrity: referenced docs whose file is gone (error — a
         # doc-bodied note would render blank) and unreferenced docs (info —

@@ -544,6 +544,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **A box three or more containers deep shows its label.** Such a box
+  used to draw over its own label and showed up as a blank coloured
+  plate. Its label now draws above it at any depth, on the canvas, in
+  `grafli render` and in the exports.
+  ([#293](https://github.com/MisterGC/grafli/issues/293))
 - **The skill's code-map example draws the relations between its
   layers.** The top board in `references/explaining.md` used to list its
   parts with no arrow between them, so `grafli diagnose` read it as a list

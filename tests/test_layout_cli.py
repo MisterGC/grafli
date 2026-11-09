@@ -305,3 +305,51 @@ def test_a_routed_board_changes_nothing_on_a_second_run(tmp_path: Path):
     text = f.read_text(encoding="utf-8")
     assert _cmd_layout(["--check", str(f)]) == 0
     assert f.read_text(encoding="utf-8") == text
+
+
+# ── The container margin model after a layout run (#304) ─────────
+
+TWO_LEVELS = (
+    '#!grafli v1\n'
+    '@ box sys "System" 0,0 200x100 ~large !flat\n'
+    '@ box front "Front end" 0,0 200x100 ~23 !flat >sys\n'
+    '@ box web "Web" 0,0 190x85 >front\n'
+    '@ box app "App" 0,0 190x85 >front\n'
+    '@ box back "Back end" 0,0 100x60 !flat >sys\n'
+    '@ box api "API" 0,0 250x95 >back\n'
+    '@ box db "Database" 0,0 230x85 >sys\n'
+    '@ arrow web -> api\n'
+    '@ arrow app -> api\n'
+    '@ arrow api -> db\n'
+)
+
+
+def test_children_keep_the_margin_model_after_layout(tmp_path: Path):
+    from grafli.board_info import top_margin
+    from grafli.constants import LAYOUT_PADDING
+
+    f = tmp_path / "levels.grafli"
+    f.write_text(TWO_LEVELS, encoding="utf-8")
+    assert _cmd_layout([str(f)]) == 0
+    board = parse(f.read_text(encoding="utf-8"))
+    for child in board.boxes:
+        if not child.parent:
+            continue
+        p = board.box_by_id(child.parent)
+        assert child.x - p.x >= LAYOUT_PADDING, child.id
+        assert p.x + p.w - (child.x + child.w) >= LAYOUT_PADDING, child.id
+        assert child.y - p.y >= top_margin(p.textsize), child.id
+        assert p.y + p.h - (child.y + child.h) >= LAYOUT_PADDING, child.id
+
+
+def test_diagnose_finds_no_cramped_container_after_layout(tmp_path: Path):
+    from grafli.diagnostics import run_all
+
+    f = tmp_path / "levels.grafli"
+    f.write_text(TWO_LEVELS, encoding="utf-8")
+    assert _cmd_layout([str(f)]) == 0
+    board = parse(f.read_text(encoding="utf-8"))
+    codes = {d.code for d in run_all(board, base_dir=tmp_path,
+                                     note_rect=app._make_note_rect_provider())}
+    assert "cramped-container" not in codes
+    assert "child-outside-parent" not in codes

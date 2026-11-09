@@ -553,3 +553,63 @@ def test_without_a_label_measure_the_gaps_stay_fixed():
     sizes = _sizes("a", "b", "c")
     pos = compute_layout(board, {"a", "b", "c"}, "", Direction.LTR, 20, 0, sizes)
     assert pos["b"][0] - (pos["a"][0] + 160) == 40
+
+
+# ── The container margin after a layout (#304) ───────────────────
+
+
+def _in(parent: str, *kids: Box) -> list[Box]:
+    for k in kids:
+        k.parent = parent
+    return list(kids)
+
+
+def test_a_grown_container_rounds_up_to_keep_its_bottom_padding():
+    # Children 85 px high: rounding the grown height to the nearest grid
+    # cell would cut the 20 px bottom padding to 15.
+    p = _box("P", 0, 0, 100, 60)
+    kids = _in("P", _box("a", 0, 0, 190, 85), _box("b", 0, 0, 190, 85))
+    board = _make_board([p, *kids], [_arrow("a", "b")])
+    layout_groups(board, container_groups(board), 20, lambda pid: 20)
+    for k in kids:
+        assert p.x + p.w - (k.x + k.w) >= 20
+        assert p.y + p.h - (k.y + k.h) >= 20
+
+
+def test_a_single_child_wider_than_its_container_keeps_the_left_padding():
+    p = _box("P", 0, 0, 200, 100)
+    (k,) = _in("P", _box("a", 0, 0, 300, 120))
+    board = _make_board([p, k])
+    layout_groups(board, container_groups(board), 20, lambda pid: 20)
+    assert k.x - p.x >= 20
+    assert k.y - p.y >= 40
+    assert p.x + p.w - (k.x + k.w) >= 20
+    assert p.y + p.h - (k.y + k.h) >= 20
+
+
+def test_a_measured_title_band_off_the_grid_keeps_the_child_below_it():
+    # The app measures the title: 27 px plus padding is no whole cell,
+    # and the first row must round down below it, not up into it.
+    p = _box("P", 0, 0, 600, 300)
+    kids = _in("P", _box("a"), _box("b"))
+    board = _make_board([p, *kids], [_arrow("a", "b")])
+    layout_groups(board, container_groups(board), 20, lambda pid: 27,
+                  Direction.TTB)
+    for k in kids:
+        assert k.y - p.y >= 27 + 20
+        assert k.x - p.x >= 20
+
+
+def test_a_container_carries_its_images_along():
+    from grafli.format import Image
+
+    outer = _box("O", 0, 0, 800, 600)
+    inner = _box("I", 400, 300, 300, 200)
+    inner.parent = "O"
+    (k,) = _in("I", _box("a", 420, 340))
+    board = _make_board([outer, inner, k])
+    img = Image(id="pic", image_path="pic.png", x=450, y=430, w=40, h=40, parent="I")
+    board.add_image(img)
+    before = (img.x - inner.x, img.y - inner.y)
+    layout_groups(board, container_groups(board), 20, lambda pid: 20)
+    assert (img.x - inner.x, img.y - inner.y) == before

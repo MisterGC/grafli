@@ -319,6 +319,9 @@ _FANS = {
     "merged-and-one": ('@ arrow a -> b "fwd"\n@ arrow b -> a "back"\n'
                        '@ arrow a -> b "third"\n',
                        [("fwd", "fwd\nback"), ("third", "third")]),
+    "merged-and-reverse": ('@ arrow a -> b "fwd"\n@ arrow b -> a "back"\n'
+                           '@ arrow b -> a "again"\n',
+                           [("fwd", "fwd\nback"), ("again", "again")]),
     "merged-and-two": ('@ arrow a -> b "fwd"\n@ arrow b -> a "back"\n'
                        '@ arrow a -> b "first"\n@ arrow a -> b "second"\n',
                        [("fwd", "fwd\nback"), ("first", "first"),
@@ -400,6 +403,14 @@ def test_the_fan_runs_top_down_in_file_order(name):
     view = _view(_BOARD + src)
     ys = [_label_rect(view, text).center().y() for _own, text in members]
     assert ys == sorted(ys)
+
+
+def test_a_third_arrow_against_a_merged_pair_is_not_merged_into_it():
+    """The forward arrow merges with the first reverse one only; the second
+    reverse arrow keeps its own line instead of pairing with it again."""
+    view = _view(_BOARD + _FANS["merged-and-reverse"][0])
+    texts = [g.text() for g in view._arrow_items if isinstance(g, LabelItem)]
+    assert sorted(texts) == ["again", "fwd\nback"]
 
 
 def _svg_labels(svg: str) -> dict[str, tuple[float, float]]:

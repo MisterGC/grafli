@@ -439,15 +439,25 @@ def check_arrow_label_crowded(
     board: Board,
     arrow_label_size: ArrowLabelSizeFn | None = None,
     note_rect: NoteRectFn | None = None,
+    arrow_label_rects: ArrowLabelRectsFn | None = None,
 ) -> list[Diagnostic]:
-    """Flag arrow labels that bleed into an endpoint shape.
+    """Flag arrow labels that sit on a box.
 
-    The renderer centers the label on the arrow's visible midpoint, so
-    when the gap between endpoints is shorter than the label, the label
-    sits on top of one of the boxes. Detection is grounded in real Qt
-    font metrics via ``arrow_label_size``; without it, the check is
-    skipped (heuristic would create false positives).
+    With ``arrow_label_rects`` — the labels where the canvas draws them —
+    a label is checked against every box, note and image except the
+    containers its arrow runs inside, its own two ends included. The
+    canvas moves a label off boxes when it finds room along its arrow
+    (#303), so what is left is a label with no room or one its author
+    offset there.
+
+    Without it the label is estimated at the middle between its two ends
+    and checked against those ends only: when the gap is shorter than the
+    label, it sits on top of one of them. The estimate is grounded in
+    real Qt font metrics via ``arrow_label_size``; without that too, the
+    check is skipped (a heuristic would create false positives).
     """
+    if arrow_label_rects is not None:
+        return _drawn_labels_on_elements(board, arrow_label_rects, note_rect)
     diags: list[Diagnostic] = []
     if arrow_label_size is None:
         return diags
@@ -502,6 +512,39 @@ def check_arrow_label_crowded(
                     fixable=True,
                 ))
                 break  # one finding per arrow
+    return diags
+
+
+def _drawn_labels_on_elements(
+    board: Board,
+    arrow_label_rects: ArrowLabelRectsFn,
+    note_rect: NoteRectFn | None,
+) -> list[Diagnostic]:
+    """``check_arrow_label_crowded`` on the labels the canvas draws."""
+    from grafli.arrows import LABEL_PAD, label_ground
+
+    diags: list[Diagnostic] = []
+    rects = _id_rect_map(board, note_rect)
+    for a, (x1, y1, x2, y2) in arrow_label_rects(board):
+        # The label's plate, as the canvas sizes it.
+        plate = (x1 - LABEL_PAD, y1 - LABEL_PAD, x2 + LABEL_PAD, y2 + LABEL_PAD)
+        ground = label_ground(board, a.from_id, a.to_id)
+        for elem_id, elem_rect in rects.items():
+            if elem_id in ground or not _rects_overlap(plate, elem_rect):
+                continue
+            ids = list(dict.fromkeys([a.from_id, a.to_id, elem_id]))
+            diags.append(Diagnostic(
+                code="arrow-label-crowded",
+                severity=WARNING,
+                message=(
+                    f"{_arrow_name(a)} overlaps {elem_id!r} — "
+                    f"shorten the label, widen the gap, or offset "
+                    f"the label via @dx,dy"
+                ),
+                item_ids=ids,
+                fixable=True,
+            ))
+            break  # one finding per arrow
     return diags
 
 
@@ -890,8 +933,13 @@ def run_all(
     diags.extend(check_label_truncated(board))
     diags.extend(check_unrelated_children(board))
     diags.extend(check_unrelated_board(board))
+    if arrow_label_rects is not None:
+        # Drawing the board is the slow part; both label checks read one.
+        drawn = arrow_label_rects(board)
+        arrow_label_rects = lambda _board: drawn  # noqa: E731
     diags.extend(check_arrow_label_crowded(
         board, arrow_label_size=arrow_label_size, note_rect=note_rect,
+        arrow_label_rects=arrow_label_rects,
     ))
     diags.extend(check_arrow_label_covers_head(
         board, arrow_label_size=arrow_label_size, note_rect=note_rect,

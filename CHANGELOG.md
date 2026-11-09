@@ -692,7 +692,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its label landed on the first's. They now bow aside from the straight run,
   one slot each, in the order they appear in the file — including the case of
   a merged `a -> b` / `b -> a` pair plus a third arrow between the same two
-  nodes. A pair carrying a single connector is drawn exactly as before.
+  nodes. Each bowed arrow breaks round its own label, the two-line label of
+  a merged pair included, instead of running on underneath it, and
+  `grafli render` draws the fan the app draws. A pair carrying a single
+  connector is drawn exactly as before.
   ([#140](https://github.com/MisterGC/grafli/issues/140))
 - **Connector endpoints stay out of the corners.** A direct connector took
   whichever edge the centre-to-centre ray crossed first, so a near-diagonal

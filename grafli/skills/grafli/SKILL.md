@@ -342,7 +342,9 @@ in `references/genres.md` instead.)
     containers, likely-truncated labels, boxes that relate to nothing
     (`unrelated-children`: a container of 4+ boxes with no arrow between
     them; `unrelated-board`: more than half of 4+ boxes touch no arrow),
-    arrow labels crowding endpoints
+    arrow labels on a box (`arrow-label-crowded`: the canvas moves a
+    label into free space along its arrow, so this is one with no room
+    or one offset there via `@dx,dy`)
     or hiding arrowheads, two arrow labels drawn on top of each other
     (`arrow-labels-overlap`, naming both arrows), missing images, `&graph` / `.grafli` `&link`
     targets and `#<id>`s that do not exist and `@path:line` refs whose

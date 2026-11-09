@@ -122,7 +122,7 @@ detail lives in notes adjacent to it or in the box's own `&doc`.
 | Direction | `<-` | backward (arrowhead at source) |
 | Direction | `<->` | bidirectional |
 | Direction | `--` | line only (no arrowheads) |
-| Label offset | `@dx,dy` | shift label position by `dx,dy` px from center |
+| Label offset | `@dx,dy` | shift label position by `dx,dy` px from center; without it the label takes the free spot nearest the middle, along its arrow, clear of boxes and other labels |
 | Colour | `%token` / `#hex` | override the kind-derived line colour (same palette as boxes) |
 | Pattern | (default) | solid line |
 | Pattern | `!dashed` | dashed line |

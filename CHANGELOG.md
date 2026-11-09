@@ -413,6 +413,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#261](https://github.com/MisterGC/grafli/issues/261))
 
 ### Changed
+- **Arrow labels move into free space.** A label sat at the middle of its
+  arrow even where that put it on a box, on its own end box or on another
+  arrow's label, so a fan-out or two crossing arrows read as a mess. A
+  label that has room at its middle stays there; one that has none slides
+  along its own arrow to the nearest free spot, and sets beside the line
+  only when the arrow has no room on it. It keeps off every box, note and
+  image except the containers its arrow runs inside, and off its own end
+  boxes by an arrowhead's length, so the head stays in sight. A label you
+  offset with `@dx,dy` stays where you put it, and the others keep off it.
+  `grafli render` places labels the same way, and `grafli diagnose` now
+  checks each label where it is drawn against every box, not only against
+  its two ends at the middle; `arrow-label-crowded` is left for a label
+  with no free spot or one offset onto a box.
+  ([#303](https://github.com/MisterGC/grafli/issues/303))
 - **A container reads as a container.** A box that holds other boxes and
   has no colour used to draw no fill and no border, with a title smaller
   than the labels inside it, so it read as a loose caption and an arrow

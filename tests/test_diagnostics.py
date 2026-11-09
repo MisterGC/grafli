@@ -8,6 +8,7 @@ from grafli.diagnostics import (
     Diagnostic,
     check_arrow_label_covers_head,
     check_arrow_label_crowded,
+    check_arrow_labels_overlap,
     check_child_outside_parent,
     check_code_refs,
     check_cramped_container,
@@ -353,6 +354,42 @@ def test_qt_arrow_label_provider_catches_test_grafli_pipeline_case():
         board, arrow_label_size=_make_arrow_label_size_provider(),
     )
     assert any(d.code == "arrow-label-crowded" for d in diags)
+
+
+# ── arrow label on arrow label ─────────────────────────────────
+
+def _fixed_rects(*pairs):
+    """Stub rects provider — returns the given (arrow, rect) pairs."""
+    return lambda _board: list(pairs)
+
+
+def test_arrow_labels_overlap_names_both_arrows():
+    down = Arrow(from_id="a", to_id="d", label="goes down")
+    up = Arrow(from_id="c", to_id="b", label="goes up")
+    board = _make_board(arrows=[down, up])
+    diags = check_arrow_labels_overlap(board, arrow_label_rects=_fixed_rects(
+        (down, (216, 172, 284, 188)), (up, (225, 172, 275, 188)),
+    ))
+    assert len(diags) == 1
+    assert diags[0].code == "arrow-labels-overlap"
+    assert diags[0].severity == "warning"
+    assert diags[0].item_ids == ["a", "d", "c", "b"]
+    assert "'a' -> 'd'" in diags[0].message
+    assert "'c' -> 'b'" in diags[0].message
+
+
+def test_arrow_labels_apart_are_clean():
+    down = Arrow(from_id="a", to_id="d", label="goes down")
+    up = Arrow(from_id="c", to_id="b", label="goes up")
+    board = _make_board(arrows=[down, up])
+    assert check_arrow_labels_overlap(board, arrow_label_rects=_fixed_rects(
+        (down, (216, 172, 284, 188)), (up, (225, 200, 275, 216)),
+    )) == []
+
+
+def test_arrow_labels_overlap_skipped_without_provider():
+    board = _make_board(arrows=[Arrow(from_id="a", to_id="b", label="x")])
+    assert check_arrow_labels_overlap(board) == []
 
 
 # ── parse-error surfacing (run_all includes dropped lines) ─────────

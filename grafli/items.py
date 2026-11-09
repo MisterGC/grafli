@@ -1787,8 +1787,7 @@ class BoxItem(QGraphicsRectItem):
             self._paint_lod_stack(painter)   # offset edges behind the fill
         painter.setPen(self.pen())
         painter.setBrush(self.brush())
-        radius = (0 if self.box.style == "flat" or self._container_look()
-                  else BOX_RADIUS)
+        radius = self.corner_radius(self.rect())
         painter.drawRoundedRect(self.rect(), radius, radius)
 
         if self._lod_tile is not None:
@@ -1821,6 +1820,7 @@ class BoxItem(QGraphicsRectItem):
 
         if self.isSelected():
             sel_rect = self.rect().adjusted(-4, -4, 4, 4)
+            radius = self.corner_radius(sel_rect)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             shadow = QColor(theme.SHADOW_COLOR)
             shadow.setAlphaF(0.25)
@@ -1833,6 +1833,21 @@ class BoxItem(QGraphicsRectItem):
         # Over the selection ring, which would otherwise cross the pill.
         if self.box.status:
             self._paint_status(painter)
+
+    def corner_radius(self, rect: QRectF) -> float:
+        """How round ``rect``'s corners draw: half its shorter side for a
+        ``!round`` box, so a square is a circle and anything else a pill;
+        none for a flat box or a container; the plate's radius otherwise."""
+        if self.box.round:
+            return min(rect.width(), rect.height()) / 2
+        if self.box.style == "flat" or self._container_look():
+            return 0
+        return BOX_RADIUS
+
+    def set_round(self, round_: bool):
+        """Draw the box as a circle or pill (``!round``), or square-cornered."""
+        self.box.round = round_
+        self.update()
 
     def _paint_lod_shell_bars(self, painter: QPainter):
         """LoD shell: when its label is too small to read, a leaf box keeps its

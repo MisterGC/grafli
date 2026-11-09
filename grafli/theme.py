@@ -248,7 +248,7 @@ LIGHT = Palette(
         "primary": "#004578",
         "secondary": "#0178D4",
         "tertiary": "#4EBF71",
-        "subtle": "#4A4A4A",
+        "subtle": "#D3CEC6",
         "accent": "#D4804E",
         "highlight": "#D4BA6A",
         "muted": "#B8B3AB",
@@ -434,18 +434,20 @@ DARK = Palette(
     # encodes its role: %highlight is a quiet tint in both themes (~1.5:1),
     # %primary is the loud one in both (~7.8:1). That flips direction — light
     # fills sit darker than the paper, dark fills sit lighter than the ground —
-    # so %primary inverts from deep navy to bright blue and %subtle from dark
-    # grey to light grey, while the quiet tokens stay quiet. Matching the ratio
-    # alone would land the quiet end so low that the hues stop being tellable
-    # apart, so saturation is raised as luminance drops: these are categorical
-    # colours, and staying distinct from each other is the job. The result
-    # tracks the light palette's own separation (min ΔE 14.6 vs 14.1).
+    # so %primary inverts from deep navy to bright blue, while the quiet
+    # tokens stay quiet: %subtle, the quietest grey, sits between %muted and
+    # an unfilled box in both. Matching the ratio alone would land the quiet
+    # end so low that the hues stop being tellable apart, so saturation is
+    # raised as luminance drops: these are categorical colours, and staying
+    # distinct from each other is the job. The result tracks the light
+    # palette's own separation (min ΔE 8.4 vs 9.8, both at %subtle–%muted:
+    # the dark greys have less room between an unfilled box and %muted).
     COLOR_TOKENS={
         "base": "#2C2924",
         "primary": "#66B7F1",
         "secondary": "#0074CD",
         "tertiary": "#0C5623",
-        "subtle": "#A6A6A6",
+        "subtle": "#3A3732",
         "accent": "#923E0D",
         "highlight": "#584818",
         "muted": "#4D4A45",

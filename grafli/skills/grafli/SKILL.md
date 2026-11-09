@@ -343,7 +343,8 @@ in `references/genres.md` instead.)
     (`unrelated-children`: a container of 4+ boxes with no arrow between
     them; `unrelated-board`: more than half of 4+ boxes touch no arrow),
     arrow labels crowding endpoints
-    or hiding arrowheads, missing images, `&graph` / `.grafli` `&link`
+    or hiding arrowheads, two arrow labels drawn on top of each other
+    (`arrow-labels-overlap`, naming both arrows), missing images, `&graph` / `.grafli` `&link`
     targets and `#<id>`s that do not exist and `@path:line` refs whose
     file or line does not exist (both errors), overlay files
     that don't parse or name ids not on the board. Each finding

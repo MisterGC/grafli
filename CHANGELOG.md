@@ -123,6 +123,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matrix or a strip, where position is the relation, the warning can be
   acknowledged.
   ([#259](https://github.com/MisterGC/grafli/issues/259))
+- **`grafli diagnose` reports arrow labels on top of each other.** Two
+  arrows that cross could put their labels in the same spot, and
+  diagnose said nothing — it only checked a label against boxes. The
+  warning `arrow-labels-overlap` now names both arrows. It reads the
+  labels from the board drawn as the canvas draws it, so a label on a
+  routed or stacked arrow is checked where it actually sits, and a
+  two-way pair's single label is not reported.
+  ([#192](https://github.com/MisterGC/grafli/issues/192))
 - **A blank board says how to start.** An empty board — fresh untitled
   buffer or empty file — paints a muted hint in the middle of the canvas
   (`n box · t note · i image`, `F1 all keys`) that vanishes the moment the

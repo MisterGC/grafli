@@ -13,8 +13,10 @@ Every diagram needs a clear reading order:
   (e.g., `250x120`), minor ones stay at `150x60` or smaller.
 * **Color for category**: assign one color token per semantic group
   and stay consistent — don't use more than 3–4 colors per diagram.
-* **`!flat` for containers**: use flat style on grouping boxes so
-  they recede visually and children stand out.
+* **Containers recede on their own**: a grouping box with no colour
+  draws a quiet plate and outline behind its children, so they stand
+  out. `!flat` on a container changes nothing; leave a container
+  uncoloured unless its colour carries meaning.
 * **Visual weight**: darker / saturated colors (`%primary`,
   `%subtle`) feel heavier and anchor the eye — place them at focal
   points. Lighter tokens (`%muted`, `%base`) recede.
@@ -24,9 +26,9 @@ Every diagram needs a clear reading order:
 | Role | How to set | Rendered size |
 |------|------------|---------------|
 | Diagram title | `~xxlarge` note | 40 pt |
-| Top-level container label | `~large ^topleft !flat` box | 18 pt |
+| Top-level container label | box with children (no `~size`), bold | 16 pt |
 | Component box label | (default, no `~size`) | 13 pt |
-| Nested container label | `^topleft !flat` box (auto-default `~small`) | 10 pt |
+| Nested container label | box with children one level in / deeper, bold | 15 / 14 pt |
 | Context annotation | note (default) | 13 pt |
 | Small annotation | `~small` note | 10 pt |
 
@@ -53,8 +55,9 @@ on the canvas.
 
 Key rules:
 
-* Top-level containers should use `~large` explicitly — the
-  auto-default `~small` is too subtle for section headings.
+* Leave a container's size unset: its title is bold and steps down by
+  level (16, 15, 14 pt), always above the 13 pt labels inside it. A
+  `~large` section heading still works; give it the 60 px top margin.
 * Component boxes inside containers should stay at default (13 pt) —
   they're the primary content the reader focuses on.
 * Never use the same text size for a container heading and its
@@ -306,11 +309,10 @@ Nesting with `>parent` is the primary way to show logical grouping
 @ box auth "Auth" 280,310 220x100 %accent >backend
 ```
 
-* Make the container `!flat` so it's a subtle background, not a
-  competing box.
-* Use `^topleft` so its label is an unobtrusive header.
-* Use `~large` on top-level containers for a readable section
-  heading.
+* A container with no colour is already a quiet plate with an
+  outline, not a competing box; `!flat` adds nothing to it.
+* Its label is a bold top-left header, sized by level; `~large` on a
+  top-level container makes a bigger section heading.
 * Give children a contrasting color from the container.
 
 ### Container margin model

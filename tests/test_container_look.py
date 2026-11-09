@@ -154,6 +154,34 @@ def test_container_titles_step_down_by_level():
     assert min(CONTAINER_TITLE_PX) > BOX_FONT_SIZES[""]
 
 
+def test_every_title_is_above_its_childrens_labels_five_levels_deep():
+    """host > sw > api > svc > repo: past the table's last level a title
+    still steps above the title inside it."""
+    view = _view(DEEP)
+    board = view._board
+    pt = {bid: item._label.font().pointSize()
+          for bid, item in view._box_items.items()}
+    checked = 0
+    for box in board.boxes:
+        if box.textsize:
+            continue
+        for kid in board.boxes:
+            if kid.parent == box.id:
+                assert pt[box.id] > pt[kid.id], (box.id, kid.id)
+                checked += 1
+    assert checked == 4
+    assert pt["svc"] == CONTAINER_TITLE_PX[-1]
+    assert pt["repo"] == pt["mon"] == BOX_FONT_SIZES[""]
+
+
+def test_a_title_steps_above_a_larger_child_label():
+    view = _view('#!grafli v4\n'
+                 '@ box c "Zone" 0,0 600x300\n'
+                 '@ box k "Big" 20,60 300x120 ~large >c\n')
+    assert view._box_items["c"]._label.font().pointSize() == (
+        BOX_FONT_SIZES["large"] + 1)
+
+
 def test_a_set_title_size_is_honoured_and_stays_bold():
     view = _view(TWO.replace('"Api" 40,40 520x200', '"Api" 40,40 520x200 ~large'))
     font = view._box_items["api"]._label.font()

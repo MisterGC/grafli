@@ -798,6 +798,105 @@ def label_point(path: QPainterPath) -> QPointF:
     return best if best is not None else middle
 
 
+# ── Label placement in free space (#303) ───────────────────────────
+#
+# A label centred on its anchor can land on a box the connector passes, on its
+# own end box when the connector is short, or on another connector's label
+# where two cross or fan out. ``place_label`` keeps the anchor when the label
+# is clear there, and otherwise moves it to the nearest free spot along its
+# connector: on the line where there is room, beside it where there is not.
+
+# The plate drawn behind a label reaches this far past its text on each side —
+# the same margin the line is clipped by (``LabelItem._PAD``).
+LABEL_PAD = 4.0
+# How finely a label slides along its connector looking for room.
+LABEL_SLIDE_STEP = 6.0
+# The space between the line and a label set beside it.
+LABEL_BESIDE_GAP = 3.0
+
+
+def label_plate(centre: QPointF, w: float, h: float) -> QRectF:
+    """The plate of a ``w`` x ``h`` label centred on ``centre``."""
+    return QRectF(centre.x() - w / 2 - LABEL_PAD, centre.y() - h / 2 - LABEL_PAD,
+                  w + 2 * LABEL_PAD, h + 2 * LABEL_PAD)
+
+
+def place_label(path: QPainterPath, w: float, h: float, anchor: QPointF,
+                blocked: list[QRectF]) -> QPointF:
+    """Where a ``w`` x ``h`` label riding ``path`` is centred: the free spot
+    nearest ``anchor``.
+
+    Free means its plate touches none of the ``blocked`` rects — the boxes it
+    must stay off and the plates of the labels already placed. The anchor
+    itself wins when it is free, so a board with room keeps every label where
+    it was. Otherwise the label slides along the path, the free spot nearest
+    the anchor winning. Only a path with no room on it sets the label beside
+    the line: a label on its line interrupts it and reads as that line's,
+    one beside it can sit as near another line where two meet. With no free
+    spot anywhere the anchor stays: the label still names its connector, and
+    ``grafli diagnose`` reports it.
+    """
+    def free(centre: QPointF) -> bool:
+        plate = label_plate(centre, w, h)
+        return not any(plate.intersects(r) for r in blocked)
+
+    if free(anchor):
+        return anchor
+    length = path.length()
+    if length < 1:
+        return anchor
+    reach = max(w, h) + 2 * (LABEL_PAD + LABEL_BESIDE_GAP)
+    zone = path.boundingRect().adjusted(-reach, -reach, reach, reach)
+    blocked = [r for r in blocked if r.intersects(zone)]
+
+    steps = max(1, int(length // LABEL_SLIDE_STEP))
+    samples = []
+    for i in range(steps + 1):
+        pct = path.percentAtLength(length * i / steps)
+        samples.append((length * i / steps, pct, path.pointAtPercent(pct)))
+    here = min(samples, key=lambda s: math.hypot(s[2].x() - anchor.x(),
+                                                 s[2].y() - anchor.y()))[0]
+
+    candidates = []
+    for at, pct, pt in samples:
+        slide = abs(at - here)
+        candidates.append((0, slide, pt))
+        # Qt's angle runs counter-clockwise from 3 o'clock on a y-down canvas;
+        # the normal below points up, or right on a vertical run, first.
+        rad = math.radians(path.angleAtPercent(pct))
+        nx, ny = math.sin(rad), math.cos(rad)
+        if ny > 1e-9 or (abs(ny) <= 1e-9 and nx < 0):
+            nx, ny = -nx, -ny
+        # The plate's half-extent across the line, so all of it clears it.
+        off = abs(nx) * w / 2 + abs(ny) * h / 2 + LABEL_PAD + LABEL_BESIDE_GAP
+        for side, sign in ((1, 1.0), (2, -1.0)):
+            candidates.append((side, slide,
+                               QPointF(pt.x() + sign * nx * off,
+                                       pt.y() + sign * ny * off)))
+    # On the line before beside it; nearest first; above (or right) first.
+    candidates.sort(key=lambda c: (c[0] > 0, c[1], c[0]))
+    for _side, _slide, centre in candidates:
+        if free(centre):
+            return centre
+    return anchor
+
+
+def label_ground(board, from_id: str, to_id: str) -> set[str]:
+    """The containers a connector's label may sit on: every box enclosing
+    either end. Its label rides inside them like the connector does; any
+    other box, note or image — its own two ends included — it stays off."""
+    out: set[str] = set()
+    for elem_id in (from_id, to_id):
+        elem = (board.box_by_id(elem_id) or board.note_by_id(elem_id)
+                or next((im for im in board.images if im.id == elem_id), None))
+        parent = getattr(elem, "parent", "") if elem is not None else ""
+        while parent and parent not in out:
+            out.add(parent)
+            box = board.box_by_id(parent)
+            parent = box.parent if box is not None else ""
+    return out
+
+
 def path_end_angle(path: QPainterPath, at_end: bool = True) -> float:
     """Direction the path is travelling at one of its ends, in radians.
 

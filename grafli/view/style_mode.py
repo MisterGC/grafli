@@ -957,8 +957,9 @@ class StyleModeMixin:
 
     def _arrow_label_midpoint(self, arrow=None) -> QPointF | None:
         """Scene point an arrow's label is centred on (default: the selected
-        arrow), before its ``@dx,dy`` offset — the anchor the canvas drew it
-        at, from ``arrows.label_anchor``.
+        arrow), before its ``@dx,dy`` offset — where the canvas drew it: the
+        anchor from ``arrows.label_anchor``, or the free spot the label moved
+        to off a box or another label (#303).
 
         An arrow not drawn yet falls back to the middle between its two
         elements, resolved via their graphics items (box, note or image), so
@@ -967,6 +968,9 @@ class StyleModeMixin:
         arrow = arrow or self._selected_arrow
         if not arrow or not self._board:
             return None
+        placed = self._arrow_label_placed.get(id(arrow))
+        if placed is not None:
+            return placed
         geometry = self._arrow_label_geometry.get(id(arrow))
         if geometry is not None:
             return label_anchor(*geometry)

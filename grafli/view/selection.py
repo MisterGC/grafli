@@ -31,7 +31,10 @@ from grafli.arrows import (
     endpoint_pair,
     fan_offsets,
     label_anchor,
+    label_ground,
+    label_plate,
     path_end_angle,
+    place_label,
     pick_self_loop_sides,
     pinned_direct_points,
     pinned_self_loop_sides,
@@ -76,6 +79,8 @@ class _Connector:
     """One connector as ``_redraw_arrows`` resolved it, ready to draw."""
     fwd: Arrow
     rev: Arrow | None
+    from_id: str
+    to_id: str
     start: QPointF
     end: QPointF
     path: QPainterPath | None
@@ -372,6 +377,7 @@ class SelectionMixin:
         self._box_items.clear()
         self._arrow_items.clear()
         self._arrow_label_geometry.clear()
+        self._arrow_label_placed.clear()
         self._note_items.clear()
         self._image_items.clear()
         # The scene clear above deleted any LoD hull/overlay items; drop the now
@@ -651,6 +657,7 @@ class SelectionMixin:
             self._scene.removeItem(item)
         self._arrow_items.clear()
         self._arrow_label_geometry.clear()
+        self._arrow_label_placed.clear()
         self._merged_reverse.clear()
 
         if not self._board:
@@ -850,7 +857,8 @@ class SelectionMixin:
                 conn_path = bowed_path(start, end, bow_side, offset)
 
             connectors.append(_Connector(
-                fwd=fwd, rev=rev, start=start, end=end, path=conn_path,
+                fwd=fwd, rev=rev, from_id=from_id, to_id=to_id,
+                start=start, end=end, path=conn_path,
                 pen=pen, color=arrow_color, head_size=head_size,
                 head_to=draw_head_to, head_from=draw_head_from,
                 # Drop the connector label when either end is a LoD-collapsed
@@ -865,6 +873,7 @@ class SelectionMixin:
         # can be placed knowing what else is on the board.
         for conn in connectors:
             self._connector_label(conn)
+        self._place_arrow_labels(connectors)
         for conn in connectors:
             self._draw_connector(conn)
 
@@ -912,6 +921,66 @@ class SelectionMixin:
         if label_tooltips:
             label.setToolTip("\n".join(label_tooltips))
         conn.label = label
+
+    def _label_obstacles(self) -> dict[str, QRectF]:
+        """Every element on screen an arrow label must not cover, by id:
+        boxes (a collapsed container as its tile), notes and images. What a
+        collapsed container or a cluster swallows is not on screen."""
+        if not self._board:
+            return {}
+        out: dict[str, QRectF] = {}
+        for elem in (*self._board.boxes, *self._board.notes, *self._board.images):
+            if (self._lod_reroute(elem.id) != elem.id
+                    or self._lod_hull_member.get(elem.id) is not None
+                    or elem.id in self._lod_hidden_notes):
+                continue
+            out[elem.id] = QRectF(*self._elem_rect(elem))
+        return out
+
+    def _place_arrow_labels(self, connectors: list["_Connector"]) -> None:
+        """Move each label off boxes and off the other labels (#303).
+
+        A label its author offset (``@dx,dy``) stays where it was put, and
+        goes first, so no other label takes its spot. Every other label keeps
+        its anchor when that is free and otherwise takes the nearest free spot
+        along its connector (``arrows.place_label``), in file order. It stays
+        off every element except the containers its connector runs inside,
+        and off its own two ends by an arrowhead more, so the head stays in
+        sight. Where a label lands does not depend on the zoom: one hidden as
+        too small at this zoom still holds its spot.
+        """
+        labelled = [c for c in connectors if c.label is not None]
+        if not labelled:
+            return
+        obstacles = self._label_obstacles()
+        placed: list[QRectF] = []
+        authored = {id(c) for c in labelled if c.fwd.label_dx or c.fwd.label_dy}
+        for conn in labelled:
+            if id(conn) in authored:
+                br = conn.label.boundingRect()
+                placed.append(label_plate(
+                    conn.label_anchor + QPointF(conn.fwd.label_dx, conn.fwd.label_dy),
+                    br.width(), br.height()))
+        for conn in labelled:
+            if id(conn) not in authored:
+                ground = label_ground(self._board, conn.from_id, conn.to_id)
+                ends = {conn.from_id, conn.to_id}
+                clear = conn.head_size
+                blocked = [r.adjusted(-clear, -clear, clear, clear) if eid in ends else r
+                           for eid, r in obstacles.items() if eid not in ground]
+                path = conn.path
+                if path is None:
+                    path = QPainterPath(conn.start)
+                    path.lineTo(conn.end)
+                br = conn.label.boundingRect()
+                conn.label_anchor = place_label(
+                    path, br.width(), br.height(), conn.label_anchor,
+                    blocked + placed)
+                placed.append(label_plate(conn.label_anchor,
+                                          br.width(), br.height()))
+            for arrow in (conn.fwd, conn.rev):
+                if arrow is not None:
+                    self._arrow_label_placed[id(arrow)] = conn.label_anchor
 
     def _draw_connector(self, conn: "_Connector") -> None:
         """Draw one connector: its end shapes, its label, then its line —

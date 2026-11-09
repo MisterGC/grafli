@@ -26,7 +26,7 @@
 @ note evidence 0,530 """
 code:
 split by the function each export starts from
-  @grafli/view/selection.py:282 load_board
+  @grafli/view/selection.py:287 load_board
   @grafli/app.py:1915 _cmd_render
   @grafli/slideplan.py:74 build_slide_plan
   @grafli/pdfexport.py:115 export_flow_to_pdf

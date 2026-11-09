@@ -63,15 +63,17 @@ def test_missing_input_exits_two(tmp_path):
     assert _cmd_diagnose([str(tmp_path / "nope.grafli")]) == 2
 
 
-# Two labelled arrows that cross: the canvas centres both labels on the
-# crossing point (#192). The a/b pair is two-way and draws one label.
+# Two labelled arrows that cross (#192). The canvas moves a label off
+# another one (#303), but not one its author offset: both offset onto the
+# crossing point, they stay there. The a/b pair is two-way and draws one
+# label.
 CROSSING = """#!grafli v1
 @ box a "A" 0,0 100x60
 @ box b "B" 400,0 100x60
 @ box c "C" 0,300 100x60
 @ box d "D" 400,300 100x60
-@ arrow a -> d "goes down"
-@ arrow c -> b "goes up"
+@ arrow a -> d "goes down" @0,1
+@ arrow c -> b "goes up" @0,1
 @ arrow a -> b "there"
 @ arrow b -> a "back"
 """
@@ -90,6 +92,6 @@ def test_crossing_arrow_labels_are_reported(tmp_path, capsys):
 
 
 def test_offset_arrow_label_clears_the_overlap(tmp_path, capsys):
-    p = _write(tmp_path, CROSSING.replace('"goes up"', '"goes up" @0,40'))
+    p = _write(tmp_path, CROSSING.replace('"goes up" @0,1', '"goes up" @0,40'))
     assert _cmd_diagnose([str(p), "--json"]) == 0
     assert "arrow-labels-overlap" not in capsys.readouterr().out

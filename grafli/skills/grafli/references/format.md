@@ -92,8 +92,8 @@ aliases of `lightbulb`/`document` and normalize on save.
 
 Container behavior: when a box has children, its anchor auto-switches
 to `^topleft` and its title turns bold, sized by level: 16 pt at the top
-level, 15 pt one level in, 14 pt deeper — above the 13 pt box labels
-inside it. Without a colour it draws a quiet plate and outline. Set
+level, 15 pt one level in, 14 pt deeper, and a point above any label
+inside that is as large — always above the box labels it holds. Without a colour it draws a quiet plate and outline. Set
 `~large` explicitly on a top-level container for a bigger heading.
 Child positions use absolute coordinates — see the container layout
 model in `references/design.md`.

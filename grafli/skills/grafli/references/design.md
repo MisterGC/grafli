@@ -56,7 +56,8 @@ on the canvas.
 Key rules:
 
 * Leave a container's size unset: its title is bold and steps down by
-  level (16, 15, 14 pt), always above the 13 pt labels inside it. A
+  level (16, 15, 14 pt), always above the 13 pt labels inside it; where a
+  label inside is as large, the title takes a point more. A
   `~large` section heading still works; give it the 60 px top margin.
 * Component boxes inside containers should stay at default (13 pt) —
   they're the primary content the reader focuses on.

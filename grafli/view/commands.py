@@ -438,7 +438,7 @@ class CommandsMixin:
         """Step selected nodes' text size by one ladder rung.
 
         direction: +1 = larger, -1 = smaller. Sizes are stored numerically
-        (fine-grained); a parent's small-header default still applies when its
+        (fine-grained); a parent's title-by-level default still applies when its
         size is unset, but stepping always yields an explicit size so a parent
         can reach the same sizes as any other node.
         """
@@ -451,9 +451,7 @@ class CommandsMixin:
         new_textsize = None
         for item in targets:
             if isinstance(item, BoxItem):
-                cur_px = resolve_textsize_px(
-                    item.box.textsize,
-                    "small" if item._has_container_label() else "")
+                cur_px = item.label_px()
                 new = str(step_textsize_px(cur_px, direction))
                 item.set_textsize(new)
                 new_textsize = new

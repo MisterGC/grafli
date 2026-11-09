@@ -124,6 +124,20 @@ _BOX_STYLE_CYCLE = ["", "flat"]
 _ARROW_STYLE_CYCLE = ["", "dashed", "dotted"]       # line pattern only
 
 
+# A container's title at full zoom, by its nesting level: a top-level
+# container first, each level inside a step smaller, every one above a
+# node's label (BOX_FONT_SIZES[""]); past the table, the last entry. The
+# largest still clears children 40 px below the container's top edge, the
+# margin a container with an unset size is laid out with (#294).
+CONTAINER_TITLE_PX = (16, 15, 14)
+
+
+def container_title_px(depth: int) -> int:
+    """Title size of a container *depth* levels inside others (0 = top
+    level) whose size is unset."""
+    return CONTAINER_TITLE_PX[min(max(depth, 0), len(CONTAINER_TITLE_PX) - 1)]
+
+
 def resolve_textsize_px(textsize: str, default_key: str) -> int:
     """Resolve a box/note ``textsize`` token to a font size.
 

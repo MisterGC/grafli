@@ -1,6 +1,6 @@
 """`!card`: a box with children keeps its node look (#203) — its fill,
 border, rounded corners and a node's label size, centred — while a plain
-parent still draws as a flat container with a small top-left heading."""
+parent still draws as a flat container with a top-left heading."""
 
 from __future__ import annotations
 
@@ -58,9 +58,9 @@ def test_a_card_label_keeps_a_node_size_and_centring():
     centre = card.pos().x() + card.box.w / 2
     br = card._label.boundingRect()
     assert abs(card._label.pos().x() + br.width() / 2 - centre) < 1.0
-    # The plain parent keeps the small top-left heading.
+    # The plain parent keeps the top-left heading, its level's title size.
     assert plain._get_effective_anchor() == "topleft"
-    assert plain._get_effective_textsize() == "small"
+    assert plain._get_effective_textsize() == "16"
 
 
 def test_a_card_without_children_is_an_ordinary_node():

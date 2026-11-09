@@ -29,6 +29,7 @@ from grafli.constants import (
     SANS_FONT_FAMILY,
     HANDLE_SIZE,
     MIN_BOX_SIZE,
+    container_title_px,
     resolve_textsize_px,
 )
 from grafli.edge_label import edge_kind_color, parse_edge_label, split_cardinality
@@ -778,9 +779,24 @@ class BoxItem(QGraphicsRectItem):
                     and view._has_children(self.box.id))
 
     def _has_container_label(self) -> bool:
-        """True when the label takes the container heading defaults (small,
-        top left): the box holds children and isn't a ``!card``."""
+        """True when the label takes the container heading defaults (a bold
+        title sized by level, top left): the box holds children and isn't a
+        ``!card``."""
         return self.box.style != "card" and self._view_has_children()
+
+    def _container_depth(self) -> int:
+        """How many containers this box sits in (0 = top level)."""
+        view = _get_view(self)
+        if view and hasattr(view, '_box_depth'):
+            return view._box_depth(self.box.id)
+        return 0
+
+    def label_px(self) -> int:
+        """The label's size: an explicit one, else a container's title size
+        for its level, else a node's."""
+        if not self.box.textsize and self._has_container_label():
+            return container_title_px(self._container_depth())
+        return resolve_textsize_px(self.box.textsize, "")
 
     def _apply_color(self):
         hex_color = theme.resolve_color(self.box.color)
@@ -894,8 +910,7 @@ class BoxItem(QGraphicsRectItem):
 
     def _lead_icon_side(self) -> float:
         """Small leading-icon size, scaled to the box's text."""
-        px = resolve_textsize_px(self.box.textsize,
-                                 "small" if self._container_look() else "")
+        px = self.label_px()
         return max(14.0, min(px * 1.7, self.box.h - 8))
 
     def _lead_icon_w(self) -> float:
@@ -1018,18 +1033,18 @@ class BoxItem(QGraphicsRectItem):
         if self.box.textsize:
             return self.box.textsize
         if self._has_container_label():
-            return "small"
+            return str(self.label_px())
         return ""
 
     def _box_font(self) -> QFont:
-        # Unset size: a parent defaults to the small header, a normal node
-        # (and a `!card` parent) to medium. An explicit size (numeric or named)
-        # is always honoured — so a parent can be set to the same size as any
-        # other node.
-        px = resolve_textsize_px(self.box.textsize,
-                                 "small" if self._has_container_label() else "")
-        return _apply_emphasis(QFont(self._box_family(), px),
-                               self.box.emphasis)
+        # Unset size: a parent defaults to its level's title size, a normal
+        # node (and a `!card` parent) to medium. An explicit size (numeric or
+        # named) is always honoured — so a parent can be set to the same size
+        # as any other node. A container's title is bold either way.
+        font = QFont(self._box_family(), self.label_px())
+        if self._has_container_label():
+            font.setBold(True)
+        return _apply_emphasis(font, self.box.emphasis)
 
     def _box_family(self) -> str:
         """Mono, grafli's default face, or with ``!sans`` the bundled

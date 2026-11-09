@@ -32,9 +32,10 @@ SIDES = ("below", "above", "right", "left")
 
 # A container grows around what is dropped into it, as the app's drop does
 # (grafli.view.structure._fit_parent_rect): LAYOUT_PADDING on each side, and
-# room for the container's label at the top (about its height + 16).
+# room for the container's label at the top (its height + 16, for a
+# top-level container's title: grafli.constants.CONTAINER_TITLE_PX).
 LAYOUT_PADDING = 20
-CONTAINER_HEAD = 36
+CONTAINER_HEAD = 52
 
 # An element id as the format reads it: one token, no whitespace.
 _ID_RE = re.compile(r"\S+")

@@ -394,6 +394,16 @@ class StructureMixin:
                 item.setZValue(note_z)
             else:
                 item.setZValue(arrow_z.get(id(item.data(0)), arrow_line_z))
+        # Every change to the nesting passes through here; a container's
+        # title takes its size from its level (#294).
+        self._refresh_container_titles()
+
+    def _refresh_container_titles(self):
+        """Re-set the label of each box whose title size or weight no longer
+        matches its place in the nesting."""
+        for item in self._box_items.values():
+            if item._label.font() != item._box_font():
+                item.refresh_auto_layout()
 
     def _element_parent(self, eid: str) -> str:
         """The parent box id of a box, note or image, or ''."""

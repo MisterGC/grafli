@@ -121,7 +121,7 @@ def test_a_box_dropped_half_out_of_a_container_grows_it():
     # b now spans 350..450 x 180..240: the lane reaches past it by the padding.
     assert (lane.x, lane.y, lane.w, lane.h) == (0, 0, 470, 260)
     apply_op(b, {"op": "move", "id": "a", "dx": 0, "dy": -30, "parent": "lane"})
-    assert (lane.x, lane.y) == (0, -26)
+    assert (lane.x, lane.y) == (0, -42)
     assert lane.y + lane.h == 260
 
 

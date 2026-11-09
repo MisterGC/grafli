@@ -156,7 +156,9 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   perpendicular to the side that faces the other end, and several connectors
   sharing a side are spread along it automatically — anchors are always
   derived from the board, never written into the file, so a board renders the
-  same in the app and in `grafli render`. A stair slides its turn clear of
+  same in the app and in `grafli render`. Stairs leaving one side of a box
+  each turn on their own line, nested so they never cross: the one starting
+  furthest out turns nearest the box. A stair slides its turn clear of
   boxes standing in the gap. Where no turn clears them — an arrow that skips
   a layer, with a box of the layer between right in its way — a stair whose
   two ends face each other steps around them: it turns in the gap before the
@@ -178,7 +180,9 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   without a helper box. Either token works alone; an unpinned end is still
   picked from the geometry. Where an end faces away from the other, the
   connector steps straight out of its side before it turns — for direct and
-  stair routing alike; a spline already leaves along the side. A pinned pair
+  stair routing alike; a spline already leaves along the side. A pinned
+  stair that would cross a box takes the shortest right-angle way round,
+  turning in the middle of the gaps between boxes. A pinned pair
   `A->B` / `B->A` keeps two lines instead of merging. A board using either
   token carries a `#!grafli v4` header. (Style mode → `e` on a connector:
   **Leaves from** and **Enters at** rows, Auto / Top / Right / Bottom / Left.)

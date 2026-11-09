@@ -131,7 +131,7 @@ detail lives in notes adjacent to it or in the box's own `&doc`.
 | Thickness | `!thin` | half-width line |
 | Thickness | `!thick` | double-width line |
 | Routing | (default) | direct line; `grafli layout` makes it `!ortho` between two boxes it places |
-| Routing | `!ortho` | right-angle stair; steps around the boxes of a layer it skips |
+| Routing | `!ortho` | right-angle stair; steps around the boxes of a layer it skips; stairs out of one side each turn on their own line |
 | Routing | `!spline` | curve leaving each end along its side |
 | Routing | `!straight` | direct line that `grafli layout` leaves direct; `#!grafli v4` |
 | Dot ends | `!dot` | each headed end draws a dot instead of an arrowhead; `#!grafli v4` |
@@ -166,8 +166,9 @@ leaves its source by and enters its target at (`top` / `right` /
 Use them where the side carries meaning — every input enters from the
 left, a feedback arrow `~from=right ~to=right` U-turns back up a column —
 instead of adding waypoint boxes. A pinned end sits mid-side; an end that
-faces away steps out of its side before turning. Either token works on
-its own. A pinned `A->B` / `B->A` pair is not merged into one line. A
+faces away steps out of its side before turning; a pinned `!ortho`
+arrow that would cross a box takes the shortest way round it. Either
+token works on its own. A pinned `A->B` / `B->A` pair is not merged into one line. A
 file using either token carries a `#!grafli v4` header.
 
 **Dot ends.** `!dot` swaps every arrowhead of an arrow for a filled dot;

@@ -427,6 +427,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its two ends at the middle; `arrow-label-crowded` is left for a label
   with no free spot or one offset onto a box.
   ([#303](https://github.com/MisterGC/grafli/issues/303))
+- **Right-angle arrows out of one side of a box keep apart, and a pinned
+  one goes round boxes.** Several `!ortho` arrows leaving the same side
+  used to turn on the same line, so they ran on top of each other until
+  they split, and two of them could swap places and cross. Each now turns
+  on its own line, 14 px from the next: the arrow starting furthest out
+  turns nearest the box, so none crosses another, and each starts at the
+  point along the side that matches where its target lies. An `!ortho`
+  arrow with `~from=` or `~to=` that would cross a box — say
+  `~from=left ~to=bottom` with a box between its ends — now takes the
+  shortest right-angle way round, turning in the middle of the gaps
+  between boxes; it goes round the outside of everything only when there
+  is no shorter way through. `grafli render` draws both the same.
+  ([#306](https://github.com/MisterGC/grafli/issues/306))
 - **A container reads as a container.** A box that holds other boxes and
   has no colour used to draw no fill and no border, with a title smaller
   than the labels inside it, so it read as a loose caption and an arrow

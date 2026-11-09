@@ -141,6 +141,21 @@ def test_label_interrupts_a_routed_connector():
     assert len(arrows.split_path_at_rect(path, gap)) == 2
 
 
+def test_a_label_over_one_bend_leaves_a_gap():
+    """One bend of the flattened line inside the label: the run leaving the
+    label starts a new piece instead of joining the run that entered it."""
+    from PySide6.QtGui import QPainterPath
+    path = QPainterPath(QPointF(0, 0))
+    path.lineTo(QPointF(100, 4))
+    path.lineTo(QPointF(200, 0))
+    gap = QRectF(80, -10, 40, 20)
+    pieces = arrows.split_path_at_rect(path, gap)
+    assert len(pieces) == 2
+    assert all(not gap.adjusted(1, 1, -1, -1).contains(p)
+               for piece in pieces for poly in piece.toSubpathPolygons()
+               for p in poly)
+
+
 def test_a_label_that_misses_leaves_the_connector_whole():
     path = arrows.routed_path("ortho", QPointF(0, 0), "e", QPointF(200, 200), "w")
     assert len(arrows.split_path_at_rect(path, QRectF(9000, 9000, 20, 20))) == 1

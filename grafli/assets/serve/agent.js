@@ -12,6 +12,12 @@
 // through. Nothing of it is in the board file until it is taken. These keys
 // are asked before the editing keys, so x drops a waiting proposal instead
 // of deleting the selection.
+//
+// While a request sent to the agent waits for its answer — its next edit,
+// proposal or undo — a line at the top says "✦ <agent> is working on:
+// <request>", with what it does as far as the server sees it (reading or
+// rendering the board); after two minutes without an answer it says so,
+// and it goes once the agent's session is gone.
 (() => {
   "use strict";
   const page = window.grafliPage, live = window.grafliLive;
@@ -38,6 +44,12 @@
   banner.id = "proposal";
   banner.hidden = true;
   wrap.appendChild(banner);
+
+  // What the agent works on, below the proposal's banner when one shows.
+  const working = document.createElement("div");
+  working.id = "working";
+  working.hidden = true;
+  wrap.appendChild(working);
 
   // A tag's width, in pixels at 12px (#agent-marks .tag text).
   const ruler = document.createElement("canvas").getContext("2d");
@@ -244,6 +256,46 @@
     }).catch((err) => page.toast(err.message));
   }
 
+  // ── What the agent works on, until its answer lands ──
+
+  let work = null;          // as the server sent it, or null
+  let here = null;          // the board this tab is on
+
+  function lasted(s) {
+    const [n, unit] = s >= 60 ? [Math.round(s / 60), "minute"]
+                              : [Math.max(Math.round(s), 1), "second"];
+    return `${n} ${unit}${n === 1 ? "" : "s"}`;
+  }
+
+  function drawWork() {
+    working.hidden = !work;
+    if (!work) return;
+    const w = work;
+    working.style.setProperty("--agent", w.color);
+    working.dataset.late = w.late ? "1" : "";
+    const head = document.createElement("b"), star = document.createElement("span");
+    star.className = "star";
+    star.textContent = "✦";
+    head.append(star, w.late
+      ? ` ${w.by} has not answered in ${lasted(w.late_after)}:`
+      : ` ${w.by} is working on:`);
+    const what = document.createElement("span");
+    what.className = "what";
+    what.textContent = w.text != null ? ` ${w.text}` : ` a request from ${w.from}`;
+    const parts = [];
+    if (w.doing && !w.late) parts.push(w.doing);
+    if (w.board !== here) parts.push(`on ${w.board}`);
+    if (w.more) parts.push(`${w.more} more waiting`);
+    const how = document.createElement("span");
+    how.className = "how";
+    how.textContent = parts.length ? ` · ${parts.join(" · ")}` : "";
+    working.replaceChildren(head, what, how);
+    working.title = `asked by ${w.from}`;
+  }
+
+  live.on("welcome", (m) => { here = m.board; work = null; drawWork(); });
+  live.on("work", (m) => { work = m.work || null; drawWork(); });
+
   // ── Keys: asked before the editing keys ──
 
   page.addKeyHook((e) => {
@@ -267,5 +319,8 @@
     // The ids glowing now, and the name tag beside them.
     marked: () => (mark ? mark.shown.slice() : []),
     tag: () => (mark ? mark.tag : null),
+    // What the agent works on, as the line shows it, or null.
+    working: () => (working.hidden ? null : working.textContent),
+    late: () => !working.hidden && working.dataset.late === "1",
   };
 })();

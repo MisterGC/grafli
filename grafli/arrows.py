@@ -1246,6 +1246,10 @@ def split_path_at_rect(path: QPainterPath, rect: QRectF) -> list[QPainterPath]:
                     runs.append(current)
                 current = []
                 continue
+            if current and head[0] != a:  # re-emerging from the label
+                if len(current) > 1:
+                    runs.append(current)
+                current = []
             if not current:
                 current.append(head[0])
             current.append(head[1])

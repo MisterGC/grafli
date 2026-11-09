@@ -24,6 +24,7 @@ from grafli.arrows import (
     _dot_polygon,
     _line_rect_clip,
     _rect_centre,
+    along_side,
     ANCHOR_MIN_SEP,
     LABEL_PAD,
     ROUTED_CENTRE_BIAS,
@@ -48,6 +49,7 @@ from grafli.arrows import (
     side_of_point,
     split_path_at_rect,
     t_of_point,
+    turn_lines,
 )
 from grafli.buffers import ViewState
 from grafli.constants import (
@@ -577,6 +579,13 @@ class SelectionMixin:
             if pin_e:
                 e_side, e_want = pin_e, 0.5
                 e_t = t_of_point(t_rect, e_side, _rect_centre(f_rect))
+            # A right-angle arrow runs along its side to where the other
+            # element lies, so that is its rank: ranked by its ray instead, an
+            # end the aligned shortcut placed could swap with a neighbour and
+            # the two runs cross (#306). The ray breaks a tie.
+            if fwd.routing == "ortho":
+                s_t = (along_side(f_rect, s_side, _rect_centre(t_rect)), s_t)
+                e_t = (along_side(t_rect, e_side, _rect_centre(f_rect)), e_t)
             natural[idx] = [f_rect, s_side, s_want,
                             t_rect, e_side, e_want,
                             bool(fwd.routed or pin_s or pin_e), s_t, e_t]
@@ -604,7 +613,10 @@ class SelectionMixin:
             span = rect[2] if side in ("n", "s") else rect[3]
             min_sep = ANCHOR_MIN_SEP / span if span > 0 else 0.2
             values = [natural[i][2 if w == 0 else 5] for i, w in members]
+            # A right-angle arrow's rank is a pair (see above); every other
+            # rank becomes one too, so the two compare.
             ranks = [natural[i][7 if w == 0 else 8] for i, w in members]
+            ranks = [r if isinstance(r, tuple) else (r, r) for r in ranks]
             for member, value in zip(
                     members, relax_positions(values, min_sep, ranks)):
                 slots[member] = value
@@ -623,6 +635,34 @@ class SelectionMixin:
                             point_on_side(t_rect, e_side, new_e), e_side,
                             moved)
         return anchors
+
+    def _turn_lines(self, render_list, conn_anchors) -> dict[int, float]:
+        """Where each right-angle arrow sharing a side with others turns.
+
+        Arrows leaving the same side of a box each get their own turn line, so
+        their runs keep apart instead of sharing one until they split (#306).
+        Grouped by the side the anchor pass gave each start; an arrow alone on
+        its side, or with no sibling turning its way, keeps the middle of its
+        gap and is not listed.
+        """
+        groups: dict[tuple[str, str], list[int]] = {}
+        for idx, (from_id, to_id, _ht, _hf, fwd, _rev) in enumerate(
+                render_list):
+            anchors = conn_anchors.get(idx)
+            if anchors is None or fwd.routing != "ortho":
+                continue
+            f_id = self._lod_reroute(from_id)
+            if f_id == self._lod_reroute(to_id):
+                continue                     # a self-loop draws its own shape
+            groups.setdefault((f_id, anchors[1]), []).append(idx)
+
+        out: dict[int, float] = {}
+        for members in groups.values():
+            mids = turn_lines([conn_anchors[i][:4] for i in members])
+            for idx, mid in zip(members, mids):
+                if mid is not None:
+                    out[idx] = mid
+        return out
 
     def _parallel_offsets(self, render_list) -> dict[int, float]:
         """How far each connector between an already-linked pair bows aside.
@@ -713,6 +753,7 @@ class SelectionMixin:
                 ))
 
         conn_anchors = self._connector_anchors(render_list)
+        turn_at = self._turn_lines(render_list, conn_anchors)
         connectors: list[_Connector] = []
         conn_offsets = self._parallel_offsets(render_list)
         obstacle_rects = self._routing_obstacles()
@@ -836,7 +877,8 @@ class SelectionMixin:
                          if bid not in skip],
                         (QRectF(*self._elem_rect(from_elem)),
                          QRectF(*self._elem_rect(to_elem)))
-                        if fwd.from_side or fwd.to_side else None)
+                        if fwd.from_side or fwd.to_side else None,
+                        turn_at.get(idx))
                 elif fwd.from_side or fwd.to_side:
                     # A direct connector between pinned sides stays one
                     # straight run unless an end faces away from the other.

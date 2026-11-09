@@ -82,6 +82,16 @@ def t_of_point(rect: tuple, side: str, pt: QPointF) -> float:
     return 0.0 if h <= 0 else max(0.0, min(1.0, (pt.y() - y) / h))
 
 
+def along_side(rect: tuple, side: str, pt: QPointF) -> float:
+    """Where along a side a point lies, as a fraction that runs past 0..1 for
+    a point beyond either end of the side — so two points both beyond it
+    still rank against each other."""
+    x, y, w, h = rect
+    if side in ("n", "s"):
+        return 0.0 if w <= 0 else (pt.x() - x) / w
+    return 0.0 if h <= 0 else (pt.y() - y) / h
+
+
 def _line_rect_clip(p1: QPointF, p2: QPointF, rect: QRectF) -> tuple[QPointF, QPointF]:
     """Find where the line p1->p2 enters and exits *rect*.
 
@@ -374,17 +384,22 @@ def _crossed(points: list[QPointF], obstacles: list[QRectF],
 
 
 def _best_mid(start: QPointF, end: QPointF,
-              horizontal: bool, obstacles: list[QRectF]) -> float:
+              horizontal: bool, obstacles: list[QRectF],
+              default: float | None = None) -> float:
     """Where to put a Z-bend's mid-line so it crosses as few boxes as possible.
 
     Every candidate lies between the two anchors, so the route can slide but
     never detour outside their bounding box — that confinement is what keeps
     this from becoming a router (see #142). When nothing is clear the middle of
     the gap wins, so a hard case stays predictable rather than contorted.
+
+    ``default`` replaces the middle of the gap as the line to keep when it is
+    clear: the turn line a sibling pass gave this arrow (``turn_lines``).
     """
     lo = start.x() if horizontal else start.y()
     hi = end.x() if horizontal else end.y()
-    default = (lo + hi) / 2
+    if default is None:
+        default = (lo + hi) / 2
     if not obstacles:
         return default
 
@@ -523,7 +538,8 @@ def _detour(start: QPointF, end: QPointF, horizontal: bool,
 def ortho_points(start: QPointF, start_side: str,
                  end: QPointF, end_side: str,
                  obstacles: list[QRectF] | None = None,
-                 ends: tuple[QRectF, QRectF] | None = None) -> list[QPointF]:
+                 ends: tuple[QRectF, QRectF] | None = None,
+                 mid: float | None = None) -> list[QPointF]:
     """Corner points of a right-angle route between two side anchors.
 
     Two parallel exits give a Z (three segments, turning at a mid-line in the
@@ -540,13 +556,16 @@ def ortho_points(start: QPointF, start_side: str,
     sides (#209). Its route must leave and enter along those sides, so where
     the plain stair would run back across its own box it is replaced by one
     that steps out first.
+
+    ``mid`` is where a Z turns when that line is clear, in place of the middle
+    of the gap: arrows leaving one side of a box each get their own (#306).
     """
     horiz_start = start_side in ("e", "w")
     horiz_end = end_side in ("e", "w")
 
     if horiz_start == horiz_end:
         near = _relevant(start, end, obstacles)
-        mid = _best_mid(start, end, horiz_start, near)
+        mid = _best_mid(start, end, horiz_start, near, mid)
         pts = _z_points(start, end, mid, horiz_start)
         if (near and _crossed(pts, near, 1)
                 and _along(start, end, start_side) > 0.01
@@ -562,6 +581,85 @@ def ortho_points(start: QPointF, start_side: str,
         return pts
     return _pinned_stair(start, start_side, end, end_side,
                          [*ends, *(obstacles or [])])
+
+
+# How far apart the turn lines of two right-angle arrows leaving one side of a
+# box sit (#306): wide enough to read as two runs, and two eased corners of
+# ORTHO_RADIUS still clear each other.
+ORTHO_TURN_SEP = 14.0
+
+
+def _isotonic(values: list[float]) -> list[float]:
+    """The non-decreasing sequence nearest ``values`` in least squares
+    (pool adjacent violators)."""
+    blocks: list[list[float]] = []            # [sum, count]
+    for v in values:
+        blocks.append([v, 1.0])
+        while (len(blocks) > 1 and blocks[-2][0] / blocks[-2][1]
+               > blocks[-1][0] / blocks[-1][1]):
+            s, c = blocks.pop()
+            blocks[-1][0] += s
+            blocks[-1][1] += c
+    out: list[float] = []
+    for s, c in blocks:
+        out += [s / c] * int(c)
+    return out
+
+
+def turn_lines(routes: list[tuple[QPointF, str, QPointF, str]]
+               ) -> list[float | None]:
+    """Where each right-angle arrow leaving one side of one box turns (#306).
+
+    ``routes`` are ``(start, start_side, end, end_side)`` of the arrows that
+    leave the same side of the same box. Two Z-bends that turn the same way
+    from that side would turn at the same line and draw their runs on top of
+    each other until they split. Each gets its own line instead, nested so
+    they never cross: the arrow starting furthest out in the direction they
+    turn turns nearest the box, and the others turn one step further out
+    each. The lines stay as close as that allows to where each arrow would
+    turn on its own — the middle of its gap — and inside its gap.
+
+    Returns the turn line per route, or None for a route that keeps its own:
+    an L, a straight run, one whose end lies behind the side, or one with no
+    sibling turning its way.
+    """
+    out: list[float | None] = [None] * len(routes)
+    if len(routes) < 2:
+        return out
+    side = routes[0][1]
+    horizontal = side in ("e", "w")
+    sgn = 1.0 if side in ("e", "s") else -1.0
+
+    def main(p: QPointF) -> float:
+        return p.x() if horizontal else p.y()
+
+    def cross(p: QPointF) -> float:
+        return p.y() if horizontal else p.x()
+
+    ways: dict[float, list[tuple[int, float]]] = {}
+    for i, (start, _s_side, end, e_side) in enumerate(routes):
+        if (e_side in ("e", "w")) != horizontal:
+            continue                          # an L turns at its end
+        turn = cross(end) - cross(start)
+        gap = (main(end) - main(start)) * sgn
+        if abs(turn) < 0.5 or gap <= 0.0:
+            continue
+        ways.setdefault(1.0 if turn > 0 else -1.0, []).append((i, gap))
+
+    for way, members in ways.items():
+        if len(members) < 2:
+            continue
+        # Furthest out the way they turn first: that one turns nearest the box.
+        members.sort(key=lambda m: (-way * cross(routes[m[0]][0]), m[0]))
+        sep = min(ORTHO_TURN_SEP,
+                  min(gap for _i, gap in members) / (len(members) + 1))
+        depths = _isotonic([gap / 2 - k * sep
+                            for k, (_i, gap) in enumerate(members)])
+        for k, ((i, gap), depth) in enumerate(zip(members, depths)):
+            margin = min(ORTHO_RADIUS, gap / 2)
+            depth = max(margin, min(gap - margin, depth + k * sep))
+            out[i] = main(routes[i][0]) + sgn * depth
+    return out
 
 
 def _tidy(pts: list[QPointF]) -> list[QPointF]:
@@ -735,19 +833,22 @@ def spline_path(start: QPointF, start_side: str,
 def routed_path(routing: str, start: QPointF, start_side: str,
                 end: QPointF, end_side: str,
                 obstacles: list[QRectF] | None = None,
-                ends: tuple[QRectF, QRectF] | None = None) -> QPainterPath:
+                ends: tuple[QRectF, QRectF] | None = None,
+                mid: float | None = None) -> QPainterPath:
     """The connector body for a routing, as a path.
 
     ``obstacles`` lets a stair slide its mid-line clear of intervening boxes;
     the other routings have no free parameter to spend and ignore it. ``ends``
     marks a connector with pinned sides (see ``ortho_points``); a spline already
-    leaves along each side's normal and needs nothing more.
+    leaves along each side's normal and needs nothing more. ``mid`` is a
+    stair's turn line from ``turn_lines``.
     """
     if routing == "spline":
         return spline_path(start, start_side, end, end_side)
     if routing == "ortho":
         return _rounded_polyline(
-            ortho_points(start, start_side, end, end_side, obstacles, ends),
+            ortho_points(start, start_side, end, end_side, obstacles, ends,
+                         mid),
             ORTHO_RADIUS)
     path = QPainterPath(start)
     path.lineTo(end)
@@ -1022,7 +1123,7 @@ ANCHOR_MARGIN = 0.06
 
 
 def relax_positions(desired: list[float], min_sep: float,
-                    order_key: list[float] | None = None) -> list[float]:
+                    order_key: list | None = None) -> list[float]:
     """Push crowded anchors apart along a side, preserving their order.
 
     Order is what keeps connectors from swapping places and crossing each

@@ -1,8 +1,11 @@
-"""Right-angle arrows sharing a side of a box (#306).
+"""Right-angle arrows sharing a side of a box, and pinned ones in the way of
+a box (#306).
 
 Several `!ortho` arrows leaving one side of a box start at their own points
-and turn on their own lines, so no two share a run until they split. That
-holds on the canvas and in what `grafli render` writes.
+and turn on their own lines, so no two share a run until they split. An
+`!ortho` arrow with pinned sides goes round a box between its ends, the
+shortest way, instead of through it. Both hold on the canvas and in what
+`grafli render` writes.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ import re
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import QPainterPath
 from PySide6.QtWidgets import QApplication
 
@@ -53,6 +56,27 @@ FAN_RIGHT = """#!grafli v4
 FAN_PINNED = FAN.replace(" !ortho\n", " !ortho ~from=bottom ~to=top\n")
 
 FANS = {"fan": FAN, "fan-right": FAN_RIGHT, "fan-pinned": FAN_PINNED}
+
+# B sits up-left of A and C sits between them, right on the run of the plain
+# right angle (left out of A, up into B's bottom).
+AROUND = """#!grafli v4
+@ box a "A" 600,300 200x100
+@ box b "B" 0,0 200x100
+@ box c "C" 50,300 200x100
+@ arrow a -> b !ortho ~from=left ~to=bottom
+"""
+
+# A tall box between the ends, reaching down to the bottom of the board,
+# with a gap between it and F above: the arrow goes over C through the gap,
+# not round the bottom of C along the board's edge.
+GAP = """#!grafli v4
+@ box a "A" 700,0 200x100
+@ box b "B" 0,300 200x100
+@ box c "C" 350,-60 160x960
+@ box f "F" 350,-300 160x180
+@ arrow a -> b !ortho ~from=left ~to=bottom
+"""
+
 
 def _view(text: str):
     from grafli.view import GrafliView
@@ -120,6 +144,10 @@ def _rendered(tmp_path, text: str) -> list[list[Run]]:
     return _svg_arrows(out.read_text(encoding="utf-8"))
 
 
+def _boxes(text: str) -> dict[str, QRectF]:
+    return {b.id: QRectF(b.x, b.y, b.w, b.h) for b in parse(text).boxes}
+
+
 def _flat(a: Run) -> bool:
     return abs(a[0].y() - a[1].y()) < 0.5
 
@@ -166,6 +194,20 @@ def _fan_ok(routes: list[list[Run]]) -> None:
                 for b in rb:
                     assert not _shared(a, b), f"shared run {a} / {b}"
                     assert not _crosses(a, b), f"crossing {a} / {b}"
+
+
+def _around_ok(routes: list[list[Run]], text: str) -> list[Run]:
+    assert len(routes) == 1
+    runs = routes[0]
+    for box_id, rect in _boxes(text).items():
+        for a, b in runs:
+            assert not arrows._segment_hits_rect(a, b, rect), \
+                f"runs through {box_id}"
+    return runs
+
+
+def _length(runs: list[Run]) -> float:
+    return sum(abs(a.x() - b.x()) + abs(a.y() - b.y()) for a, b in runs)
 
 
 # ── four arrows out of one side ────────────────────────────────────
@@ -232,3 +274,60 @@ def test_a_tight_gap_squeezes_the_lines_inside_it():
     assert lines == sorted(lines)       # the one furthest out turns first
     assert len(set(lines)) == 4
 
+
+# ── a pinned arrow goes round a box ────────────────────────────────
+
+def test_a_pinned_arrow_goes_round_the_box_between_its_ends():
+    runs = _around_ok(_canvas_arrows(_view(AROUND)), AROUND)
+    assert runs[0][0] == QPointF(600, 350)          # out of A's left
+    assert runs[-1][1] == QPointF(100, 100)         # into B's bottom
+
+
+def test_a_pinned_arrow_goes_round_the_box_in_grafli_render(tmp_path):
+    _around_ok(_rendered(tmp_path, AROUND), AROUND)
+
+
+def test_a_pinned_arrow_turns_in_the_middle_of_the_gaps():
+    """Left out of A to half way to C, up to half way between C and B."""
+    pts = arrows.ortho_points(
+        QPointF(600, 350), "w", QPointF(100, 100), "s",
+        [QRectF(50, 300, 200, 100)],
+        (QRectF(600, 300, 200, 100), QRectF(0, 0, 200, 100)))
+    assert [(p.x(), p.y()) for p in pts] == [
+        (600, 350), (425, 350), (425, 200), (100, 200), (100, 100)]
+
+
+def test_a_pinned_arrow_takes_the_gap_not_the_way_round_everything():
+    view = _view(GAP)
+    runs = _around_ok(_canvas_arrows(view), GAP)
+    # Over C through the gap between C and F: never below C, along the
+    # bottom of the board, nor above F's bottom. Round the bottom would be
+    # 2010 long.
+    for a, b in runs:
+        for p in (a, b):
+            assert -120 < p.y() < 900
+    assert _length(runs) < 1500
+
+
+def test_a_pinned_arrow_takes_the_gap_in_grafli_render(tmp_path):
+    runs = _around_ok(_rendered(tmp_path, GAP), GAP)
+    assert all(-120 < p.y() < 900 for a, b in runs for p in (a, b))
+
+
+def test_a_clear_pinned_arrow_keeps_its_plain_route():
+    """Going round is only for a route that touches a box."""
+    clear = AROUND.replace("@ box c \"C\" 50,300 200x100\n", "")
+    pts = arrows.ortho_points(
+        QPointF(600, 350), "w", QPointF(100, 100), "s", [],
+        (QRectF(600, 300, 200, 100), QRectF(0, 0, 200, 100)))
+    assert [(p.x(), p.y()) for p in pts] == [
+        (600, 350), (100, 350), (100, 100)]
+    _around_ok(_canvas_arrows(_view(clear)), clear)
+
+
+def test_a_pinned_arrow_with_no_way_round_keeps_its_route():
+    """A box swallowing both ends leaves nothing to go round."""
+    ends = (QRectF(600, 300, 200, 100), QRectF(0, 0, 200, 100))
+    solid = [QRectF(-1000, -1000, 4000, 4000)]
+    assert arrows._route_around(QPointF(600, 350), "w", QPointF(100, 100),
+                                "s", [*ends, *solid]) is None

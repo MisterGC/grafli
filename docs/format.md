@@ -106,6 +106,14 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   `grafli render` and every export draw it. A board using either carries a
   `#!grafli v4` header. (Style mode → `e`, Outline row: solid / dashed /
   dotted.)
+- `!round` — on a box, draws it round: a circle when the box is square, a
+  pill (straight sides, half-circle ends) otherwise — for a state machine's
+  start and end states, a flowchart's terminators or a sketchnote's
+  bubbles. Arrows end on the curve, not on the box's corners. A round box
+  with no label keeps its size, so `@ box start "" 0,0 24x24 %primary !round`
+  stays a small circle. The canvas, `grafli render` and every export draw
+  it. A board using it carries a `#!grafli v4` header. (Style mode → `r`
+  toggles it.)
 - `!pin` — on a box, the layered layout (`grafli layout <file>`, and `=`
   in the app) keeps the box where it is and places the other boxes of its
   container around it; arrows to it still rank them, so `a -> pinned -> b`

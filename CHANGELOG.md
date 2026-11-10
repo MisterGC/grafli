@@ -411,6 +411,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   saving side by side, the same step at the same height, so the one step
   only saving has shows as a gap.
   ([#261](https://github.com/MisterGC/grafli/issues/261))
+- **Round boxes for start and end states, terminators and bubbles.** A
+  box with `!round` draws as a circle when it is square and as a pill
+  otherwise, on the canvas, in `grafli render` and in every export, and
+  arrows end on its curve instead of at its corners. Until now a state
+  machine's start state was a box labelled "●". A round box with no label
+  keeps the size it is given, so `@ box start "" 0,0 24x24 %primary !round` is
+  a small dot. In style mode, <kbd>s</kbd> <kbd>r</kbd> makes the selected
+  boxes round, and pressing <kbd>r</kbd> again makes them square-cornered.
+  A board using it is written `#!grafli v4`; older builds open it
+  read-only.
+  ([#307](https://github.com/MisterGC/grafli/issues/307))
 
 ### Changed
 - **Arrow labels move into free space.** A label sat at the middle of its

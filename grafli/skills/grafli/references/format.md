@@ -7,7 +7,7 @@ element beyond it.
 ## Box syntax
 
 ```
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !pin !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !round !pin !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent]
 ```
 
 **Modifier order is enforced** — write them in exactly this sequence:
@@ -29,6 +29,7 @@ class as a misplaced triple-quote modifier.
 | `!ink` | `!ink` | label and fill/lead icon in the ink that reads on the fill, no light plate — for dark fills; `#!grafli v4` |
 | `!sans` | `!sans` | label and doc line in the bundled proportional face (Inter) instead of mono; on a note, text in Inter instead of handwriting; `#!grafli v4` |
 | `!dashed` / `!dotted` | `!dashed`, `!dotted` | outline drawn dashed or dotted, for later or optional; adds an outline to a flat box or container; `#!grafli v4` |
+| `!round` | `!round` | a circle when the box is square, a pill otherwise — start/end states, terminators, bubbles; arrows end on the curve; an unlabelled round box keeps its size; `#!grafli v4` |
 | `!pin` | `!pin` | `grafli layout` (and `=` in the app) keeps the box where it is and places its siblings around it; arrows to it still rank them; draws nothing; `#!grafli v4` |
 | `!bold` / `!italic` | `!bold`, `!italic` | text emphasis, in the `!`-flag group (combine for headings/asides) |
 | `!outline` / `!shadow` | `!outline`, `!shadow` | **note** display lettering — hollow letters / drop-shadow depth, for sketchnote headers (layer with `~size` + `!bold`); render on notes, not boxes |

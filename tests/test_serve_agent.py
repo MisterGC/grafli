@@ -139,6 +139,15 @@ def test_the_guide_returns_one_reference_file_and_refuses_an_unknown_one():
     assert got["isError"] and "format.md" in got["content"][0]["text"]
 
 
+@pytest.mark.parametrize("reference", [["format.md"], {"name": "format.md"},
+                                       5, True])
+def test_a_reference_that_is_not_a_name_is_answered_with_an_error(reference):
+    got = _guide(reference=reference)
+    assert got["isError"]
+    for name in skills.skill_references():
+        assert name in got["content"][0]["text"]
+
+
 # ── End to end: a server, the bridge as Claude Code runs it, tabs ──
 
 class Session:

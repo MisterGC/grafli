@@ -599,3 +599,77 @@ def test_the_help_sheet_names_the_palette_in_the_grid():
     from grafli.view.overlays import OverlaysMixin
     source = inspect.getsource(OverlaysMixin._show_cheatsheet)
     assert '("  c", "Color grid, then the map palette\'s %names' in source
+
+
+def _key(view: GrafliView, key) -> None:
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+    view._handle_color_picker_key(
+        QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier))
+
+
+def _kind_picker(tmp_path: Path) -> GrafliView:
+    view = _picker(tmp_path)
+    (tmp_path / "map-res" / "palette.json").write_text(_palette({
+        "storage": {"color": HOT, "label": "Persistence"},
+        "plugin": PLUGIN}))
+    view.load_map_palette()
+    return view
+
+
+def test_a_digit_in_the_grid_applies_that_kind_at_once(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    view = _kind_picker(tmp_path)
+    item = view._box_items["items"]
+    view._open_color_picker()
+    _key(view, Qt.Key.Key_2)
+    assert not view._color_picker_active
+    assert view._board.box_by_id("items").color == "%plugin"
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    assert item._has_lead_icon() and item._label.font().bold()
+    view._undo()
+    assert view._board.box_by_id("items").color == "%primary"
+
+
+def test_a_digit_past_the_palette_leaves_the_grid_open(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    view = _kind_picker(tmp_path)
+    toasts = []
+    view.toast = lambda msg, *a, **k: toasts.append(msg)
+    view._open_color_picker()
+    _key(view, Qt.Key.Key_3)
+    assert view._color_picker_active
+    assert view._board.box_by_id("items").color == "%primary"
+    assert toasts == ["The map's palette has no entry 3"]
+
+
+def test_the_grid_names_the_digit_of_a_palette_entry(tmp_path: Path):
+    view = _kind_picker(tmp_path)
+    view._open_color_picker()
+    entries = {"%storage": (1, None), "%plugin": (2, None)}
+    assert view._color_picker_caption(entries) == "Primary"
+    values = [v for _, v in view._color_choices()]
+    view._color_picker_index = values.index("%plugin")
+    assert view._color_picker_caption(entries) == "2  Plugin"
+
+
+def test_the_grid_draws_a_kind_swatch_with_its_icon(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QPainter
+    view = _kind_picker(tmp_path)
+    view._open_color_picker()
+
+    def grid() -> QImage:
+        img = QImage(900, 600, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.white)
+        painter = QPainter(img)
+        view._draw_color_picker(painter)
+        painter.end()
+        return img
+
+    with_kind = grid()
+    (tmp_path / "map-res" / "palette.json").write_text(_palette({
+        "storage": {"color": HOT, "label": "Persistence"},
+        "plugin": {"color": "%teal", "label": "Plugin"}}))
+    view.load_map_palette()
+    assert grid() != with_kind

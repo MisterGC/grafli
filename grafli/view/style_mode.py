@@ -22,9 +22,9 @@ from grafli.constants import (
     FONT_FAMILY,
     resolve_textsize_px,
 )
-from grafli.format import SOLID_NUMBER_PREFIX, emphasis_from_flags
+from grafli.format import SOLID_NUMBER_PREFIX, emphasis_from_flags, split_icon
 from grafli.iconset import (EMPHASIS_NAMES, ICON_NAMES, has_icon, icon_pixmap,
-                             number_badge)
+                             number_badge, paint_icon)
 from grafli.items import BoxItem, ImageItem, NoteItem
 
 
@@ -285,6 +285,20 @@ class StyleModeMixin:
             self._color_picker_move(0, -1)
         elif key == Qt.Key.Key_J:
             self._color_picker_move(0, 1)
+        elif Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
+            self._pick_palette_entry(key - Qt.Key.Key_1)
+
+    def _pick_palette_entry(self, n: int):
+        """Apply the map palette's entry number *n* + 1 at once, as hjkl to
+        it and Enter would: its colour, and on a box its whole kind."""
+        if n >= len(self._map_palette):
+            self.toast(f"The map's palette has no entry {n + 1}", "warn")
+            return
+        values = [v for _, v in self._color_choices()]
+        self._color_picker_index = values.index(
+            f"%{self._map_palette[n].name}")
+        self._apply_color_picker_live()
+        self._commit_color_picker()
 
     def _commit_color_picker(self):
         mode, targets = self._color_picker_targets()
@@ -374,6 +388,8 @@ class StyleModeMixin:
 
         gx0, gy0 = px + pad, py + pad
         cyan = QColor(0, 209, 224)
+        entries = {f"%{e.name}": (n, e)
+                   for n, e in enumerate(self._map_palette, 1)}
         for i, (_name, value) in enumerate(choices):
             if value is None:
                 continue
@@ -381,9 +397,13 @@ class StyleModeMixin:
             sy = gy0 + (i // cols) * (sw + gap)
             cell = QRectF(sx, sy, sw, sw)
             hexv = theme.resolve_color(value)
+            fill = QColor(hexv) if hexv else QColor(theme.BOX_FILL)
             painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
-            painter.setBrush(QBrush(QColor(hexv) if hexv else QColor(theme.BOX_FILL)))
+            painter.setBrush(QBrush(fill))
             painter.drawRoundedRect(cell, 4, 4)
+            if value in entries:
+                self._draw_kind_swatch(painter, cell, fill,
+                                       entries[value][1])
             if not hexv:
                 # "Default" / auto swatch: a diagonal slash marks "no colour".
                 painter.setPen(QPen(QColor(150, 60, 60), 1.5))
@@ -398,8 +418,31 @@ class StyleModeMixin:
         painter.setFont(QFont(FONT_FAMILY, 9))
         painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter,
-                         choices[self._color_picker_index][0])
+                         self._color_picker_caption(entries))
         painter.restore()
+
+    def _color_picker_caption(self, entries: dict) -> str:
+        """The highlighted cell's label; a palette entry's leads with the
+        digit that applies it (1-9)."""
+        label, value = self._color_choices()[self._color_picker_index]
+        n = entries.get(value, (0, None))[0]
+        return f"{n}  {label}" if 1 <= n <= 9 else label
+
+    @staticmethod
+    def _draw_kind_swatch(painter: QPainter, cell: QRectF, fill: QColor,
+                          entry):
+        """A kind's swatch shows what else it gives a box: its outline
+        pattern around the cell and its icon on it."""
+        if entry.outline:
+            pen = QPen(theme.ink_on(fill), 1.5)
+            pen.setStyle(Qt.PenStyle.DashLine if entry.outline == "dashed"
+                         else Qt.PenStyle.DotLine)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(cell.adjusted(2, 2, -2, -2), 3, 3)
+        if entry.icon:
+            paint_icon(painter, split_icon(entry.icon)[1],
+                       cell.adjusted(6, 6, -6, -6), theme.ink_on(fill))
 
     # ── Status label (style mode -> s), boxes ──
 

@@ -428,10 +428,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Every filled box drew its label on a lighter plate inside the fill, so
   a coloured box read as a box inside a box. The plate now shows only
   where the board ink on the fill falls below WCAG AA: 4.5:1, or 3:1 for
-  a label of 24 px, or 18.66 px bold. In the dark theme `%clay`, `%teal`,
-  `%soft` and `%highlight` draw their labels straight on the fill; in the
-  light theme `%soft` and `%highlight` do, while `%clay` (3.4:1) and
-  `%teal` (3.8:1) keep the plate, as does a dark fill such as `%primary`.
+  a label of 24 px, or 18.66 px bold. In both themes `%clay`, `%teal`,
+  `%soft` and `%highlight` draw their labels straight on the fill, while a
+  dark fill such as `%primary` keeps the plate. For this the light theme's
+  `%clay` is lighter (`#C56C54` → `#D08976`) and so is its `%teal`
+  (`#3E9B92` → `#44AAA0`), so a board using them looks a shade paler. A
+  coloured box inside another one is judged against what it shows on.
   `grafli render` draws it the same way.
   ([#300](https://github.com/MisterGC/grafli/issues/300))
 - **Arrow labels move into free space.** A label sat at the middle of its

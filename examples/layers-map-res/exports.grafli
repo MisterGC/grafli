@@ -27,7 +27,7 @@
 code:
 split by the function each export starts from
   @grafli/view/selection.py:291 load_board
-  @grafli/app.py:1876 _cmd_render
+  @grafli/app.py:1884 _cmd_render
   @grafli/slideplan.py:74 build_slide_plan
   @grafli/pdfexport.py:115 export_flow_to_pdf
   @grafli/pptxexport.py:140 export_flow_to_pptx

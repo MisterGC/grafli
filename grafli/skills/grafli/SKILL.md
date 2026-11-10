@@ -559,6 +559,10 @@ task needs them:
   deliberate-incompleteness rules. Open when the user wants to *think
   through* a problem — options, trade-offs, unknowns — rather than
   document a system.
+* `examples/` — the exemplar boards the references name, each with its
+  `<name>-res/` vault, beside this file. Open the one a playbook names
+  before you author a board of its kind, and copy its moves, not its
+  content.
 ---
 
 # File operations

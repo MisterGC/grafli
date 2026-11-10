@@ -39,6 +39,7 @@ from grafli.map_palette import attach_names
 from grafli.sidepanel import PanelToggleButton, SidePanel, ThemeToggleButton
 from grafli.skills import (skill_concat as _skill_concat,
                            skill_dir as _skill_dir,
+                           skill_examples as _skill_examples,
                            skill_path as _skill_path,
                            skill_references as _skill_references)
 from grafli.slideplan import describe_overload
@@ -1691,13 +1692,14 @@ def _cmd_skill_install(argv: list[str]) -> int:
 
     packaged = _skill_path().read_text(encoding="utf-8")
     references = _skill_references()
+    examples = _skill_examples()
     version = _grafli_version()
 
     any_drift = False
     any_action = False
 
     for t in targets:
-        st = compute_status(t, packaged, version, references)
+        st = compute_status(t, packaged, version, references, examples)
         # Show context line so the user always sees the destination.
         if st.status == OK:
             print(f"[ok]      {t}: already current at {st.path} (grafli {version})")
@@ -1749,10 +1751,12 @@ def _cmd_skill_install(argv: list[str]) -> int:
                 print(f"  skipped {t}")
                 continue
 
-        path = write_skill(t, packaged, version, references)
+        path = write_skill(t, packaged, version, references, examples)
         print(f"  wrote {path}")
         if references:
             print(f"  wrote {path.parent / 'references'} ({len(references)} files)")
+        if examples:
+            print(f"  wrote {path.parent / 'examples'} ({len(examples)} files)")
         any_action = True
 
     if args.dry_run and any_drift:
@@ -1784,9 +1788,10 @@ def _cmd_skill_check(argv: list[str]) -> int:
     targets = _resolve_targets(args.target)
     packaged = _skill_path().read_text(encoding="utf-8")
     references = _skill_references()
+    examples = _skill_examples()
     version = _grafli_version()
 
-    statuses = [compute_status(t, packaged, version, references) for t in targets]
+    statuses = [compute_status(t, packaged, version, references, examples) for t in targets]
 
     if args.json:
         print(_json.dumps([s.to_dict() for s in statuses], indent=2))
@@ -1847,10 +1852,11 @@ def _cmd_skill_uninstall(argv: list[str]) -> int:
 
     packaged = _skill_path().read_text(encoding="utf-8")
     references = _skill_references()
+    examples = _skill_examples()
     version = _grafli_version()
 
     for t in targets:
-        st = compute_status(t, packaged, version, references)
+        st = compute_status(t, packaged, version, references, examples)
         if st.status == MISSING:
             print(f"[missing] {t}: nothing to remove at {st.path.parent}")
             continue

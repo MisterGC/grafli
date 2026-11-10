@@ -11,11 +11,19 @@ Number badges (``*0`` … ``*99``, filled: ``*solid-0`` … ``*solid-99``) are
 composed at paint time (circle + digit) — a static sheet can't carry every
 number. ``money`` and ``link`` predate the
 sheet and remain hand-drawn painters until it gains them.
+
+A board's own symbols are SVG files in ``<stem>-res/icons/`` (issue #299):
+``icons/monitor.svg`` is ``*monitor`` on that board, in every placement.
+``BoardIcons`` lists that folder; each function here takes it as ``icons``
+and looks a name up among the built-in symbols first, then there. Its
+``currentColor``, its black and an unset fill take the tint, so it draws in
+the ink a built-in symbol draws in.
 """
 
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QRectF, Qt
@@ -26,6 +34,7 @@ from PySide6.QtSvg import QSvgRenderer
 from grafli import theme
 from grafli.constants import NOTE_FONT_FAMILY
 from grafli.format import ICON_ALIASES, SOLID_NUMBER_PREFIX
+from grafli.resources import res_dir
 
 _SHEET = Path(__file__).parent / "assets" / "sketchnote_symbols.svg"
 # Canonical ink colour of the sheet; tinting substitutes this in the source.
@@ -52,10 +61,126 @@ _renderers: dict[int, QSvgRenderer] = {}
 _pixmap_cache: dict[tuple, QPixmap] = {}
 
 
-def resolve_icon(name: str) -> str:
-    """Canonical name for ``name`` — alias-aware (``bulb`` → ``lightbulb``);
-    number badges 0–99, outlined or ``solid-``, pass through zero-stripped.
-    "" if unknown."""
+# ── a board's own symbols: <stem>-res/icons/<name>.svg ──
+
+BOARD_ICON_DIR = "icons"
+# A file's stem is its symbol name when a ``*name`` token can spell it.
+_RE_BOARD_ICON_NAME = re.compile(r"[a-z0-9][a-z0-9-]*\Z")
+
+
+def board_icon_dir(grafli_path: Path) -> Path:
+    """The folder that holds the board's own symbols."""
+    return res_dir(Path(grafli_path)) / BOARD_ICON_DIR
+
+
+class BoardIcons:
+    """The SVG symbols in one board's icon folder, by name. The folder is
+    listed again whenever it changes, so an icon added while the board is
+    open shows up without reloading it."""
+
+    _by_folder: dict[Path, "BoardIcons"] = {}
+
+    def __init__(self, folder: Path):
+        self.folder = Path(folder)
+        self._stamp: int | None = None
+        self._paths: dict[str, Path] = {}
+
+    @classmethod
+    def of(cls, grafli_path: Path | None) -> "BoardIcons | None":
+        """The icons of the board at *grafli_path* (one per folder), None
+        for a board without a file."""
+        if grafli_path is None:
+            return None
+        folder = board_icon_dir(grafli_path).resolve()
+        icons = cls._by_folder.get(folder)
+        if icons is None:
+            icons = cls._by_folder[folder] = cls(folder)
+        return icons
+
+    def _listing(self) -> dict[str, Path]:
+        try:
+            stamp = self.folder.stat().st_mtime_ns
+        except OSError:
+            stamp = None
+        if stamp != self._stamp:
+            self._stamp = stamp
+            self._paths = {}
+            if stamp is not None:
+                for f in sorted(self.folder.glob("*.svg")):
+                    if (_RE_BOARD_ICON_NAME.match(f.stem)
+                            and not _is_number_name(f.stem) and f.is_file()):
+                        self._paths[f.stem] = f
+        return self._paths
+
+    def names(self) -> list[str]:
+        """The folder's symbol names, sorted; a name a built-in symbol
+        already has is left out — the built-in one wins."""
+        return [n for n in self._listing() if not _builtin(n)]
+
+    def path(self, name: str) -> Path | None:
+        return None if _builtin(name) else self._listing().get(name)
+
+    def __contains__(self, name: str) -> bool:
+        return self.path(name) is not None
+
+
+_board_renderers: dict[tuple, QSvgRenderer] = {}
+# A colour value an icon's own SVG draws its ink with: these take the tint.
+_RE_INK = re.compile(
+    r"((?:fill|stroke|color)\s*[=:]\s*[\"']?\s*)"
+    r"(currentcolor|#000000|#000|black|" + _SHEET_INK + r")\b",
+    re.IGNORECASE)
+_RE_SVG_TAG = re.compile(rb"<svg\b[^>]*>", re.IGNORECASE)
+
+
+def tint_svg(data: bytes, tint: str) -> bytes:
+    """*data*, an SVG, drawn in *tint*: ``currentColor``, black and the
+    sheet's ink become the tint, and so does a fill left unset (SVG's
+    default is black). Any other colour stays as it is drawn."""
+    text = data.decode("utf-8", errors="replace")
+    text = _RE_INK.sub(lambda m: m.group(1) + tint, text)
+    out = text.encode("utf-8")
+    tag = _RE_SVG_TAG.search(out)
+    if tag is not None:
+        attrs = tag.group(0)
+        extra = b""
+        if not re.search(rb"[\s\"';]fill\s*[=:]", attrs):
+            extra += b' fill="' + tint.encode() + b'"'
+        if not re.search(rb"\scolor\s*=", attrs):
+            extra += b' color="' + tint.encode() + b'"'
+        if extra:
+            end = tag.end() - (2 if attrs.endswith(b"/>") else 1)
+            out = out[:end] + extra + out[end:]
+    return out
+
+
+def _board_renderer(path: Path, color: QColor) -> QSvgRenderer | None:
+    """A renderer of the board icon at *path* tinted to *color*, cached per
+    file version and tint; None when the file can't be read as an SVG."""
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        return None
+    key = (str(path), stamp, color.rgba())
+    renderer = _board_renderers.get(key)
+    if renderer is None:
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return None
+        renderer = QSvgRenderer(QByteArray(tint_svg(data, color.name())))
+        _board_renderers[key] = renderer
+    return renderer if renderer.isValid() else None
+
+
+def _is_number_name(name: str) -> bool:
+    digits = (name[len(SOLID_NUMBER_PREFIX):]
+              if name.startswith(SOLID_NUMBER_PREFIX) else name)
+    return digits.isdigit()
+
+
+def _builtin(name: str) -> str:
+    """Canonical name of a built-in symbol or number badge, "" if none."""
     name = ICON_ALIASES.get(name, name)
     if name in _SHEET_NAMES or name in _LEGACY_PAINTERS:
         return name
@@ -63,6 +188,18 @@ def resolve_icon(name: str) -> str:
     digits = name[len(SOLID_NUMBER_PREFIX):] if solid else name
     if digits.isdigit() and int(digits) <= 99:
         return (SOLID_NUMBER_PREFIX if solid else "") + str(int(digits))
+    return ""
+
+
+def resolve_icon(name: str, icons: BoardIcons | None = None) -> str:
+    """Canonical name for ``name`` — alias-aware (``bulb`` → ``lightbulb``);
+    number badges 0–99, outlined or ``solid-``, pass through zero-stripped;
+    then a symbol of the board's own *icons*. "" if unknown."""
+    builtin = _builtin(name)
+    if builtin:
+        return builtin
+    if icons is not None and name in icons:
+        return name
     return ""
 
 
@@ -74,8 +211,13 @@ def number_badge(name: str) -> tuple[str, bool] | None:
     return (name, False) if name.isdigit() else None
 
 
-def has_icon(name: str) -> bool:
-    return bool(resolve_icon(name))
+def has_icon(name: str, icons: BoardIcons | None = None) -> bool:
+    return bool(resolve_icon(name, icons))
+
+
+def _board_icon(name: str, icons: BoardIcons | None) -> Path | None:
+    """The file of board symbol *name*, None for a built-in or unknown."""
+    return icons.path(name) if icons is not None else None
 
 
 def _element_id(name: str) -> str:
@@ -99,9 +241,17 @@ def _renderer_for(color: QColor) -> QSvgRenderer:
     return renderer
 
 
-def icon_aspect(name: str) -> float:
+def icon_aspect(name: str, icons: BoardIcons | None = None) -> float:
     """Width/height ratio of the symbol's drawing (1.0 for digits/legacy) —
     for layout that reserves non-square room (e.g. the lead gutter)."""
+    own = _board_icon(name, icons)
+    if own is not None:
+        renderer = _board_renderer(own, QColor(_SHEET_INK))
+        if renderer is not None:
+            box = renderer.viewBoxF()
+            if box.height() > 0:
+                return box.width() / box.height()
+        return 1.0
     name = resolve_icon(name)
     if name in _SHEET_NAMES:
         b = _renderer_for(QColor(_SHEET_INK)).boundsOnElement(_element_id(name))
@@ -110,18 +260,33 @@ def icon_aspect(name: str) -> float:
     return 1.0
 
 
+def _fitted(bounds: QRectF, rect: QRectF) -> QRectF:
+    """*bounds*' shape scaled to fit *rect*, centred in it."""
+    s = min(rect.width() / bounds.width(), rect.height() / bounds.height())
+    w, h = bounds.width() * s, bounds.height() * s
+    return QRectF(rect.left() + (rect.width() - w) / 2,
+                  rect.top() + (rect.height() - h) / 2, w, h)
+
+
 def paint_icon(painter: QPainter, name: str, rect: QRectF,
-               color: QColor) -> None:
+               color: QColor, icons: BoardIcons | None = None) -> None:
     """Draw ``name`` aspect-fitted and centred into ``rect`` in the painter's
     current coordinate system. Resolution-independent — stays crisp at any
     zoom (use this on the canvas; a cached pixmap would pixelate)."""
-    name = resolve_icon(name)
+    own = _board_icon(name, icons)
+    name = resolve_icon(name, icons)
     if not name or rect.width() <= 0 or rect.height() <= 0:
         return
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     number = number_badge(name)
-    if number is not None:
+    if own is not None:
+        renderer = _board_renderer(own, color)
+        if renderer is not None:
+            box = renderer.viewBoxF()
+            if box.width() > 0 and box.height() > 0:
+                renderer.render(painter, _fitted(box, rect))
+    elif number is not None:
         _paint_number(painter, *number, rect, color)
     elif name in _LEGACY_PAINTERS:
         _paint_legacy(painter, name, rect, color)
@@ -130,27 +295,27 @@ def paint_icon(painter: QPainter, name: str, rect: QRectF,
         eid = _element_id(name)
         bounds = renderer.boundsOnElement(eid)
         if bounds.width() > 0 and bounds.height() > 0:
-            s = min(rect.width() / bounds.width(),
-                    rect.height() / bounds.height())
-            w, h = bounds.width() * s, bounds.height() * s
-            target = QRectF(rect.left() + (rect.width() - w) / 2,
-                            rect.top() + (rect.height() - h) / 2, w, h)
-            renderer.render(painter, eid, target)
+            renderer.render(painter, eid, _fitted(bounds, rect))
     painter.restore()
 
 
 def icon_pixmap(name: str, color: QColor, size: float,
-                dpr: float = 1.0) -> QPixmap | None:
+                dpr: float = 1.0,
+                icons: BoardIcons | None = None) -> QPixmap | None:
     """Return a cached, tinted pixmap for ``name`` at ``size`` logical px.
 
     For fixed-size UI (the picker grid); on the canvas use ``paint_icon`` so
     the symbol stays vector-crisp under zoom.
     """
-    if not has_icon(name):
+    if not has_icon(name, icons):
         return None
-    name = resolve_icon(name)
+    own = _board_icon(name, icons)
+    name = resolve_icon(name, icons)
     size = max(4.0, float(size))
-    key = (name, color.rgba(), round(size, 1), round(dpr, 2))
+    # A board's own icon is keyed by its file and version, not its name.
+    source = ((str(own), own.stat().st_mtime_ns) if own is not None
+              and own.exists() else name)
+    key = (source, color.rgba(), round(size, 1), round(dpr, 2))
     cached = _pixmap_cache.get(key)
     if cached is not None:
         return cached
@@ -161,7 +326,7 @@ def icon_pixmap(name: str, color: QColor, size: float,
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     # The pixmap carries the dpr, so the painter works in logical units.
-    paint_icon(p, name, QRectF(0, 0, size, size), color)
+    paint_icon(p, name, QRectF(0, 0, size, size), color, icons)
     p.end()
 
     _pixmap_cache[key] = pm
@@ -169,10 +334,11 @@ def icon_pixmap(name: str, color: QColor, size: float,
 
 
 def paint_badge(painter: QPainter, name: str, rect: QRectF,
-                color: QColor) -> None:
+                color: QColor, icons: BoardIcons | None = None) -> None:
     """Corner-badge rendering (``*badge:`` placement, issue #122): the symbol
     sits on a soft paper disc so it stays legible on any node fill."""
-    if not has_icon(name) or rect.width() <= 0 or rect.height() <= 0:
+    if (not has_icon(name, icons) or rect.width() <= 0
+            or rect.height() <= 0):
         return
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -184,7 +350,7 @@ def paint_badge(painter: QPainter, name: str, rect: QRectF,
     painter.restore()
     inset = min(rect.width(), rect.height()) * badge_inset(name)
     paint_icon(painter, name, rect.adjusted(inset, inset, -inset, -inset),
-               color)
+               color, icons)
 
 
 def badge_inset(name: str) -> float:

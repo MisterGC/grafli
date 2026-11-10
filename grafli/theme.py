@@ -622,6 +622,17 @@ def ink_on(fill: QColor) -> QColor:
     return QColor(INK_ON_LIGHT_FILL if lum > 140 else INK_ON_DARK_FILL)
 
 
+def contrast_ratio(a: QColor, b: QColor) -> float:
+    """The WCAG 2 contrast ratio between two opaque colours, 1 to 21."""
+    def luminance(c: QColor) -> float:
+        def lin(v: float) -> float:
+            return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+        return (0.2126 * lin(c.redF()) + 0.7152 * lin(c.greenF())
+                + 0.0722 * lin(c.blueF()))
+    hi, lo = sorted((luminance(a), luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
 def overlay_ink(strength: float = 1.0) -> QColor:
     """Ink for text drawn on an ``OVERLAY_BG`` card, at a tier of emphasis.
 

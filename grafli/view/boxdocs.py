@@ -135,9 +135,9 @@ class BoxDocsMixin:
         """A box draws its doc line below its label, containers and
         `!card` parents included, but not with a fill icon (its label is a
         caption)."""
-        icon = item.box.icon
+        icon = item.look.icon
         return not (icon and iconset.has_icon(icon)
-                    and item.box.icon_placement == "")
+                    and item.look.icon_placement == "")
 
     def _refresh_doc_lines(self, scale: float | None = None, skip=None,
                            lod_on: bool | None = None):

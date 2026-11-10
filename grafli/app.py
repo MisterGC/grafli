@@ -1270,7 +1270,9 @@ class MainWindow(QMainWindow):
         self._palette_watcher.start()
 
     def _on_palette_changed(self, _changed: list):
-        # Not a board change: no reload, no dirty flag — just recolour.
+        # Not a board change: no reload — recolour, and lay out the boxes
+        # again for their kinds. Only a box whose kind's label no longer
+        # fits grows, which changes the board as resizing it would.
         if self._view.load_map_palette():
             self._apply_theme()
 

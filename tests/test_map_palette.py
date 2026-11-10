@@ -436,6 +436,89 @@ def test_a_kind_is_not_written_into_the_board():
     assert serialize(board) == text
 
 
+def _kind_map(tmp_path: Path, board_text: str, entries: dict) -> Path:
+    board = tmp_path / "map.grafli"
+    board.write_text(board_text)
+    (tmp_path / "map-res").mkdir(exist_ok=True)
+    (tmp_path / "map-res" / "palette.json").write_text(_palette(entries))
+    return board
+
+
+def test_the_canvas_draws_a_box_with_its_kind(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    view = _view_of(_kind_map(
+        tmp_path, '#!grafli v4\n@ box a "A" 0,0 240x100 %plugin\n',
+        {"plugin": PLUGIN}))
+    item = view._box_items["a"]
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    assert item._has_lead_icon()
+    assert item._label.font().bold()
+    from grafli.constants import resolve_textsize_px
+    assert item.label_px() == resolve_textsize_px("small", "")
+
+
+def test_a_kind_draws_as_its_tokens_written_out(tmp_path: Path):
+    """``%plugin`` draws pixel for pixel what the same tokens on the box
+    draw, in the PNG export as on the canvas."""
+    kinded = _kind_map(
+        tmp_path, '#!grafli v4\n@ box a "Plugin" 0,0 240x100 %plugin\n',
+        {"plugin": PLUGIN})
+    with_kind = _view_of(kinded)._render_png_image(scale=1)
+    written = tmp_path / "written"
+    written.mkdir()
+    spelled = _kind_map(
+        written, '#!grafli v4\n@ box a "Plugin" 0,0 240x100 %plugin ~small '
+        '!dashed !bold *lead:puzzle\n',
+        {"plugin": {"color": "%teal", "label": "Plugin"}})
+    assert with_kind == _view_of(spelled)._render_png_image(scale=1)
+
+
+def test_the_canvas_keeps_a_token_written_on_the_box(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    view = _view_of(_kind_map(
+        tmp_path, '#!grafli v4\n@ box a "A" 0,0 240x100 %plugin ~large '
+        '!dotted *badge:star\n', {"plugin": PLUGIN}))
+    item = view._box_items["a"]
+    assert item.pen().style() == Qt.PenStyle.DotLine
+    assert item._has_badge_icon() and not item._has_lead_icon()
+    from grafli.constants import resolve_textsize_px
+    assert item.label_px() == resolve_textsize_px("large", "")
+
+
+def test_recolouring_a_box_to_a_kind_gives_it_the_kind(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    view = _view_of(_kind_map(
+        tmp_path, '#!grafli v4\n@ box a "A" 0,0 240x100 %teal\n',
+        {"plugin": PLUGIN}))
+    item = view._box_items["a"]
+    assert not item._has_lead_icon()
+    item.set_color("%plugin")
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    assert item._has_lead_icon() and item._label.font().bold()
+    item.set_color("%teal")
+    assert item.pen().style() == Qt.PenStyle.SolidLine
+    assert not item._has_lead_icon() and not item._label.font().bold()
+    assert view._board.box_by_id("a").icon == ""
+
+
+def test_the_app_redraws_a_kind_when_the_palette_file_changes(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    _app()
+    board = _kind_map(
+        tmp_path, '#!grafli v4\n@ box a "A" 0,0 240x100 %plugin\n',
+        {"plugin": {"color": "%teal"}})
+    from grafli.app import MainWindow
+    w = MainWindow(str(board))
+    item = w._view._box_items["a"]
+    assert item.pen().style() == Qt.PenStyle.SolidLine
+    (tmp_path / "map-res" / "palette.json").write_text(
+        _palette({"plugin": PLUGIN}))
+    w._on_palette_changed([str(tmp_path / "map-res" / "palette.json")])
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    assert item._has_lead_icon() and item._label.font().bold()
+    assert board.read_text() == '#!grafli v4\n@ box a "A" 0,0 240x100 %plugin\n'
+
+
 def test_diagnose_warns_about_a_malformed_kind(tmp_path: Path):
     root, _ = _map(tmp_path)
     (tmp_path / "map-res" / "palette.json").write_text(_palette({

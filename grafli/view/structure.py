@@ -36,6 +36,7 @@ from grafli.constants import (
 )
 from grafli.format import Arrow, Box, Note
 from grafli.items import BoxItem, ImageItem, LabelItem, NoteItem
+from grafli.map_palette import look
 from pathlib import Path
 
 
@@ -444,8 +445,9 @@ class StructureMixin:
         sizes: dict[str, int] = {}
 
         def label_px(b, seen: set[str]) -> int:
-            if b.textsize or b.style == "card" or b.id not in holders:
-                return resolve_textsize_px(b.textsize, "")
+            size = look(b).textsize   # a palette kind's size counts as written
+            if size or b.style == "card" or b.id not in holders:
+                return resolve_textsize_px(size, "")
             if b.id in sizes:
                 return sizes[b.id]
             px = container_title_px(depth(b.id))

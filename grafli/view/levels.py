@@ -86,9 +86,9 @@ class LevelsMixin:
         corner badge leaves the body free."""
         if item._is_parent:
             return False
-        icon = item.box.icon
+        icon = item.look.icon
         return not (icon and iconset.has_icon(icon)
-                    and item.box.icon_placement != "badge")
+                    and item.look.icon_placement != "badge")
 
     def _refresh_miniatures(self, scale: float, skip=frozenset()):
         """Give every `&graph` box whose body is large enough on screen its

@@ -65,6 +65,7 @@ def note_prefix(text: str) -> tuple[str, str] | None:
 from grafli.code_note import is_code_note, split_signature, tokenize_line
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
 from grafli.format import Box, Image, Note
+from grafli.map_palette import kind_of, look
 from grafli import iconset
 
 
@@ -773,6 +774,12 @@ class BoxItem(QGraphicsRectItem):
         self._resize_corner = -1
         self._resize_origin = QPointF()
 
+    @property
+    def look(self) -> Box:
+        """The box as it draws: its own tokens over its palette kind's
+        (``map_palette.look``). Edits go to ``self.box``."""
+        return look(self.box)
+
     def _container_look(self) -> bool:
         """True when this box draws as a container: it holds children and
         isn't a ``!card``, which keeps its node look around them."""
@@ -800,11 +807,11 @@ class BoxItem(QGraphicsRectItem):
         """The label's size: an explicit one, else a container's title size
         (the view's, or its level's before the view has set one), else a
         node's."""
-        if not self.box.textsize and self._has_container_label():
+        if not self.look.textsize and self._has_container_label():
             if self._title_px is not None:
                 return self._title_px
             return container_title_px(self._container_depth())
-        return resolve_textsize_px(self.box.textsize, "")
+        return resolve_textsize_px(self.look.textsize, "")
 
     def _apply_color(self):
         hex_color = theme.resolve_color(self.box.color)
@@ -819,7 +826,7 @@ class BoxItem(QGraphicsRectItem):
             # A plain box is a light plate with a quiet outline, so its label
             # carries it and a filled box stands out against it. A dashed or
             # dotted outline keeps the full ink: the pattern is the message.
-            outline = QColor(theme.INK if self.box.border else theme.BOX_OUTLINE)
+            outline = QColor(theme.INK if self.look.border else theme.BOX_OUTLINE)
             if self._container_look():
                 # A container is a quiet plate with an outline, a shade
                 # toward the ink, so it reads as one thing and an arrow into
@@ -844,12 +851,12 @@ class BoxItem(QGraphicsRectItem):
     def _border_pen(self, color: QColor, is_flat: bool) -> QPen:
         """The outline: solid on a plate, none on a flat box or container,
         and in its pattern wherever ``!dashed`` / ``!dotted`` asks for one."""
-        if is_flat and not self.box.border:
+        if is_flat and not self.look.border:
             return QPen(Qt.PenStyle.NoPen)
         pen = QPen(color, BOX_BORDER_WIDTH)
-        if self.box.border == "dashed":
+        if self.look.border == "dashed":
             pen.setStyle(Qt.PenStyle.DashLine)
-        elif self.box.border == "dotted":
+        elif self.look.border == "dotted":
             pen.setStyle(Qt.PenStyle.DotLine)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         return pen
@@ -925,8 +932,12 @@ class BoxItem(QGraphicsRectItem):
         return ratio < need
 
     def set_color(self, color: str):
+        kinded = kind_of(self.box.color) or kind_of(color)
         self.box.color = color
         self._apply_color()
+        if kinded:
+            # A kind brings its icon, outline, weight and size along.
+            self.refresh_auto_layout()
         self.update()
 
     def set_icon(self, name: str, placement: str = ""):
@@ -977,7 +988,7 @@ class BoxItem(QGraphicsRectItem):
     def _number_side(self) -> float:
         """The circle side at which the box's number marker draws its digits
         as tall as the label's capitals; 0 for any other glyph."""
-        number = iconset.number_badge(self.box.icon)
+        number = iconset.number_badge(self.look.icon)
         if number is None:
             return 0.0
         return iconset.number_side(number[0], self._label_cap_px())
@@ -986,8 +997,8 @@ class BoxItem(QGraphicsRectItem):
         """A fill-placed number marker whose readable circle does not fit
         above its caption sits left of the label instead, as a lead icon
         does — a short box keeps its order legible (issue #305)."""
-        if (self.box.icon_placement or not self.box.label
-                or iconset.number_badge(self.box.icon) is None):
+        if (self.look.icon_placement or not self.box.label
+                or iconset.number_badge(self.look.icon) is None):
             return False
         caption_h = self._caption_h(self.box.w - 16.0) + 6
         return self.box.h - 20.0 - caption_h < self._number_side()
@@ -1008,11 +1019,11 @@ class BoxItem(QGraphicsRectItem):
         """Width reserved for the lead icon — wide symbols (e.g. exercise)
         get aspect-corrected room instead of shrinking into a square."""
         side = self._lead_icon_side()
-        return side * min(max(iconset.icon_aspect(self.box.icon), 1.0), 1.6)
+        return side * min(max(iconset.icon_aspect(self.look.icon), 1.0), 1.6)
 
     def _has_lead_icon(self) -> bool:
-        return (bool(self.box.icon) and iconset.has_icon(self.box.icon)
-                and (self.box.icon_placement == "lead"
+        return (bool(self.look.icon) and iconset.has_icon(self.look.icon)
+                and (self.look.icon_placement == "lead"
                      or self._number_reads_as_lead()))
 
     def _lead_layout(self) -> tuple[QRectF, float]:
@@ -1035,8 +1046,8 @@ class BoxItem(QGraphicsRectItem):
         return QRectF(8.0, icon_top, self._lead_icon_w(), side), label_top
 
     def _has_badge_icon(self) -> bool:
-        return (bool(self.box.icon) and self.box.icon_placement == "badge"
-                and iconset.has_icon(self.box.icon))
+        return (bool(self.look.icon) and self.look.icon_placement == "badge"
+                and iconset.has_icon(self.look.icon))
 
     def _label_width_for(self, w: float) -> float:
         """Wrap width for the label — leaves room for a lead-icon gutter so
@@ -1058,7 +1069,7 @@ class BoxItem(QGraphicsRectItem):
         """Compact corner-badge size, scaled to the box; a number badge
         grows until its digits stand as tall as the label's capitals."""
         return max(self._compact_badge_side(),
-                   iconset.number_badge_side(self.box.icon,
+                   iconset.number_badge_side(self.look.icon,
                                              self._label_cap_px()))
 
     def _compact_badge_side(self) -> float:
@@ -1081,14 +1092,14 @@ class BoxItem(QGraphicsRectItem):
         ``badge``: a compact overlay in the top-right corner; the label keeps
         its normal layout."""
         w, h = self.box.w, self.box.h
-        if self.box.icon_placement == "badge":
+        if self.look.icon_placement == "badge":
             # The badge sits on its own paper disc: board ink reads there.
-            iconset.paint_badge(painter, self.box.icon, self._badge_rect(),
+            iconset.paint_badge(painter, self.look.icon, self._badge_rect(),
                                 QColor(theme.INK))
             return
         color = self._label_ink()
         if self._has_lead_icon():
-            iconset.paint_icon(painter, self.box.icon,
+            iconset.paint_icon(painter, self.look.icon,
                                self._lead_layout()[0], color)
             return
         pad = 10.0
@@ -1098,7 +1109,7 @@ class BoxItem(QGraphicsRectItem):
         side = max(8.0, min(w - 2 * pad, avail_h))
         ix = (w - side) / 2
         iy = pad + (avail_h - side) / 2
-        iconset.paint_icon(painter, self.box.icon,
+        iconset.paint_icon(painter, self.look.icon,
                            QRectF(ix, iy, side, side), color)
 
     def set_style(self, style: str):
@@ -1129,8 +1140,8 @@ class BoxItem(QGraphicsRectItem):
         return ""
 
     def _get_effective_textsize(self) -> str:
-        if self.box.textsize:
-            return self.box.textsize
+        if self.look.textsize:
+            return self.look.textsize
         if self._has_container_label():
             return str(self.label_px())
         return ""
@@ -1143,7 +1154,7 @@ class BoxItem(QGraphicsRectItem):
         font = QFont(self._box_family(), self.label_px())
         if self._has_container_label():
             font.setBold(True)
-        return _apply_emphasis(font, self.box.emphasis)
+        return _apply_emphasis(font, self.look.emphasis)
 
     def _box_family(self) -> str:
         """Mono, grafli's default face, or with ``!sans`` the bundled
@@ -1162,8 +1173,8 @@ class BoxItem(QGraphicsRectItem):
         # keeps its weight beside it. ``fill``: the icon fills the body, so the
         # label rides at the bottom as a caption. ``badge`` overlays a corner
         # and leaves the label's normal layout alone (falls through below).
-        if (self.box.icon and iconset.has_icon(self.box.icon)
-                and self.box.icon_placement != "badge"):
+        if (self.look.icon and iconset.has_icon(self.look.icon)
+                and self.look.icon_placement != "badge"):
             if self._has_lead_icon():
                 gutter = 8.0 + self._lead_icon_w() + 8.0
                 opt = QTextOption()
@@ -1722,7 +1733,7 @@ class BoxItem(QGraphicsRectItem):
 
     def _doc_line_font(self) -> QFont:
         """The doc line's face: the label's, a step smaller and in italics."""
-        px = resolve_textsize_px(self.box.textsize, "")
+        px = resolve_textsize_px(self.look.textsize, "")
         font = QFont(self._box_family(), max(8, round(px * 0.8)))
         font.setItalic(True)
         return font
@@ -1811,7 +1822,7 @@ class BoxItem(QGraphicsRectItem):
 
     def _status_font(self) -> QFont:
         """The status label's face: the label's, a few steps smaller."""
-        px = resolve_textsize_px(self.box.textsize, "")
+        px = resolve_textsize_px(self.look.textsize, "")
         return QFont(self._box_family(), max(8, round(px * 0.7)))
 
     def status_rect(self) -> QRectF:
@@ -1895,7 +1906,7 @@ class BoxItem(QGraphicsRectItem):
             self.scene() and self.scene().property("canvas_offscreen"))
         mini = self._miniature is not None and on_canvas
         if (self._lod_tile is None and not self._lod_simplified
-                and self.box.icon and iconset.has_icon(self.box.icon)
+                and self.look.icon and iconset.has_icon(self.look.icon)
                 and not (self._has_badge_icon()
                          and (mini or self._icons_above_label()))):
             self._paint_icon(painter)

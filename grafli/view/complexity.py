@@ -406,7 +406,7 @@ class ComplexityMixin:
             for bid, item in self._box_items.items():
                 if bid in hidden or bid in tiles or item._is_parent:
                     continue
-                label_px = resolve_textsize_px(item.box.textsize, "") * scale
+                label_px = resolve_textsize_px(item.look.textsize, "") * scale
                 if should_collapse(label_px, bid in self._lod_simplified):
                     shells.add(bid)
 

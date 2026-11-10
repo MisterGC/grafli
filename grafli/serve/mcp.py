@@ -19,6 +19,12 @@ server:grafli``. In any other session the tools still work and pushed
 requests are dropped by Claude Code, so ``connect`` says whether the
 session can hear them only as far as this side can tell (it cannot).
 
+How the session learns to author a board well: the ``authoring_guide`` tool
+returns the grafli skill as it ships in this package (``SKILL.md``, or one
+of its ``references/`` files), so nothing needs to be installed in the
+session. The server's instructions, sent on ``initialize``, and the reply
+to ``connect`` both point the session at it before its first write.
+
 The JSON-RPC here is the small part of MCP a stdio server needs:
 ``initialize``, ``ping``, ``tools/list``, ``tools/call``, ``prompts/list``
 and ``prompts/get``; one JSON message per line. It answers with protocol
@@ -36,6 +42,7 @@ import os
 import sys
 from typing import Any
 
+from grafli import skills
 from grafli.serve import agent as agents
 
 SERVER_NAME = "grafli"
@@ -62,7 +69,13 @@ asked on one element carries about="<its id>" and about_label="<its \
 label>": that element is what it is about. Whether \
 the presenter took or dropped your proposal, or undid your edit, arrives \
 the same way, as <channel source="grafli" board="..." event="...">. \
-`disconnect` leaves the seat; the tabs then show you as gone."""
+`disconnect` leaves the seat; the tabs then show you as gone. Before you \
+write a board, read how to author one well with `authoring_guide`: the \
+grafli skill's guidance (relations first, encodings, kinds, layout), which \
+needs nothing installed in this session; skip it when the grafli skill is \
+already loaded here."""
+
+GUIDE_TOOL = "authoring_guide"
 
 _BOARD = {"type": "string",
           "description": "The board's name as in its link (/b/<name>); "
@@ -120,6 +133,22 @@ TOOLS = [
      "description": "The board drawn as a PNG, as the tabs show it, so you "
                     "can see what you wrote.",
      "inputSchema": {"type": "object", "properties": {"board": _BOARD}}},
+    {"name": GUIDE_TOOL,
+     "description": "How to author a good grafli board: the grafli skill's "
+                    "guidance as it ships with grafli (relations first, "
+                    "encodings, kinds, layout, the common-mistakes "
+                    "checklist). Without `reference` it returns the core "
+                    "(SKILL.md) and names its reference files; with "
+                    "`reference` it returns that file. Read the core before "
+                    "your first write_board. Works before connect.",
+     "inputSchema": {"type": "object", "properties": {
+         "reference": {"type": "string",
+                       "enum": list(skills.skill_references()),
+                       "description": "A reference file the core points "
+                                      "to, such as format.md (the full "
+                                      "syntax) or design.md (encodings "
+                                      "and layout); leave out for the "
+                                      "core"}}}},
 ]
 
 PROMPTS = [
@@ -348,7 +377,10 @@ class Bridge:
                                     or "(none listed)") + ". Requests from "
                     "the board arrive as <channel source=\"grafli\"> turns "
                     "when this session was started with "
-                    "--dangerously-load-development-channels server:grafli.")
+                    "--dangerously-load-development-channels server:grafli. "
+                    f"Before your first write_board, read {GUIDE_TOOL} for "
+                    "how to author a board well, unless the grafli skill is "
+                    "already loaded in this session.")
             if name == "disconnect":
                 was = self.connected
                 await self.disconnect()
@@ -384,6 +416,8 @@ class Bridge:
                 got = await self.ask({"t": "undo", "board": args.get("board")})
                 return _text(json.dumps({k: got[k] for k in
                                          ("board", "version", "conflicts")}))
+            if name == GUIDE_TOOL:
+                return _text(authoring_guide(args.get("reference")))
             if name == "render_board":
                 got = await self.ask({"t": "render",
                                       "board": args.get("board")})
@@ -398,6 +432,41 @@ class Bridge:
         except ValueError as e:
             return _text(str(e), error=True)
         return _text(f"no tool {name}", error=True)
+
+
+def _without_frontmatter(text: str) -> str:
+    """SKILL.md without its ``---`` header: the trigger description is for a
+    skill loader, not for a session that already asked for the guide."""
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            return text[end + 5:].lstrip("\n")
+    return text
+
+
+def authoring_guide(reference=None) -> str:
+    """The grafli skill's authoring guidance for a connected session: the
+    core with a preface saying how its file steps map to this server's
+    tools, or the reference file *reference*. Raises ValueError for a name
+    the skill does not carry."""
+    refs = skills.skill_references()
+    if reference:
+        if reference not in refs:
+            raise ValueError(f"no reference {reference!r}; the skill has "
+                             + ", ".join(refs))
+        return refs[reference]
+    from grafli import __version__
+    core = skills.skill_path().read_text(encoding="utf-8")
+    preface = (
+        f"The grafli skill's authoring guidance, as it ships with grafli "
+        f"{__version__}. On a live board its file steps map to this "
+        "server's tools: where it says to read the file, use read_board; "
+        "where it says Write or Edit, use write_board with the whole text; "
+        "where it says grafli render, use render_board. grafli diagnose and "
+        "grafli fmt work on the board's file in the served directory that "
+        "connect names. Its reference files, each returned by "
+        f"{GUIDE_TOOL} with reference=<name>: " + ", ".join(refs) + ".")
+    return preface + "\n\n---\n\n" + _without_frontmatter(core)
 
 
 def _text(text: str, error: bool = False) -> dict:

@@ -85,7 +85,11 @@ stays primary — for labeled items (`*lead:database` → a "Postgres" node).
 `*badge:name` overlays a *compact* symbol in the top-right corner and leaves
 the label/text layout untouched — the emphasis layer (`*badge:flame` on the
 hot topic, `*badge:2` as step two of a sequence). Number badges accept any
-placement (`*3` fill, `*lead:3`, `*badge:3`). `*solid-3` fills the disc and
+placement (`*3` fill, `*lead:3`, `*badge:3`); their digits stand as tall as
+the label's capitals, so a number badge is larger than a symbol badge, and a
+bare `*3` on a box too short for that above its caption sits left of the
+label. For a numbered sequence of labelled boxes use `*badge:<n>` — the
+label keeps its place. `*solid-3` fills the disc and
 knocks the digit out — for the numbered path the reader follows, outlined
 numbers for side notes; `*0` numbers a step zero. Both need `#!grafli v4`.
 Legacy `bulb`/`doc` parse as

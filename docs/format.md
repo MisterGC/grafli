@@ -217,7 +217,10 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   primary — `*lead:lock` → 🔒 Auth); `*badge:name` is *badge* (a compact
   overlay in the top-right corner, the label keeps its normal layout — for
   emphasis marks on existing nodes). Digits are *number badges*: `*3`,
-  `*badge:7` (1–99) render as a circled number for sequences and rankings.
+  `*badge:7` (1–99) render as a circled number for sequences and rankings,
+  its digits at least as tall as the label's capitals: a number badge grows
+  past a symbol badge's size, and a bare `*3` on a box too short to hold
+  that above its caption sits left of the label.
   `*solid-3`, `*badge:solid-12` draw the number knocked out of a filled
   disc, for the path a reader follows first; `*0` is a step zero. A board
   using `*0` or `*solid-<n>` (0–99) carries a `#!grafli v4` header.

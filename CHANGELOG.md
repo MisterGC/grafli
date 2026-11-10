@@ -610,6 +610,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **Number markers read at board zoom.** On a 200x70 box at 100% zoom
+  `*badge:1` drew a ring with a digit about 4 px tall, which read as an
+  empty circle, and `*1` drew a digit about 10 px tall above the label.
+  The digits of a number marker now stand at least as tall as the label's
+  capitals, in the corner badge, as a lead icon and filling the box: a
+  number badge grows to fit them, and a bare `*<n>` on a box too short to
+  hold a readable number above its caption sits left of the label
+  instead. A `*badge:<n>` on a note grows the same way to its text.
+  Symbol badges such as `*badge:star` keep their size.
+  ([#305](https://github.com/MisterGC/grafli/issues/305))
 - **`%subtle` is a quiet grey.** A `%subtle` box used to be filled dark
   grey, darker than `%muted`, so a box meant to sit in the background
   was the loudest thing on the board. It now sits between `%muted` and

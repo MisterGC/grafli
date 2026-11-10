@@ -130,3 +130,24 @@ def test_an_ink_box_and_a_plain_box_take_no_plate():
                         '@ box p "Plain" 0,120 200x80'))
     assert not view._box_items["i"]._label_on_plate()
     assert not view._box_items["p"]._label_on_plate()
+
+
+def _assert_plate_reads(view, item):
+    assert item._label_on_plate()
+    ink = QColor(theme.INK)
+    assert theme.contrast_ratio(ink, _plate_pixel(view, item)) >= 4.5
+
+
+def test_a_teal_container_inside_a_primary_one_keeps_the_plate():
+    # Its 70 % teal over the canvas would read at 5.13:1; over the navy
+    # it sits in, it reads at 3.38:1.
+    view = _view(_board('@ box outer "Outer" 0,0 700x500 %primary',
+                        '@ box mid "Teal" 40,60 500x360 %teal >outer',
+                        '@ box kid "Kid" 80,160 200x80 >mid'))
+    _assert_plate_reads(view, view._box_items["mid"])
+
+
+def test_a_flat_teal_box_inside_a_primary_container_keeps_the_plate():
+    view = _view(_board('@ box outer "Outer" 0,0 500x300 %primary',
+                        '@ box f "Flat teal" 40,100 240x100 %teal !flat >outer'))
+    _assert_plate_reads(view, view._box_items["f"])

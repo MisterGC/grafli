@@ -239,7 +239,8 @@ def test_a_number_badge_on_a_doc_box_draws_its_whole_disc(tmp_path: Path):
     # The doc line runs below the badge and keeps its width.
     item = view._box_items["doc"]
     assert item.doc_line_rect().width() == (
-        item.box.w - 2 * (item._badge_icon_side() + 14.0))
+        item.box.w - 2 * (item._compact_badge_side() + 14.0))
+    assert item.doc_line_rect().top() >= item.corner_icon_rects()[0].bottom()
     win.close()
 
 

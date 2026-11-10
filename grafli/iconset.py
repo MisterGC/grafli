@@ -15,10 +15,12 @@ sheet and remain hand-drawn painters until it gains them.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from PySide6.QtGui import (QColor, QFont, QFontMetricsF, QPainter, QPen,
+                           QPixmap)
 from PySide6.QtSvg import QSvgRenderer
 
 from grafli import theme
@@ -180,12 +182,61 @@ def paint_badge(painter: QPainter, name: str, rect: QRectF,
     painter.setBrush(plate)
     painter.drawEllipse(rect)
     painter.restore()
-    inset = min(rect.width(), rect.height()) * 0.16
+    inset = min(rect.width(), rect.height()) * badge_inset(name)
     paint_icon(painter, name, rect.adjusted(inset, inset, -inset, -inset),
                color)
 
 
+def badge_inset(name: str) -> float:
+    """How far a badge's symbol sits inside its paper disc, as a fraction of
+    the disc: a number's ring hugs the disc's rim so its digits get the room
+    (issue #305), any other symbol keeps a margin."""
+    return _NUMBER_BADGE_INSET if number_badge(name) else 0.16
+
+
+def number_badge_side(name: str, cap_px: float) -> float:
+    """The corner-badge side at which number badge ``name`` draws its digits
+    at least ``cap_px`` tall — the cap height of the label beside it, so the
+    order reads at board zoom (issue #305). 0 for any other name."""
+    number = number_badge(name)
+    if number is None:
+        return 0.0
+    return number_side(number[0], cap_px) / (1 - 2 * _NUMBER_BADGE_INSET)
+
+
 # ── number badges (composed: circle + digit) ──
+
+# A number badge's ring sits this far inside its corner disc (of the side).
+_NUMBER_BADGE_INSET = 0.05
+# The digits' pixel size as a fraction of the circle, one digit and two.
+_DIGIT_SCALE = {1: 0.6, 2: 0.48}
+_DIGIT_MARGIN = 1.06
+_digit_cap_ratio: float | None = None
+
+
+def _digit_font(px: float) -> QFont:
+    font = QFont(NOTE_FONT_FAMILY)
+    font.setBold(True)
+    font.setPixelSize(max(6, math.ceil(px)))
+    return font
+
+
+def _cap_ratio() -> float:
+    """Cap height over pixel size of the digits' face."""
+    global _digit_cap_ratio
+    if _digit_cap_ratio is None:
+        cap = QFontMetricsF(_digit_font(100)).capHeight()
+        _digit_cap_ratio = cap / 100 if cap > 0 else 0.7
+    return _digit_cap_ratio
+
+
+def number_side(digits: str, cap_px: float) -> float:
+    """The circle side at which ``digits`` draw at least ``cap_px`` tall.
+    The face's cap height is a metric, a drawn digit's ink can fall a
+    little short of it: the margin keeps the ink at full height."""
+    return (cap_px * _DIGIT_MARGIN / _cap_ratio()
+            / _DIGIT_SCALE[min(len(digits), 2)])
+
 
 def _paint_number(p: QPainter, digits: str, filled: bool, rect: QRectF,
                   color: QColor):
@@ -203,10 +254,7 @@ def _paint_number(p: QPainter, digits: str, filled: bool, rect: QRectF,
     p.drawEllipse(square.adjusted(inset, inset, -inset, -inset))
     if filled:
         p.setPen(theme.ink_on(color))
-    font = QFont(NOTE_FONT_FAMILY)
-    font.setBold(True)
-    font.setPixelSize(max(6, round(side * (0.52 if len(digits) == 1 else 0.42))))
-    p.setFont(font)
+    p.setFont(_digit_font(side * _DIGIT_SCALE[min(len(digits), 2)]))
     p.drawText(square, Qt.AlignmentFlag.AlignCenter, digits)
 
 

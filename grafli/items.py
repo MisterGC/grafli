@@ -919,9 +919,45 @@ class BoxItem(QGraphicsRectItem):
         self.update()
 
     def _lead_icon_side(self) -> float:
-        """Small leading-icon size, scaled to the box's text."""
+        """Small leading-icon size, scaled to the box's text; a number
+        marker's digits stand at least as tall as the label's capitals."""
         px = self.label_px()
-        return max(14.0, min(px * 1.7, self.box.h - 8))
+        side = max(px * 1.7, self._number_side())
+        return max(14.0, min(side, self.box.h - 8))
+
+    def _label_cap_px(self) -> float:
+        """The cap height of the label's face."""
+        return QFontMetricsF(self._box_font()).capHeight()
+
+    def _number_side(self) -> float:
+        """The circle side at which the box's number marker draws its digits
+        as tall as the label's capitals; 0 for any other glyph."""
+        number = iconset.number_badge(self.box.icon)
+        if number is None:
+            return 0.0
+        return iconset.number_side(number[0], self._label_cap_px())
+
+    def _number_reads_as_lead(self) -> bool:
+        """A fill-placed number marker whose readable circle does not fit
+        above its caption sits left of the label instead, as a lead icon
+        does — a short box keeps its order legible (issue #305)."""
+        if (self.box.icon_placement or not self.box.label
+                or iconset.number_badge(self.box.icon) is None):
+            return False
+        caption_h = self._caption_h(self.box.w - 16.0) + 6
+        return self.box.h - 20.0 - caption_h < self._number_side()
+
+    def _caption_h(self, width: float) -> float:
+        """The label's height wrapped at *width*, whatever its current wrap."""
+        key = (self.box.label, width, self._box_font().key())
+        cached = getattr(self, "_caption_h_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        doc = self._label.document().clone()
+        doc.setTextWidth(width)
+        height = doc.size().height()
+        self._caption_h_cache = (key, height)
+        return height
 
     def _lead_icon_w(self) -> float:
         """Width reserved for the lead icon — wide symbols (e.g. exercise)
@@ -930,8 +966,9 @@ class BoxItem(QGraphicsRectItem):
         return side * min(max(iconset.icon_aspect(self.box.icon), 1.0), 1.6)
 
     def _has_lead_icon(self) -> bool:
-        return (bool(self.box.icon) and self.box.icon_placement == "lead"
-                and iconset.has_icon(self.box.icon))
+        return (bool(self.box.icon) and iconset.has_icon(self.box.icon)
+                and (self.box.icon_placement == "lead"
+                     or self._number_reads_as_lead()))
 
     def _lead_layout(self) -> tuple[QRectF, float]:
         """The lead icon's rect and the label's top, in item coordinates.
@@ -973,7 +1010,14 @@ class BoxItem(QGraphicsRectItem):
         return w - 16.0
 
     def _badge_icon_side(self) -> float:
-        """Compact corner-badge size, scaled to the box."""
+        """Compact corner-badge size, scaled to the box; a number badge
+        grows until its digits stand as tall as the label's capitals."""
+        return max(self._compact_badge_side(),
+                   iconset.number_badge_side(self.box.icon,
+                                             self._label_cap_px()))
+
+    def _compact_badge_side(self) -> float:
+        """A symbol badge's side, scaled to the box."""
         return max(18.0, min(28.0, min(self.box.w, self.box.h) * 0.26))
 
     def _badge_rect(self, w: float | None = None) -> QRectF:
@@ -998,7 +1042,7 @@ class BoxItem(QGraphicsRectItem):
                                 QColor(theme.INK))
             return
         color = self._label_ink()
-        if self.box.icon_placement == "lead":
+        if self._has_lead_icon():
             iconset.paint_icon(painter, self.box.icon,
                                self._lead_layout()[0], color)
             return
@@ -1075,7 +1119,7 @@ class BoxItem(QGraphicsRectItem):
         # and leaves the label's normal layout alone (falls through below).
         if (self.box.icon and iconset.has_icon(self.box.icon)
                 and self.box.icon_placement != "badge"):
-            if self.box.icon_placement == "lead":
+            if self._has_lead_icon():
                 gutter = 8.0 + self._lead_icon_w() + 8.0
                 opt = QTextOption()
                 opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -1676,8 +1720,9 @@ class BoxItem(QGraphicsRectItem):
             return self.box.w - (self._label.pos().x() - self.pos().x()) - 8.0
         if self._has_badge_icon() and self._miniature is None:
             # The doc line runs below the badge: only the label steps aside
-            # for it.
-            return self.box.w - 2 * (self._badge_icon_side() + 14.0)
+            # for it. A number badge grown to the label's capitals keeps the
+            # band of a symbol badge; the line still starts below it.
+            return self.box.w - 2 * (self._compact_badge_side() + 14.0)
         return self._label_width_for(self.box.w)
 
     def doc_line_rect(self) -> QRectF:
@@ -2366,6 +2411,13 @@ class NoteItem(QGraphicsSimpleTextItem):
     # Corner-badge icon size on a note (``*badge:name`` placement).
     _BADGE_ICON_SIDE = 18.0
 
+    def _badge_icon_side(self) -> float:
+        """The corner badge's side; a number badge grows until its digits
+        stand as tall as the note text's capitals."""
+        cap = QFontMetricsF(self._note_font()).capHeight()
+        return max(self._BADGE_ICON_SIDE,
+                   iconset.number_badge_side(self.note.icon, cap))
+
     def _is_marker_icon(self) -> bool:
         """Fill/lead glyph notes render as floating markers; ``badge`` keeps
         the normal text body and overlays a compact corner icon instead."""
@@ -2380,7 +2432,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         r = self.boundingRect()
         if self.isSelected():
             r = r.adjusted(4, 4, -4, -4)
-        side = self._BADGE_ICON_SIDE
+        side = self._badge_icon_side()
         # The attachment glyph owns the very corner — step aside for it.
         dx = 18.0 if self.note.url else 0.0
         iconset.paint_badge(painter, self.note.icon,
@@ -2928,7 +2980,7 @@ class NoteItem(QGraphicsSimpleTextItem):
                 if self._has_badge_icon():
                     # reserve corner room so the first line clears the badge
                     # (and the attachment glyph the badge steps aside for)
-                    total_w += self._BADGE_ICON_SIDE + 4.0
+                    total_w += self._badge_icon_side() + 4.0
                     if self.note.url:
                         total_w += 18.0
                 if self.note.wrap_chars_explicit:
@@ -3110,7 +3162,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         if self._has_badge_icon():
             # mirror boundingRect's corner reservation so the plate and the
             # badge agree on where the right edge is
-            total_w += self._BADGE_ICON_SIDE + 4.0
+            total_w += self._badge_icon_side() + 4.0
             if self.note.url:
                 total_w += 18.0
         total_h = pad + n_lines * line_h + pad

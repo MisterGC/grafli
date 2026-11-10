@@ -783,6 +783,19 @@ def check_unknown_icon(board: Board,
     diags: list[Diagnostic] = []
     for el in list(board.boxes) + list(board.notes):
         if el.icon and not has_icon(el.icon, icons):
+            broken = icons.unreadable(el.icon) if icons is not None else None
+            if broken is not None:
+                diags.append(Diagnostic(
+                    code="unknown-icon",
+                    severity=WARNING,
+                    message=(f"{el.id!r} uses *{el.icon}, but "
+                             f"{broken.parent.parent.name}/{BOARD_ICON_DIR}/"
+                             f"{broken.name} is not a readable SVG — it "
+                             "will not render"),
+                    item_ids=[el.id],
+                    fixable=False,
+                ))
+                continue
             near = difflib.get_close_matches(el.icon, known, n=1)
             suggestion = near[0] if near else None
             hint = f" — did you mean *{suggestion}?" if suggestion else ""

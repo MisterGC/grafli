@@ -393,6 +393,34 @@ def test_diagnose_reports_a_name_found_nowhere(tmp_path):
     assert found["b"].fix is None
 
 
+BROKEN = "<!doctype html><html><body>Not found</body></html>"
+
+
+def test_a_file_that_is_no_svg_is_no_icon(tmp_path):
+    path = _board(tmp_path, '@ box a "A" 0,0 200x60 *lead:x\n'
+                            '@ box b "B" 0,100 160x160 *x\n',
+                  {"x.svg": BROKEN, "monitor.svg": SQUARE})
+    icons = iconset.BoardIcons.of(path)
+    assert "x" not in icons and icons.names() == ["monitor"]
+    assert icons.unreadable("x") == iconset.board_icon_dir(path) / "x.svg"
+    assert icons.unreadable("monitor") is None
+    # It reserves no place: the label keeps the layout of a box without one.
+    view = _view(path)
+    assert not view._box_items["a"]._has_lead_icon()
+    b = view._box_items["b"]
+    assert b._label.pos().y() - b.box.y < 160 / 2   # centred, not a caption
+
+
+def test_diagnose_names_a_file_that_is_no_svg(tmp_path):
+    path = _board(tmp_path, '@ box a "A" 0,0 100x100 *x\n',
+                  {"x.svg": BROKEN})
+    found = _unknown(path)
+    assert [d.item_ids for d in found] == [["a"]]
+    assert ("board-res/icons/x.svg is not a readable SVG"
+            in found[0].message)
+    assert found[0].fix is None
+
+
 def test_the_diagnose_cli_passes_a_board_using_its_icons(tmp_path, capsys):
     from grafli.app import _cmd_diagnose
     path = _board(tmp_path, '@ box a "A" 0,0 100x100 *lead:monitor\n',

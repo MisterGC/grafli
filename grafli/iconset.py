@@ -114,11 +114,26 @@ class BoardIcons:
 
     def names(self) -> list[str]:
         """The folder's symbol names, sorted; a name a built-in symbol
-        already has is left out — the built-in one wins."""
-        return [n for n in self._listing() if not _builtin(n)]
+        already has is left out — the built-in one wins — and so is a file
+        that is not a readable SVG."""
+        return [n for n in self._listing() if self.path(n) is not None]
+
+    def _file(self, name: str) -> Path | None:
+        """The folder's file for *name*, readable or not; None for a
+        built-in name."""
+        return None if _builtin(name) else self._listing().get(name)
 
     def path(self, name: str) -> Path | None:
-        return None if _builtin(name) else self._listing().get(name)
+        """The file of icon *name*, None when there is none or it is not a
+        readable SVG (it would draw nothing)."""
+        f = self._file(name)
+        return f if f is not None and _readable(f) else None
+
+    def unreadable(self, name: str) -> Path | None:
+        """The file for *name* when it is in the folder but is not a
+        readable SVG — what ``diagnose`` names; None otherwise."""
+        f = self._file(name)
+        return f if f is not None and not _readable(f) else None
 
     def __contains__(self, name: str) -> bool:
         return self.path(name) is not None
@@ -171,6 +186,11 @@ def _board_renderer(path: Path, color: QColor) -> QSvgRenderer | None:
         renderer = QSvgRenderer(QByteArray(tint_svg(data, color.name())))
         _board_renderers[key] = renderer
     return renderer if renderer.isValid() else None
+
+
+def _readable(path: Path) -> bool:
+    """True when the file at *path* parses as an SVG."""
+    return _board_renderer(path, QColor(_SHEET_INK)) is not None
 
 
 def _is_number_name(name: str) -> bool:

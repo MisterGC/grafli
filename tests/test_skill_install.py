@@ -250,3 +250,86 @@ def test_bundled_concat_inlines_all_references():
     assert refs, "bundled skill must carry reference files"
     for name in refs:
         assert f"<!-- inlined from references/{name} -->" in concat
+
+
+# ── example boards (examples/) ────────────────────────────────────
+
+
+EXAMPLES = {
+    "demo.grafli": b"#!grafli v1\n@ box a \"A\" 0,0 200x80\n",
+    "demo-res/a.md": b"A box.\n",
+    "demo-res/sub-res/pic.png": b"\x89PNG\r\n\x1a\n\x00",
+}
+
+
+def test_write_installs_examples(isolated_targets):
+    path = write_skill("claude", SAMPLE, "0.5.0", REFS, EXAMPLES)
+    ex_dir = path.parent / "examples"
+    for rel, data in EXAMPLES.items():
+        assert (ex_dir / rel).read_bytes() == data, rel
+
+
+def test_write_replaces_stale_examples(isolated_targets):
+    write_skill("claude", SAMPLE, "0.4.0", REFS, {"old.grafli": b"gone\n"})
+    path = write_skill("claude", SAMPLE, "0.5.0", REFS, EXAMPLES)
+    assert not (path.parent / "examples" / "old.grafli").exists()
+
+
+def test_status_ok_with_matching_examples(isolated_targets):
+    write_skill("claude", SAMPLE, "0.5.0", REFS, EXAMPLES)
+    assert compute_status("claude", SAMPLE, "0.5.0", REFS,
+                          EXAMPLES).status == OK
+
+
+def test_status_modified_when_example_edited(isolated_targets):
+    write_skill("claude", SAMPLE, "0.5.0", REFS, EXAMPLES)
+    doc = isolated_targets["claude"] / "examples/demo-res/a.md"
+    doc.write_bytes(b"A box, edited.\n")
+    assert compute_status("claude", SAMPLE, "0.5.0", REFS,
+                          EXAMPLES).status == MODIFIED
+
+
+def test_status_stale_for_install_without_examples(isolated_targets):
+    write_skill("claude", SAMPLE, "0.4.0", REFS)
+    assert compute_status("claude", SAMPLE, "0.5.0", REFS,
+                          EXAMPLES).status == STALE
+
+
+def test_every_example_the_skill_names_exists():
+    from grafli.skills import examples_dir, named_examples, skill_examples
+    names = named_examples()
+    assert names, "the skill names exemplar boards"
+    shipped = skill_examples()
+    for stem in names:
+        assert (examples_dir() / f"{stem}.grafli").is_file(), stem
+        assert f"{stem}.grafli" in shipped, stem
+
+
+def test_bundled_install_lands_every_named_example(isolated_targets):
+    from grafli.skills import (named_examples, skill_examples, skill_path,
+                               skill_references)
+    core = skill_path().read_text(encoding="utf-8")
+    refs, examples = skill_references(), skill_examples()
+    path = write_skill("claude", core, "9.9.9", refs, examples)
+    for stem in named_examples():
+        assert (path.parent / "examples" / f"{stem}.grafli").is_file(), stem
+    assert compute_status("claude", core, "9.9.9", refs,
+                          examples).status == OK
+
+
+def test_the_wheel_bundles_exactly_the_named_examples():
+    """pyproject's force-include ships each named board and its vault into
+    the skill directory of a built wheel, and nothing else."""
+    import tomllib
+    from grafli.skills import examples_dir, named_examples
+    root = Path(__file__).parent.parent
+    project = tomllib.loads((root / "pyproject.toml").read_text())
+    forced = project["tool"]["hatch"]["build"]["targets"]["wheel"][
+        "force-include"]
+    want = {}
+    for stem in named_examples():
+        for name in (f"{stem}.grafli", f"{stem}-res"):
+            if (examples_dir() / name).exists():
+                want[f"examples/{name}"] = (
+                    f"grafli/skills/grafli/examples/{name}")
+    assert forced == want

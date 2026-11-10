@@ -150,38 +150,88 @@ itself — authoring commentary lives in `#` comments, which don't render;
 and when two same-row nodes feed one target, stagger their heights half a
 step so neither arrow crosses the other's box.
 
+### Pick the arrows by the question
+
+A system has more relations than a board can carry. Each recipe below
+says which of them become arrows: the ones its question asks about.
+Every other relation still true of a box goes into that box's doc line
+— the first sentence of its `&doc`, shown on one line under the label —
+or is left out. An arrow that does not help answer the question is
+noise, however true it is.
+
+Each recipe also names the generic features it uses, so a person can
+follow it by hand: containers, colours, icons, doc lines and arrows are
+the same whether an agent or a human draws them.
+
 ### Sub-recipes
 
 **Architecture** — *what exists and who talks to whom.*
-Containers = ownership (layer, service, bounded context); one color per
-layer/domain; every arrow labeled or semantically prefixed (`call:`,
-`data:`, `event:`); 5–9 nodes per level, detail pushed into `&graph`
-sub-boards; must still read true zoomed out (LoD tiles).
+Arrows: the relations the claim rests on — for "every write lands
+through one merge", the paths a write takes and nothing else. A
+relation the question does not ask about (who renders, who keeps
+presence, who writes a config file) is a sentence in the doc line of
+the box it belongs to. Uses:
+* **layers as containers, their titles as headings** — one full-width
+  `^topleft ~large !flat` container per layer, top to bottom; the
+  title names the layer ("Who edits", "On disk"), so no separate
+  heading note is needed;
+* **kinds from the palette** — each kind of thing (a process of
+  yours, a browser tab, a tool that is not yours, a file) is one
+  entry in `<stem>-res/palette.json` with its colour, icon and
+  outline; a box takes its kind with `%<kind>` and repeats nothing
+  else (see "Map palette" in `references/format.md`);
+* **the legend** — the palette's labels are the key; `grafli render
+  --legend` (and `Shift+M` in the app) draws it, so write each label
+  for a reader ("not grafli's: the presenter's session"), never a
+  hand-drawn key note;
+* **doc lines for secondary relations** — keep each first sentence
+  short enough to fit the box whole (about 35 characters on a
+  340-wide box): a sentence that does not fit is not drawn;
+* every arrow labelled with a semantic prefix (`call:`, `data:`,
+  `event:`) and its cardinality where it matters (`N tabs → edit
+  ops`); the claim's arrow `!thick`, its box `!bold`;
+* 5–9 boxes per level, deeper detail in `&graph` sub-boards; it must
+  still read true zoomed out.
+
+**State machine** — *which states can it be in, and what moves it.*
+Arrows: every transition, the error and retry ones too — leaving one
+out makes the machine wrong, not simpler. Uses the state-machine
+encoding in `references/design.md`: transitions labelled `event
+[guard] / action`, `!round` start dot and end states, self-loops for
+transitions that stay, the main path left to right.
 
 **Behavioral** — *what happens when.*
-One scenario per board, left-to-right in causal order; the entry point
-visually first; actors as small `*lead:person` / `*lead:robot` boxes; happy
-path solid, alternates/dashed; a single `code:` note for the one
-non-obvious algorithm; number badges when steps are discussed by number.
+Arrows: the steps of one scenario, in causal order; nothing that is
+true but not part of this run. Uses: left-to-right placement, the entry
+point visually first; actors as boxes of a kind (`*lead:person`,
+`*lead:robot`, best set on a palette entry); happy path solid,
+alternates `!dashed`; a single `code:` note for the one non-obvious
+algorithm; number badges when steps are discussed by number.
 
 **Design** — *how it's built: modules, types, responsibilities.*
-Boxes name modules/types (identifier in the label, role beneath in a small
-note or the box's own `&doc` if needed); nesting = composition; arrows = dependency direction only;
-if everything connects to everything you're at the wrong altitude — go up
-one level or split. When proposing a change, use the diff convention:
-unchanged `%muted`, modified one accent, new a second accent — and nothing
-else.
+Arrows: dependency direction only; composition is nesting, not an
+arrow. Uses: boxes that name modules/types (identifier in the label,
+role in the box's doc line); if everything connects to everything you
+are at the wrong altitude — go up one level or split. When proposing a
+change, the diff convention: unchanged `%muted`, modified one accent,
+new a second accent — and nothing else.
 
 ### Feature palette
 
 | Use | Avoid |
 |---|---|
-| containers, `^topleft` headers, `~large` on top-level lanes | fill symbols (tiny actor leads in behavioral are the exception) |
-| semantic edge prefixes + labels on every non-obvious arrow | display lettering, `!shadow`/`!outline` |
-| ≤4 colors, each encoding exactly one thing (layer, status, diff) | emphasis badges — a `*lead:warning` on a genuinely risky node is the ceiling |
-| `code:` / `md:` notes adjacent to nodes for depth (`~small` when they sit in a row) | handwritten flourish — restraint IS this genre |
-| `&doc` / `&graph` attachments; bookmarks + flows for walkthroughs | duplicated nodes to dodge a crossing — fix the layout instead |
-| `path:line` references in notes where truth matters | |
+| containers as layers, their `^topleft ~large` titles as headings | display lettering, `!shadow`/`!outline` |
+| **icons encode kind**: one `*lead:` icon per kind of thing, set on the kind's palette entry and named by the legend | icons as decoration — an icon that encodes no kind, two kinds sharing one icon, fill symbols |
+| palette kinds (colour + icon + outline) and `--legend` instead of a hand-drawn key | emphasis badges — a `*lead:warning` on a genuinely risky node is the ceiling |
+| semantic edge prefixes + labels on every non-obvious arrow | an arrow for a relation the question doesn't ask about — it goes into a doc line |
+| a box's doc line (`&doc` first sentence) for secondary relations; `&graph` for depth | handwritten flourish — restraint IS this genre |
+| ≤4 colours, each encoding exactly one thing (kind, layer, status, diff) | duplicated nodes to dodge a crossing — fix the layout instead |
+| `code:` / `md:` notes adjacent to nodes for depth (`~small` when they sit in a row); bookmarks + flows for walkthroughs | |
+| `path:line` references in notes and docs where truth matters | |
+
+The sketchnote and infographic playbooks keep their own rules: there a
+symbol may illustrate a concept; here an icon only ever says what kind
+of thing a box is.
 
 ### Review as a software architect
 
@@ -193,10 +243,13 @@ can't falsify against the code.
 2. **Onion test** — zoomed out (LoD / squint), is the layer story still
    true?
 3. **Edge test** — is every arrow's meaning unambiguous from its label or
-   prefix?
+   prefix, and does every arrow help answer the question? A true but
+   off-question relation belongs in a doc line.
 4. **Altitude test** — 5–9 elements per level, everything deeper pushed
    into notes or sub-boards?
-5. **Truth test** — do names and references match the code right now, and
+5. **Kind test** — does every icon and outline stand for a kind the
+   legend names, and does every box of a kind carry it?
+6. **Truth test** — do names and references match the code right now, and
    is at least one `path:line` anchor present where the diagram makes a
    verifiable claim?
 
@@ -205,5 +258,10 @@ board?*
 
 ### Exemplars
 
-`examples/architecture.grafli` (architecture),
-`examples/oauth-callback.grafli` (behavioral).
+`examples/live-session.grafli` (architecture: layers as headings,
+palette kinds with icons, the legend, doc lines for the secondary
+relations — render it with `--legend`),
+`examples/architecture.grafli` (architecture: semantic edges, a `code:`
+note and a `&graph` sub-board),
+`examples/oauth-callback.grafli` (behavioral). The state-machine
+snippet in `references/design.md` is the state-machine exemplar.

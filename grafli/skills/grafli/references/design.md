@@ -85,10 +85,14 @@ tooling to the intent — this is a judgment call, and the default is restraint:
 
 * **Structural / technical diagrams** — state machines, architecture, data
   flow, ER / class, sequence. Keep them clean: boxes, labels, arrows, and
-  one colour per category. Skip glyphs and emphasis almost entirely. Uniform
-  weight reads as "a system," and a gear icon on a "Scheduler" node adds
-  nothing the label doesn't already say. At most a *sparing* flag — a bold
-  title box, `*lead:warning` on a genuinely risky node.
+  one colour per category. **Icons encode kind**: an icon says what kind
+  of thing a box is (a process of yours, a browser tab, a tool that is
+  not yours, a file), one icon per kind, set once on the kind's palette
+  entry and named by the legend (see the architecture recipe in
+  `references/genres.md`). An icon that encodes no kind is decoration —
+  a gear on a "Scheduler" because it schedules adds nothing the label
+  doesn't already say. Emphasis stays sparing: the claim's box `!bold`,
+  `*lead:warning` on a genuinely risky node.
 * **Concept explanations / visual notes / teaching** — mind maps, idea
   boards, walkthroughs, retrospectives, "how it works" sketches. Lean in: a
   `*lightbulb` idea node, `*lead:database` labelled items, a bold heading over a
@@ -96,7 +100,7 @@ tooling to the intent — this is a judgment call, and the default is restraint:
   sketchnote-style glyphs + emphasis make the board graspable at a glance.
 
 Each channel carries one meaning — colour = category, size = importance,
-weight = emphasis, glyph = concept or flag. You rarely need more than one on
+weight = emphasis, glyph = concept or flag (on a technical diagram: kind). You rarely need more than one on
 an element. If a glyph or a bold doesn't make the diagram *easier to
 understand*, leave it off.
 
@@ -555,7 +559,10 @@ catalogue in section 2 instead.
 ### Architecture (layered)
 
 Top-to-bottom flow. One `!flat` container per layer. Arrows flow
-downward between layers. Use `~large` on each layer container.
+downward between layers. Use `~large` on each layer container. This is
+the bare shape; the architecture recipe in `references/genres.md` adds
+which relations become arrows, kinds from the palette, the legend and
+doc lines.
 
 ```
 @ box frontend "Frontend" 20,20 500x200 %secondary ^topleft ~large !flat
@@ -616,7 +623,11 @@ Central element, satellites around it.
 
 ### Legend box
 
-When using multiple arrow styles or color meanings, add a legend.
+Colours and kinds get their legend from the map palette: name each
+entry once in `<stem>-res/palette.json` with a `label` a reader
+understands, and `grafli render --legend` (or `Shift+M` in the app)
+draws the key — don't hand-draw one for them. A hand-made legend is
+only for what the palette can't name, such as arrow styles:
 
 ```
 @ box legend "Legend" 50,500 280x200 %muted ^topleft ~small !flat

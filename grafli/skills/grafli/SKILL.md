@@ -534,9 +534,10 @@ task needs them:
   before you lay out a new board or add meaningfully to an existing
   one.
 * `references/genres.md` — the genre playbooks: sketchnote, infographic,
-  software diagrams (behavioral / architecture / design). Each gives the
-  10-second job, layout archetypes, a closed feature palette, and an
-  expert review checklist. Open BEFORE authoring any board of these
+  software diagrams (architecture / state machine / behavioral /
+  design — each picking its arrows by its question, kinds and icons
+  from the palette). Each gives the 10-second job, layout archetypes, a
+  closed feature palette, and an expert review checklist. Open BEFORE authoring any board of these
   genres — the palette decides which features you may use, and the
   expert checklist is your self-review before shipping.
 * `references/presenting.md` — flows, slide composition, and export:

@@ -237,8 +237,22 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   *Emphasis* names (how much it matters): `star`, `heart`, `flame`,
   `exclamation`, `brain`, `lightning`, `repeat`, `exercise`, `performance`.
   Legacy `bulb`/`doc` still parse as aliases of `lightbulb`/`document`.
-  (Style mode → `i` opens the symbol grid; `Tab` cycles fill → lead → badge;
-  `0`–`9` types a number badge, `f` makes it filled.)
+  *A board's own icons:* an SVG file at `<stem>-res/icons/<name>.svg` is
+  the symbol `*name` on that board, in every placement (`*monitor`,
+  `*lead:monitor`, `*badge:monitor`), on the canvas, in `grafli render` and
+  in every export. The name is the file's name without `.svg`, in lowercase
+  letters, digits and dashes; a file named like a built-in symbol or a
+  number is passed over, the built-in one wins. The icon draws in the ink a
+  built-in symbol would: `currentColor`, black and a fill left unset take
+  that ink (so the same file reads on a light box and on an `!ink` dark
+  one), any other colour in the file stays as drawn. It is fitted into the
+  symbol's place by its `viewBox`, so a wide icon gets a wide lead.
+  `grafli diagnose` reports a `*name` that is neither built in nor in the
+  folder. A `&graph` miniature draws its sub-board's icons from that
+  board's own `-res/icons/`.
+  (Style mode → `i` opens the symbol grid, the board's own icons in a
+  *this board* block after the built-in ones; `Tab` cycles fill → lead →
+  badge; `0`–`9` types a number badge, `f` makes it filled.)
 - `>parent` — nest this element inside the box with the given ID.
 
 > **When to reach for symbols and emphasis.** They shine when you're

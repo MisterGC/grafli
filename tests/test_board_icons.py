@@ -356,6 +356,15 @@ def test_without_own_icons_the_grid_keeps_its_two_blocks(tmp_path):
     assert view._ICON_ENTRIES == [""] + iconset.ICON_NAMES
 
 
+def test_the_help_sheet_names_the_boards_icons_in_the_grid():
+    import inspect
+    from grafli.view.overlays import OverlaysMixin
+    source = inspect.getsource(OverlaysMixin._show_cheatsheet)
+    line = next(ln for ln in source.splitlines() if '("  i", ' in ln)
+    assert "the board's own icons" in line and "-res/icons/" in line
+    assert "<" not in line.split('", "', 1)[1]   # the sheet is HTML
+
+
 # ── diagnose ────────────────────────────────────────────────────
 
 def _unknown(path: Path) -> list:

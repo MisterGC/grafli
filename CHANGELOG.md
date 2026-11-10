@@ -370,6 +370,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   icon and outline, and <kbd>1</kbd>–<kbd>9</kbd> apply the palette's first
   nine entries in one key.
   ([#301](https://github.com/MisterGC/grafli/issues/301))
+- **A board can bring its own icons.** The built-in symbols are a fixed
+  set of 31, so a board could not show a monitor, a browser, a phone or a
+  gamepad. An SVG at `<stem>-res/icons/<name>.svg` is now `*name` on that
+  board, in every placement (`*name`, `*lead:name`, `*badge:name`), drawn
+  in the same ink as the built-in symbols on the canvas, in `grafli render`
+  and in every export. The symbol grid (<kbd>s</kbd> <kbd>i</kbd>) lists
+  the board's own icons after the built-in ones, and `grafli diagnose`
+  reports a `*name` that is neither built in nor in the folder.
+  ([#299](https://github.com/MisterGC/grafli/issues/299))
 - **Overlays render outside the app.** An overlay file shown with
   <kbd>A</kbd> used to stay on screen: renders and decks came out plain, so
   a review could not see status or coverage. While one is on, the SVG/PNG

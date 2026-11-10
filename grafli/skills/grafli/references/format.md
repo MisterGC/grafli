@@ -95,6 +95,16 @@ numbers for side notes; `*0` numbers a step zero. Both need `#!grafli v4`.
 Legacy `bulb`/`doc` parse as
 aliases of `lightbulb`/`document` and normalize on save.
 
+A board's own icons: when the built-in symbols lack a thing — a monitor, a
+phone, a package, a terminal — put an SVG at `<stem>-res/icons/<name>.svg`
+and write `*name` (`*lead:name`, `*badge:name`) on that board. The name is
+the file's name without `.svg` in lowercase letters, digits and dashes; a
+built-in name wins over a file of the same name. `currentColor`, black and
+an unset fill draw in the board ink, so a single-colour icon (Lucide,
+Tabler, Feather style) reads like a built-in symbol; other colours stay.
+`grafli diagnose` reports a `*name` found neither among the built-in
+symbols nor in the folder. Prefer a built-in symbol when one fits.
+
 Container behavior: when a box has children, its anchor auto-switches
 to `^topleft` and its title turns bold, sized by level: 16 pt at the top
 level, 15 pt one level in, 14 pt deeper, and a point above any label

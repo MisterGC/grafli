@@ -248,7 +248,9 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   one), any other colour in the file stays as drawn. It is fitted into the
   symbol's place by its `viewBox`, so a wide icon gets a wide lead.
   `grafli diagnose` reports a `*name` that is neither built in nor in the
-  folder. A `&graph` miniature draws its sub-board's icons from that
+  folder, and names a file there that is not a readable SVG (an HTML page
+  saved under `.svg`, say): such a file is no icon and the box keeps the
+  layout it has without one. A `&graph` miniature draws its sub-board's icons from that
   board's own `-res/icons/`.
   (Style mode → `i` opens the symbol grid, the board's own icons in a
   *this board* block after the built-in ones; `Tab` cycles fill → lead →

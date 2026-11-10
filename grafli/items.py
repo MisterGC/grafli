@@ -880,18 +880,34 @@ class BoxItem(QGraphicsRectItem):
             return theme.ink_on(self._fill_color())
         return QColor(theme.INK)
 
-    def _label_ground(self) -> QColor:
-        """The colour the label reads against: the fill, a translucent one
-        as it shows over the canvas."""
-        fill = self._fill_color()
+    def _ground_beneath(self, depth: int = 0) -> QColor:
+        """What the box sits on: its parent box as that shows, or the
+        canvas."""
+        view = _get_view(self)
+        items = getattr(view, "_box_items", None) or {}
+        parent = items.get(self.box.parent) if self.box.parent else None
+        if parent is None or parent is self or depth > 32:
+            return QColor(theme.SCENE_BG)
+        return parent._shown_fill(depth + 1)
+
+    def _shown_fill(self, depth: int = 0) -> QColor:
+        """The box's fill as it shows: a translucent one composed over the
+        boxes it sits in, then the canvas."""
+        if self.brush().style() == Qt.BrushStyle.NoBrush:
+            return self._ground_beneath(depth)
+        fill = self.brush().color()
         a = fill.alphaF()
         if a >= 1.0:
-            return fill
-        bg = QColor(theme.SCENE_BG)
+            return QColor(fill.rgb())
+        bg = self._ground_beneath(depth)
         return QColor.fromRgbF(
             bg.redF() + (fill.redF() - bg.redF()) * a,
             bg.greenF() + (fill.greenF() - bg.greenF()) * a,
             bg.blueF() + (fill.blueF() - bg.blueF()) * a)
+
+    def _label_ground(self) -> QColor:
+        """The colour the label reads against: the fill as it shows."""
+        return self._shown_fill()
 
     def _label_on_plate(self) -> bool:
         """True when a coloured box draws its label on the light plate: the

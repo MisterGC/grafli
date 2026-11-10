@@ -24,6 +24,7 @@ pytest.importorskip("starlette")
 pytest.importorskip("uvicorn")
 pytest.importorskip("websockets.sync.client")
 
+from grafli import skills  # noqa: E402
 from grafli.serve import agent as agents  # noqa: E402
 from grafli.serve import mcp  # noqa: E402
 from grafli.serve import server as srv  # noqa: E402
@@ -96,15 +97,59 @@ def test_a_tool_called_before_connect_says_how_to_connect():
     assert got["isError"] and "call connect" in got["content"][0]["text"]
 
 
+# ── Unit: the skill's authoring guidance, from the bridge itself ──
+
+def _guide(**args):
+    return _handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                    "params": {"name": "authoring_guide",
+                               "arguments": args}})["result"]
+
+
+def test_the_instructions_point_the_session_at_the_authoring_guide():
+    got = _handle({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                   "params": {}})["result"]
+    assert "`authoring_guide`" in got["instructions"]
+    assert "nothing installed" in got["instructions"]
+    tool = next(t for t in mcp.TOOLS if t["name"] == "authoring_guide")
+    refs = tool["inputSchema"]["properties"]["reference"]["enum"]
+    assert refs == list(skills.skill_references()) and "format.md" in refs
+
+
+def test_the_guide_is_the_packaged_skill_core_and_names_its_references():
+    got = _guide()
+    assert not got.get("isError"), got
+    text = got["content"][0]["text"]
+    core = skills.skill_path().read_text(encoding="utf-8")
+    body = core.split("\n---\n", 2)[2].lstrip("\n")
+    assert text.endswith(body)
+    # The loader's trigger header is left out; the preface maps the file
+    # steps to the board's tools and names every reference file.
+    assert "description: >" not in text and "name: grafli" not in text
+    preface = text[:text.index(body)]
+    for tool in ("read_board", "write_board", "render_board"):
+        assert tool in preface
+    for name in skills.skill_references():
+        assert name in preface
+
+
+def test_the_guide_returns_one_reference_file_and_refuses_an_unknown_one():
+    for name, content in skills.skill_references().items():
+        assert _guide(reference=name)["content"][0]["text"] == content
+    got = _guide(reference="nope.md")
+    assert got["isError"] and "format.md" in got["content"][0]["text"]
+
+
 # ── End to end: a server, the bridge as Claude Code runs it, tabs ──
 
 class Session:
     """The ``grafli agent`` process a Claude Code session runs, driven over
     stdin and stdout the way Claude Code drives it."""
 
-    def __init__(self, state_dir: Path):
+    def __init__(self, state_dir: Path, home: Path | None = None):
         env = dict(os.environ, GRAFLI_STATE_DIR=str(state_dir),
                    PYTHONPATH=str(REPO))
+        if home is not None:
+            env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"))
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "grafli.serve.mcp"], cwd=REPO, env=env,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0)
@@ -116,6 +161,7 @@ class Session:
             "protocolVersion": "2025-06-18", "capabilities": {},
             "clientInfo": {"name": "test", "version": "0"}})
         assert init["capabilities"]["experimental"] == {"claude/channel": {}}
+        self.init = init
         self.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
     def _pump(self):
@@ -182,8 +228,8 @@ def board(served, request):
 def sessions(served):
     made = []
 
-    def start():
-        made.append(Session(served.state_dir))
+    def start(home=None):
+        made.append(Session(served.state_dir, home))
         return made[-1]
     yield start
     for s in made:
@@ -242,6 +288,26 @@ def test_a_connected_session_shows_by_name_reads_writes_and_renders(
     assert base64.b64decode(image["data"])[:8] == b"\x89PNG\r\n\x1a\n"
     presenter.close()
     guest.close()
+
+
+def test_a_session_with_no_skill_installed_is_offered_the_guide_on_connect(
+        served, board, sessions, tmp_path):
+    # A home with no skill in it: what the session gets comes from the
+    # bridge alone.
+    assert not (tmp_path / ".claude").exists()
+    session = sessions(home=tmp_path)
+    assert "`authoring_guide`" in session.init["instructions"]
+    listed = [t["name"] for t in session.call("tools/list")["tools"]]
+    assert "authoring_guide" in listed
+    got = session.tool("connect")
+    assert not got.get("isError"), got
+    assert "read authoring_guide" in _text(got)
+    guide = _text(session.tool("authoring_guide"))
+    core = skills.skill_path().read_text(encoding="utf-8")
+    assert guide.endswith(core.split("\n---\n", 2)[2].lstrip("\n"))
+    design = session.tool("authoring_guide", reference="design.md")
+    assert _text(design) == skills.skill_references()["design.md"]
+    session.end()
 
 
 def test_a_write_against_an_old_version_keeps_what_others_changed(

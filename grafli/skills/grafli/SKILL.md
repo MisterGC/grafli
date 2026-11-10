@@ -245,11 +245,12 @@ in `references/genres.md` instead.)
    | proportional strip | How is a whole split by size? |
    | before / after | What does this change change? |
    | sequence | In what order does it happen? |
+   | state machine | Which states can it be in, and what moves it between them? |
 
    If none fits, it is a plain graph: lay it out as layered
    dependencies, flowing in the direction of its dominant edge kind.
-5. **Lay out, then touch up.** For layered dependencies, containment
-   and sequence, write the boxes at rough positions and run
+5. **Lay out, then touch up.** For layered dependencies, containment,
+   sequence and state machine, write the boxes at rough positions and run
    `grafli layout <file>` — the app's layered layout (`=` in the app),
    run headless — then adjust by hand: the claim's boxes where the eye
    lands, related boxes side by side, no arrow through a box. A box
@@ -525,7 +526,8 @@ task needs them:
   element beyond the quick reference above, or analysis data for a board.
 * `references/design.md` — diagram design principles: visual hierarchy,
   typography, the encoding catalogue (matrix, layered dependencies,
-  containment, mirror, proportional strip, before / after, sequence —
+  containment, mirror, proportional strip, before / after, sequence,
+  state machine —
   each with the question it answers and an example), units per view,
   layout strategy, container margin model, arrow discipline, the pattern
   gallery (architecture, pipeline, hub-and-spoke, visual notes). Open

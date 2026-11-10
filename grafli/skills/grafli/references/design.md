@@ -117,6 +117,7 @@ question matches the board's.
 | proportional strip | How is a whole split by size? | width is the quantity | hand |
 | before / after | What does this change change? | the column is the state; unchanged parts go quiet | hand |
 | sequence | In what order does it happen? | x (or y) is the step | layered layout |
+| state machine | Which states can it be in, and what moves it between them? | the main path runs along x; detours and ends sit off it | layered layout, then by hand |
 
 **When nothing fits.** Then the board is a plain graph: let its
 dominant edge kind set the flow direction and lay it out as layered
@@ -270,6 +271,49 @@ to the row; a loop back is the minority arrow.
 @ arrow timer -> merge "step: 2 fire"
 @ arrow merge -> write "step: 3 result"
 ```
+
+### State machine
+
+*Which states can it be in, and what moves it between them?* One box
+per state and one arrow per transition — **every** transition, the
+error and retry ones included: a state machine with a transition left
+out is wrong, not simplified. Here the question decides the arrows by
+itself; there is no secondary relation to move off the canvas.
+
+* **Label** each transition `event [guard] / action`: the event that
+  fires it, the condition in brackets when there is one, the action
+  after the slash when it does something. Leave out the parts it lacks
+  (`finish / notify owner`, `start [a worker is free]`, `tick`).
+* **Start and end** are `!round` (`#!grafli v4`): the start is a small
+  unlabelled `24x24 %primary !round` dot with one arrow to the first
+  state; an end state is a `!round` box with its name (a pill).
+* **Self-loop** — a transition that stays in its state is an arrow
+  from the state to itself (`@ arrow running -> running "tick"`); it
+  loops on the box's top edge.
+* **Layout** — the main path left to right, the state the claim is
+  about emphasised. A transition back along the row leaves and enters
+  by the bottom edges (`!ortho ~from=bottom ~to=bottom`) so it never
+  lies on the forward arrow; an end state off the main path sits
+  below the state it leaves.
+
+```
+#!grafli v4
+@ note title 0,-80 "A job retries until its budget runs out" ~xlarge !flat !bold
+@ box start "" 38,88 24x24 %primary !round
+@ box queued "queued" 150,60 200x80
+@ box running "running" 650,60 200x80 %highlight !bold
+@ box done "done" 1150,60 160x80 !round
+@ box failed "failed" 670,350 160x80 !round
+@ arrow start -> queued
+@ arrow queued -> running "start [a worker is free]"
+@ arrow running -> running "tick / save checkpoint"
+@ arrow running -> done "finish / notify owner"
+@ arrow running -> queued "error [retries left] / retries -= 1" !ortho ~from=bottom ~to=bottom
+@ arrow running -> failed "error [no retries left]"
+```
+
+More than 9 states is a sign of two machines: split off the
+sub-machine into a `&graph` sub-board on the state that contains it.
 
 ## 3. Layout strategy
 
@@ -499,8 +543,9 @@ authoring metadata.
 Most technical diagrams reduce to one of these shapes, and the format
 covers the common types directly: **architecture** (layered containers),
 **flow / pipeline** (L→R chain), **hub-and-spoke** (gateway / event bus),
-**state machines** and **sequences** (nodes + transition arrows, or a
-`code:` note with `state from -> to` lines), **ER / class** (boxes +
+**state machines** (the encoding in section 2 — every transition an
+arrow), **sequences** (nodes + step arrows, or a `code:` note with
+`from -> to` lines), **ER / class** (boxes +
 labelled relationship arrows), and **mind maps / concept boards** (center
 node + radiating ideas — see "Visual notes" below). Pick the shape from
 the question, then the flow direction. When position should carry

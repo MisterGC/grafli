@@ -450,8 +450,9 @@ def authoring_guide(reference=None) -> str:
     tools, or the reference file *reference*. Raises ValueError for a name
     the skill does not carry."""
     refs = skills.skill_references()
-    if reference:
-        if reference not in refs:
+    if reference is not None and reference != "":
+        # Any JSON value can arrive here; only a known name is one.
+        if not isinstance(reference, str) or reference not in refs:
             raise ValueError(f"no reference {reference!r}; the skill has "
                              + ", ".join(refs))
         return refs[reference]

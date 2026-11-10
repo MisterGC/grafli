@@ -1670,6 +1670,11 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
                     self._open_type_picker()
                     event.accept()
                     return
+                # r — round: a circle when square, a pill otherwise.
+                if event.key() == Qt.Key.Key_R and no_mod:
+                    self._toggle_round()
+                    event.accept()
+                    return
                 if event.key() == Qt.Key.Key_J and no_mod:
                     self._cycle_textsize(-1)
                     event.accept()

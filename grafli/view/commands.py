@@ -478,6 +478,22 @@ class CommandsMixin:
             item.set_style(seq[(idx + 1) % len(seq)])
         self.mark_dirty()
 
+    def _toggle_round(self):
+        """Draw the selected boxes round (``!round``: a circle when square,
+        a pill otherwise), or square-cornered again when all of them are."""
+        boxes = [it for it in self._scene.selectedItems()
+                 if isinstance(it, BoxItem)]
+        if not boxes:
+            self.toast("Select a box to make it round", "warn")
+            return
+        round_ = not all(it.box.round for it in boxes)
+        self._push_undo()
+        for item in boxes:
+            item.set_round(round_)
+        self._record_shortcut("r \u2192 round" if round_ else "r \u2192 square")
+        self.arrow_update_needed.emit()
+        self.mark_dirty()
+
     def _snap_to_grid(self):
         self._push_undo()
         spacing = self.GRID_SPACING

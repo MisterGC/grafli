@@ -25,7 +25,7 @@ from grafli.constants import (
 from grafli.format import SOLID_NUMBER_PREFIX, emphasis_from_flags, split_icon
 from grafli.iconset import (EMPHASIS_NAMES, ICON_NAMES, has_icon, icon_pixmap,
                              number_badge, paint_icon)
-from grafli.items import BoxItem, ImageItem, NoteItem
+from grafli.items import BoxItem, ImageItem, NoteItem, scene_icons
 
 
 class StyleModeMixin:
@@ -481,23 +481,36 @@ class StyleModeMixin:
     # ── Icon-grid picker (style mode -> i), boxes and notes ──
 
     _ICON_GRID_COLS = 6
-    _ICON_ENTRIES = [""] + ICON_NAMES   # "" = clear/none
+    _ICON_BUILTIN = [""] + ICON_NAMES   # "" = clear/none
+    _icon_picker_own: list[str] = []    # the board's own icons, as listed
     _icon_picker_digit = ""             # typed number badge ("", "0".."99")
     _icon_picker_solid = False          # f: the number badge is filled
-    # Captioned category blocks: (header, first entry index, count). The
-    # "none" cell leads the semantic block; emphasis symbols follow.
-    _ICON_BLOCKS = (
-        ("semantic", 0, len(_ICON_ENTRIES) - len(EMPHASIS_NAMES)),
-        ("emphasis", len(_ICON_ENTRIES) - len(EMPHASIS_NAMES),
-         len(EMPHASIS_NAMES)),
-    )
 
-    @classmethod
-    def _icon_grid_rows(cls) -> list[list[int]]:
+    @property
+    def _ICON_ENTRIES(self) -> list[str]:
+        """The grid's names: "none", the built-in symbols, then the board's
+        own icons (``<stem>-res/icons/``, issue #299)."""
+        return self._ICON_BUILTIN + self._icon_picker_own
+
+    @property
+    def _ICON_BLOCKS(self) -> tuple:
+        """Captioned category blocks: (header, first entry index, count).
+        The "none" cell leads the semantic block; emphasis symbols follow,
+        then the board's own icons."""
+        builtin = len(self._ICON_BUILTIN)
+        blocks = (
+            ("semantic", 0, builtin - len(EMPHASIS_NAMES)),
+            ("emphasis", builtin - len(EMPHASIS_NAMES), len(EMPHASIS_NAMES)),
+        )
+        if self._icon_picker_own:
+            blocks += (("this board", builtin, len(self._icon_picker_own)),)
+        return blocks
+
+    def _icon_grid_rows(self) -> list[list[int]]:
         """Visual rows of entry indices — blocks each start on a fresh row."""
-        cols = cls._ICON_GRID_COLS
+        cols = self._ICON_GRID_COLS
         rows: list[list[int]] = []
-        for _, start, count in cls._ICON_BLOCKS:
+        for _, start, count in self._ICON_BLOCKS:
             idxs = list(range(start, start + count))
             rows.extend(idxs[i:i + cols] for i in range(0, len(idxs), cols))
         return rows
@@ -527,6 +540,8 @@ class StyleModeMixin:
         self._icon_picker_original = {
             self._el_id(it): (self._el_icon(it), self._el_placement(it))
             for it in targets}
+        icons = getattr(self._scene, "board_icons", None)
+        self._icon_picker_own = icons.names() if icons is not None else []
         cur = self._el_icon(targets[0])
         number = number_badge(cur)
         self._icon_picker_digit, self._icon_picker_solid = number or ("", False)
@@ -687,7 +702,9 @@ class StyleModeMixin:
                 cell = QRectF(sx, sy, sw, sw)
                 name = self._ICON_ENTRIES[i]
                 if name:
-                    pm = icon_pixmap(name, ink, sw - 8, dpr)
+                    pm = icon_pixmap(name, ink, sw - 8, dpr,
+                                     getattr(self._scene, "board_icons",
+                                             None))
                     if pm is not None:
                         painter.drawPixmap(QPointF(sx + 4, sy + 4), pm)
                 else:
@@ -1210,7 +1227,7 @@ class StyleModeMixin:
         for those boxes and the row must say so rather than silently do nothing.
         """
         return not any(
-            it.box.icon and has_icon(it.box.icon)
+            it.box.icon and has_icon(it.box.icon, scene_icons(it))
             and it.box.icon_placement in ("", "lead")
             for it in self._color_picker_boxes())
 

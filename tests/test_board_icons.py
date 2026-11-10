@@ -306,3 +306,51 @@ def test_the_pdf_export_draws_the_icon(tmp_path):
     ink = QColor(theme.INK)
     assert len(shots) == 2
     assert _ink_pixels(shots[0], ink) > _ink_pixels(shots[1], ink) + 1000
+
+
+# ── the symbol grid ─────────────────────────────────────────────
+
+def test_the_grid_lists_the_boards_icons_after_the_built_in_ones(tmp_path):
+    view = _view(_board(tmp_path, '@ box a "A" 0,0 100x100\n',
+                        {"monitor.svg": SQUARE, "phone.svg": SQUARE}))
+    view._box_items["a"].setSelected(True)
+    view._open_icon_picker()
+    entries = view._ICON_ENTRIES
+    assert entries[:len(iconset.ICON_NAMES) + 1] == [""] + iconset.ICON_NAMES
+    assert entries[-2:] == ["monitor", "phone"]
+    header, start, count = view._ICON_BLOCKS[-1]
+    assert (header, start, count) == ("this board", len(entries) - 2, 2)
+    # The last row holds them, on a row of their own.
+    assert view._icon_grid_rows()[-1] == [len(entries) - 2, len(entries) - 1]
+    view._icon_picker_move(0, 99)
+    assert view._icon_picker_name() == "monitor"
+    view._commit_icon_picker()
+    assert view.board.box_by_id("a").icon == "monitor"
+
+
+def test_the_grid_opens_on_the_boards_icon_a_box_has(tmp_path):
+    view = _view(_board(tmp_path, '@ box a "A" 0,0 100x100 *phone\n',
+                        {"monitor.svg": SQUARE, "phone.svg": SQUARE}))
+    view._box_items["a"].setSelected(True)
+    view._open_icon_picker()
+    assert view._icon_picker_name() == "phone"
+    view._cancel_icon_picker()
+
+
+def test_the_grid_paints_with_the_boards_icons(tmp_path):
+    view = _view(_board(tmp_path, '@ box a "A" 0,0 100x100\n',
+                        {"monitor.svg": SQUARE}))
+    view._box_items["a"].setSelected(True)
+    view._open_icon_picker()
+    img = QImage(900, 600, QImage.Format.Format_ARGB32)
+    img.fill(0)
+    view.viewport().render(img)
+    assert not img.isNull()
+
+
+def test_without_own_icons_the_grid_keeps_its_two_blocks(tmp_path):
+    view = _view(_board(tmp_path, '@ box a "A" 0,0 100x100\n'))
+    view._box_items["a"].setSelected(True)
+    view._open_icon_picker()
+    assert [b[0] for b in view._ICON_BLOCKS] == ["semantic", "emphasis"]
+    assert view._ICON_ENTRIES == [""] + iconset.ICON_NAMES

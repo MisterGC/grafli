@@ -424,6 +424,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#307](https://github.com/MisterGC/grafli/issues/307))
 
 ### Changed
+- **A coloured box draws its label on the fill where it reads there.**
+  Every filled box drew its label on a lighter plate inside the fill, so
+  a coloured box read as a box inside a box. The plate now shows only
+  where the board ink on the fill falls below WCAG AA: 4.5:1, or 3:1 for
+  a label of 24 px, or 18.66 px bold. In the dark theme `%clay`, `%teal`,
+  `%soft` and `%highlight` draw their labels straight on the fill; in the
+  light theme `%soft` and `%highlight` do, while `%clay` (3.4:1) and
+  `%teal` (3.8:1) keep the plate, as does a dark fill such as `%primary`.
+  `grafli render` draws it the same way.
+  ([#300](https://github.com/MisterGC/grafli/issues/300))
 - **Arrow labels move into free space.** A label sat at the middle of its
   arrow even where that put it on a box, on its own end box or on another
   arrow's label, so a fan-out or two crossing arrows read as a mess. A

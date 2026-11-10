@@ -21,7 +21,7 @@ class as a misplaced triple-quote modifier.
 
 | Modifier | Values | Effect |
 |----------|--------|--------|
-| `%color` | color token, map palette `%name` or `#RRGGBB` | fill color; a palette name is `#!grafli v4` |
+| `%color` | color token, map palette `%name` or `#RRGGBB` | fill color; the label sits on the fill where the board ink reads there at WCAG AA, on a lighter plate where it does not; a palette name is `#!grafli v4` |
 | `^anchor` | `^topleft`, `^topcenter`, `^left` | label alignment (default: center); `^left` is top left and, zoomed out, keeps a container a band with its children's colours and its title on the left; `#!grafli v4` |
 | `~size` | named `~small`…`~xxxlarge`, `~4xl` (hero), short aliases `~2xl`/`~3xl`, or numeric `~16` | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |

@@ -79,7 +79,11 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   someone on light reads correctly on dark. Prefer them over hex, which is
   kept exactly as written and so only suits one theme. A `%name` can also
   name an entry of the map's [palette](#map-palette), which every board of
-  the map resolves the same way.
+  the map resolves the same way. A filled box draws its label straight on
+  the fill where the board ink reads there at WCAG AA — 4.5:1, or 3:1 for
+  a label of 24 px, or 18.66 px bold — and on a lighter plate inside the
+  fill where it does not; `!ink` picks an ink that reads on the fill
+  instead.
 - `^anchor` — `topleft`, `topcenter` or `left`; without one a box's label
   is centred, and a box with children takes `topleft`. Controls how a box's
   label is placed. `left` places it top left like `topleft` and, zoomed out

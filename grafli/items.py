@@ -1185,6 +1185,10 @@ class BoxItem(QGraphicsRectItem):
     def _auto_grow(self):
         self._label.setTextWidth(self._label_width_for(self.box.w))
         needed = self._label.boundingRect().height() + 16
+        if self.box.round and not self.box.label.strip():
+            # A round box with no label is a start or end state: an empty
+            # line must not stretch its circle into an upright pill.
+            needed = 0
         new_h = max(self._min_h, needed)
         if new_h != self.box.h:
             self.box.h = new_h

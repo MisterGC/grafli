@@ -84,6 +84,29 @@ packaged one, so re-running `grafli skill install` after
 symlink to `grafli skill --where` works too if your platform supports
 it comfortably.
 
+## On a live board: what the agent gets
+
+A Claude Code session connected to `grafli serve` through `grafli agent`
+(see [Connect your agent](navigating.md#connect-your-agent-a-claude-code-session-you-run))
+gets the skill from the bridge itself, so nothing needs to be installed in
+that session:
+
+- **The `authoring_guide` tool** returns the skill as it ships with your
+  grafli: without arguments the core `SKILL.md`, headed by a few lines that
+  map its file steps to the board's tools (`read_board` for reading the
+  file, `write_board` for `Write` / `Edit`, `render_board` for
+  `grafli render`) and name the reference files; with
+  `reference: "format.md"` (or `design.md`, `presenting.md`, …) that one
+  reference file. It answers before the session connects too.
+- **A pointer to it, twice.** The instructions the bridge gives Claude
+  Code when the session starts, and the reply to `/mcp__grafli__connect`,
+  both tell the session to read the guide before its first `write_board`
+  — unless the grafli skill is already loaded in that session, as it is
+  after `grafli skill install claude`.
+
+The guide is always the version of the skill that ships with the running
+grafli, so it matches the format the board is read in.
+
 ## What the skill triggers on
 
 The skill is deliberately **scoped narrowly** to avoid polluting

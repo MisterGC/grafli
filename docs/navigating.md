@@ -415,6 +415,9 @@ says it connected. The session can then:
   [The agent's edits](#the-agents-edits-marked-undoable-big-ones-proposed));
 - take back its own last edit (`undo_board`);
 - look at it (`render_board`): the board drawn as a PNG.
+- read how to author a board well (`authoring_guide`): the grafli skill as
+  it ships with grafli, so the session needs nothing installed (see
+  [What the agent gets](ai.md#on-a-live-board-what-the-agent-gets)).
 
 Without a board name the session works on the board your present link's
 tab is on.

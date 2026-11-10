@@ -92,6 +92,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answer the line says so, and it goes once the session is gone, so a long
   request no longer looks like it never arrived.
   ([#295](https://github.com/MisterGC/grafli/issues/295))
+- **The boards' agent knows how to author a board, with nothing installed
+  in its session.** A Claude Code session connected through `grafli agent`
+  got the board's tools but none of the grafli skill, so it drew boards
+  without the skill's rules: relations first, encodings, kinds, layout.
+  The bridge now hands the session the skill as it ships with grafli,
+  through a new `authoring_guide` tool: the core guidance, or one of its
+  reference files such as `format.md` for the full syntax. What the
+  session hears when Claude Code starts the bridge, and the reply to
+  `/mcp__grafli__connect`, both tell it to read the guide before its first
+  edit, unless the skill is already loaded there.
+  ([#302](https://github.com/MisterGC/grafli/issues/302))
 - **`grafli fmt` — canonical form for hand- and agent-authored boards.**
   Boards written outside the app never pass through its save path, so their
   coordinates and token spacing drift from what the app would write and the

@@ -37,6 +37,10 @@ from grafli.sync import Conflict, atomic_write, merge_boards
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
 from grafli.map_palette import attach_names
 from grafli.sidepanel import PanelToggleButton, SidePanel, ThemeToggleButton
+from grafli.skills import (skill_concat as _skill_concat,
+                           skill_dir as _skill_dir,
+                           skill_path as _skill_path,
+                           skill_references as _skill_references)
 from grafli.slideplan import describe_overload
 from grafli.view import GrafliView
 
@@ -1554,49 +1558,6 @@ Without a subcommand, `grafli skill` prints the full skill to stdout —
 SKILL.md with every reference file inlined, for single-file consumers.
 Pass --core for just the lean core SKILL.md.
 """
-
-# Concat / inline order for the reference files; unknown names sort after.
-_REFERENCE_ORDER = ("format.md", "design.md", "presenting.md", "thinking.md")
-
-
-def _skill_dir() -> Path:
-    """Return the path to the bundled skill directory."""
-    from importlib.resources import files
-    return Path(str(files("grafli.skills.grafli")))
-
-
-def _skill_path() -> Path:
-    """Return the path to the bundled SKILL.md."""
-    return _skill_dir() / "SKILL.md"
-
-
-def _skill_references() -> dict[str, str]:
-    """Return the bundled reference files as ``{name: content}``, in
-    the canonical inline order.
-    """
-    ref_dir = _skill_dir() / "references"
-    if not ref_dir.is_dir():
-        return {}
-    def order(p: Path) -> tuple[int, str]:
-        try:
-            return (_REFERENCE_ORDER.index(p.name), p.name)
-        except ValueError:
-            return (len(_REFERENCE_ORDER), p.name)
-    return {
-        p.name: p.read_text(encoding="utf-8")
-        for p in sorted(ref_dir.glob("*.md"), key=order)
-    }
-
-
-def _skill_concat() -> str:
-    """The single-file build: SKILL.md with every reference inlined."""
-    parts = [_skill_path().read_text(encoding="utf-8")]
-    for name, content in _skill_references().items():
-        parts.append(
-            f"\n\n---\n\n<!-- inlined from references/{name} -->\n\n{content}"
-        )
-    return "".join(parts)
-
 
 def _grafli_version() -> str:
     from grafli._version import __version__

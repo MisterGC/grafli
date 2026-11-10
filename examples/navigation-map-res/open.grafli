@@ -17,7 +17,7 @@ split by the branches of the dispatch
   @grafli/view/resources.py:116 doc_name
   @grafli/view/resources.py:121 split_board_fragment
   @grafli/view/resources.py:213 _open_url_string
-  @grafli/app.py:743 _enter_board
+  @grafli/app.py:747 _enter_board
 """ ~small
 
 @ arrow dispatch -> doc "call: _open_md_zen"

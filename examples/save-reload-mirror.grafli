@@ -43,9 +43,9 @@
 @ note evidence 0,840 """
 code:
 the two paths in the app and the merge they share
-  @grafli/app.py:1363 _on_file_changed
-  @grafli/app.py:1342 _reconcile_external
-  @grafli/app.py:1151 _write_file
+  @grafli/app.py:1367 _on_file_changed
+  @grafli/app.py:1346 _reconcile_external
+  @grafli/app.py:1155 _write_file
   @grafli/sync.py:216 merge_boards
   @grafli/sync.py:43 atomic_write
 """ ~small

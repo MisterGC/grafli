@@ -221,6 +221,18 @@ def _get_view(item):
     return None
 
 
+def scene_icons(item):
+    """The board's own symbols (``<stem>-res/icons/``, issue #299) of the
+    scene *item* is drawn in; None outside a board's scene."""
+    scene = item.scene()
+    return getattr(scene, "board_icons", None) if scene is not None else None
+
+
+def _own_icon(name: str) -> bool:
+    """True for a symbol name only a board's own icons can resolve."""
+    return bool(name) and not iconset.has_icon(name)
+
+
 def _view_scale(item) -> float:
     """Current canvas zoom (scene units per pixel inverse), or 1.0."""
     view = _get_view(item)
@@ -1019,10 +1031,12 @@ class BoxItem(QGraphicsRectItem):
         """Width reserved for the lead icon — wide symbols (e.g. exercise)
         get aspect-corrected room instead of shrinking into a square."""
         side = self._lead_icon_side()
-        return side * min(max(iconset.icon_aspect(self.look.icon), 1.0), 1.6)
+        aspect = iconset.icon_aspect(self.look.icon, scene_icons(self))
+        return side * min(max(aspect, 1.0), 1.6)
 
     def _has_lead_icon(self) -> bool:
-        return (bool(self.look.icon) and iconset.has_icon(self.look.icon)
+        return (bool(self.look.icon)
+                and iconset.has_icon(self.look.icon, scene_icons(self))
                 and (self.look.icon_placement == "lead"
                      or self._number_reads_as_lead()))
 
@@ -1047,7 +1061,7 @@ class BoxItem(QGraphicsRectItem):
 
     def _has_badge_icon(self) -> bool:
         return (bool(self.look.icon) and self.look.icon_placement == "badge"
-                and iconset.has_icon(self.look.icon))
+                and iconset.has_icon(self.look.icon, scene_icons(self)))
 
     def _label_width_for(self, w: float) -> float:
         """Wrap width for the label — leaves room for a lead-icon gutter so
@@ -1095,12 +1109,13 @@ class BoxItem(QGraphicsRectItem):
         if self.look.icon_placement == "badge":
             # The badge sits on its own paper disc: board ink reads there.
             iconset.paint_badge(painter, self.look.icon, self._badge_rect(),
-                                QColor(theme.INK))
+                                QColor(theme.INK), scene_icons(self))
             return
         color = self._label_ink()
         if self._has_lead_icon():
             iconset.paint_icon(painter, self.look.icon,
-                               self._lead_layout()[0], color)
+                               self._lead_layout()[0], color,
+                               scene_icons(self))
             return
         pad = 10.0
         cap_h = (self._label.boundingRect().height() + 6
@@ -1110,7 +1125,8 @@ class BoxItem(QGraphicsRectItem):
         ix = (w - side) / 2
         iy = pad + (avail_h - side) / 2
         iconset.paint_icon(painter, self.look.icon,
-                           QRectF(ix, iy, side, side), color)
+                           QRectF(ix, iy, side, side), color,
+                           scene_icons(self))
 
     def set_style(self, style: str):
         was_card = self.box.style == "card"
@@ -1173,7 +1189,8 @@ class BoxItem(QGraphicsRectItem):
         # keeps its weight beside it. ``fill``: the icon fills the body, so the
         # label rides at the bottom as a caption. ``badge`` overlays a corner
         # and leaves the label's normal layout alone (falls through below).
-        if (self.look.icon and iconset.has_icon(self.look.icon)
+        if (self.look.icon
+                and iconset.has_icon(self.look.icon, scene_icons(self))
                 and self.look.icon_placement != "badge"):
             if self._has_lead_icon():
                 gutter = 8.0 + self._lead_icon_w() + 8.0
@@ -1344,6 +1361,11 @@ class BoxItem(QGraphicsRectItem):
                     view.mark_dirty()
         elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self._show_handles(bool(value))
+        elif (change == QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged
+              and value is not None and _own_icon(self.look.icon)):
+            # A board's own symbol resolves through the scene: lay out again
+            # now there is one.
+            self.refresh_auto_layout()
         return super().itemChange(change, value)
 
     def boundingRect(self):
@@ -1906,7 +1928,8 @@ class BoxItem(QGraphicsRectItem):
             self.scene() and self.scene().property("canvas_offscreen"))
         mini = self._miniature is not None and on_canvas
         if (self._lod_tile is None and not self._lod_simplified
-                and self.look.icon and iconset.has_icon(self.look.icon)
+                and self.look.icon
+                and iconset.has_icon(self.look.icon, scene_icons(self))
                 and not (self._has_badge_icon()
                          and (mini or self._icons_above_label()))):
             self._paint_icon(painter)
@@ -2477,12 +2500,13 @@ class NoteItem(QGraphicsSimpleTextItem):
     def _is_marker_icon(self) -> bool:
         """Fill/lead glyph notes render as floating markers; ``badge`` keeps
         the normal text body and overlays a compact corner icon instead."""
-        return (bool(self.note.icon) and iconset.has_icon(self.note.icon)
+        return (bool(self.note.icon)
+                and iconset.has_icon(self.note.icon, scene_icons(self))
                 and self.note.icon_placement != "badge")
 
     def _has_badge_icon(self) -> bool:
         return (bool(self.note.icon) and self.note.icon_placement == "badge"
-                and iconset.has_icon(self.note.icon))
+                and iconset.has_icon(self.note.icon, scene_icons(self)))
 
     def _paint_badge_icon(self, painter: QPainter):
         r = self.boundingRect()
@@ -2493,7 +2517,8 @@ class NoteItem(QGraphicsSimpleTextItem):
         dx = 18.0 if self.note.url else 0.0
         iconset.paint_badge(painter, self.note.icon,
                             QRectF(r.right() - side - 5.0 - dx, r.top() + 5.0,
-                                   side, side), self._icon_color())
+                                   side, side), self._icon_color(),
+                            scene_icons(self))
 
     def _icon_side(self) -> float:
         px = resolve_textsize_px(self.note.textsize, "")
@@ -2529,7 +2554,8 @@ class NoteItem(QGraphicsSimpleTextItem):
     def _lead_icon_w(self, side: float) -> float:
         """Width reserved for a lead icon — wide symbols get aspect-corrected
         room instead of shrinking into a square."""
-        return side * min(max(iconset.icon_aspect(self.note.icon), 1.0), 1.6)
+        aspect = iconset.icon_aspect(self.note.icon, scene_icons(self))
+        return side * min(max(aspect, 1.0), 1.6)
 
     def _paint_icon_note(self, painter: QPainter):
         """A borderless floating glyph. ``fill``: big icon with the text as a
@@ -2544,7 +2570,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             lead_w = self._lead_icon_w(side)
             iconset.paint_icon(painter, self.note.icon,
                                QRectF(pad, (total_h - side) / 2, lead_w, side),
-                               color)
+                               color, scene_icons(self))
             painter.setFont(font)
             painter.setPen(color)
             if lines:
@@ -2556,7 +2582,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         else:
             iconset.paint_icon(painter, self.note.icon,
                                QRectF((total_w - side) / 2, pad, side, side),
-                               color)
+                               color, scene_icons(self))
             painter.setFont(font)
             painter.setPen(color)
             if lines:
@@ -3592,6 +3618,11 @@ class NoteItem(QGraphicsSimpleTextItem):
                     view.arrow_update_needed.emit()
                 if view and hasattr(view, 'mark_dirty'):
                     view.mark_dirty()
+        elif (change == QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged
+              and value is not None and _own_icon(self.note.icon)):
+            # A board's own symbol resolves through the scene: measure again.
+            self.prepareGeometryChange()
+            self._brect_cache = None
         return super().itemChange(change, value)
 
 

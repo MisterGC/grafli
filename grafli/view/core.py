@@ -133,6 +133,9 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         super().__init__(parent)
         self._scene = QGraphicsScene(self)
         self._scene.setBackgroundBrush(QBrush(theme.SCENE_BG))
+        # The shown board's own symbols (iconset.BoardIcons, issue #299),
+        # set by load_board; items look them up through their scene.
+        self._scene.board_icons = None
         self.setScene(self._scene)
 
         # TextAntialiasing sharpens the Nerd Font glyphs / labels; SmoothPixmap

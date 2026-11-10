@@ -91,9 +91,9 @@ def test_a_dark_ink_box_draws_its_icon_in_the_label_ink(monkeypatch):
     seen = []
     real = items.iconset.paint_icon
 
-    def spy(painter, name, rect, color):
+    def spy(painter, name, rect, color, *args):
         seen.append(QColor(color))
-        real(painter, name, rect, color)
+        real(painter, name, rect, color, *args)
 
     monkeypatch.setattr(items.iconset, "paint_icon", spy)
     view = _view('#!grafli v4\n'

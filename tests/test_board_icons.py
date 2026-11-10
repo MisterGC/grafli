@@ -168,3 +168,141 @@ def test_the_pixmap_is_rendered_again_when_the_file_changes(tmp_path):
     os.utime(svg, ns=(svg.stat().st_atime_ns, svg.stat().st_mtime_ns + 10**9))
     thin = iconset.icon_pixmap("block", ink, 30, 1.0, icons).toImage()
     assert _ink_pixels(thin, ink) < _ink_pixels(full, ink)
+
+
+# ── the canvas ──────────────────────────────────────────────────
+
+ALL_PLACES = ('@ box fill "" 0,0 160x160 *monitor\n'
+              '@ box lead "Lead" 200,0 200x60 *lead:monitor\n'
+              '@ box badge "Badge" 200,100 200x60 *badge:monitor\n'
+              '@ note n 0,200 "lead note" *lead:monitor\n'
+              '@ note m 200,200 *monitor\n'
+              '@ note b 400,200 "badge note" *badge:monitor\n')
+
+
+def test_every_placement_resolves_on_the_canvas(tmp_path):
+    view = _view(_board(tmp_path, ALL_PLACES, {"monitor.svg": SQUARE}))
+    boxes, notes = view._box_items, view._note_items
+    assert boxes["lead"]._has_lead_icon()
+    assert boxes["badge"]._has_badge_icon()
+    assert notes["n"]._is_marker_icon() and notes["m"]._is_marker_icon()
+    assert notes["b"]._has_badge_icon()
+
+
+def test_without_the_folder_the_names_stay_unknown(tmp_path):
+    view = _view(_board(tmp_path, ALL_PLACES))
+    assert not view._box_items["lead"]._has_lead_icon()
+    assert not view._note_items["n"]._is_marker_icon()
+
+
+def test_a_lead_icon_reserves_room_for_its_shape(tmp_path):
+    view = _view(_board(tmp_path, '@ box a "Wide" 0,0 240x60 *lead:screen\n',
+                        {"screen.svg": SCREEN}))
+    item = view._box_items["a"]
+    assert item._lead_icon_w() == item._lead_icon_side() * 1.6
+
+
+def test_a_box_made_later_lays_out_around_its_icon(tmp_path):
+    from grafli.format import Box
+    from grafli.items import BoxItem
+    view = _view(_board(tmp_path, "", {"monitor.svg": SQUARE}))
+    box = Box(id="x", label="Late", x=0, y=0, w=200, h=60,
+              icon="monitor", icon_placement="lead")
+    item = BoxItem(box)
+    assert not item._has_lead_icon()      # no scene, no board icons yet
+    view._scene.addItem(item)
+    assert item._has_lead_icon()
+    assert item._label.textWidth() == 200 - (item._lead_icon_w() + 24.0)
+
+
+def test_a_miniature_view_reads_the_sub_boards_icons(tmp_path):
+    sub = _board(tmp_path, '@ box a "" 0,0 100x100 *chip\n',
+                 {"chip.svg": SQUARE}, stem="sub")
+    _app()
+    view = GrafliView()
+    view.load_board(parse(sub.read_text(encoding="utf-8")), board_file=sub)
+    assert "chip" in view._scene.board_icons
+    item = view._box_items["a"]
+    assert iconset.has_icon(item.look.icon, view._scene.board_icons)
+
+
+# ── render and exports ──────────────────────────────────────────
+
+def _render(path: Path) -> QImage:
+    from grafli.app import _cmd_render
+    out = path.with_suffix(".png")
+    assert _cmd_render([str(path), str(out)]) == 0
+    return QImage(str(out))
+
+
+def test_grafli_render_draws_the_icon_in_the_board_ink(tmp_path):
+    _app()
+    text = '@ box a "" 0,0 160x160 *block\n'
+    (tmp_path / "with").mkdir()
+    (tmp_path / "bare").mkdir()
+    drawn = _render(_board(tmp_path / "with", text, {"block.svg": SQUARE}))
+    bare = _render(_board(tmp_path / "bare", text))
+    ink = QColor(theme.INK)
+    assert drawn.size() == bare.size()
+    assert _ink_pixels(drawn, ink) > _ink_pixels(bare, ink) + 2000
+
+
+def test_grafli_render_tints_an_ink_box_icon(tmp_path):
+    _app()
+    text = '@ box a "" 0,0 160x160 #203040 !ink *block\n'
+    img = _render(_board(tmp_path, text, {"block.svg": SQUARE}))
+    on_fill = theme.ink_on(QColor("#203040"))
+    assert _ink_pixels(img, on_fill) > 2000
+
+
+def test_the_svg_export_carries_the_icon(tmp_path):
+    text = '@ box a "" 0,0 160x160 *block\n'
+    (tmp_path / "with").mkdir()
+    (tmp_path / "bare").mkdir()
+    drawn = bytes(_view(_board(tmp_path / "with", text, {"block.svg": SQUARE}))
+                  ._render_svg_bytes()).decode()
+    bare = bytes(_view(_board(tmp_path / "bare", text))
+                 ._render_svg_bytes()).decode()
+    assert len(drawn) > len(bare)
+    assert QColor(theme.INK).name() in drawn
+
+
+def test_the_html_export_carries_the_icon(tmp_path):
+    from grafli.htmlexport import export_html
+    _app()
+    text = '@ box a "" 0,0 160x160 *block\n'
+    (tmp_path / "with").mkdir()
+    (tmp_path / "bare").mkdir()
+    with_path = _board(tmp_path / "with", text, {"block.svg": SQUARE})
+    bare_path = _board(tmp_path / "bare", text)
+    drawn = export_html(with_path, tmp_path / "with.html").path.read_text()
+    bare = export_html(bare_path, tmp_path / "bare.html").path.read_text()
+    assert len(drawn) > len(bare)
+
+
+def test_the_pdf_export_draws_the_icon(tmp_path):
+    from grafli.pdfexport import export_flow_to_pdf
+    text = ('@ box a "" 0,0 160x160 *block\n'
+            '@ bookmark bm "A" @a\n@ flow tour "Tour" bm\n')
+    (tmp_path / "with").mkdir()
+    (tmp_path / "bare").mkdir()
+    shots = []
+    for path in (_board(tmp_path / "with", text, {"block.svg": SQUARE}),
+                 _board(tmp_path / "bare", text)):
+        view = _view(path)
+        scene = view._scene
+        original = scene.render
+
+        def capture(painter, target, source, *args):
+            original(painter, target, source, *args)
+            shots.append(QImage(painter.device()))
+
+        scene.render = capture
+        try:
+            export_flow_to_pdf(view, view.board.flow_by_id("tour"),
+                               path.with_suffix(".pdf"))
+        finally:
+            del scene.render
+    ink = QColor(theme.INK)
+    assert len(shots) == 2
+    assert _ink_pixels(shots[0], ink) > _ink_pixels(shots[1], ink) + 1000

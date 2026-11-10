@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QFrame, QTextBrowser, QVBoxLayout
 
 from grafli import iconset, theme
 from grafli.format import Note, doc_name
-from grafli.items import BoxItem, NoteItem
+from grafli.items import BoxItem, NoteItem, scene_icons
 from grafli.lod import should_collapse
 from grafli.md_note import doc_first_sentence
 
@@ -136,7 +136,7 @@ class BoxDocsMixin:
         `!card` parents included, but not with a fill icon (its label is a
         caption)."""
         icon = item.look.icon
-        return not (icon and iconset.has_icon(icon)
+        return not (icon and iconset.has_icon(icon, scene_icons(item))
                     and item.look.icon_placement == "")
 
     def _refresh_doc_lines(self, scale: float | None = None, skip=None,

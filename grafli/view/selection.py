@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
 )
 from grafli import theme
+from grafli.iconset import BoardIcons
 from grafli.arrows import (
     _arrowhead_polygon,
     _dot_polygon,
@@ -287,10 +288,15 @@ class SelectionMixin:
             for nid, it in self._note_items.items()
         })
 
-    def load_board(self, board: Board):
+    def load_board(self, board: Board, board_file: Path | None = None):
+        """Show *board*. Its own symbols come from the icon folder beside
+        *board_file*, or beside the view's board file when that is not
+        given (a `&graph` miniature's view has none of its own)."""
         self._cancel_level_transition()
         self._reset_box_docs()
         self._board = board
+        self._scene.board_icons = BoardIcons.of(
+            board_file or self._board_file())
         self.load_map_palette()
         self._lod = LodModel.from_board(board)
         self._lod_simplified = set()

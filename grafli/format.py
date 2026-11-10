@@ -691,12 +691,15 @@ def escape_quoted(s: str) -> str:
     return s.replace('"', '\\"').replace("\n", "\\n")
 
 
+# The ``~size`` values a box takes (a palette kind's ``size`` too).
+BOX_SIZES = r'small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+'
+
 _RE_BOX = re.compile(
     r'^@\s+box\s+(\S+)\s+"' + _QT + r'"\s+'
     r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter|left))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
+    r'(?:\s+~(' + BOX_SIZES + r'))?'
     r'((?:\s+!(?:flat|card|ink|sans|dashed|dotted|round|pin|ratio|fit|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
@@ -726,7 +729,7 @@ _RE_NOTE = re.compile(
     r'^@\s+note\s+(?:([a-zA-Z_]\S*)\s+)?(-?[\d.]+),\s*(-?[\d.]+)'
     r'(?:\s+"' + _QT + r'")?'    # text slot — absent on doc-bodied notes
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
+    r'(?:\s+~(' + BOX_SIZES + r'))?'
     r'(?:\s+~width=(\d+))?'
     r'((?:\s+!(?:mono|sans|flat|ink|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
@@ -744,7 +747,7 @@ _RE_NOTE_BLOCK_START = re.compile(
 _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'^\s*"""'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
+    r'(?:\s+~(' + BOX_SIZES + r'))?'
     r'(?:\s+~width=(\d+))?'
     r'((?:\s+!(?:mono|sans|flat|ink|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'

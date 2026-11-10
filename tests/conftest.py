@@ -5,6 +5,7 @@ import gc
 import pytest
 
 from grafli import theme
+from grafli.map_palette import set_kinds
 
 
 @pytest.fixture(autouse=True)
@@ -18,9 +19,11 @@ def _pinned_theme():
     """
     theme.set_theme("light")
     theme.set_map_palette({})
+    set_kinds([])
     yield
     theme.set_theme("light")
     theme.set_map_palette({})
+    set_kinds([])
 
 
 @pytest.fixture(autouse=True)

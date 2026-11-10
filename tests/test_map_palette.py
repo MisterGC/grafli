@@ -359,6 +359,93 @@ def test_diagnose_warns_about_a_palette_it_cannot_read(tmp_path: Path):
     assert bad[0]["message"].startswith("map-res/palette.json: not JSON")
 
 
+# ── Kinds: an entry carries icon, outline, weight and size (#301) ──
+
+PLUGIN = {"color": "%teal", "label": "Plugin", "icon": "lead:puzzle",
+          "outline": "dashed", "bold": True, "size": "small"}
+
+
+def test_an_entry_may_carry_a_kind():
+    entries, problems = parse_palette(_palette({
+        "plugin": PLUGIN, "tool": {"color": "%primary", "size": 18},
+        "plain": {"color": HOT}}))
+    assert problems == []
+    plugin, tool, plain = entries
+    assert (plugin.icon, plugin.outline, plugin.bold, plugin.size) == (
+        "lead:puzzle", "dashed", True, "small")
+    assert plugin.is_kind and tool.is_kind and tool.size == "18"
+    assert not plain.is_kind
+
+
+def test_a_malformed_kind_is_reported_and_left_out():
+    entries, problems = parse_palette(_palette({
+        "noicon": {"color": HOT, "icon": "nosuch"},
+        "noplace": {"color": HOT, "icon": "side:gear"},
+        "wavy": {"color": HOT, "outline": "wavy"},
+        "loud": {"color": HOT, "bold": "yes"},
+        "huge": {"color": HOT, "size": "huge"},
+        "fine": {"color": HOT, "icon": "badge:star", "outline": "dotted"},
+    }))
+    assert [e.name for e in entries] == ["fine"]
+    assert [p.name for p in problems] == [
+        "noicon", "noplace", "wavy", "loud", "huge"]
+    assert "'nosuch' is not an icon" in problems[0].message
+
+
+def _kinded(*entries_json) -> None:
+    from grafli.map_palette import set_kinds
+    set_kinds(parse_palette(_palette(dict(entries_json)))[0])
+
+
+def test_a_box_of_a_kind_takes_its_icon_outline_weight_and_size():
+    from grafli.map_palette import look
+    _kinded(("plugin", PLUGIN))
+    box = parse('@ box a "A" 0,0 200x100 %plugin\n').boxes[0]
+    drawn = look(box)
+    assert (drawn.icon, drawn.icon_placement, drawn.border, drawn.emphasis,
+            drawn.textsize) == ("puzzle", "lead", "dashed", "bold", "small")
+    assert (box.icon, box.border, box.emphasis, box.textsize) == ("", "", "", "")
+
+
+def test_a_token_on_the_box_wins_over_its_kind():
+    from grafli.map_palette import look
+    _kinded(("plugin", PLUGIN))
+    box = parse('@ box a "A" 0,0 200x100 %plugin ~large !dotted !italic '
+                '*badge:star\n').boxes[0]
+    drawn = look(box)
+    assert (drawn.icon, drawn.icon_placement, drawn.border, drawn.textsize) == (
+        "star", "badge", "dotted", "large")
+    assert drawn.emphasis == "bold italic"
+
+
+def test_a_box_without_a_kind_draws_as_written():
+    from grafli.map_palette import look
+    _kinded(("plugin", PLUGIN), ("plain", {"color": HOT}))
+    for line in ('@ box a "A" 0,0 200x100 %plain\n',
+                 '@ box a "A" 0,0 200x100 %teal\n',
+                 '@ box a "A" 0,0 200x100\n'):
+        box = parse(line).boxes[0]
+        assert look(box) is box
+
+
+def test_a_kind_is_not_written_into_the_board():
+    _kinded(("plugin", PLUGIN))
+    text = '#!grafli v4\n@ box a "A" 0,0 200x100 %plugin\n'
+    board = parse(text)
+    board.palette_names = frozenset({"plugin"})
+    assert serialize(board) == text
+
+
+def test_diagnose_warns_about_a_malformed_kind(tmp_path: Path):
+    root, _ = _map(tmp_path)
+    (tmp_path / "map-res" / "palette.json").write_text(_palette({
+        "storage": {"color": HOT, "outline": "wavy"}}))
+    code, findings = _diagnose(root)
+    bad = [f for f in findings if f["code"] == "bad-palette"]
+    assert len(bad) == 1 and bad[0]["severity"] == "warning"
+    assert "'outline' must be" in bad[0]["message"]
+
+
 # ── Style mode `s` `c` ─────────────────────────────────────────────
 
 def _picker(tmp_path: Path, box_id: str = "items") -> GrafliView:

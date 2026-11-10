@@ -499,7 +499,7 @@ def test_straight_on_a_v1_arrow_lifts_the_board_to_v4():
     assert serialize(board).splitlines()[0] == "#!grafli v4"
 
 
-ROUND = ('#!grafli v4\n@ box start "" 0,0 40x40 %ink !round\n'
+ROUND = ('#!grafli v4\n@ box start "" 0,0 40x40 %primary !round\n'
          '@ box step "Bubble" 0,80 200x60 !dashed !round !pin\n')
 
 

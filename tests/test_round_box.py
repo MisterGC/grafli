@@ -187,8 +187,8 @@ def test_the_svg_export_draws_the_curve():
 
 def test_a_small_round_box_without_a_label_stays_a_circle():
     view = _view('#!grafli v4\n'
-                 '@ box s "" 0,0 24x24 %ink !round\n'
-                 '@ box p "" 0,100 24x24 %ink\n')
+                 '@ box s "" 0,0 24x24 %primary !round\n'
+                 '@ box p "" 0,100 24x24 %primary\n')
     s = view._box_items["s"]
     assert (s.box.w, s.box.h) == (24, 24)
     assert (s.rect().width(), s.rect().height()) == (24, 24)

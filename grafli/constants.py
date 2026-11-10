@@ -63,6 +63,12 @@ BOX_BORDER_WIDTH = 2
 # An uncoloured container's plate: the ink at this opacity over what is
 # behind it, so each nested level sits a shade deeper (#294).
 CONTAINER_PLATE_ALPHA = 0.05
+# WCAG AA: the contrast text needs on what it sits on, and the large text
+# (24 px, or 18.66 px bold) that may take the lower ratio.
+WCAG_AA_TEXT = 4.5
+WCAG_AA_LARGE_TEXT = 3.0
+WCAG_LARGE_TEXT_PX = 24.0
+WCAG_LARGE_BOLD_TEXT_PX = 18.66
 ARROW_WIDTH = 2
 ARROWHEAD_SIZE = 10
 ANNOTATION_ARROW_WIDTH = 1

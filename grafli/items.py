@@ -30,6 +30,10 @@ from grafli.constants import (
     SANS_FONT_FAMILY,
     HANDLE_SIZE,
     MIN_BOX_SIZE,
+    WCAG_AA_LARGE_TEXT,
+    WCAG_AA_TEXT,
+    WCAG_LARGE_BOLD_TEXT_PX,
+    WCAG_LARGE_TEXT_PX,
     container_title_px,
     resolve_textsize_px,
 )
@@ -685,10 +689,7 @@ class BoxLabelItem(QGraphicsTextItem):
         # nothing, so the contrast plate doesn't linger as an empty strip.
         if not self._box_item.box.label:
             return
-        # An `!ink` box draws its label in ink picked from the fill instead,
-        # so it needs no plate.
-        box = self._box_item.box
-        if theme.resolve_color(box.color) and not box.ink:
+        if self._box_item._label_on_plate():
             bg_rect = self._plate_rect()
             bg = QColor(theme.SURFACE)
             bg.setAlphaF(0.6)
@@ -878,6 +879,34 @@ class BoxItem(QGraphicsRectItem):
         if self.box.ink:
             return theme.ink_on(self._fill_color())
         return QColor(theme.INK)
+
+    def _label_ground(self) -> QColor:
+        """The colour the label reads against: the fill, a translucent one
+        as it shows over the canvas."""
+        fill = self._fill_color()
+        a = fill.alphaF()
+        if a >= 1.0:
+            return fill
+        bg = QColor(theme.SCENE_BG)
+        return QColor.fromRgbF(
+            bg.redF() + (fill.redF() - bg.redF()) * a,
+            bg.greenF() + (fill.greenF() - bg.greenF()) * a,
+            bg.blueF() + (fill.blueF() - bg.blueF()) * a)
+
+    def _label_on_plate(self) -> bool:
+        """True when a coloured box draws its label on the light plate: the
+        board ink on the fill falls below WCAG AA — 4.5:1, or 3:1 for large
+        text. Where it passes, the label sits on the fill itself (#300). An
+        ``!ink`` box picks its ink from the fill, so it never takes one."""
+        if not theme.resolve_color(self.box.color) or self.box.ink:
+            return False
+        font = self._box_font()
+        px = self.label_px()
+        large = px >= WCAG_LARGE_TEXT_PX or (
+            font.bold() and px >= WCAG_LARGE_BOLD_TEXT_PX)
+        need = WCAG_AA_LARGE_TEXT if large else WCAG_AA_TEXT
+        ratio = theme.contrast_ratio(self._label_ink(), self._label_ground())
+        return ratio < need
 
     def set_color(self, color: str):
         self.box.color = color

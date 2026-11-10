@@ -80,29 +80,18 @@ def test_the_four_fills_draw_no_plate_in_the_dark_theme():
         assert _plate_pixel(view, item).rgb() == item.brush().color().rgb(), name
 
 
-def test_soft_and_highlight_draw_no_plate_in_the_light_theme():
+def test_the_four_fills_draw_no_plate_in_the_light_theme():
     view = _view(_fills_board())
-    for name in ("soft", "highlight"):
+    for name in FILLS:
         item = view._box_items[name]
         assert not item._label_on_plate(), name
         assert _plate_pixel(view, item).rgb() == item.brush().color().rgb(), name
 
 
-def test_clay_and_teal_keep_the_plate_in_the_light_theme():
-    # The board ink reads at 3.39:1 on %clay and 3.78:1 on %teal, below AA.
-    view = _view(_fills_board())
-    for name in ("clay", "teal"):
-        item = view._box_items[name]
-        fill = item.brush().color()
-        assert item._label_on_plate(), name
-        assert theme.contrast_ratio(QColor(theme.INK), fill) < 4.5
-        assert (theme.contrast_ratio(QColor(theme.INK), _plate_pixel(view, item))
-                >= 4.5), name
-
-
 def test_a_large_label_takes_the_lower_aa_ratio():
-    view = _view(_board('@ box big "Big" 0,0 300x100 %clay ~xlarge',
-                        '@ box small "Small" 0,200 300x100 %clay'))
+    # The board ink reads at 4.2:1 on the light %accent: AA for large text.
+    view = _view(_board('@ box big "Big" 0,0 300x100 %accent ~xlarge',
+                        '@ box small "Small" 0,200 300x100 %accent'))
     assert not view._box_items["big"]._label_on_plate()
     assert view._box_items["small"]._label_on_plate()
 

@@ -255,8 +255,10 @@ LIGHT = Palette(
         "soft": "#B0A1CA",
         # Extended muted hues filling the gaps (red / teal / pink / deep green /
         # deep purple), tuned to the same desaturated, slightly-warm character.
-        "clay": "#C56C54",
-        "teal": "#3E9B92",
+        # %clay and %teal are light enough for the board ink to read on them
+        # at WCAG AA, so their labels need no plate (#300).
+        "clay": "#D08976",
+        "teal": "#44AAA0",
         "rose": "#C98BA8",
         "forest": "#3F7A57",
         "plum": "#8160A8",

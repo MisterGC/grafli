@@ -43,6 +43,7 @@ from grafli.arrows import (
     point_on_side,
     polyline_path,
     relax_positions,
+    round_ends,
     routed_path,
     self_loop_path,
     self_loop_ts,
@@ -904,6 +905,19 @@ class SelectionMixin:
                 bow_side = (anchors[1] if anchors and from_hull is None
                             else side_of_point(self._elem_rect(from_elem), start))
                 conn_path = bowed_path(start, end, bow_side, offset)
+
+            # A `!round` box is a circle or pill inside its rectangle (#307):
+            # an end on it runs on along its own direction to the outline.
+            # An end re-attached to a cluster hull already sits on that hull.
+            def round_rect(elem, hull):
+                if hull is None and isinstance(elem, Box) and elem.round:
+                    return self._elem_rect(elem)
+                return None
+            f_round = round_rect(from_elem, from_hull)
+            t_round = round_rect(to_elem, to_hull)
+            if f_round is not None or t_round is not None:
+                start, end, conn_path = round_ends(start, end, conn_path,
+                                                   f_round, t_round)
 
             connectors.append(_Connector(
                 fwd=fwd, rev=rev, from_id=from_id, to_id=to_id,

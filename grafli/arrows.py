@@ -1167,6 +1167,118 @@ def label_ground(board, from_id: str, to_id: str) -> set[str]:
     return out
 
 
+def _ray_circle(p: QPointF, d: tuple[float, float],
+                c: tuple[float, float], r: float) -> float | None:
+    """The first ``s >= 0`` at which ``p + s * d`` (``d`` a unit vector)
+    is on or inside the circle at ``c`` with radius ``r``."""
+    fx, fy = p.x() - c[0], p.y() - c[1]
+    b = fx * d[0] + fy * d[1]
+    disc = b * b - (fx * fx + fy * fy - r * r)
+    if disc < 0:
+        return None
+    root = math.sqrt(disc)
+    if -b + root < 0:
+        return None                        # the circle lies behind the ray
+    return max(0.0, -b - root)
+
+
+def _ray_rect(p: QPointF, d: tuple[float, float],
+              x0: float, y0: float, x1: float, y1: float) -> float | None:
+    """The first ``s >= 0`` at which ``p + s * d`` is inside the rectangle."""
+    lo, hi = 0.0, math.inf
+    for o, v, a, b in ((p.x(), d[0], x0, x1), (p.y(), d[1], y0, y1)):
+        if abs(v) < 1e-12:
+            if not a - 1e-9 <= o <= b + 1e-9:
+                return None
+            continue
+        t0, t1 = (a - o) / v, (b - o) / v
+        lo, hi = max(lo, min(t0, t1)), min(hi, max(t0, t1))
+    return lo if lo <= hi + 1e-9 else None
+
+
+def onto_round_outline(rect: tuple, p: QPointF,
+                       inward: tuple[float, float]) -> QPointF:
+    """Where a connector end on ``rect``'s edge meets a ``!round`` box.
+
+    A round box is a circle when square and a pill otherwise: the rectangle
+    with corners of half its shorter side, which lies inside the rectangle
+    and touches it only along the straight parts. ``p`` sits on the
+    rectangle's edge; the connector reaching it is carried on along
+    ``inward`` (the way it travels into the box) until it meets that
+    outline. A point already on it, or a line that would miss it, keeps
+    ``p``.
+    """
+    x, y, w, h = rect
+    length = math.hypot(*inward)
+    if length < 1e-12 or w <= 0 or h <= 0:
+        return QPointF(p)
+    d = (inward[0] / length, inward[1] / length)
+    r = min(w, h) / 2
+    if w >= h:
+        ends = ((x + r, y + r), (x + w - r, y + r))
+        core = (x + r, y, x + w - r, y + h)
+    else:
+        ends = ((x + r, y + r), (x + r, y + h - r))
+        core = (x, y + r, x + w, y + h - r)
+    hits = [s for s in (*(_ray_circle(p, d, c, r) for c in ends),
+                        _ray_rect(p, d, *core)) if s is not None]
+    if not hits:
+        return QPointF(p)
+    s = min(hits)
+    return QPointF(p.x() + d[0] * s, p.y() + d[1] * s)
+
+
+def _path_tangent(path: QPainterPath, at_end: bool) -> tuple[float, float]:
+    """The direction ``path`` travels at its start, or at its end."""
+    n = path.elementCount()
+    order = range(n - 1, -1, -1) if at_end else range(n)
+    first = None
+    for i in order:
+        e = path.elementAt(i)
+        if first is None:
+            first = (e.x, e.y)
+        elif math.hypot(e.x - first[0], e.y - first[1]) > 1e-9:
+            if at_end:
+                return (first[0] - e.x, first[1] - e.y)
+            return (e.x - first[0], e.y - first[1])
+    return (0.0, 0.0)
+
+
+def round_ends(start: QPointF, end: QPointF, path: QPainterPath | None,
+               from_rect: tuple | None, to_rect: tuple | None,
+               ) -> tuple[QPointF, QPointF, QPainterPath | None]:
+    """Carry a connector's ends onto the outline of a ``!round`` box.
+
+    ``from_rect`` / ``to_rect`` name the round box at that end, or None for
+    an end that stays where it is. A straight connector just has its ends
+    moved along its own line; a shaped one keeps its path and gains a short
+    run along its own direction at each moved end, so the arrowhead still
+    points the way the path travels.
+    """
+    if path is None:
+        dx, dy = end.x() - start.x(), end.y() - start.y()
+        if from_rect is not None:
+            start = onto_round_outline(from_rect, start, (-dx, -dy))
+        if to_rect is not None:
+            end = onto_round_outline(to_rect, end, (dx, dy))
+        return start, end, None
+    new_start, new_end = QPointF(start), QPointF(end)
+    if from_rect is not None:
+        tx, ty = _path_tangent(path, False)
+        new_start = onto_round_outline(from_rect, start, (-tx, -ty))
+    if to_rect is not None:
+        new_end = onto_round_outline(to_rect, end, _path_tangent(path, True))
+    if new_start == start and new_end == end:
+        return start, end, path
+    out = QPainterPath(new_start)
+    if new_start != start:
+        out.lineTo(start)
+    out.connectPath(path)
+    if new_end != end:
+        out.lineTo(new_end)
+    return new_start, new_end, out
+
+
 def path_end_angle(path: QPainterPath, at_end: bool = True) -> float:
     """Direction the path is travelling at one of its ends, in radians.
 

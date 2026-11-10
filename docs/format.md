@@ -391,6 +391,10 @@ all, in the app, `grafli render` and the exports.
 | name | Lowercase letters (`a`–`z`), like a theme token; may not be a theme token's name |
 | `color` | A theme token (`%teal`, follows light and dark) or `#rrggbb` |
 | `label` | Shown in the colour grid and the legend; the name, capitalised, when missing |
+| `icon` | *(optional)* An icon, written as after `*` on a box: `puzzle` fills the box, `lead:puzzle` sits left of the label, `badge:star` in the top-right corner |
+| `outline` | *(optional)* `dashed` or `dotted`, as `!dashed` / `!dotted` |
+| `bold` | *(optional)* `true` sets the label bold, as `!bold` |
+| `size` | *(optional)* The label size, as `~size`: `small`, `large`, `xlarge`, … or a pixel number such as `18` |
 
 A name that shadows a theme token (`"teal"`) is ignored — the token wins —
 and `grafli diagnose` reports it as an error; an entry it cannot read is a
@@ -398,6 +402,50 @@ warning, and a `%name` that is neither a token nor an entry is the usual
 `unknown-color` warning. A board using a palette entry carries a
 `#!grafli v4` header. Style mode → `c` lists the entries below the theme
 colours. The file is watched: an edit recolours the open board.
+
+### A kind of box
+
+An entry that names an `icon`, an `outline`, `bold` or a `size` is a whole
+kind of box: a box coloured with it takes all of them, so a board that shows
+kinds of things — tools, plugins, third-party parts, states and
+pseudo-states — does not repeat the same tokens on every box of a kind.
+grafli gives the kinds no meaning; the map's author names them.
+
+```json
+{
+  "entries": {
+    "tool":   {"color": "%primary", "label": "Tool"},
+    "plugin": {"color": "%teal", "label": "Plugin",
+               "icon": "lead:puzzle", "outline": "dashed", "size": "small"},
+    "vendor": {"color": "%muted", "label": "Third party",
+               "outline": "dotted", "bold": true}
+  }
+}
+```
+
+```
+@ box lint "Linter" 0,0 200x80 %plugin
+@ box fmt "Formatter" 240,0 200x80 %plugin *lead:gear
+```
+
+Both boxes draw teal with a dashed outline and a small label; `lint` leads
+with the puzzle icon, `fmt` with the gear written on it. A token written on
+the box wins over its kind's: `*…` replaces the icon, `!dashed` / `!dotted`
+the outline, `~size` the size, and `!italic` adds to the kind's bold. No
+token takes a part of a kind away — there is no solid outline or plain
+weight to write — so a box that should look otherwise takes another entry.
+The `.grafli` keeps only what is written on the box: editing the entry
+changes every box of the kind, in the app, `grafli render` and every export.
+A kind shapes boxes only; a note, status label or connector coloured with
+it takes its colour. An entry whose kind it cannot read — an unknown icon,
+an outline other than `dashed` or `dotted` — is left out and
+`grafli diagnose` warns about it (`bad-palette`).
+
+In style mode → `c` a kind's swatch shows its icon and outline, and
+<kbd>1</kbd>–<kbd>9</kbd> apply the palette's first nine entries at once,
+in the file's order, as picking one with <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd>
+and <kbd>Enter</kbd> would. The legend lists a kind like any entry, by its
+swatch and label.
 
 The palette is also the map's legend: <kbd>Shift</kbd>+<kbd>M</kbd> (or
 *Legend* in the side panel's *View* section) shows a card in the canvas's

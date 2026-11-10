@@ -709,6 +709,14 @@ them all, in the app, `render` and the exports.
 * `color` is a theme token (follows light/dark) or `#RRGGBB`; `label` is
   what the colour grid (`s` `c`) shows.
 * A board using a palette name is written `#!grafli v4`.
+* An entry can carry a whole kind of box: `icon` (as after `*`:
+  `lead:puzzle`), `outline` (`dashed` / `dotted`), `bold` (`true`) and
+  `size` (a `~size` value). `%plugin` then gives a box its fill, icon,
+  outline, weight and label size at once; a token written on the box wins
+  over its kind's. When a board shows kinds of things (tools vs plugins vs
+  third party, states vs pseudo-states), define each kind once here
+  instead of repeating `*lead:… !dashed ~small` on every box. A kind shapes
+  boxes only; notes and connectors take just its colour.
 * The palette is the map's legend — don't hand-draw a key note. The user
   toggles it with `Shift+M`; for a picture or a deck pass `--legend` to
   `grafli render` or `grafli export` (PDF or PPTX). It lists the entries the board

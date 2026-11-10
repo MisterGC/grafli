@@ -358,6 +358,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `grafli render --legend` and `grafli export --legend` do the same from the
   command line. Nothing in the `.grafli` changes.
   ([#214](https://github.com/MisterGC/grafli/issues/214))
+- **A palette entry can carry a whole kind of box.** A board that shows
+  kinds of things — tools, plugins, third-party parts — used to repeat the
+  same tokens, such as `*lead:puzzle !dashed ~small`, on every box of a
+  kind. An entry in the map's `palette.json` can now name an icon, a dashed
+  or dotted outline, a bold label and a label size besides its colour, and
+  `%plugin` gives a box all of them at once. A token written on the box
+  still wins over its kind's, and the `.grafli` keeps only what is written
+  on the box, so editing the entry changes every box of the kind. In style
+  mode's colour grid (<kbd>s</kbd> <kbd>c</kbd>) a kind's swatch shows its
+  icon and outline, and <kbd>1</kbd>–<kbd>9</kbd> apply the palette's first
+  nine entries in one key.
+  ([#301](https://github.com/MisterGC/grafli/issues/301))
 - **Overlays render outside the app.** An overlay file shown with
   <kbd>A</kbd> used to stay on screen: renders and decks came out plain, so
   a review could not see status or coverage. While one is on, the SVG/PNG

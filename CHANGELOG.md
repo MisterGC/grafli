@@ -103,6 +103,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/mcp__grafli__connect`, both tell it to read the guide before its first
   edit, unless the skill is already loaded there.
   ([#302](https://github.com/MisterGC/grafli/issues/302))
+- **The installed skill carries the example boards it points to.** The
+  skill's playbooks tell the agent to copy boards such as
+  `examples/architecture.grafli`, but `grafli skill install` copied only
+  the skill and its reference files, so outside a grafli clone the agent
+  could not open them. It now also copies every board the skill names,
+  with its `-res` folder, into an `examples/` folder beside `SKILL.md`,
+  and `grafli skill check` reports an install without them as out of
+  date.
+  ([#308](https://github.com/MisterGC/grafli/issues/308))
+- **The skill draws state machines.** A new entry in its encoding
+  catalogue answers "which states can it be in, and what moves it between
+  them?": one box per state and an arrow for every transition, the error
+  and retry ones too, each labelled `event [guard] / action`, such as
+  `error [retries left] / retries -= 1`. The start is a small round dot,
+  end states are round, a transition that stays in its state loops on the
+  box.
+  ([#308](https://github.com/MisterGC/grafli/issues/308))
 - **`grafli fmt` — canonical form for hand- and agent-authored boards.**
   Boards written outside the app never pass through its save path, so their
   coordinates and token spacing drift from what the app would write and the
@@ -456,6 +473,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#307](https://github.com/MisterGC/grafli/issues/307))
 
 ### Changed
+- **Software diagrams from the skill draw only the arrows their question
+  asks for, and their icons say what kind of thing a box is.** The skill
+  told agents to leave symbols off software diagrams and never said which
+  relations become arrows, so boards either drew every relation or left
+  out the ones that mattered. Each recipe (architecture, state machine,
+  behavioral, design) now says which relations are its arrows; a relation
+  the question does not ask about goes into the doc line under its box.
+  An architecture board takes each kind of thing (a process of yours, a
+  browser tab, a tool that is not yours, a file) from the map's palette
+  with its colour, icon and outline, titles its layers as headings, and
+  shows the key with `grafli render --legend`. The new
+  `examples/live-session.grafli` is drawn this way: grafli's live session,
+  where every edit, a tab's or the agent's, lands through one merge.
+  Sketchnotes and infographics keep their own symbol rules.
+  ([#308](https://github.com/MisterGC/grafli/issues/308))
 - **A coloured box draws its label on the fill where it reads there.**
   Every filled box drew its label on a lighter plate inside the fill, so
   a coloured box read as a box inside a box. The plate now shows only

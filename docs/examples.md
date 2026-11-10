@@ -23,6 +23,21 @@ git clone https://github.com/MisterGC/grafli.git
 grafli grafli/examples/architecture.grafli
 ```
 
+## Architecture with kinds
+
+`examples/live-session.grafli` is the skill's architecture exemplar, on
+grafli's own live session: every edit, a tab's or the agent's, lands in
+the file through one merge. Its arrows are only the paths a write takes;
+everything else true of a box — how a key decides what a tab may do, who
+draws each version — is the one-line doc under that box. Each box takes
+its kind (browser tab, grafli process, the presenter's own session, a
+file) from `live-session-res/palette.json` with its colour and icon, and
+<kbd>Shift</kbd>+<kbd>M</kbd> shows the legend:
+
+```bash
+grafli render grafli/examples/live-session.grafli live.png --legend
+```
+
 ## Bookmarks & flows demo
 
 `examples/flows-demo.grafli` is a small six-service architecture wired up with

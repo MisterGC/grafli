@@ -53,11 +53,12 @@ thinking boards, explanation maps) — deep coverage without a heavyweight promp
 ## Install
 
 The skill ships **inside the Python package** as a directory —
-`SKILL.md` plus its `references/` files. The built-in installer places
+`SKILL.md`, its `references/` files and an `examples/` folder holding the
+example boards the references point to. The built-in installer places
 it where your AI tool expects skills:
 
 ```bash
-# Install for one or all supported tools (copies SKILL.md + references/)
+# Install for one or all supported tools (copies SKILL.md, references/, examples/)
 grafli skill install claude
 grafli skill install all
 

@@ -194,3 +194,68 @@ def test_a_small_round_box_without_a_label_stays_a_circle():
     assert (s.rect().width(), s.rect().height()) == (24, 24)
     # A square-cornered box keeps growing to fit its line as it always has.
     assert view._box_items["p"].box.h > 24
+
+
+# ── Style mode: `s` then `r` ───────────────────────────────────────
+
+def _style_view(src: str):
+    from grafli.view import Mode
+    view = _view("#!grafli v1\n" + src)
+    view.resize(900, 600)
+    view._mode = Mode.SELECT
+    return view
+
+
+def _press(view, *keys):
+    from PySide6.QtTest import QTest
+    for key in keys:
+        QTest.keyClick(view, key)
+
+
+def test_s_r_makes_a_box_round_and_again_square():
+    from PySide6.QtCore import Qt
+    from grafli.format import serialize
+    view = _style_view('@ box a "A" 0,0 160x60\n')
+    item = view._box_items["a"]
+    item.setSelected(True)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_R)
+    assert view.board.box_by_id("a").round
+    assert item.corner_radius(item.rect()) == 30
+    out = serialize(view.board)
+    assert '160x60 !round' in out and out.startswith("#!grafli v4\n")
+    _press(view, Qt.Key.Key_R)                  # still in style mode
+    assert not view.board.box_by_id("a").round
+    assert item.corner_radius(item.rect()) == BOX_RADIUS
+
+
+def test_s_r_is_undoable():
+    view = _style_view('@ box a "A" 0,0 160x60\n')
+    view._box_items["a"].setSelected(True)
+    before = len(view._undo_stack)
+    view._toggle_round()
+    assert view.board.box_by_id("a").round
+    assert len(view._undo_stack) == before + 1
+    view._undo()
+    assert not view.board.box_by_id("a").round
+
+
+def test_s_r_rounds_the_whole_selection_unless_all_are_round():
+    view = _style_view('@ box a "A" 0,0 160x60\n'
+                       '@ box b "B" 0,100 60x60 !round\n')
+    for key in ("a", "b"):
+        view._box_items[key].setSelected(True)
+    view._toggle_round()
+    assert [b.round for b in view.board.boxes] == [True, True]
+    view._toggle_round()
+    assert [b.round for b in view.board.boxes] == [False, False]
+
+
+def test_s_r_moves_the_arrow_ends_onto_the_outline():
+    view = _style_view('@ box a "" 0,0 60x60\n'
+                       '@ box b "" 300,300 60x60\n'
+                       '@ arrow a -> b "go"\n')
+    view._box_items["b"].setSelected(True)
+    view._toggle_round()
+    view._redraw_arrows()
+    _start, end, _path = _ends(view)
+    assert _off_outline((300, 300, 60, 60), end) < 1e-6

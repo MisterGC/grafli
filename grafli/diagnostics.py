@@ -26,7 +26,8 @@ from grafli.constants import (
 from grafli.format import (
     Arrow, Board, Box, Image, Note, parse, resolve_code_ref,
 )
-from grafli.iconset import ICON_NAMES, has_icon
+from grafli.iconset import (BOARD_ICON_DIR, ICON_NAMES, BoardIcons,
+                            board_icon_dir, has_icon)
 
 
 # Optional callable that returns a note's rendered scene rect
@@ -770,13 +771,19 @@ def check_stale_source(
     )]
 
 
-def check_unknown_icon(board: Board) -> list[Diagnostic]:
-    """A ``*name`` symbol the iconset doesn't know fails silently at paint
-    time — surface the typo, and the nearest real symbol, here."""
+def check_unknown_icon(board: Board,
+                       grafli_path: Path | None = None) -> list[Diagnostic]:
+    """A ``*name`` symbol that is neither built in nor in the board's icon
+    folder (``<stem>-res/icons/<name>.svg``, issue #299) fails silently at
+    paint time — surface the typo, and the nearest real symbol, here."""
+    icons = BoardIcons.of(grafli_path)
+    known = ICON_NAMES + (icons.names() if icons is not None else [])
+    where = (f"built in nor in {board_icon_dir(grafli_path).parent.name}/"
+             f"{BOARD_ICON_DIR}/" if grafli_path is not None else "")
     diags: list[Diagnostic] = []
     for el in list(board.boxes) + list(board.notes):
-        if el.icon and not has_icon(el.icon):
-            near = difflib.get_close_matches(el.icon, ICON_NAMES, n=1)
+        if el.icon and not has_icon(el.icon, icons):
+            near = difflib.get_close_matches(el.icon, known, n=1)
             suggestion = near[0] if near else None
             hint = f" — did you mean *{suggestion}?" if suggestion else ""
             fix = None
@@ -788,8 +795,9 @@ def check_unknown_icon(board: Board) -> list[Diagnostic]:
             diags.append(Diagnostic(
                 code="unknown-icon",
                 severity=WARNING,
-                message=(f"{el.id!r} uses unknown symbol *{el.icon}{hint} — "
-                         "it will not render"),
+                message=(f"{el.id!r} uses unknown symbol *{el.icon}"
+                         + (f", neither {where}" if where else "")
+                         + f"{hint} — it will not render"),
                 item_ids=[el.id],
                 fixable=True,
                 fix=fix,
@@ -925,7 +933,7 @@ def run_all(
     diags.extend(check_parse_errors(board))
     diags.extend(check_palette(grafli_path))
     diags.extend(check_overlays(board, grafli_path))
-    diags.extend(check_unknown_icon(board))
+    diags.extend(check_unknown_icon(board, grafli_path))
     diags.extend(check_unknown_color(board))
     diags.extend(check_child_outside_parent(board, note_rect=note_rect))
     diags.extend(check_sibling_overlap(board, note_rect=note_rect))

@@ -354,3 +354,39 @@ def test_without_own_icons_the_grid_keeps_its_two_blocks(tmp_path):
     view._open_icon_picker()
     assert [b[0] for b in view._ICON_BLOCKS] == ["semantic", "emphasis"]
     assert view._ICON_ENTRIES == [""] + iconset.ICON_NAMES
+
+
+# ── diagnose ────────────────────────────────────────────────────
+
+def _unknown(path: Path) -> list:
+    from grafli.diagnostics import run_all
+    board = parse(path.read_text(encoding="utf-8"))
+    return [d for d in run_all(board, base_dir=path.parent, grafli_path=path)
+            if d.code == "unknown-icon"]
+
+
+def test_diagnose_knows_the_boards_icons(tmp_path):
+    path = _board(tmp_path, '@ box a "A" 0,0 100x100 *monitor\n'
+                            '@ note n 0,200 *badge:monitor\n',
+                  {"monitor.svg": SQUARE})
+    assert _unknown(path) == []
+
+
+def test_diagnose_reports_a_name_found_nowhere(tmp_path):
+    path = _board(tmp_path, '@ box a "A" 0,0 100x100 *monitr\n'
+                            '@ box b "B" 200,0 100x100 *zzqqxx\n',
+                  {"monitor.svg": SQUARE})
+    found = {d.item_ids[0]: d for d in _unknown(path)}
+    assert set(found) == {"a", "b"}
+    assert "neither built in nor in board-res/icons/" in found["a"].message
+    assert "did you mean *monitor?" in found["a"].message
+    assert found["a"].fix["new"] == "monitor"
+    assert found["b"].fix is None
+
+
+def test_the_diagnose_cli_passes_a_board_using_its_icons(tmp_path, capsys):
+    from grafli.app import _cmd_diagnose
+    path = _board(tmp_path, '@ box a "A" 0,0 100x100 *lead:monitor\n',
+                  {"monitor.svg": SQUARE})
+    _cmd_diagnose([str(path)])
+    assert "unknown-icon" not in capsys.readouterr().out

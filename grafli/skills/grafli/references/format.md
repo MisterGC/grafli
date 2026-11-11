@@ -103,7 +103,10 @@ built-in name wins over a file of the same name. `currentColor`, black and
 an unset fill draw in the board ink, so a single-colour icon (Lucide,
 Tabler, Feather style) reads like a built-in symbol; other colours stay.
 `grafli diagnose` reports a `*name` found neither among the built-in
-symbols nor in the folder. Prefer a built-in symbol when one fits.
+symbols nor in the folder. Prefer a built-in symbol when one fits. An
+icon for a box always goes this way, as `*lead:<name>` on the box — not
+as an `@ image` placed over it, which neither moves nor tints with the
+box and leaves the label running under it.
 
 Container behavior: when a box has children, its anchor auto-switches
 to `^topleft` and its title turns bold, sized by level: 16 pt at the top
@@ -113,13 +116,23 @@ inside that is as large — always above the box labels it holds. Without a colo
 Child positions use absolute coordinates — see the container layout
 model in `references/design.md`.
 
-**Boxes are identifiers, not bodies.** A box label should be the
-shortest phrase that names the node — typically one line, two at
-most. If you're tempted to add bullet points, pseudocode,
-behavioral detail, or a multi-paragraph description inside a box
-label, that content belongs in a `code:` or plain note next to the
-box, or in the box's own `&doc` (its first sentence shows on one line
-under the label, `gv` peeks the rest) — not inside the label. Notes
+**Boxes are identifiers, not bodies.** A box label is a title: the
+shortest phrase that names the node, one line, or two with `\n` for a
+short two-line name. Specs, bullet points, pseudocode, behavioral
+detail or a description never go into the label as more lines — that
+content belongs in the box's own `&doc` (its first sentence shows on
+one line under the label as the doc line, `gv` peeks the rest), in a
+note the box owns as a `!card` body, or in a `code:` or plain note
+next to the box. `grafli diagnose` warns on a label of three or more
+lines (`label-lines`).
+
+```
+@ box cpu "CPU: 486" 0,0 300x110 *lead:chip &doc:cpu
+```
+
+with `<stem>-res/cpu.md` starting `80486 DX4 at 100 MHz.` and the rest
+(the FPU, the cache, the transistor count) in the lines after it, and
+`chip` a board's own icon at `<stem>-res/icons/chip.svg` (below). Notes
 carry distinct visual affordances (badge colours for `T:` / `Q:`,
 handwriting font, syntax-styled `code:` rendering) that you forfeit
 by inlining the detail. The shape of your diagram is the graph; the

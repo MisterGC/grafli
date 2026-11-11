@@ -187,7 +187,9 @@ or spans multiple lines.
 | <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Toggle light / dark theme |
 | <kbd>F1</kbd> | In-app cheat sheet and text-annotation reference |
 
-The full set is in the in-app <kbd>F1</kbd> dialog and on the documentation site.
+The full set is in the in-app <kbd>F1</kbd> dialog and on the documentation site;
+[grafli at a glance](https://grafli.mistergc.dev/at-a-glance.html) shows every
+key grouped by mode, and how to work with your agent, on one page.
 
 ## Project
 

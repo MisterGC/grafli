@@ -686,6 +686,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **A small image shows its picture at 100%.** An image under 32 px on
+  a side, such as a 30x30 SVG icon, drew the zoomed-out stand-in — a
+  grey plate with an "SVG" tag — even at 100% zoom, on the canvas, in
+  `grafli render` and in the live tab. An image now keeps its picture
+  until it is drawn at less than half its own size; a big image still
+  swaps for the stand-in at 32 px on screen when zoomed far out.
+  ([#327](https://github.com/MisterGC/grafli/issues/327))
 - **Number markers read at board zoom.** On a 200x70 box at 100% zoom
   `*badge:1` drew a ring with a digit about 4 px tall, which read as an
   empty circle, and `*1` drew a digit about 10 px tall above the label.

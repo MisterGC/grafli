@@ -3632,9 +3632,12 @@ IMAGE_FIT_W = 320.0
 IMAGE_FIT_H = 240.0
 
 # Below this on-screen size (shorter side, px) an image paints a generic
-# indicator instead of shrunken artwork (#150). Sits under the 40px minimum
-# element size, so at 100% zoom even the smallest image still shows its art.
+# indicator instead of shrunken artwork (#150).
 IMAGE_LOD_PX = 32.0
+# ... but only once it is drawn at less than this share of its own size: an
+# image smaller than IMAGE_LOD_PX (a 30x30 icon) shows its art at 100% and
+# swaps for the indicator only when zoomed out (#327).
+IMAGE_LOD_MIN_SCALE = 0.5
 
 
 def default_image_size(natural_w: float, natural_h: float,
@@ -3947,10 +3950,13 @@ class ImageItem(QGraphicsPixmapItem):
         """Whether the zoomed-out generic indicator replaces the artwork.
 
         Stateless — a pure function of the current zoom — so geometry,
-        connectors, and high-resolution exports are untouched (#150).
+        connectors, and high-resolution exports are untouched (#150). The
+        threshold is IMAGE_LOD_PX on screen, or half the image's own size
+        when that is smaller, so a small image keeps its art at 100% (#327).
         """
-        short = min(self.image.w, self.image.h) * _view_scale(self)
-        return short < IMAGE_LOD_PX
+        own = min(self.image.w, self.image.h)
+        threshold = min(IMAGE_LOD_PX, own * IMAGE_LOD_MIN_SCALE)
+        return own * _view_scale(self) < threshold
 
     def _paint_lod_indicator(self, painter: QPainter, target: QRectF):
         """A calm stand-in at thumbnail size: muted plate, picture glyph,

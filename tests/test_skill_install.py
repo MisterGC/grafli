@@ -289,6 +289,15 @@ def test_status_modified_when_example_edited(isolated_targets):
                           EXAMPLES).status == MODIFIED
 
 
+def test_status_ok_with_finder_files_in_examples(isolated_targets):
+    write_skill("claude", SAMPLE, "0.5.0", REFS, EXAMPLES)
+    ex_dir = isolated_targets["claude"] / "examples"
+    (ex_dir / ".DS_Store").write_bytes(b"\x00\x00\x00\x01Bud1")
+    (ex_dir / "demo-res" / ".DS_Store").write_bytes(b"\x00\x00\x00\x01Bud1")
+    assert compute_status("claude", SAMPLE, "0.5.0", REFS,
+                          EXAMPLES).status == OK
+
+
 def test_status_stale_for_install_without_examples(isolated_targets):
     write_skill("claude", SAMPLE, "0.4.0", REFS)
     assert compute_status("claude", SAMPLE, "0.5.0", REFS,

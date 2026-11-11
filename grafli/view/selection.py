@@ -502,11 +502,21 @@ class SelectionMixin:
         depend on font metrics and break the parity between the app and a
         headless render. Boxes swallowed by a collapsed cluster are left out;
         they aren't on screen to be crossed.
+
+        An open container is left out too (#326): an arrow that only passes
+        one is drawn behind it (#283), so the space between its children is
+        free to cross, and its children are obstacles of their own. Counted
+        whole, a layer between two others blocked every straight route and
+        sent an arrow round it along the board's edge. Zoomed out, a container
+        folded into a tile is solid again, and what it holds is hidden.
         """
         if not self._board:
             return {}
+        parents = {b.parent for b in self._board.boxes if b.parent}
         return {b.id: QRectF(b.x, b.y, b.w, b.h) for b in self._board.boxes
-                if self._lod_hull_member.get(b.id) is None}
+                if self._lod_hull_member.get(b.id) is None
+                and self._lod_reroute(b.id) == b.id
+                and (b.id not in parents or b.id in self._lod_collapsed)}
 
     def _live_pins(self, from_id: str, to_id: str,
                    arrow: Arrow) -> tuple[str, str]:

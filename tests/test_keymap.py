@@ -102,6 +102,13 @@ def test_the_help_shows_every_key_of_the_table(help_tabs, where, tab):
         assert g.title.upper() in text, g.id
 
 
+def test_the_style_grids_name_their_own_keys():
+    symbols = keymap.find("style", "i").does
+    assert "0\u20139 a number badge" in symbols and "f filled" in symbols
+    text = keymap.find("style", "t").does
+    assert "o outline" in text and "s shadow" in text
+
+
 def test_the_help_filter_keeps_only_matching_rows():
     _app()
     from grafli.view.overlays import cheatsheet_html

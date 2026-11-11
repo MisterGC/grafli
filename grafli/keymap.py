@@ -170,8 +170,8 @@ _APP_GROUPS = (
           blurb="s on a selection; the same keys for box, note, arrow", keys=(
         key("e", "Appearance: plate / flat / card, label spot (left: a band zoomed out), ink, outline"),
         key("c", "Color grid, then the map palette's %names and kinds (hjkl, Enter; 1–9 an entry)"),
-        key("i", "Symbol grid, then the board's own icons from -res/icons/ (Tab: fill / lead / badge)"),
-        key("t", "Text grid: size × bold / italic (Tab: the font)"),
+        key("i", "Symbol grid, then the board's own icons from -res/icons/ (Tab: fill / lead / badge; 0–9 a number badge, f filled)"),
+        key("t", "Text grid: size × bold / italic (Tab: the font; o outline, s shadow)"),
         key("s", "Status label on a box (~status=), then its colour"),
         key("r", "Round box: a circle when square, a pill otherwise"),
         key("j / k", "Nudge text size"),

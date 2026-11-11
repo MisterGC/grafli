@@ -82,7 +82,51 @@ def test_lod_indicator_paint_smoke(tmp_path: Path):
 
 
 def test_smallest_image_still_shows_art_at_full_zoom(tmp_path: Path):
-    # The 40px minimum element size sits above the indicator threshold.
     view = _view('@ image i1 "art.svg" 0,0 40x40\n', tmp_path)
-    assert 40 >= IMAGE_LOD_PX
     assert not view._image_items["i1"]._lod_indicator()
+
+
+def test_an_image_under_the_threshold_shows_its_art_at_full_zoom(tmp_path):
+    # A 30x30 icon is smaller than IMAGE_LOD_PX on screen at 100% (#327).
+    view = _view('@ image i1 "art.svg" 0,0 30x30\n', tmp_path)
+    item = view._image_items["i1"]
+    assert 30 < IMAGE_LOD_PX
+    assert not item._lod_indicator()
+    view.scale(0.6, 0.6)                    # 18px, still over half its size
+    assert not item._lod_indicator()
+    view.resetTransform()
+    view.scale(0.4, 0.4)                    # 12px: zoomed out, indicator
+    assert item._lod_indicator()
+
+
+def test_a_big_image_keeps_the_indicator_threshold(tmp_path: Path):
+    # #150: a big image swaps at IMAGE_LOD_PX on screen, not at half size.
+    view = _view('@ image i1 "art.svg" 0,0 300x300\n', tmp_path)
+    item = view._image_items["i1"]
+    view.scale(0.11, 0.11)                  # 33px on screen
+    assert not item._lod_indicator()
+    view.resetTransform()
+    view.scale(0.1, 0.1)                    # 30px on screen
+    assert item._lod_indicator()
+
+
+def _render(tmp: Path, src: str) -> QImage:
+    from grafli.app import _cmd_render
+    (tmp / "art.svg").write_bytes(SVG)
+    board = tmp / "b.grafli"
+    board.write_text("#!grafli v1\n" + src, encoding="utf-8")
+    out = tmp / "b.png"
+    assert _cmd_render([str(board), str(out), "--padding", "0"]) == 0
+    return QImage(str(out))
+
+
+def _art_pixels(img: QImage) -> int:
+    """Pixels of the test art's fill (#36a)."""
+    return sum(1 for y in range(img.height()) for x in range(img.width())
+               if img.pixelColor(x, y).name() == "#3366aa")
+
+
+def test_grafli_render_draws_a_small_images_art(tmp_path: Path):
+    QApplication.instance() or QApplication([])
+    img = _render(tmp_path, '@ image i1 "art.svg" 0,0 30x30\n')
+    assert _art_pixels(img) > 0.5 * img.width() * img.height() * 0.5

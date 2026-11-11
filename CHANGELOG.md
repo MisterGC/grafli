@@ -709,6 +709,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   between the layers. Zoomed out, an end that has moved to a container
   is no longer pinned. At full zoom the pins hold as before.
   ([#326](https://github.com/MisterGC/grafli/issues/326))
+- **A right-angle arrow that skips a layer crosses it where it is empty.**
+  On a board of stacked layer containers, an `!ortho` arrow from a box in
+  one layer to the box straight below it two layers down treated the
+  layer in between as one solid block. It went out to the board's edge,
+  down past the layer and back in. It now runs straight down through the
+  layer's empty space, drawn behind it, and steps round only the boxes
+  inside it. Zoomed out, a layer folded into a tile is still solid.
+  ([#326](https://github.com/MisterGC/grafli/issues/326))
 - **Number markers read at board zoom.** On a 200x70 box at 100% zoom
   `*badge:1` drew a ring with a digit about 4 px tall, which read as an
   empty circle, and `*1` drew a digit about 10 px tall above the label.

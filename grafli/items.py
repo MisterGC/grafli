@@ -666,6 +666,13 @@ class ResizeForeshadow(QGraphicsItem):
         painter.drawRoundedRect(body, 1.5, 1.5)
 
 
+# The light plate under a box label: translucent on a fill, near opaque over
+# an image, where SURFACE at this opacity keeps the board ink at WCAG AA on
+# black and on white in both themes (#325).
+LABEL_PLATE_ALPHA = 0.6
+IMAGE_LABEL_PLATE_ALPHA = 0.85
+
+
 class BoxLabelItem(QGraphicsTextItem):
     """Scene-level label for a BoxItem, renders above arrows."""
 
@@ -702,10 +709,11 @@ class BoxLabelItem(QGraphicsTextItem):
         # nothing, so the contrast plate doesn't linger as an empty strip.
         if not self._box_item.box.label:
             return
-        if self._box_item._label_on_plate():
+        alpha = self._box_item._label_plate_alpha()
+        if alpha:
             bg_rect = self._plate_rect()
             bg = QColor(theme.SURFACE)
-            bg.setAlphaF(0.6)
+            bg.setAlphaF(alpha)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(bg))
@@ -928,12 +936,48 @@ class BoxItem(QGraphicsRectItem):
         """The colour the label reads against: the fill as it shows."""
         return self._shown_fill()
 
+    def _label_over_image(self) -> bool:
+        """True when an image shows under the label: it overlaps the label
+        and is drawn above the box, or shows through a translucent fill."""
+        view = _get_view(self)
+        images = getattr(view, "_image_items", None) or {}
+        if not images:
+            return False
+        plate = self._label.mapRectToScene(self._label._plate_rect())
+        opaque = (self.brush().style() != Qt.BrushStyle.NoBrush
+                  and self.brush().color().alphaF() >= 1.0)
+        for image in images.values():
+            if (not image.isVisible()
+                    or not image.sceneBoundingRect().intersects(plate)):
+                continue
+            if opaque and image.zValue() < self.zValue():
+                continue
+            return True
+        return False
+
+    def _label_plate_alpha(self) -> float:
+        """How opaque the light plate under the label is; 0 for none.
+
+        Over an image, whose colours the ink cannot be checked against, the
+        plate is near opaque, so the board ink reads at WCAG AA on any
+        picture (#325). On a coloured fill it shows where the board ink
+        falls below AA — 4.5:1, or 3:1 for large text — and the label sits
+        on the fill itself where it passes (#300). An ``!ink`` box picks its
+        ink from the fill, so it never takes one."""
+        if self.box.ink:
+            return 0.0
+        if self._label_over_image():
+            return IMAGE_LABEL_PLATE_ALPHA
+        return LABEL_PLATE_ALPHA if self._fill_needs_plate() else 0.0
+
     def _label_on_plate(self) -> bool:
-        """True when a coloured box draws its label on the light plate: the
-        board ink on the fill falls below WCAG AA — 4.5:1, or 3:1 for large
-        text. Where it passes, the label sits on the fill itself (#300). An
-        ``!ink`` box picks its ink from the fill, so it never takes one."""
-        if not theme.resolve_color(self.box.color) or self.box.ink:
+        """True when the box draws its label on the light plate."""
+        return self._label_plate_alpha() > 0.0
+
+    def _fill_needs_plate(self) -> bool:
+        """True when the board ink on the box's coloured fill falls below
+        WCAG AA."""
+        if not theme.resolve_color(self.box.color):
             return False
         font = self._box_font()
         px = self.label_px()

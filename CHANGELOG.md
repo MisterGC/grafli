@@ -497,9 +497,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dark fill such as `%primary` keeps the plate. For this the light theme's
   `%clay` is lighter (`#C56C54` → `#D08976`) and so is its `%teal`
   (`#3E9B92` → `#44AAA0`), so a board using them looks a shade paler. A
-  coloured box inside another one is judged against what it shows on.
-  `grafli render` draws it the same way.
-  ([#300](https://github.com/MisterGC/grafli/issues/300))
+  coloured box inside another one is judged against what it shows on. A
+  box label over an image, coloured or plain, sits on a near-opaque plate,
+  so CPU, RAM and Storage labels on a motherboard picture read whatever
+  the picture shows under them. `grafli render` draws it the same way.
+  ([#300](https://github.com/MisterGC/grafli/issues/300),
+  [#325](https://github.com/MisterGC/grafli/issues/325))
 - **Arrow labels move into free space.** A label sat at the middle of its
   arrow even where that put it on a box, on its own end box or on another
   arrow's label, so a fan-out or two crossing arrows read as a mess. A

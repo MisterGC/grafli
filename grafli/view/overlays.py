@@ -16,12 +16,21 @@ from PySide6.QtCore import (
     QPoint,
     QRectF,
     QTimer,
+    QUrl,
     QVariantAnimation,
     Qt,
 )
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QDesktopServices,
+    QFont,
+    QPainter,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QDialog,
+    QHBoxLayout,
     QLineEdit,
     QPushButton,
     QTabWidget,
@@ -513,15 +522,31 @@ class OverlaysMixin:
         # The Markdown editor (textli) owns its own help now — press F1 while the
         # zen editor is open to see it. grafli's F1 covers only the diagram.
 
+        page_btn = QPushButton("grafli at a glance \u2197", dlg)
+        page_btn.setObjectName("at_a_glance")
+        page_btn.setToolTip("How to work with grafli and your agent, and "
+                            "every key by mode, in your browser")
+        page_btn.clicked.connect(self._open_help_page)
         btn = QPushButton("Close", dlg)
         btn.clicked.connect(dlg.accept)
+        buttons = QHBoxLayout()
+        buttons.addWidget(page_btn)
+        buttons.addStretch(1)
+        buttons.addWidget(btn)
 
         layout = QVBoxLayout(dlg)
         layout.addWidget(tabs, 1)
-        layout.addWidget(btn)
+        layout.addLayout(buttons)
 
         filter_input.setFocus()
         dlg.exec()
+
+    def _open_help_page(self):
+        """Write the "grafli at a glance" page for this version and open it
+        in the browser: it needs no internet and matches the keys here."""
+        from grafli import helppage
+        QDesktopServices.openUrl(
+            QUrl.fromLocalFile(str(helppage.local_copy())))
 
     def _notes_help_html(self) -> str:
         hdr = (

@@ -143,3 +143,30 @@ def test_the_page_has_no_trailing_whitespace():
     from grafli import helppage
     lines = helppage.render_page().splitlines()
     assert [i for i, ln in enumerate(lines, 1) if ln != ln.rstrip()] == []
+
+
+def test_the_help_opens_the_page_in_the_browser(tmp_path: Path, monkeypatch):
+    _app()
+    from PySide6.QtGui import QDesktopServices
+    from PySide6.QtWidgets import QPushButton
+    from grafli import helppage
+    from grafli.app import MainWindow
+    board = tmp_path / "b.grafli"
+    board.write_text('#!grafli v4\n@ box a "A" 0,0 100x60\n')
+    win = MainWindow(str(board))
+    monkeypatch.setattr(helppage.tempfile, "gettempdir", lambda: str(tmp_path))
+    opened = []
+    monkeypatch.setattr(QDesktopServices, "openUrl",
+                        lambda url: opened.append(url) or True)
+
+    def _exec(dlg):
+        dlg.findChild(QPushButton, "at_a_glance").click()
+        return 0
+
+    monkeypatch.setattr(QDialog, "exec", _exec)
+    win._view._show_cheatsheet()
+    win.close()
+    assert len(opened) == 1 and opened[0].isLocalFile()
+    page = Path(opened[0].toLocalFile())
+    assert page.parent == tmp_path
+    assert page.read_text(encoding="utf-8") == helppage.render_page()

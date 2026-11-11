@@ -36,6 +36,14 @@ def test_every_group_is_in_the_app_or_the_tab_and_has_keys():
             assert k.keys.strip() and k.does.strip(), (g.id, k)
 
 
+@pytest.mark.parametrize("where", [keymap.APP, keymap.TAB])
+def test_no_two_rows_in_one_place_share_keys_and_words(where):
+    # The F1 test finds a row by its keys and words side by side; two rows
+    # alike would let one stand in for the other.
+    rows = [(keymap.compact_keys(k), k.does) for _, k in _rows(where)]
+    assert len(rows) == len(set(rows))
+
+
 @pytest.mark.parametrize("notation, text", [
     ("g z", "gz"),
     ("Shift+Z", "⇧Z"),
@@ -82,10 +90,12 @@ def help_tabs(tmp_path: Path, monkeypatch):
 @pytest.mark.parametrize("where, tab", [(keymap.APP, "Shortcuts"),
                                         (keymap.TAB, "Browser Tab")])
 def test_the_help_shows_every_key_of_the_table(help_tabs, where, tab):
-    text = help_tabs[tab]
+    text = "\n" + help_tabs[tab] + "\n"
+    # Qt puts each table cell on its own line: a row is its keys, then
+    # what they do, on the next line.
     missing = [
-        (g.id, k.keys) for g, k in _rows(where)
-        if keymap.compact_keys(k) not in text or k.does not in text
+        (g.id, k.keys, k.does) for g, k in _rows(where)
+        if f"\n{keymap.compact_keys(k)}\n{k.does}\n" not in text
     ]
     assert not missing, f"not in the F1 help's {tab} tab: {missing}"
     for g in keymap.groups(where):
@@ -109,14 +119,13 @@ REPO = Path(__file__).resolve().parent.parent
 def test_the_page_shows_every_key_of_the_table(where):
     from grafli import helppage
     page = helppage.render_page()
-    missing = [
-        (g.id, k.keys) for g, k in _rows(where)
-        if helppage.keys_html(k) not in page
-        or helppage._e(k.does) not in page
-    ]
-    assert not missing, f"not on the page: {missing}"
     for g in keymap.groups(where):
         assert f'id="k-{g.id}"' in page, g.id
+    missing = [
+        (g.id, k.keys, k.does) for g, k in _rows(where)
+        if helppage.row_html(k) not in helppage.card_html(page, g.id)
+    ]
+    assert not missing, f"not on the page: {missing}"
 
 
 def test_the_page_shows_both_ways_of_working_with_the_agent():

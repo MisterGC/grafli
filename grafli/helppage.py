@@ -62,6 +62,17 @@ def _kbd(notation: str) -> str:
     return keys_html(keymap.key(notation, ""))
 
 
+def row_html(k: keymap.Key) -> str:
+    """One row of a card: its keys beside what they do."""
+    return (f'<div class="row"><div class="k">{keys_html(k)}</div>'
+            f'<div class="d">{_e(k.does)}</div></div>')
+
+
+def card_html(page: str, group_id: str) -> str:
+    """The card of group ``group_id`` cut out of the rendered ``page``."""
+    return page.split(f'id="k-{group_id}"', 1)[1].split("</article>", 1)[0]
+
+
 def _card(g: keymap.Group) -> str:
     accent = _ACCENT.get(g.id, "")
     cls = f"card {accent}".strip()
@@ -69,11 +80,7 @@ def _card(g: keymap.Group) -> str:
     if g.enter:
         head += f' <span class="enter">{_kbd(g.enter)}</span>'
     head += "</h3>"
-    rows = "\n".join(
-        f'<div class="row"><div class="k">{keys_html(k)}</div>'
-        f'<div class="d">{_e(k.does)}</div></div>'
-        for k in g.keys
-    )
+    rows = "\n".join(row_html(k) for k in g.keys)
     blurb = f'<p class="blurb">{_e(g.blurb)}</p>' if g.blurb else ""
     return (f'<article class="{cls}" id="k-{g.id}">\n{head}\n{blurb}\n'
             f'<div class="rows">\n{rows}\n</div>\n</article>')

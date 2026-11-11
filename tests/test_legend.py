@@ -138,10 +138,10 @@ def test_shift_m_on_a_board_without_palette_colours_says_so(tmp_path: Path):
 
 def test_the_side_panel_and_help_sheet_name_the_key():
     from grafli.sidepanel import SidePanel
-    from grafli.view.overlays import OverlaysMixin
+    from grafli import keymap
     assert '("legend",' in inspect.getsource(SidePanel._build_view_section)
-    assert ('("\\u21e7M", "Toggle the legend of the map\'s palette'
-            in inspect.getsource(OverlaysMixin._show_cheatsheet))
+    assert keymap.find("view", "Shift+M").does.startswith(
+        "Toggle the legend of the map's palette")
 
 
 def test_the_side_panel_button_toggles_the_legend(tmp_path: Path):

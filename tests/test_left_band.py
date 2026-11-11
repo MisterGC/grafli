@@ -5,7 +5,6 @@ title on the left edge. Containers without it collapse exactly as before.
 
 from __future__ import annotations
 
-import inspect
 import os
 from collections import Counter
 from pathlib import Path
@@ -185,6 +184,6 @@ def test_the_label_row_reaches_left():
 
 
 def test_the_help_sheet_names_the_band():
-    from grafli.view.overlays import OverlaysMixin
-    source = inspect.getsource(OverlaysMixin._show_cheatsheet)
-    assert "label spot (left: a band zoomed out)" in source
+    from grafli import keymap
+    assert ("label spot (left: a band zoomed out)"
+            in keymap.find("style", "e").does)

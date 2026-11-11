@@ -6,7 +6,6 @@ Boxes without one draw exactly as before.
 
 from __future__ import annotations
 
-import inspect
 import os
 from pathlib import Path
 
@@ -298,6 +297,6 @@ def test_s_s_on_a_note_says_only_boxes_carry_one():
 
 
 def test_the_help_sheet_names_the_key():
-    from grafli.view.overlays import OverlaysMixin
-    source = inspect.getsource(OverlaysMixin._show_cheatsheet)
-    assert '("  s", "Status label on a box (~status=)' in source
+    from grafli import keymap
+    assert keymap.find("style", "s").does.startswith(
+        "Status label on a box (~status=)")

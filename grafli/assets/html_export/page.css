@@ -39,6 +39,193 @@ body {
 #overlay-pick { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 #tour-pick:not([hidden]) + #overlay-pick { margin-left: 0; }
 #overlay-pick[hidden], #tour-pick[hidden] { display: none; }
+/* grafli serve: whether the tab is live, and what its link lets it do. */
+#live {
+  margin-left: auto; font-size: 12px; padding: 2px 8px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 25%, transparent);
+}
+#tour-pick:not([hidden]) ~ #live, #overlay-pick:not([hidden]) ~ #live { margin-left: 0; }
+#live[data-state="live"] { color: var(--accent); border-color: var(--accent); }
+#live[data-state="off"] { opacity: 0.6; }
+/* grafli serve: presence — who is here, follow the presenter, your name;
+   the others' cursors and the laser over the board. */
+#presence { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+#peers { display: flex; gap: 3px; }
+#peers .peer {
+  width: 20px; height: 20px; border-radius: 50%; color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+}
+#peers .peer.me { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--ink); }
+#agent {
+  --agent: #7048e8;
+  padding: 1px 8px 1px 6px; border-radius: 10px; font-weight: 600;
+  color: #fff; background: var(--agent); white-space: nowrap;
+}
+#agent::before { content: "\2726"; margin-right: 4px; }
+#agent:not([data-present="1"]) {
+  color: var(--agent); background: transparent;
+  border: 1px dashed var(--agent); opacity: 0.75;
+}
+#agent[hidden] { display: none; }
+#bar #follow, #bar #me { font-size: 12px; padding: 2px 8px; border-width: 2px; }
+#bar #follow[data-on="1"] { opacity: 0.85; }
+#followers { opacity: 0.8; }
+#me-field {
+  width: 12em; font: inherit; color: var(--ink); background: var(--bg);
+  border: 2px solid var(--accent); border-radius: 6px; padding: 2px 6px; outline: none;
+}
+#follow[hidden], #followers[hidden], #me[hidden], #me-field[hidden] { display: none; }
+#presence-layer {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 2; overflow: visible;
+}
+#presence-layer .cursor path { stroke: #fff; stroke-width: 1.2; }
+#presence-layer .name text {
+  fill: #fff; dominant-baseline: central;
+  font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+#presence-layer .laser line { stroke: #f03e3e; stroke-linecap: round; }
+#presence-layer .laser circle { fill: #f03e3e; }
+#stage.lasering { cursor: crosshair; }
+/* grafli serve: the presenter's keys — jump labels, an edit's placeholder
+   until its frame is drawn, the label field and the ':' command line. */
+#live-marks { pointer-events: none; }
+#live-marks text {
+  text-anchor: middle; dominant-baseline: central;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.jump-label rect { fill: var(--accent); }
+.jump-label text { fill: var(--bg); font-weight: 700; }
+.ghost rect, .ghost line, .ghost path {
+  fill: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+  animation: ghost-wait 0.9s ease-in-out infinite alternate;
+}
+.ghost line, .ghost path { fill: none; }
+.ghost text { fill: var(--ink); }
+.ghost.gone rect { fill: color-mix(in srgb, var(--bg) 75%, transparent); }
+.ghost.gone path { stroke: var(--bg); stroke-width: 6; stroke-dasharray: none; }
+@keyframes ghost-wait { from { opacity: 1; } to { opacity: 0.55; } }
+#live-field {
+  position: absolute; z-index: 3; height: 32px; padding: 4px 8px;
+  font: 15px system-ui, -apple-system, "Segoe UI", sans-serif; text-align: center;
+  color: var(--ink); background: var(--bg);
+  border: 2px solid var(--accent); border-radius: 6px; outline: none;
+}
+#cmdline {
+  position: absolute; z-index: 3; left: 16px; right: 16px; bottom: 16px;
+  display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+  background: var(--surface); border: 2px solid var(--accent); border-radius: 6px;
+}
+#cmdline span { font: 700 16px ui-monospace, monospace; color: var(--accent); }
+#cmdline input {
+  flex: 1; min-width: 0; border: 0; outline: none; background: none;
+  color: var(--ink); font: 15px ui-monospace, "JetBrains Mono", monospace;
+}
+#cmdline small {
+  flex: none; font-size: 12px; white-space: nowrap; opacity: 0.75;
+  color: var(--ink);
+}
+#cmdline small[data-to="agent"] { color: #7048e8; opacity: 1; font-weight: 600; }
+#cmdline small[data-to="none"] { color: #e8590c; opacity: 1; }
+#live-field[hidden], #cmdline[hidden] { display: none; }
+/* grafli serve: the mouse — move inside a box, connect from its edge. */
+#stage[data-grab] .hit { cursor: inherit; }
+#stage[data-grab="body"] { cursor: move; }
+#stage[data-grab="moving"] { cursor: grabbing; }
+#stage[data-grab="edge"], #stage[data-grab="connecting"] { cursor: crosshair; }
+.ghost rect.target { fill: none; stroke-dasharray: none; animation: none; }
+/* grafli serve: the agent's edit glows in its colour for a moment, with its
+   name; its proposal is a banner and dashed outlines until it is taken. */
+#agent-marks, #proposal-marks { pointer-events: none; }
+.agent-glow { animation: agent-glow 4s ease-out forwards; }
+.agent-glow .halo {
+  fill: none; stroke: var(--agent); stroke-opacity: 0.25; stroke-width: 10;
+  vector-effect: non-scaling-stroke;
+}
+.agent-glow .edge {
+  fill: none; stroke: var(--agent); stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+.agent-glow.tag rect { fill: var(--agent); }
+.agent-glow.tag text {
+  fill: #fff; dominant-baseline: central; font-weight: 600;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@keyframes agent-glow { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+.proposed rect, .proposed path {
+  stroke: var(--agent); stroke-width: 2; stroke-dasharray: 6 5;
+  vector-effect: non-scaling-stroke;
+}
+.proposed rect { fill: color-mix(in srgb, var(--agent) 9%, var(--bg)); }
+.proposed.changed rect { fill: color-mix(in srgb, var(--agent) 5%, transparent); }
+.proposed path { fill: none; }
+.proposed text {
+  fill: color-mix(in srgb, var(--agent) 60%, var(--ink));
+  text-anchor: middle; dominant-baseline: central;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.proposed.gone rect { fill: color-mix(in srgb, var(--bg) 55%, transparent); }
+.proposed.gone rect, .proposed.gone path, .proposed.gone line {
+  stroke: var(--ink); stroke-opacity: 0.55; stroke-width: 1.5;
+  stroke-dasharray: 5 4; vector-effect: non-scaling-stroke;
+}
+.proposed.gone line { stroke-dasharray: none; stroke-width: 2; }
+#proposal {
+  --agent: #7048e8;
+  position: absolute; z-index: 3; top: 12px; left: 16px; right: 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 14px; border-radius: 8px; background: var(--agent); color: #fff;
+  font-size: 14px; pointer-events: none;
+}
+#proposal .keys { font: 13px ui-monospace, "JetBrains Mono", monospace; white-space: nowrap; }
+#proposal[hidden] { display: none; }
+/* grafli serve: what the agent works on, until its answer lands; below
+   the toasts and the proposal's banner. */
+#working {
+  --agent: #7048e8;
+  position: absolute; z-index: 3; top: 58px; left: 16px;
+  max-width: min(640px, calc(100% - 32px));
+  padding: 6px 12px; border-radius: 8px; border: 1px dashed var(--agent);
+  background: var(--surface); color: var(--ink); font-size: 13px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+}
+#working b { color: var(--agent); }
+#working .star { animation: agent-working 1.6s ease-in-out infinite; }
+#working .how { opacity: 0.7; }
+#working[data-late="1"] { border-style: solid; }
+#working[data-late="1"] .star { animation: none; }
+#working[hidden] { display: none; }
+@keyframes agent-working { 50% { opacity: 0.35; } }
+/* grafli serve: the "ask" chip beside the selection, for the agent. */
+#ask {
+  position: absolute; z-index: 3; padding: 2px 9px 2px 7px; border-radius: 10px;
+  font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #fff; background: #7048e8; border: 1px solid #7048e8; cursor: pointer;
+}
+#ask::before { content: "\2726"; margin-right: 4px; }
+#ask[data-off="1"] { color: #7048e8; background: var(--surface); border-style: dashed; opacity: 0.8; }
+#ask[hidden] { display: none; }
+/* grafli serve: reveal mode — what the others don't see yet, faint, for the
+   presenter only. */
+#reveal-outlines { pointer-events: none; }
+#reveal-outlines rect, #reveal-outlines path {
+  fill: none; stroke: var(--ink); stroke-opacity: 0.3; stroke-width: 1.5;
+  stroke-dasharray: 6 4; vector-effect: non-scaling-stroke;
+}
+#reveal-outlines text {
+  fill: var(--ink); fill-opacity: 0.35;
+  dominant-baseline: central;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+#reveal-chip {
+  font-size: 12px; padding: 2px 8px; border-radius: 10px;
+  border: 1px dashed var(--accent); color: var(--accent);
+}
+#reveal-chip[hidden] { display: none; }
 
 #stage-wrap { position: relative; overflow: hidden; min-height: 0; }
 #stage {

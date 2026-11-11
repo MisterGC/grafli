@@ -30,8 +30,7 @@ PARTS = {
     "lod": ["LodModel", "should_collapse_container"],
     "overlays": ["load_overlay", "parse_overlay"],
     "parser": ["parse", "serialize"],
-    "palette": ["load_palette", "parse_palette"],
-    "vault": ["resolve_code_ref", "doc_first_sentence"],
+    "vault": ["resolve_code_ref", "doc_first_sentence", "load_palette", "parse_palette"],
 }
 
 

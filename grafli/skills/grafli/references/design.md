@@ -1,8 +1,9 @@
 # Diagram design principles
 
-The grafli is a box-and-arrow tool — no auto-layout, no curved lines,
-no freeform shapes. These constraints make intentional design
-essential.
+The grafli is a box-and-arrow tool — no freeform shapes, and the only
+automatic placement is a layered layout (`=` in the app). These
+constraints make intentional design essential: position has to mean
+something, and you decide what.
 
 ## 1. Visual hierarchy
 
@@ -12,20 +13,23 @@ Every diagram needs a clear reading order:
   (e.g., `250x120`), minor ones stay at `150x60` or smaller.
 * **Color for category**: assign one color token per semantic group
   and stay consistent — don't use more than 3–4 colors per diagram.
-* **`!flat` for containers**: use flat style on grouping boxes so
-  they recede visually and children stand out.
+* **Containers recede on their own**: a grouping box with no colour
+  draws a quiet plate and outline behind its children, so they stand
+  out. `!flat` on a container changes nothing; leave a container
+  uncoloured unless its colour carries meaning.
 * **Visual weight**: darker / saturated colors (`%primary`,
-  `%subtle`) feel heavier and anchor the eye — place them at focal
-  points. Lighter tokens (`%muted`, `%base`) recede.
+  `%accent`) feel heavier and anchor the eye — place them at focal
+  points. Lighter tokens (`%muted`, `%subtle`, `%base`) recede;
+  `%subtle` is the quietest filled grey, just off an unfilled box.
 
 ### Typography scale
 
 | Role | How to set | Rendered size |
 |------|------------|---------------|
 | Diagram title | `~xxlarge` note | 40 pt |
-| Top-level container label | `~large ^topleft !flat` box | 18 pt |
+| Top-level container label | box with children (no `~size`), bold | 16 pt |
 | Component box label | (default, no `~size`) | 13 pt |
-| Nested container label | `^topleft !flat` box (auto-default `~small`) | 10 pt |
+| Nested container label | box with children one level in / deeper, bold | 15 / 14 pt |
 | Context annotation | note (default) | 13 pt |
 | Small annotation | `~small` note | 10 pt |
 
@@ -52,8 +56,10 @@ on the canvas.
 
 Key rules:
 
-* Top-level containers should use `~large` explicitly — the
-  auto-default `~small` is too subtle for section headings.
+* Leave a container's size unset: its title is bold and steps down by
+  level (16, 15, 14 pt), always above the 13 pt labels inside it; where a
+  label inside is as large, the title takes a point more. A
+  `~large` section heading still works; give it the 60 px top margin.
 * Component boxes inside containers should stay at default (13 pt) —
   they're the primary content the reader focuses on.
 * Never use the same text size for a container heading and its
@@ -79,10 +85,14 @@ tooling to the intent — this is a judgment call, and the default is restraint:
 
 * **Structural / technical diagrams** — state machines, architecture, data
   flow, ER / class, sequence. Keep them clean: boxes, labels, arrows, and
-  one colour per category. Skip glyphs and emphasis almost entirely. Uniform
-  weight reads as "a system," and a gear icon on a "Scheduler" node adds
-  nothing the label doesn't already say. At most a *sparing* flag — a bold
-  title box, `*lead:warning` on a genuinely risky node.
+  one colour per category. **Icons encode kind**: an icon says what kind
+  of thing a box is (a process of yours, a browser tab, a tool that is
+  not yours, a file), one icon per kind, set once on the kind's palette
+  entry and named by the legend (see the architecture recipe in
+  `references/genres.md`). An icon that encodes no kind is decoration —
+  a gear on a "Scheduler" because it schedules adds nothing the label
+  doesn't already say. Emphasis stays sparing: the claim's box `!bold`,
+  `*lead:warning` on a genuinely risky node.
 * **Concept explanations / visual notes / teaching** — mind maps, idea
   boards, walkthroughs, retrospectives, "how it works" sketches. Lean in: a
   `*lightbulb` idea node, `*lead:database` labelled items, a bold heading over a
@@ -90,13 +100,233 @@ tooling to the intent — this is a judgment call, and the default is restraint:
   sketchnote-style glyphs + emphasis make the board graspable at a glance.
 
 Each channel carries one meaning — colour = category, size = importance,
-weight = emphasis, glyph = concept or flag. You rarely need more than one on
+weight = emphasis, glyph = concept or flag (on a technical diagram: kind). You rarely need more than one on
 an element. If a glyph or a bold doesn't make the diagram *easier to
 understand*, leave it off.
 
-## 2. Layout strategy
+## 2. Pick the encoding from the question
 
-You are the layout engine. Think in grids and flows.
+A board says more than the text beside it when position means
+something. Before you place a box, decide what x and y stand for: an
+axis, an order, containment, a side. The catalogue below is the short
+list. Each encoding answers one kind of question; pick the one whose
+question matches the board's.
+
+| Encoding | The question it answers | Position means | Placed by |
+|---|---|---|---|
+| matrix on two axes | Where does each item sit on two forces? | x and y are the two forces | hand |
+| layered dependencies | What may depend on what? | the layer; every arrow points down | layered layout |
+| containment | What lives inside what? | nesting is ownership | layered layout, per container |
+| mirror | Are two paths symmetric? | the side; the same step sits at the same height | hand |
+| proportional strip | How is a whole split by size? | width is the quantity | hand |
+| before / after | What does this change change? | the column is the state; unchanged parts go quiet | hand |
+| sequence | In what order does it happen? | x (or y) is the step | layered layout |
+| state machine | Which states can it be in, and what moves it between them? | the main path runs along x; detours and ends sit off it | layered layout, then by hand |
+
+**When nothing fits.** Then the board is a plain graph: let its
+dominant edge kind set the flow direction and lay it out as layered
+dependencies. If even that adds nothing, the content is a list or a
+table — say so instead of drawing it.
+
+**Units per view.** A view holds at most 9 units — a unit is what the eye
+counts: a box, a container read as one, a note. More goes a level down
+(a `&graph` sub-board, a container whose detail moves into a `&doc`)
+or into a list note. A thing with no edge is not a unit of the picture:
+it goes into a list note, not a box. The exception is a box an encoding
+places by its rule — an item on a matrix's two axes, a field in a
+proportional strip: its position is the relation, so it counts as
+related and stays a box.
+
+**Layered layout** means `grafli layout <file>` (or `=` in the app on a
+selection), then a touch-up by hand. **Placed by hand** means the
+coordinates are the content: compute them from the encoding's rule
+(below) and do not run the layered layout over them — it ranks boxes
+by their edges and would erase the axis, the mirror or the widths.
+
+### Matrix on two axes
+
+*Where does each item sit on two forces?* Name both axes with a thin
+arrow and a small label; place each item by its two values; emphasise
+the corner the claim is about. Axis arrows run between plain notes.
+
+```
+@ note title 0,-80 "Only the CDN pays off right away" ~xlarge !flat !bold
+@ note o 0,500 "·" !flat
+@ note xe 750,500 "effort →" ~small !flat
+@ note yp 0,0 "↑ payoff" ~small !flat
+@ arrow o -> xe !thin
+@ arrow o -> yp !thin
+@ box cdn "CDN in front" 50,50 200x80 %highlight !bold
+@ box redis "Redis tier" 450,100 200x80
+@ box memo "memoize hot calls" 100,300 200x80 %muted
+@ box rewrite "rewrite the query layer" 450,350 250x80 %muted
+```
+
+A tension map (`references/thinking.md`) is the one-axis case.
+
+### Layered dependencies
+
+*What may depend on what?* One full-width `!flat` container per layer,
+top to bottom; every arrow points down. An arrow that has to point up
+is the finding — draw it `%rose` and say so in the headline instead of
+hiding it.
+
+```
+@ box ui "UI" 0,0 700x160 %secondary ^topleft ~large !flat
+@ box app "app shell" 50,60 200x80 >ui
+@ box export "exports" 400,60 200x80 >ui
+@ box core "core" 0,300 700x160 %tertiary ^topleft ~large !flat
+@ box view "view" 225,360 250x80 >core
+@ box store "store" 0,600 700x160 %subtle ^topleft ~large !flat
+@ box format "format" 225,660 250x80 >store
+@ arrow app -> view "depends: renders"
+@ arrow export -> view "depends: draws"
+@ arrow view -> format "depends: reads"
+```
+
+### Containment
+
+*What lives inside what?* Nesting is the relation: a child is owned by
+its parent, so "contains" needs no arrow. Arrows are left for what
+crosses a boundary, and a thing that is deliberately outside (not
+stored, not owned) sits outside, `!dashed`.
+
+```
+@ box server "server" 0,0 600x300 %tertiary ^topleft ~large !flat
+@ box room "room, one per board" 20,60 560x220 %secondary ^topleft !flat >server
+@ box file "board.grafli" 40,110 220x80 >room
+@ box vault "its vault" 300,110 220x80 >room
+@ box presence "presence, not stored" 850,110 300x80 %muted !dashed
+@ arrow presence -> room "data: 1 cursor per guest"
+```
+
+### Mirror
+
+*Are two paths symmetric?* The shared thing in the middle, one path
+down each side, the same step at the same height on both. A step one
+side has and the other lacks leaves a visible gap, and that asymmetry
+is the claim — emphasise it.
+
+```
+@ note hr 0,-60 "read" ~large !flat
+@ note hw 600,-60 "write" ~large !flat
+@ box f "file" 300,0 200x80 %primary
+@ box parse "parse" 0,200 200x80
+@ box board_r "Board" 0,400 200x80
+@ box merge "merge3 + write" 600,200 200x80 %highlight !bold
+@ box board_w "Board" 600,400 200x80
+@ arrow f -> parse "data: lines"
+@ arrow parse -> board_r "data: elements"
+@ arrow board_w -> merge "data: elements"
+@ arrow merge -> f "data: lines"
+```
+
+### Proportional strip
+
+*How is a whole split by size?* Boxes side by side with no gap, each as
+wide as its share at one fixed scale (say it in a comment). A 3-bit
+field and a 16-bit field never get the same box.
+
+```
+# scale: 30 px per bit
+@ box ver "ver 4" 0,0 120x80
+@ box flags "flags 4" 120,0 120x80
+@ box len "len 8" 240,0 240x80
+@ box id "id 16" 480,0 480x80 %highlight !bold
+@ note b0 0,90 "bit 0" ~small !flat
+@ note b32 900,90 "32" ~small !flat
+```
+
+### Before / after
+
+*What does this change change?* Two columns, the same element at the
+same position in both. Unchanged parts are `%muted` on both sides;
+what changes is emphasised in the after column; what goes away is
+`!dashed` in the before column.
+
+```
+@ note hb 0,-60 "before" ~large !flat
+@ note ha 400,-60 "after" ~large !flat
+@ box p0 "parser" 0,0 250x80 %muted
+@ box v0 "view" 0,200 250x80 %muted
+@ box l0 "preview links" 0,400 250x80 %muted !dashed
+@ box p1 "parser" 400,0 250x80 %muted
+@ box v1 "view + server" 400,200 250x80 %highlight !bold
+@ box l1 "live session" 400,400 250x80 %highlight !bold
+@ arrow p0 -> v0
+@ arrow v0 -> l0
+@ arrow p1 -> v1
+@ arrow v1 -> l1 "data: frames"
+```
+
+### Sequence
+
+*In what order does it happen?* One row (or column), position is the
+step, `step:` labels number the edges. Leave room between boxes for the
+labels — about twice a box's width. A side path branches perpendicular
+to the row; a loop back is the minority arrow.
+
+```
+@ box edit "edit in app" 0,0 200x80
+@ box timer "autosave timer" 450,0 200x80
+@ box merge "3-way merge" 900,0 200x80 %highlight !bold
+@ box write "write file" 1350,0 200x80
+@ arrow edit -> timer "step: 1 dirty"
+@ arrow timer -> merge "step: 2 fire"
+@ arrow merge -> write "step: 3 result"
+```
+
+### State machine
+
+*Which states can it be in, and what moves it between them?* One box
+per state and one arrow per transition — **every** transition, the
+error and retry ones included: a state machine with a transition left
+out is wrong, not simplified. Here the question decides the arrows by
+itself; there is no secondary relation to move off the canvas.
+
+* **Label** each transition `event [guard] / action`: the event that
+  fires it, the condition in brackets when there is one, the action
+  after the slash when it does something. Leave out the parts it lacks
+  (`finish / notify owner`, `start [a worker is free]`, `tick`).
+* **Start and end** are `!round` (`#!grafli v4`): the start is a small
+  unlabelled `24x24 %primary !round` dot with one arrow to the first
+  state; an end state is a `!round` box with its name (a pill).
+* **Self-loop** — a transition that stays in its state is an arrow
+  from the state to itself (`@ arrow running -> running "tick"`); it
+  loops on the box's top edge.
+* **Layout** — the main path left to right, the state the claim is
+  about emphasised. A transition back along the row leaves and enters
+  by the bottom edges (`!ortho ~from=bottom ~to=bottom`) so it never
+  lies on the forward arrow; an end state off the main path sits
+  below the state it leaves.
+
+```
+#!grafli v4
+@ note title 0,-80 "A job retries until its budget runs out" ~xlarge !flat !bold
+@ box start "" 38,88 24x24 %primary !round
+@ box queued "queued" 150,60 200x80
+@ box running "running" 650,60 200x80 %highlight !bold
+@ box done "done" 1150,60 160x80 !round
+@ box failed "failed" 670,350 160x80 !round
+@ arrow start -> queued
+@ arrow queued -> running "start [a worker is free]"
+@ arrow running -> running "tick / save checkpoint"
+@ arrow running -> done "finish / notify owner"
+@ arrow running -> queued "error [retries left] / retries -= 1" !ortho ~from=bottom ~to=bottom
+@ arrow running -> failed "error [no retries left]"
+```
+
+More than 9 states is a sign of two machines: split off the
+sub-machine into a `&graph` sub-board on the state that contains it.
+
+## 3. Layout strategy
+
+The layered layout places a graph by its edges (`grafli layout`, `=`
+in the app; see step 5 of the loop in `SKILL.md`). It does not know
+what position should mean, so the grid and the flow below
+are yours to set: an encoding whose coordinates are the content is
+placed by hand, and every layout gets a touch-up pass. Think in grids
+and flows.
 
 **Grid alignment**:
 
@@ -118,7 +348,7 @@ explicit.
 **Canvas margins**: leave ~50 px around the outermost elements so
 the diagram doesn't feel cramped against the title or the edge.
 
-## 3. Containers (`>parent`)
+## 4. Containers (`>parent`)
 
 Nesting with `>parent` is the primary way to show logical grouping
 (layers, services, bounded contexts).
@@ -129,11 +359,10 @@ Nesting with `>parent` is the primary way to show logical grouping
 @ box auth "Auth" 280,310 220x100 %accent >backend
 ```
 
-* Make the container `!flat` so it's a subtle background, not a
-  competing box.
-* Use `^topleft` so its label is an unobtrusive header.
-* Use `~large` on top-level containers for a readable section
-  heading.
+* A container with no colour is already a quiet plate with an
+  outline, not a competing box; `!flat` adds nothing to it.
+* Its label is a bold top-left header, sized by level; `~large` on a
+  top-level container makes a bigger section heading.
 * Give children a contrasting color from the container.
 
 ### Container margin model
@@ -172,11 +401,11 @@ Example for 3 children, 2 rows, 220×100 boxes, 40 px gaps,
 
 When you add to a board someone else laid out, drop the new node into the
 existing structure and leave everything else **byte-identical** — never
-reflow the whole diagram. grafli has no auto-layout, so a clean fit is
-*your* arithmetic: compute the absolute `x,y` from the neighbours and
-emit it directly (there is no "place near X" token — you do the
-resolution once, at write time, and the file stays plain coordinates a
-human can read and drag).
+reflow the whole diagram, and never run the layered layout over a board
+a human placed. A clean fit is *your* arithmetic: compute the absolute
+`x,y` from the neighbours and emit it directly (there is no "place
+near X" token — you do the resolution once, at write time, and the file
+stays plain coordinates a human can read and drag).
 
 **Next slot in a container** — the common case ("add another child"):
 
@@ -208,7 +437,7 @@ to its neighbours, with at most one existing line changed — a clean,
 reviewable diff that leaves the diagram as comprehensible as the human
 left it.
 
-## 4. Arrow discipline
+## 5. Arrow discipline
 
 * **Label every arrow** that isn't self-explanatory from context —
   "queries", "REST", "events" tell the reader what flows.
@@ -245,7 +474,7 @@ left it.
   prefer crossing the lighter `!flat` containers rather than primary
   boxes.
 
-## 5. Notes and annotations
+## 6. Notes and annotations
 
 Notes are badge-style labels — blue text by default, with colored
 badge chips for semantic prefixes.
@@ -296,8 +525,9 @@ Every element can carry **one** typed attachment:
   (that's what a markdown note is — bare `&doc` names it after the note
   id); on a box/image/arrow it opens in the editor. A box shows the
   doc's first sentence on one line below its label (when the box has
-  room for it) — a container or a `!card` with children too, under its
-  title — and `gv` peeks the whole doc — so open the doc with one
+  room for the whole sentence; it is never cut) — a container or a
+  `!card` with children too, under its title — and `gv` peeks the whole
+  doc — so open the doc with one
   sentence that says what the box is.
 - `&graph:<name>` — a sub-board at `<stem>-res/<name>.grafli`; its own
   resources nest at `<stem>-res/<name>-res/`.
@@ -312,21 +542,27 @@ values still parse and are classified on load. An attachment is distinct
 from `# annotation`: it's visible/clickable; an annotation is invisible
 authoring metadata.
 
-## 6. Common patterns
+## 7. Common patterns
 
 Most technical diagrams reduce to one of these shapes, and the format
 covers the common types directly: **architecture** (layered containers),
 **flow / pipeline** (L→R chain), **hub-and-spoke** (gateway / event bus),
-**state machines** and **sequences** (nodes + transition arrows, or a
-`code:` note with `state from -> to` lines), **ER / class** (boxes +
+**state machines** (the encoding in section 2 — every transition an
+arrow), **sequences** (nodes + step arrows, or a `code:` note with
+`from -> to` lines), **ER / class** (boxes +
 labelled relationship arrows), and **mind maps / concept boards** (center
 node + radiating ideas — see "Visual notes" below). Pick the shape from
-the question, then the flow direction.
+the question, then the flow direction. When position should carry
+meaning of its own — an axis, a side, a size — pick from the encoding
+catalogue in section 2 instead.
 
 ### Architecture (layered)
 
 Top-to-bottom flow. One `!flat` container per layer. Arrows flow
-downward between layers. Use `~large` on each layer container.
+downward between layers. Use `~large` on each layer container. This is
+the bare shape; the architecture recipe in `references/genres.md` adds
+which relations become arrows, kinds from the palette, the legend and
+doc lines.
 
 ```
 @ box frontend "Frontend" 20,20 500x200 %secondary ^topleft ~large !flat
@@ -387,7 +623,11 @@ Central element, satellites around it.
 
 ### Legend box
 
-When using multiple arrow styles or color meanings, add a legend.
+Colours and kinds get their legend from the map palette: name each
+entry once in `<stem>-res/palette.json` with a `label` a reader
+understands, and `grafli render --legend` (or `Shift+M` in the app)
+draws the key — don't hand-draw one for them. A hand-made legend is
+only for what the palette can't name, such as arrow styles:
 
 ```
 @ box legend "Legend" 50,500 280x200 %muted ^topleft ~small !flat

@@ -17,10 +17,12 @@ from PySide6.QtWidgets import (
 )
 
 from grafli import theme
+from grafli.arrows import LABEL_PAD
 from grafli.constants import (
     BOX_BORDER_WIDTH,
     BOX_FONT_SIZES,
     BOX_RADIUS,
+    CONTAINER_PLATE_ALPHA,
     DEFAULT_BOX_H,
     DEFAULT_BOX_W,
     FONT_FAMILY,
@@ -28,9 +30,14 @@ from grafli.constants import (
     SANS_FONT_FAMILY,
     HANDLE_SIZE,
     MIN_BOX_SIZE,
+    WCAG_AA_LARGE_TEXT,
+    WCAG_AA_TEXT,
+    WCAG_LARGE_BOLD_TEXT_PX,
+    WCAG_LARGE_TEXT_PX,
+    container_title_px,
     resolve_textsize_px,
 )
-from grafli.edge_label import edge_kind_color, parse_edge_label
+from grafli.edge_label import edge_kind_color, parse_edge_label, split_cardinality
 
 _RE_SPEAKER = re.compile(r"^([A-Z][A-Za-z0-9_-]{0,15}): ")
 
@@ -58,6 +65,7 @@ def note_prefix(text: str) -> tuple[str, str] | None:
 from grafli.code_note import is_code_note, split_signature, tokenize_line
 from grafli.md_note import md_hard_quote_breaks, note_is_md, note_md_body
 from grafli.format import Box, Image, Note
+from grafli.map_palette import kind_of, look
 from grafli import iconset
 
 
@@ -213,6 +221,18 @@ def _get_view(item):
     return None
 
 
+def scene_icons(item):
+    """The board's own symbols (``<stem>-res/icons/``, issue #299) of the
+    scene *item* is drawn in; None outside a board's scene."""
+    scene = item.scene()
+    return getattr(scene, "board_icons", None) if scene is not None else None
+
+
+def _own_icon(name: str) -> bool:
+    """True for a symbol name only a board's own icons can resolve."""
+    return bool(name) and not iconset.has_icon(name)
+
+
 def _view_scale(item) -> float:
     """Current canvas zoom (scene units per pixel inverse), or 1.0."""
     view = _get_view(item)
@@ -224,87 +244,111 @@ def _view_scale(item) -> float:
 
 
 def _aggregate_ideal_px(w_screen: float, h_screen: float) -> float:
-    """Most-readable headline size (on-screen px) for an aggregate of the given
-    on-screen footprint, shared by collapsed tiles and cluster hulls.
+    """Most-readable headline size (on-screen px) for a cluster hull of the
+    given on-screen footprint.
 
     Driven by the footprint's *area* (geometric mean of the sides), not its
-    shorter side: a wide-but-flat tile then still earns a prominent headline
+    shorter side: a wide-but-flat hull then still earns a prominent headline
     instead of being throttled by its short dimension. Floored so a headline
-    stays scannable as the tile keeps shrinking on zoom-out (it may overflow the
+    stays scannable as the hull keeps shrinking on zoom-out (it may overflow the
     footprint — the caption painter treats that as an acceptable last resort),
-    and capped so a huge tile doesn't shout.
+    and capped so a huge hull doesn't shout. Collapsed container tiles size
+    their titles by nesting level instead (:func:`level_title_px`).
     """
     return max(9.0, min(22.0, (w_screen * h_screen) ** 0.5 * 0.32))
 
 
-def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
-                            ideal_px, left: bool = False):
-    """Draw a centered '<label> / N nodes' caption for a collapsed tile or hull.
-    With *left* the caption sits on the left edge instead, left-aligned, as
-    a ``^left`` band's title (#212).
+# On-screen headline px of a collapsed container's title, by nesting level:
+# top-level containers first, each deeper level a step smaller; past the
+# table, every level takes its last entry (#258).
+LEVEL_TITLE_PX = (20.0, 16.0, 13.0)
 
-    The painter is already translated to the centre and counter-scaled
-    (1 unit == 1 on-screen px). The headline wraps to the available width at the
-    ideal (most readable) size; it is shrunk **only if** it would still overflow
-    the available area — the largest size that fits — and overflows past the
-    edges only as a last resort (a single word too wide even at the floor).
-    """
-    flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
-                | Qt.TextFlag.TextWordWrap)
-    min_px = 6.0
-    head_px = max(min_px, ideal_px)
-    while True:
-        pad = max(3.0, head_px * 0.45)
+
+def level_title_px(depth: int) -> float:
+    """Headline size (on-screen px) of a collapsed container at *depth*
+    (1 = top level). Fixed per level, so containers at the same nesting level
+    show their titles at the same size whatever their area (#258)."""
+    return LEVEL_TITLE_PX[min(max(depth, 1), len(LEVEL_TITLE_PX)) - 1]
+
+
+_CAPTION_MIN_PX = 6.0
+
+
+def _caption_flags(left: bool) -> int:
+    align = Qt.AlignmentFlag.AlignLeft if left else Qt.AlignmentFlag.AlignHCenter
+    return int(align | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap)
+
+
+def _caption_pad(head_px: float) -> float:
+    return max(3.0, head_px * 0.45)
+
+
+def _caption_font(head_px: float) -> QFont:
+    font = QFont(FONT_FAMILY)
+    font.setPixelSize(round(head_px))
+    font.setBold(True)
+    return font
+
+
+def _caption_bound(label, w_screen, head_px, left: bool) -> QRectF:
+    # Measure with QFontMetricsF, not painter.boundingRect: the latter
+    # returns an empty rect under the translated/counter-scaled scene
+    # painter (device-coordinate quirk). Font metrics are transform-free.
+    avail_w = max(16.0, w_screen - 2 * _caption_pad(head_px))
+    return QFontMetricsF(_caption_font(head_px)).boundingRect(
+        QRectF(-avail_w / 2, 0.0, avail_w, 60.0 * head_px),
+        _caption_flags(left), label)
+
+
+def caption_fit_px(label, w_screen, h_screen, ideal_px,
+                   left: bool = False) -> float:
+    """The headline size a caption is drawn at: *ideal_px*, shrunk **only
+    if** the wrapped headline would still overflow the available area — the
+    largest size that fits — down to a floor, past which it overflows the
+    edges as a last resort (a single word too wide even at the floor)."""
+    head_px = max(_CAPTION_MIN_PX, ideal_px)
+    while head_px > _CAPTION_MIN_PX:
+        pad = _caption_pad(head_px)
         avail_w = max(16.0, w_screen - 2 * pad)
         avail_h = max(12.0, h_screen - 2 * pad)
-        head_font = QFont(FONT_FAMILY)
-        head_font.setPixelSize(round(head_px))
-        head_font.setBold(True)
-        painter.setFont(head_font)
-        # A band's strip already shows its children: no count line.
-        gap = 0.0 if left else head_px * 0.35
-        badge_px = 0.0 if left else max(6.0, head_px * 0.72)
-        # Measure with QFontMetricsF, not painter.boundingRect: the latter
-        # returns an empty rect under the translated/counter-scaled scene
-        # painter (device-coordinate quirk). Font metrics are transform-free.
-        bound = QFontMetricsF(head_font).boundingRect(
-            QRectF(-avail_w / 2, 0.0, avail_w, 60.0 * head_px), flags, label)
-        fits = (bound.width() <= avail_w + 0.5
-                and bound.height() + gap + badge_px <= avail_h)
-        if fits or head_px <= min_px:
-            head_h = bound.height()
+        bound = _caption_bound(label, w_screen, head_px, left)
+        if bound.width() <= avail_w + 0.5 and bound.height() <= avail_h:
             break
         head_px -= 1.0
+    return head_px
 
-    total_h = head_h + gap + badge_px
-    top = -total_h / 2
 
-    badge_font = QFont(FONT_FAMILY)
-    badge_font.setPixelSize(max(1, round(badge_px)))
-    text = "" if left else f"{count} node" + ("" if count == 1 else "s")
-    bfm = QFontMetricsF(badge_font)
-    bw = bfm.horizontalAdvance(text)
+def _draw_aggregate_caption(painter, label, w_screen, h_screen, head_px,
+                            left: bool = False):
+    """Draw a centered '<label>' caption at *head_px* for a collapsed tile or
+    hull. With *left* the caption sits on the left edge instead, left-aligned,
+    as a ``^left`` band's title (#212).
 
-    # Soft paper plate behind the whole caption block — the headline must
-    # stay readable on any hull/tile fill (issue #126).
-    plate_w = min(avail_w, max(bound.width(), bw)) + head_px * 0.9
+    The painter is already translated to the centre and counter-scaled
+    (1 unit == 1 on-screen px). The headline wraps to the available width;
+    :func:`caption_fit_px` picks a *head_px* that fits.
+    """
+    pad = _caption_pad(head_px)
+    avail_w = max(16.0, w_screen - 2 * pad)
+    flags = _caption_flags(left)
+    head_font = _caption_font(head_px)
+    bound = _caption_bound(label, w_screen, head_px, left)
+    head_h = bound.height()
+    top = -head_h / 2
+
+    # Soft paper plate behind the headline — it must stay readable on any
+    # hull/tile fill (issue #126).
+    plate_w = min(avail_w, bound.width()) + head_px * 0.9
     plate_pad = head_px * 0.28
     plate = QRectF(-plate_w / 2, top - plate_pad,
-                   plate_w, total_h + 2 * plate_pad)
+                   plate_w, head_h + 2 * plate_pad)
     head_rect = QRectF(-avail_w / 2, top, avail_w, head_h)
-    badge_rect = QRectF(-bw, top + head_h + gap, 2 * bw, badge_px * 1.6)
-    badge_flags = int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
     if left:
         # The plate's left end a pad in from the tile's left edge, the
-        # headline and the count left-aligned inside it.
+        # headline left-aligned inside it.
         painter.translate(-w_screen / 2 + pad + plate_w / 2, 0.0)
         inner = plate_w - head_px * 0.9
-        flags = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-                    | Qt.TextFlag.TextWordWrap)
         head_rect = QRectF(-inner / 2, top, inner, head_h)
-        badge_rect = QRectF(-inner / 2, top + head_h + gap, inner,
-                            badge_px * 1.6)
-        badge_flags = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
     bg = QColor(theme.SURFACE)
     bg.setAlphaF(0.85)
     painter.setPen(Qt.PenStyle.NoPen)
@@ -315,11 +359,6 @@ def _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
     painter.setFont(head_font)
     painter.setPen(QColor(theme.INK))
     painter.drawText(head_rect, flags, label)
-
-    if text:
-        painter.setFont(badge_font)
-        painter.setPen(QColor(theme.INK))
-        painter.drawText(badge_rect, badge_flags, text)
 
 
 def note_family(note) -> str:
@@ -663,10 +702,7 @@ class BoxLabelItem(QGraphicsTextItem):
         # nothing, so the contrast plate doesn't linger as an empty strip.
         if not self._box_item.box.label:
             return
-        # An `!ink` box draws its label in ink picked from the fill instead,
-        # so it needs no plate.
-        box = self._box_item.box
-        if theme.resolve_color(box.color) and not box.ink:
+        if self._box_item._label_on_plate():
             bg_rect = self._plate_rect()
             bg = QColor(theme.SURFACE)
             bg.setAlphaF(0.6)
@@ -714,6 +750,9 @@ class BoxItem(QGraphicsRectItem):
         self._resizing = False
         self._scaling = False
         self._is_parent = False
+        # A container's title size, set by the view from the nesting: its
+        # level's size, or above its largest child's label (#294).
+        self._title_px: int | None = None
         # Level-of-Detail: when the view zooms out far enough that this box's
         # label would be illegible, the view marks it simplified — the box
         # paints as a bare coloured shell (no icon; its label item is hidden).
@@ -721,7 +760,9 @@ class BoxItem(QGraphicsRectItem):
         # When this box is a collapsed container, the view sets a (headline,
         # count) tuple; paint() then draws a counter-scaled headline + count
         # badge in place of the hidden children, and the normal label is hidden.
-        self._lod_tile: tuple[str, int] | None = None
+        self._lod_tile: tuple[str, int] | None = None   # (title, level)
+        # On-screen title px the view shares across a level's tiles (#258).
+        self._lod_title_px: float | None = None
         self._lod_strip: tuple = ()   # a `^left` tile's children colours
         # A `&graph` box large enough on screen shows a raster miniature of its
         # sub-board below its label (D3); the view sets and clears it.
@@ -745,6 +786,12 @@ class BoxItem(QGraphicsRectItem):
         self._resize_corner = -1
         self._resize_origin = QPointF()
 
+    @property
+    def look(self) -> Box:
+        """The box as it draws: its own tokens over its palette kind's
+        (``map_palette.look``). Edits go to ``self.box``."""
+        return look(self.box)
+
     def _container_look(self) -> bool:
         """True when this box draws as a container: it holds children and
         isn't a ``!card``, which keeps its node look around them."""
@@ -756,9 +803,27 @@ class BoxItem(QGraphicsRectItem):
                     and view._has_children(self.box.id))
 
     def _has_container_label(self) -> bool:
-        """True when the label takes the container heading defaults (small,
-        top left): the box holds children and isn't a ``!card``."""
+        """True when the label takes the container heading defaults (a bold
+        title sized by level, top left): the box holds children and isn't a
+        ``!card``."""
         return self.box.style != "card" and self._view_has_children()
+
+    def _container_depth(self) -> int:
+        """How many containers this box sits in (0 = top level)."""
+        view = _get_view(self)
+        if view and hasattr(view, '_box_depth'):
+            return view._box_depth(self.box.id)
+        return 0
+
+    def label_px(self) -> int:
+        """The label's size: an explicit one, else a container's title size
+        (the view's, or its level's before the view has set one), else a
+        node's."""
+        if not self.look.textsize and self._has_container_label():
+            if self._title_px is not None:
+                return self._title_px
+            return container_title_px(self._container_depth())
+        return resolve_textsize_px(self.look.textsize, "")
 
     def _apply_color(self):
         hex_color = theme.resolve_color(self.box.color)
@@ -770,25 +835,40 @@ class BoxItem(QGraphicsRectItem):
                 c.setAlphaF(0.7)
             self.setBrush(QBrush(c))
         else:
-            self.setPen(self._border_pen(QColor(theme.INK), is_flat))
+            # A plain box is a light plate with a quiet outline, so its label
+            # carries it and a filled box stands out against it. A dashed or
+            # dotted outline keeps the full ink: the pattern is the message.
+            outline = QColor(theme.INK if self.look.border else theme.BOX_OUTLINE)
+            if self._container_look():
+                # A container is a quiet plate with an outline, a shade
+                # toward the ink, so it reads as one thing and an arrow into
+                # it ends at an edge. Nested plates stack a shade deeper.
+                self.setPen(self._border_pen(outline, False))
+                plate = QColor(theme.INK)
+                plate.setAlphaF(CONTAINER_PLATE_ALPHA)
+                self.setBrush(QBrush(plate))
+                self._label.setDefaultTextColor(self._label_ink())
+                self._label.update()
+                return
+            self.setPen(self._border_pen(outline, is_flat))
             if is_flat:
                 fill = QColor(theme.SCENE_BG)
                 fill.setAlphaF(0.7)
                 self.setBrush(QBrush(fill))
             else:
-                self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                self.setBrush(QBrush(theme.BOX_FILL))
         self._label.setDefaultTextColor(self._label_ink())
         self._label.update()
 
     def _border_pen(self, color: QColor, is_flat: bool) -> QPen:
         """The outline: solid on a plate, none on a flat box or container,
         and in its pattern wherever ``!dashed`` / ``!dotted`` asks for one."""
-        if is_flat and not self.box.border:
+        if is_flat and not self.look.border:
             return QPen(Qt.PenStyle.NoPen)
         pen = QPen(color, BOX_BORDER_WIDTH)
-        if self.box.border == "dashed":
+        if self.look.border == "dashed":
             pen.setStyle(Qt.PenStyle.DashLine)
-        elif self.box.border == "dotted":
+        elif self.look.border == "dotted":
             pen.setStyle(Qt.PenStyle.DotLine)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         return pen
@@ -798,7 +878,19 @@ class BoxItem(QGraphicsRectItem):
         where the box has none."""
         if self.brush().style() == Qt.BrushStyle.NoBrush:
             return QColor(theme.SCENE_BG)
-        return self.brush().color()
+        color = self.brush().color()
+        a = color.alphaF()
+        if (a < 1.0 and self._container_look()
+                and not theme.resolve_color(self.box.color)):
+            # The uncoloured container's plate is the ink at a few percent:
+            # it reads as its blend over the canvas, not as the ink itself.
+            # A coloured fill keeps picking its ink from its own colour.
+            bg = QColor(theme.SCENE_BG)
+            return QColor.fromRgbF(
+                bg.redF() + (color.redF() - bg.redF()) * a,
+                bg.greenF() + (color.greenF() - bg.greenF()) * a,
+                bg.blueF() + (color.blueF() - bg.blueF()) * a)
+        return color
 
     def _label_ink(self) -> QColor:
         """Label and icon ink: the board ink on its light plate, or with
@@ -807,9 +899,57 @@ class BoxItem(QGraphicsRectItem):
             return theme.ink_on(self._fill_color())
         return QColor(theme.INK)
 
+    def _ground_beneath(self, depth: int = 0) -> QColor:
+        """What the box sits on: its parent box as that shows, or the
+        canvas."""
+        view = _get_view(self)
+        items = getattr(view, "_box_items", None) or {}
+        parent = items.get(self.box.parent) if self.box.parent else None
+        if parent is None or parent is self or depth > 32:
+            return QColor(theme.SCENE_BG)
+        return parent._shown_fill(depth + 1)
+
+    def _shown_fill(self, depth: int = 0) -> QColor:
+        """The box's fill as it shows: a translucent one composed over the
+        boxes it sits in, then the canvas."""
+        if self.brush().style() == Qt.BrushStyle.NoBrush:
+            return self._ground_beneath(depth)
+        fill = self.brush().color()
+        a = fill.alphaF()
+        if a >= 1.0:
+            return QColor(fill.rgb())
+        bg = self._ground_beneath(depth)
+        return QColor.fromRgbF(
+            bg.redF() + (fill.redF() - bg.redF()) * a,
+            bg.greenF() + (fill.greenF() - bg.greenF()) * a,
+            bg.blueF() + (fill.blueF() - bg.blueF()) * a)
+
+    def _label_ground(self) -> QColor:
+        """The colour the label reads against: the fill as it shows."""
+        return self._shown_fill()
+
+    def _label_on_plate(self) -> bool:
+        """True when a coloured box draws its label on the light plate: the
+        board ink on the fill falls below WCAG AA — 4.5:1, or 3:1 for large
+        text. Where it passes, the label sits on the fill itself (#300). An
+        ``!ink`` box picks its ink from the fill, so it never takes one."""
+        if not theme.resolve_color(self.box.color) or self.box.ink:
+            return False
+        font = self._box_font()
+        px = self.label_px()
+        large = px >= WCAG_LARGE_TEXT_PX or (
+            font.bold() and px >= WCAG_LARGE_BOLD_TEXT_PX)
+        need = WCAG_AA_LARGE_TEXT if large else WCAG_AA_TEXT
+        ratio = theme.contrast_ratio(self._label_ink(), self._label_ground())
+        return ratio < need
+
     def set_color(self, color: str):
+        kinded = kind_of(self.box.color) or kind_of(color)
         self.box.color = color
         self._apply_color()
+        if kinded:
+            # A kind brings its icon, outline, weight and size along.
+            self.refresh_auto_layout()
         self.update()
 
     def set_icon(self, name: str, placement: str = ""):
@@ -847,20 +987,58 @@ class BoxItem(QGraphicsRectItem):
         self.update()
 
     def _lead_icon_side(self) -> float:
-        """Small leading-icon size, scaled to the box's text."""
-        px = resolve_textsize_px(self.box.textsize,
-                                 "small" if self._container_look() else "")
-        return max(14.0, min(px * 1.7, self.box.h - 8))
+        """Small leading-icon size, scaled to the box's text; a number
+        marker's digits stand at least as tall as the label's capitals."""
+        px = self.label_px()
+        side = max(px * 1.7, self._number_side())
+        return max(14.0, min(side, self.box.h - 8))
+
+    def _label_cap_px(self) -> float:
+        """The cap height of the label's face."""
+        return QFontMetricsF(self._box_font()).capHeight()
+
+    def _number_side(self) -> float:
+        """The circle side at which the box's number marker draws its digits
+        as tall as the label's capitals; 0 for any other glyph."""
+        number = iconset.number_badge(self.look.icon)
+        if number is None:
+            return 0.0
+        return iconset.number_side(number[0], self._label_cap_px())
+
+    def _number_reads_as_lead(self) -> bool:
+        """A fill-placed number marker whose readable circle does not fit
+        above its caption sits left of the label instead, as a lead icon
+        does — a short box keeps its order legible (issue #305)."""
+        if (self.look.icon_placement or not self.box.label
+                or iconset.number_badge(self.look.icon) is None):
+            return False
+        caption_h = self._caption_h(self.box.w - 16.0) + 6
+        return self.box.h - 20.0 - caption_h < self._number_side()
+
+    def _caption_h(self, width: float) -> float:
+        """The label's height wrapped at *width*, whatever its current wrap."""
+        key = (self.box.label, width, self._box_font().key())
+        cached = getattr(self, "_caption_h_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        doc = self._label.document().clone()
+        doc.setTextWidth(width)
+        height = doc.size().height()
+        self._caption_h_cache = (key, height)
+        return height
 
     def _lead_icon_w(self) -> float:
         """Width reserved for the lead icon — wide symbols (e.g. exercise)
         get aspect-corrected room instead of shrinking into a square."""
         side = self._lead_icon_side()
-        return side * min(max(iconset.icon_aspect(self.box.icon), 1.0), 1.6)
+        aspect = iconset.icon_aspect(self.look.icon, scene_icons(self))
+        return side * min(max(aspect, 1.0), 1.6)
 
     def _has_lead_icon(self) -> bool:
-        return (bool(self.box.icon) and self.box.icon_placement == "lead"
-                and iconset.has_icon(self.box.icon))
+        return (bool(self.look.icon)
+                and iconset.has_icon(self.look.icon, scene_icons(self))
+                and (self.look.icon_placement == "lead"
+                     or self._number_reads_as_lead()))
 
     def _lead_layout(self) -> tuple[QRectF, float]:
         """The lead icon's rect and the label's top, in item coordinates.
@@ -882,8 +1060,8 @@ class BoxItem(QGraphicsRectItem):
         return QRectF(8.0, icon_top, self._lead_icon_w(), side), label_top
 
     def _has_badge_icon(self) -> bool:
-        return (bool(self.box.icon) and self.box.icon_placement == "badge"
-                and iconset.has_icon(self.box.icon))
+        return (bool(self.look.icon) and self.look.icon_placement == "badge"
+                and iconset.has_icon(self.look.icon, scene_icons(self)))
 
     def _label_width_for(self, w: float) -> float:
         """Wrap width for the label — leaves room for a lead-icon gutter so
@@ -902,7 +1080,14 @@ class BoxItem(QGraphicsRectItem):
         return w - 16.0
 
     def _badge_icon_side(self) -> float:
-        """Compact corner-badge size, scaled to the box."""
+        """Compact corner-badge size, scaled to the box; a number badge
+        grows until its digits stand as tall as the label's capitals."""
+        return max(self._compact_badge_side(),
+                   iconset.number_badge_side(self.look.icon,
+                                             self._label_cap_px()))
+
+    def _compact_badge_side(self) -> float:
+        """A symbol badge's side, scaled to the box."""
         return max(18.0, min(28.0, min(self.box.w, self.box.h) * 0.26))
 
     def _badge_rect(self, w: float | None = None) -> QRectF:
@@ -921,15 +1106,16 @@ class BoxItem(QGraphicsRectItem):
         ``badge``: a compact overlay in the top-right corner; the label keeps
         its normal layout."""
         w, h = self.box.w, self.box.h
-        if self.box.icon_placement == "badge":
+        if self.look.icon_placement == "badge":
             # The badge sits on its own paper disc: board ink reads there.
-            iconset.paint_badge(painter, self.box.icon, self._badge_rect(),
-                                QColor(theme.INK))
+            iconset.paint_badge(painter, self.look.icon, self._badge_rect(),
+                                QColor(theme.INK), scene_icons(self))
             return
         color = self._label_ink()
-        if self.box.icon_placement == "lead":
-            iconset.paint_icon(painter, self.box.icon,
-                               self._lead_layout()[0], color)
+        if self._has_lead_icon():
+            iconset.paint_icon(painter, self.look.icon,
+                               self._lead_layout()[0], color,
+                               scene_icons(self))
             return
         pad = 10.0
         cap_h = (self._label.boundingRect().height() + 6
@@ -938,8 +1124,9 @@ class BoxItem(QGraphicsRectItem):
         side = max(8.0, min(w - 2 * pad, avail_h))
         ix = (w - side) / 2
         iy = pad + (avail_h - side) / 2
-        iconset.paint_icon(painter, self.box.icon,
-                           QRectF(ix, iy, side, side), color)
+        iconset.paint_icon(painter, self.look.icon,
+                           QRectF(ix, iy, side, side), color,
+                           scene_icons(self))
 
     def set_style(self, style: str):
         was_card = self.box.style == "card"
@@ -969,21 +1156,21 @@ class BoxItem(QGraphicsRectItem):
         return ""
 
     def _get_effective_textsize(self) -> str:
-        if self.box.textsize:
-            return self.box.textsize
+        if self.look.textsize:
+            return self.look.textsize
         if self._has_container_label():
-            return "small"
+            return str(self.label_px())
         return ""
 
     def _box_font(self) -> QFont:
-        # Unset size: a parent defaults to the small header, a normal node
-        # (and a `!card` parent) to medium. An explicit size (numeric or named)
-        # is always honoured — so a parent can be set to the same size as any
-        # other node.
-        px = resolve_textsize_px(self.box.textsize,
-                                 "small" if self._has_container_label() else "")
-        return _apply_emphasis(QFont(self._box_family(), px),
-                               self.box.emphasis)
+        # Unset size: a parent defaults to its level's title size, a normal
+        # node (and a `!card` parent) to medium. An explicit size (numeric or
+        # named) is always honoured — so a parent can be set to the same size
+        # as any other node. A container's title is bold either way.
+        font = QFont(self._box_family(), self.label_px())
+        if self._has_container_label():
+            font.setBold(True)
+        return _apply_emphasis(font, self.look.emphasis)
 
     def _box_family(self) -> str:
         """Mono, grafli's default face, or with ``!sans`` the bundled
@@ -1002,9 +1189,10 @@ class BoxItem(QGraphicsRectItem):
         # keeps its weight beside it. ``fill``: the icon fills the body, so the
         # label rides at the bottom as a caption. ``badge`` overlays a corner
         # and leaves the label's normal layout alone (falls through below).
-        if (self.box.icon and iconset.has_icon(self.box.icon)
-                and self.box.icon_placement != "badge"):
-            if self.box.icon_placement == "lead":
+        if (self.look.icon
+                and iconset.has_icon(self.look.icon, scene_icons(self))
+                and self.look.icon_placement != "badge"):
+            if self._has_lead_icon():
                 gutter = 8.0 + self._lead_icon_w() + 8.0
                 opt = QTextOption()
                 opt.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -1114,6 +1302,10 @@ class BoxItem(QGraphicsRectItem):
     def _auto_grow(self):
         self._label.setTextWidth(self._label_width_for(self.box.w))
         needed = self._label.boundingRect().height() + 16
+        if self.box.round and not self.box.label.strip():
+            # A round box with no label is a start or end state: an empty
+            # line must not stretch its circle into an upright pill.
+            needed = 0
         new_h = max(self._min_h, needed)
         if new_h != self.box.h:
             self.box.h = new_h
@@ -1169,6 +1361,11 @@ class BoxItem(QGraphicsRectItem):
                     view.mark_dirty()
         elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self._show_handles(bool(value))
+        elif (change == QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged
+              and value is not None and _own_icon(self.look.icon)):
+            # A board's own symbol resolves through the scene: lay out again
+            # now there is one.
+            self.refresh_auto_layout()
         return super().itemChange(change, value)
 
     def boundingRect(self):
@@ -1558,7 +1755,7 @@ class BoxItem(QGraphicsRectItem):
 
     def _doc_line_font(self) -> QFont:
         """The doc line's face: the label's, a step smaller and in italics."""
-        px = resolve_textsize_px(self.box.textsize, "")
+        px = resolve_textsize_px(self.look.textsize, "")
         font = QFont(self._box_family(), max(8, round(px * 0.8)))
         font.setItalic(True)
         return font
@@ -1570,12 +1767,19 @@ class BoxItem(QGraphicsRectItem):
     def _doc_line_extra_h(self) -> float:
         return self._DOC_LINE_GAP + QFontMetricsF(self._doc_line_font()).height()
 
-    def doc_line_fits(self) -> bool:
-        """True when the body has room for the doc line below the label,
-        keeping the label's 8 px margins; a box never grows for it."""
+    def doc_line_fits(self, text: str) -> bool:
+        """True when the body has room for *text* as the doc line below the
+        label, keeping the label's 8 px margins, and the line is wide enough
+        for the whole of it; a box never grows for it, nor cuts it."""
         needed = (self._label.boundingRect().height()
                   + self._doc_line_extra_h() + 16.0)
-        return self.box.h >= needed
+        return (self.box.h >= needed
+                and self._doc_line_whole(text, self._doc_line_width()))
+
+    def _doc_line_whole(self, text: str, width: float) -> bool:
+        """True when *text* fits on a doc line *width* wide uncut."""
+        return width > 0 and QFontMetricsF(self._doc_line_font()).elidedText(
+            text, Qt.TextElideMode.ElideRight, width) == text
 
     def set_doc_line(self, text: str) -> None:
         """Show *text* on one line below the label, or "" to drop it."""
@@ -1587,19 +1791,26 @@ class BoxItem(QGraphicsRectItem):
             self._position_label()
         self.update()
 
+    def _doc_line_width(self) -> float:
+        """The doc line's width: the label's wrap width, the badge's band
+        or what is right of a lead icon."""
+        if self._has_lead_icon():
+            return self.box.w - (self._label.pos().x() - self.pos().x()) - 8.0
+        if self._has_badge_icon() and self._miniature is None:
+            # The doc line runs below the badge: only the label steps aside
+            # for it. A number badge grown to the label's capitals keeps the
+            # band of a symbol badge; the line still starts below it.
+            return self.box.w - 2 * (self._compact_badge_side() + 14.0)
+        return self._label_width_for(self.box.w)
+
     def doc_line_rect(self) -> QRectF:
         """Where the doc line goes, in item coordinates: right below the
         label, as wide as the label's wrap width."""
         label_top = self._label.pos().y() - self.pos().y()
         top = label_top + self._label.boundingRect().height() + self._DOC_LINE_GAP
-        width = self._label_width_for(self.box.w)
-        if self._has_badge_icon() and self._miniature is None:
-            # The doc line runs below the badge: only the label steps aside
-            # for it.
-            width = self.box.w - 2 * (self._badge_icon_side() + 14.0)
+        width = self._doc_line_width()
         if self._has_lead_icon():
             left = self._label.pos().x() - self.pos().x()
-            width = self.box.w - left - 8.0
         elif self._get_effective_anchor() == "topleft":
             left = 8.0
         else:
@@ -1609,11 +1820,11 @@ class BoxItem(QGraphicsRectItem):
 
     def _paint_doc_line(self, painter: QPainter):
         rect = self.doc_line_rect()
-        if rect.width() <= 0:
+        # A line cut mid-word reads worse than none: draw it whole or not.
+        if not self._doc_line_whole(self._doc_line, rect.width()):
             return
         font = self._doc_line_font()
-        text = QFontMetricsF(font).elidedText(
-            self._doc_line, Qt.TextElideMode.ElideRight, rect.width())
+        text = self._doc_line
         ink = theme.ink_on(self._fill_color())
         ink.setAlphaF(0.7)
         align = (Qt.AlignmentFlag.AlignLeft
@@ -1633,7 +1844,7 @@ class BoxItem(QGraphicsRectItem):
 
     def _status_font(self) -> QFont:
         """The status label's face: the label's, a few steps smaller."""
-        px = resolve_textsize_px(self.box.textsize, "")
+        px = resolve_textsize_px(self.look.textsize, "")
         return QFont(self._box_family(), max(8, round(px * 0.7)))
 
     def status_rect(self) -> QRectF:
@@ -1675,7 +1886,7 @@ class BoxItem(QGraphicsRectItem):
 
         *strip* is a ``^left`` band's children colours, as ``(x0, x1, rgba)``
         with x as fractions of the box width (#212)."""
-        tile = (summary.label, summary.descendants) if summary else None
+        tile = (summary.label, summary.depth) if summary else None
         strip = tuple(strip) if summary else ()
         if tile == self._lod_tile and strip == self._lod_strip:
             return
@@ -1703,8 +1914,7 @@ class BoxItem(QGraphicsRectItem):
             self._paint_lod_stack(painter)   # offset edges behind the fill
         painter.setPen(self.pen())
         painter.setBrush(self.brush())
-        radius = (0 if self.box.style == "flat" or self._container_look()
-                  else BOX_RADIUS)
+        radius = self.corner_radius(self.rect())
         painter.drawRoundedRect(self.rect(), radius, radius)
 
         if self._lod_tile is not None:
@@ -1718,7 +1928,8 @@ class BoxItem(QGraphicsRectItem):
             self.scene() and self.scene().property("canvas_offscreen"))
         mini = self._miniature is not None and on_canvas
         if (self._lod_tile is None and not self._lod_simplified
-                and self.box.icon and iconset.has_icon(self.box.icon)
+                and self.look.icon
+                and iconset.has_icon(self.look.icon, scene_icons(self))
                 and not (self._has_badge_icon()
                          and (mini or self._icons_above_label()))):
             self._paint_icon(painter)
@@ -1737,6 +1948,7 @@ class BoxItem(QGraphicsRectItem):
 
         if self.isSelected():
             sel_rect = self.rect().adjusted(-4, -4, 4, 4)
+            radius = self.corner_radius(sel_rect)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             shadow = QColor(theme.SHADOW_COLOR)
             shadow.setAlphaF(0.25)
@@ -1749,6 +1961,21 @@ class BoxItem(QGraphicsRectItem):
         # Over the selection ring, which would otherwise cross the pill.
         if self.box.status:
             self._paint_status(painter)
+
+    def corner_radius(self, rect: QRectF) -> float:
+        """How round ``rect``'s corners draw: half its shorter side for a
+        ``!round`` box, so a square is a circle and anything else a pill;
+        none for a flat box or a container; the plate's radius otherwise."""
+        if self.box.round:
+            return min(rect.width(), rect.height()) / 2
+        if self.box.style == "flat" or self._container_look():
+            return 0
+        return BOX_RADIUS
+
+    def set_round(self, round_: bool):
+        """Draw the box as a circle or pill (``!round``), or square-cornered."""
+        self.box.round = round_
+        self.update()
 
     def _paint_lod_shell_bars(self, painter: QPainter):
         """LoD shell: when its label is too small to read, a leaf box keeps its
@@ -1803,53 +2030,81 @@ class BoxItem(QGraphicsRectItem):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(visible)
 
+    def set_lod_title_px(self, px: float | None) -> None:
+        """Set the on-screen size the tile's title is drawn at — the view
+        picks one per nesting level (#258); None fits the tile alone."""
+        if px != self._lod_title_px:
+            self._lod_title_px = px
+            self.update()
+
+    def lod_caption_size(self, scale: float) -> tuple[float, float]:
+        """The tile's caption area on screen, as (width, height) px: the
+        whole tile, or a ``^left`` band's part above its strip."""
+        rect = (self._lod_strip_rect()[0] if self.box.anchor == "left"
+                else self.rect())
+        return rect.width() * scale, rect.height() * scale
+
+    def lod_title_fit_px(self, scale: float, label: str, depth: int) -> float:
+        """The largest size up to its level's at which *label* fits this
+        tile's caption area."""
+        w_screen, h_screen = self.lod_caption_size(scale)
+        return caption_fit_px(label, w_screen, h_screen, level_title_px(depth),
+                              left=self.box.anchor == "left")
+
     def _paint_lod_tile(self, painter: QPainter):
-        """Draw a collapsed container as a headline + child-count badge.
+        """Draw a collapsed container as its headline.
 
         Counter-scaled so the text stays readable as the tile shrinks (like a
-        place name on a map). The headline **wraps** to the tile's on-screen
+        place name on a map), at a size set by the container's nesting level,
+        not its area (#258). The headline **wraps** to the tile's on-screen
         width across multiple lines, only spilling past the edges when a single
         word can't fit at all.
         """
-        label, count = self._lod_tile
+        label, depth = self._lod_tile
         rect = self.rect()
         scale = _view_scale(self)
         if scale <= 0:
             return
-        ideal = _aggregate_ideal_px(rect.width() * scale,
-                                    rect.height() * scale)
         band = self.box.anchor == "left"
         if band:
             rect = self._paint_lod_strip(painter, self._lod_strip)
         w_screen = rect.width() * scale
         h_screen = rect.height() * scale
+        head_px = (self._lod_title_px if self._lod_title_px is not None
+                   else self.lod_title_fit_px(scale, label, depth))
 
         painter.save()
         painter.translate(rect.center())
         painter.scale(1.0 / scale, 1.0 / scale)   # 1 unit == 1 on-screen px
-        _draw_aggregate_caption(painter, label, count, w_screen, h_screen,
-                                ideal, left=band)
+        _draw_aggregate_caption(painter, label, w_screen, h_screen,
+                                head_px, left=band)
         painter.restore()
 
     _STRIP_SHARE = 0.32   # of a band's height, along its bottom
+
+    def _lod_strip_rect(self) -> tuple[QRectF, QRectF]:
+        """A ``^left`` band's (title area, strip) rects: the strip along its
+        bottom, the title area above it (#212)."""
+        rect = self.rect()
+        inset = rect.height() * 0.08
+        strip_h = rect.height() * self._STRIP_SHARE
+        top = rect.bottom() - inset - strip_h
+        return (QRectF(rect.left(), rect.top(), rect.width(), top - rect.top()),
+                QRectF(rect.left(), top, rect.width(), strip_h))
 
     def _paint_lod_strip(self, painter: QPainter, strip) -> QRectF:
         """Paint a ``^left`` band's children colours as a strip along its
         bottom, each where its child sits across the band, and return the
         area above it, which takes the title (#212)."""
-        rect = self.rect()
-        inset = rect.height() * 0.08
-        strip_h = rect.height() * self._STRIP_SHARE
-        top = rect.bottom() - inset - strip_h
+        title, bar = self._lod_strip_rect()
         painter.save()
         painter.setPen(Qt.PenStyle.NoPen)
         for x0, x1, rgba in strip:
             painter.setBrush(QColor.fromRgba(rgba))
-            painter.drawRect(QRectF(rect.left() + x0 * rect.width(), top,
-                                    (x1 - x0) * rect.width(), strip_h))
+            painter.drawRect(QRectF(bar.left() + x0 * bar.width(), bar.top(),
+                                    (x1 - x0) * bar.width(), bar.height()))
         painter.restore()
-        return QRectF(rect.left(), rect.top(), rect.width(),
-                      top - rect.top())
+        return title
 
 
 class ClusterHullItem(QGraphicsPathItem):
@@ -1858,8 +2113,8 @@ class ClusterHullItem(QGraphicsPathItem):
     The outline is a pure-Qt concave hull: the boolean union of each member's
     inflated rounded-rect with a thick-stroked path of the member-to-member
     edges (so the blob follows the graph and never fragments). The cluster has
-    no backing element, so it is navigation-only — it carries a hub label and
-    node count drawn counter-scaled at the centroid, like a collapsed tile.
+    no backing element, so it is navigation-only — it carries a hub label
+    drawn counter-scaled at the centroid, like a collapsed tile.
     """
 
     def __init__(self, member_rects, edges, pad: float,
@@ -1961,12 +2216,13 @@ class ClusterHullItem(QGraphicsPathItem):
         bounds = self.path().boundingRect()
         w_screen = bounds.width() * scale
         h_screen = bounds.height() * scale
-        ideal = _aggregate_ideal_px(w_screen, h_screen)
+        head_px = caption_fit_px(self._label, w_screen, h_screen,
+                                 _aggregate_ideal_px(w_screen, h_screen))
         painter.save()
         painter.translate(self._centroid)
         painter.scale(1.0 / scale, 1.0 / scale)
-        _draw_aggregate_caption(painter, self._label, self._count,
-                                w_screen, h_screen, ideal)
+        _draw_aggregate_caption(painter, self._label, w_screen, h_screen,
+                                head_px)
         painter.restore()
 
 
@@ -2234,26 +2490,35 @@ class NoteItem(QGraphicsSimpleTextItem):
     # Corner-badge icon size on a note (``*badge:name`` placement).
     _BADGE_ICON_SIDE = 18.0
 
+    def _badge_icon_side(self) -> float:
+        """The corner badge's side; a number badge grows until its digits
+        stand as tall as the note text's capitals."""
+        cap = QFontMetricsF(self._note_font()).capHeight()
+        return max(self._BADGE_ICON_SIDE,
+                   iconset.number_badge_side(self.note.icon, cap))
+
     def _is_marker_icon(self) -> bool:
         """Fill/lead glyph notes render as floating markers; ``badge`` keeps
         the normal text body and overlays a compact corner icon instead."""
-        return (bool(self.note.icon) and iconset.has_icon(self.note.icon)
+        return (bool(self.note.icon)
+                and iconset.has_icon(self.note.icon, scene_icons(self))
                 and self.note.icon_placement != "badge")
 
     def _has_badge_icon(self) -> bool:
         return (bool(self.note.icon) and self.note.icon_placement == "badge"
-                and iconset.has_icon(self.note.icon))
+                and iconset.has_icon(self.note.icon, scene_icons(self)))
 
     def _paint_badge_icon(self, painter: QPainter):
         r = self.boundingRect()
         if self.isSelected():
             r = r.adjusted(4, 4, -4, -4)
-        side = self._BADGE_ICON_SIDE
+        side = self._badge_icon_side()
         # The attachment glyph owns the very corner — step aside for it.
         dx = 18.0 if self.note.url else 0.0
         iconset.paint_badge(painter, self.note.icon,
                             QRectF(r.right() - side - 5.0 - dx, r.top() + 5.0,
-                                   side, side), self._icon_color())
+                                   side, side), self._icon_color(),
+                            scene_icons(self))
 
     def _icon_side(self) -> float:
         px = resolve_textsize_px(self.note.textsize, "")
@@ -2289,7 +2554,8 @@ class NoteItem(QGraphicsSimpleTextItem):
     def _lead_icon_w(self, side: float) -> float:
         """Width reserved for a lead icon — wide symbols get aspect-corrected
         room instead of shrinking into a square."""
-        return side * min(max(iconset.icon_aspect(self.note.icon), 1.0), 1.6)
+        aspect = iconset.icon_aspect(self.note.icon, scene_icons(self))
+        return side * min(max(aspect, 1.0), 1.6)
 
     def _paint_icon_note(self, painter: QPainter):
         """A borderless floating glyph. ``fill``: big icon with the text as a
@@ -2304,7 +2570,7 @@ class NoteItem(QGraphicsSimpleTextItem):
             lead_w = self._lead_icon_w(side)
             iconset.paint_icon(painter, self.note.icon,
                                QRectF(pad, (total_h - side) / 2, lead_w, side),
-                               color)
+                               color, scene_icons(self))
             painter.setFont(font)
             painter.setPen(color)
             if lines:
@@ -2316,7 +2582,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         else:
             iconset.paint_icon(painter, self.note.icon,
                                QRectF((total_w - side) / 2, pad, side, side),
-                               color)
+                               color, scene_icons(self))
             painter.setFont(font)
             painter.setPen(color)
             if lines:
@@ -2796,7 +3062,7 @@ class NoteItem(QGraphicsSimpleTextItem):
                 if self._has_badge_icon():
                     # reserve corner room so the first line clears the badge
                     # (and the attachment glyph the badge steps aside for)
-                    total_w += self._BADGE_ICON_SIDE + 4.0
+                    total_w += self._badge_icon_side() + 4.0
                     if self.note.url:
                         total_w += 18.0
                 if self.note.wrap_chars_explicit:
@@ -2978,7 +3244,7 @@ class NoteItem(QGraphicsSimpleTextItem):
         if self._has_badge_icon():
             # mirror boundingRect's corner reservation so the plate and the
             # badge agree on where the right edge is
-            total_w += self._BADGE_ICON_SIDE + 4.0
+            total_w += self._badge_icon_side() + 4.0
             if self.note.url:
                 total_w += 18.0
         total_h = pad + n_lines * line_h + pad
@@ -3352,6 +3618,11 @@ class NoteItem(QGraphicsSimpleTextItem):
                     view.arrow_update_needed.emit()
                 if view and hasattr(view, 'mark_dirty'):
                     view.mark_dirty()
+        elif (change == QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged
+              and value is not None and _own_icon(self.note.icon)):
+            # A board's own symbol resolves through the scene: measure again.
+            self.prepareGeometryChange()
+            self._brect_cache = None
         return super().itemChange(change, value)
 
 
@@ -3817,7 +4088,7 @@ class ImageItem(QGraphicsPixmapItem):
 class LabelItem(QGraphicsSimpleTextItem):
     """Arrow label with semi-transparent background."""
 
-    _PAD = 4
+    _PAD = LABEL_PAD
     _BADGE_HPAD = 5
     _BADGE_RADIUS = 3
     _GAP = 5
@@ -3858,7 +4129,12 @@ class LabelItem(QGraphicsSimpleTextItem):
                 body_w = fm.horizontalAdvance(parsed.body)
                 widths.append(badge_w + (self._GAP + body_w if parsed.body else 0))
             else:
-                widths.append(fm.horizontalAdvance(raw))
+                card, rest = split_cardinality(raw)
+                if card:
+                    widths.append(bfm.horizontalAdvance(card)
+                                  + (fm.horizontalAdvance(" " + rest) if rest else 0))
+                else:
+                    widths.append(fm.horizontalAdvance(raw))
         total_w = max(widths, default=0)
         total_h = len(widths) * line_h + max(0, len(widths) - 1) * self._LINE_GAP
         return fm, bfm, line_h, total_w, total_h
@@ -3901,13 +4177,38 @@ class LabelItem(QGraphicsSimpleTextItem):
                 x += badge_w + self._GAP
                 text = parsed.body
             else:
-                text = raw
+                # A leading cardinality is the count the relation carries:
+                # bold, in the full ink, ahead of the quieter relation name.
+                card, rest = split_cardinality(raw)
+                if card:
+                    painter.setFont(bold)
+                    painter.setPen(QColor(theme.INK))
+                    painter.drawText(QPointF(x, y), card)
+                    x += bfm.horizontalAdvance(card)
+                    text = " " + rest if rest else ""
+                else:
+                    text = raw
 
             if text:
                 painter.setFont(font)
                 painter.setPen(body_color)
                 painter.drawText(QPointF(x, y), text)
             y += line_h + self._LINE_GAP
+
+
+def arrow_label_size(arrow) -> tuple[float, float]:
+    """An arrow label's (width, height) as the canvas draws it: the width
+    of its widest line with a bold cardinality and kind badges, the height
+    of its lines. ``(0, 0)`` for an arrow without a label."""
+    from grafli.edge_label import arrow_label_font
+    text = arrow.label or ""
+    if not text:
+        return (0.0, 0.0)
+    font = arrow_label_font(arrow.textsize)
+    item = LabelItem(text)
+    item.setFont(font)
+    lines = max(1, len(text.split("\n")))
+    return (item.boundingRect().width(), QFontMetricsF(font).height() * lines)
 
 
 class ArrowLineItem(QGraphicsPathItem):

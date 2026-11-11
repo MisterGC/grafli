@@ -28,7 +28,9 @@ classifiers = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-qt>=4"]
+# `grafli serve`: the live board in a browser tab.
+serve = ["starlette>=0.37", "uvicorn>=0.30", "websockets>=13"]
+dev = ["pytest>=8", "pytest-qt>=4", "grafli[serve]"]
 docs = [
     "mkdocs>=1.6",
     "mkdocs-material>=9.5",
@@ -58,6 +60,21 @@ local_scheme = "no-local-version"
 
 [tool.hatch.build.targets.wheel]
 packages = ["grafli"]
+
+# The example boards the grafli skill names ship inside it (grafli.skills);
+# a test keeps this list equal to the boards the skill's text names.
+[tool.hatch.build.targets.wheel.force-include]
+"examples/architecture.grafli" = "grafli/skills/grafli/examples/architecture.grafli"
+"examples/architecture-res" = "grafli/skills/grafli/examples/architecture-res"
+"examples/infographic-demo.grafli" = "grafli/skills/grafli/examples/infographic-demo.grafli"
+"examples/layers-map.grafli" = "grafli/skills/grafli/examples/layers-map.grafli"
+"examples/layers-map-res" = "grafli/skills/grafli/examples/layers-map-res"
+"examples/live-session.grafli" = "grafli/skills/grafli/examples/live-session.grafli"
+"examples/live-session-res" = "grafli/skills/grafli/examples/live-session-res"
+"examples/navigation-map.grafli" = "grafli/skills/grafli/examples/navigation-map.grafli"
+"examples/navigation-map-res" = "grafli/skills/grafli/examples/navigation-map-res"
+"examples/oauth-callback.grafli" = "grafli/skills/grafli/examples/oauth-callback.grafli"
+"examples/sketchnote-demo.grafli" = "grafli/skills/grafli/examples/sketchnote-demo.grafli"
 
 [tool.hatch.build.targets.sdist]
 include = [

@@ -53,11 +53,12 @@ thinking boards, explanation maps) — deep coverage without a heavyweight promp
 ## Install
 
 The skill ships **inside the Python package** as a directory —
-`SKILL.md` plus its `references/` files. The built-in installer places
+`SKILL.md`, its `references/` files and an `examples/` folder holding the
+example boards the references point to. The built-in installer places
 it where your AI tool expects skills:
 
 ```bash
-# Install for one or all supported tools (copies SKILL.md + references/)
+# Install for one or all supported tools (copies SKILL.md, references/, examples/)
 grafli skill install claude
 grafli skill install all
 
@@ -83,6 +84,29 @@ packaged one, so re-running `grafli skill install` after
 `pip install --upgrade grafli` keeps agents on the latest skill. A
 symlink to `grafli skill --where` works too if your platform supports
 it comfortably.
+
+## On a live board: what the agent gets
+
+A Claude Code session connected to `grafli serve` through `grafli agent`
+(see [Connect your agent](navigating.md#connect-your-agent-a-claude-code-session-you-run))
+gets the skill from the bridge itself, so nothing needs to be installed in
+that session:
+
+- **The `authoring_guide` tool** returns the skill as it ships with your
+  grafli: without arguments the core `SKILL.md`, headed by a few lines that
+  map its file steps to the board's tools (`read_board` for reading the
+  file, `write_board` for `Write` / `Edit`, `render_board` for
+  `grafli render`) and name the reference files; with
+  `reference: "format.md"` (or `design.md`, `presenting.md`, …) that one
+  reference file. It answers before the session connects too.
+- **A pointer to it, twice.** The instructions the bridge gives Claude
+  Code when the session starts, and the reply to `/mcp__grafli__connect`,
+  both tell the session to read the guide before its first `write_board`
+  — unless the grafli skill is already loaded in that session, as it is
+  after `grafli skill install claude`.
+
+The guide is always the version of the skill that ships with the running
+grafli, so it matches the format the board is read in.
 
 ## What the skill triggers on
 
@@ -131,8 +155,12 @@ Once the skill is installed, the agent:
    normalize what it wrote into the same canonical form the app saves
    (integer coordinates, canonical spacing — keeps diffs clean),
    `grafli diagnose`
-   (incl. `parse-error` findings for lines that would silently drop),
-   `grafli inspect` for placement geometry, and `grafli export --check`
+   (incl. `parse-error` findings for lines that would silently drop,
+   and `unrelated-children` / `unrelated-board` warnings for boxes that
+   relate to nothing),
+   `grafli inspect` for placement geometry, `grafli layout` to run the
+   app's layered layout over a board's boxes (boxes marked `!pin` stay
+   where they are), and `grafli export --check`
    when a deck is involved. `grafli diagnose --fix` applies the
    mechanical corrections (clamping, sizing, mistyped tokens) and exits
    non-zero while errors remain, so the loop can run unattended — what

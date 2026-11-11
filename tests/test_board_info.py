@@ -70,3 +70,14 @@ def test_empty_board():
     assert info["bounds"] is None
     assert info["elements"] == []
     assert info["containers"] == []
+
+
+def test_a_title_in_points_or_by_alias_gets_the_large_top_margin():
+    from grafli.board_info import top_margin
+
+    assert top_margin("23") == 60.0
+    assert top_margin("18") == 60.0
+    assert top_margin("2xl") == 60.0
+    assert top_margin("16") == 40.0
+    assert top_margin("small") == 40.0
+    assert top_margin("") == 40.0

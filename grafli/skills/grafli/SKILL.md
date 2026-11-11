@@ -199,29 +199,78 @@ threaded rendering.
 ## Plan before you write
 
 Skills produce noticeably better grafli when the model **plans first**
-instead of writing code. Walk through these steps before you produce
+instead of writing code. A board earns its place by showing what the
+text beside it can't — relations and positions that mean something —
+so the loop starts with the relations and lets the boxes and the
+layout follow from them. Walk through these steps before you produce
 any `@ box` / `@ arrow` / `@ note` lines. (This is the workflow for a
 *precise* diagram — architecture, design, behavior. For a fast, memory-
 first **sketchnote**, skip the ceremony and use the sketchnote playbook
 in `references/genres.md` instead.)
 
-1. **Question.** What single question does the diagram answer?
-   ("How does an OAuth callback flow?" / "Which services own which
-   data?") If you can't state the question in one sentence, ask the
-   user.
-2. **Cast.** List every actor / component / state as a flat bullet
-   list. No coordinates yet. A view the eye can hold has **~5–9 nodes
-   per level** — if the cast overflows that, plan the depth ladder now:
-   group into containers, or push detail into notes / `&doc` docs /
-   `&graph` sub-boards (see "The right altitude" in
-   `references/design.md`). For a map someone reads to understand a
-   subject, every level also states its question and the evidence for
-   its split — see `references/explaining.md`.
-3. **Flow direction.** Pick **one** for the whole diagram —
-   left-to-right, top-to-bottom, or center-out (see "Flow direction"
-   under Layout strategy in `references/design.md` for which fits what).
-4. **Containers.** Group related items into `!flat` containers
-   (services, layers, bounded contexts) before placing children.
+1. **Question and claim.** What single question does the diagram
+   answer? ("How does an OAuth callback flow?" / "Which services own
+   which data?") Then the claim, in one line: what the picture shows
+   that the text beside it doesn't. The claim becomes the board's
+   headline. If you can't state the question, ask the user; if there is
+   no claim, there is no diagram — say so and keep it as text or a
+   table.
+2. **Edges first.** Write the relations down as a flat list before any
+   box: `from → to`, each with a **kind** (a semantic prefix —
+   `call:`, `data:`, `event:`, `owns:`, `depends:` … — or a plain verb
+   where none fits) and, where it matters, a **cardinality** written
+   into the label (`owns: 1 → N mirrors`). The edges are the content;
+   a board whose arrows all say `uses` explains nothing.
+3. **Only the boxes those edges need.** The ends of your edges are the
+   boxes. A thing with no edge goes into a list note (an `md:` bullet
+   list), not a box — unless the encoding you are about to pick places
+   it by a rule (an item on a matrix's two axes, a field in a
+   proportional strip): there its position is the relation, so it
+   stays a box. **At most 9 units per view** — a unit is what the
+   eye counts: a box, a container read as one, a note. More goes a
+   level down (a `&graph` sub-board, detail into a `&doc`) — see
+   "Units per view" in `references/design.md`. For a map someone reads
+   to understand a subject, every level also states its question and
+   the evidence for its split — see `references/explaining.md`.
+4. **Pick an encoding** from the catalogue in `references/design.md`
+   ("Pick the encoding from the question") — the one whose question
+   matches the board's. Each makes position mean something:
+
+   | Encoding | The question it answers |
+   |---|---|
+   | matrix on two axes | Where does each item sit on two forces? |
+   | layered dependencies | What may depend on what? |
+   | containment | What lives inside what? |
+   | mirror | Are two paths symmetric? |
+   | proportional strip | How is a whole split by size? |
+   | before / after | What does this change change? |
+   | sequence | In what order does it happen? |
+   | state machine | Which states can it be in, and what moves it between them? |
+
+   If none fits, it is a plain graph: lay it out as layered
+   dependencies, flowing in the direction of its dominant edge kind.
+5. **Lay out, then touch up.** For layered dependencies, containment,
+   sequence and state machine, write the boxes at rough positions and run
+   `grafli layout <file>` — the app's layered layout (`=` in the app),
+   run headless — then adjust by hand: the claim's boxes where the eye
+   lands, related boxes side by side, no arrow through a box. A box
+   you placed on purpose gets `!pin`: the next `grafli layout` keeps
+   it there and places the others around it. The layout also gives
+   `!ortho` to every arrow between two boxes it places that has no
+   routing yet, and a stair steps around the boxes of a layer it
+   skips; an arrow that must stay a direct line gets `!straight`
+   (`#!grafli v4`), which the next `grafli layout` leaves alone. For a
+   matrix, mirror, proportional strip or before / after, the
+   coordinates *are* the content: compute them from the encoding's rule
+   and don't run the layout over them. If your grafli has no `layout`
+   command yet (`grafli layout --help` fails), place by the encoding's
+   grid yourself (multiples of 50, the container margin model in
+   `references/design.md`). Never run the layout over a board a human
+   has placed.
+6. **Dress it.** Emphasis goes to the 1–2 things that are the claim
+   (`!bold`, a `%highlight` fill); what is context goes quiet
+   (`%muted`). Group related items into `!flat` containers (services,
+   layers, bounded contexts).
    A container with children gets the flat body, sharp corners and
    small top-left caption automatically. An **empty** layer band — a
    tier you want to show but have nothing to put in yet — has to ask
@@ -240,15 +289,14 @@ in `references/genres.md` instead.)
    (`#!grafli v4`). On a note, `!sans` swaps the handwriting for Inter.
    Something later or optional gets a `!dashed` or `!dotted` outline
    (`#!grafli v4`); on a flat box or a container it adds the outline.
+   A state machine's start and end states, a flowchart's terminators
+   and a sketchnote's bubbles are `!round`: a circle when the box is
+   square, a pill otherwise (`#!grafli v4`) — a small unlabelled
+   `24x24 %primary !round` box is a start dot.
    A resting status (`open`, `designed`) is `~status=open` or
    `~status=designed:%rose`, a pill on the box's bottom edge that shows in
    every view (`#!grafli v4`); keep overlays for what is toggled with `A`.
-5. **Place children inside containers**, sized and aligned to the
-   grid (multiples of 50). Use the container margin model in
-   `references/design.md`.
-6. **Arrows last.** Every arrow gets a label unless its meaning is
-   obvious from context. Use semantic edge prefixes (`call:`, `data:`,
-   `event:`, etc.) where they fit. Pick a **routing** to match the
+   Pick an arrow **routing** to match the
    board: leave it **direct** (the default) for conceptual maps and
    sketches, where a straight line reads as "these relate"; use
    `!ortho` on structural boards — architecture, deployment, wiring,
@@ -270,8 +318,14 @@ in `references/genres.md` instead.)
    are identifiers; notes or the box's own `&doc` are bodies (see the
    Box section) — never inline multi-line detail into a box label.
 8. **Re-read against the quality bar.** Pretend you're the user opening
-   the file: the eye lands on the entry point, the board answers its one
-   question, depth is on demand, no arrows crossing. If not, reposition
+   the file: the headline states the claim; position means something
+   (an axis, an order, containment); most boxes have a labelled edge
+   or a place set by the encoding's rule (a matrix's axes, a strip's
+   widths);
+   the eye lands on the 1–2 emphasised things and they are the claim;
+   at most 9 units in view; a change is shown as before / after with
+   the unchanged parts quiet; no arrow crosses another or runs through a
+   box; zoomed out, it still answers the question. If not, reposition
    before saving — repositioning beats decoration. (The full bar is in
    `references/design.md`.)
 9. **Render and verify.** Use `grafli render <file>.grafli /tmp/check.png`
@@ -290,8 +344,14 @@ in `references/genres.md` instead.)
     **dropped lines** (`parse-error` — a malformed directive or
     misplaced modifier silently removes the element; always fix these
     first), children outside parents, sibling overlaps, cramped
-    containers, likely-truncated labels, arrow labels crowding endpoints
-    or hiding arrowheads, missing images, `&graph` / `.grafli` `&link`
+    containers, likely-truncated labels, boxes that relate to nothing
+    (`unrelated-children`: a container of 4+ boxes with no arrow between
+    them; `unrelated-board`: more than half of 4+ boxes touch no arrow),
+    arrow labels on a box (`arrow-label-crowded`: the canvas moves a
+    label into free space along its arrow, so this is one with no room
+    or one offset there via `@dx,dy`)
+    or hiding arrowheads, two arrow labels drawn on top of each other
+    (`arrow-labels-overlap`, naming both arrows), missing images, `&graph` / `.grafli` `&link`
     targets and `#<id>`s that do not exist and `@path:line` refs whose
     file or line does not exist (both errors), overlay files
     that don't parse or name ids not on the board. Each finding
@@ -339,8 +399,8 @@ in `references/genres.md` instead.)
 
 ```
 # Comments and titles
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent] [# annotation]
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho] [!dot] [~size] [~from=<side>] [~to=<side>] [# annotation]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !round !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!dashed|!dotted] [!thin|!thick] [!spline|!ortho|!straight] [!dot] [~size] [~from=<side>] [~to=<side>] [# annotation]
 @ note <id> <x>,<y> "<text>" [~size] [&attach] [>parent] [# annotation]
 @ note <id> <x>,<y> [~size] &doc [>parent]        # doc-bodied: body = <stem>-res/<id>.md
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [# annotation]
@@ -416,11 +476,20 @@ catches them before the user opens the file.
   Default to `~small` (and cap `~width`) in multi-column phases — see
   "Sizing in multi-column phases" in `references/format.md` for the
   budget math.
-* **Disconnected boxes.** Every box should either have an arrow,
-  sit inside a container, or be a deliberate standalone label. Drifting
-  orphans look like errors.
-* **Massive flat layouts.** 15+ boxes at the same level is noise —
-  group them into `!flat` containers.
+* **Boxes with no edge.** A box should have an arrow, sit inside a
+  container that is the relation, or be placed by its encoding's rule
+  (an item on a matrix's axes, a field in a strip — its position is the
+  relation). Anything else with no edge is a list item: put it in an
+  `md:` list note, not a box. Drifting orphans look like errors and say
+  nothing. `grafli diagnose` reports both shapes of it (`unrelated-children`,
+  `unrelated-board`); on a matrix or a strip, where position is the
+  relation, acknowledge the finding and keep the boxes.
+* **More than 9 units in one view.** A view the eye can hold has at
+  most 9 units (boxes, containers read as one, notes). More goes a level
+  down (`&graph`, `&doc`) or into a list note.
+* **Position that means nothing.** A grid of equal boxes in equal bands
+  tells the reader no more than a list. Pick an encoding (step 4) so an
+  axis, an order, containment or a side carries meaning.
 * **Tiny containers.** Don't nest a single box; nesting implies a
   grouping of multiple elements.
 * **Children outside the parent.** A box with `>parent` must visually
@@ -456,14 +525,19 @@ task needs them:
   overlay files (analysis data beside a board). Open when you write any
   element beyond the quick reference above, or analysis data for a board.
 * `references/design.md` — diagram design principles: visual hierarchy,
-  typography, layout strategy, container margin model, arrow discipline,
-  the pattern gallery (architecture, pipeline, hub-and-spoke, visual
-  notes). Open before you lay out a new board or add meaningfully to an
-  existing one.
+  typography, the encoding catalogue (matrix, layered dependencies,
+  containment, mirror, proportional strip, before / after, sequence,
+  state machine —
+  each with the question it answers and an example), units per view,
+  layout strategy, container margin model, arrow discipline, the pattern
+  gallery (architecture, pipeline, hub-and-spoke, visual notes). Open
+  before you lay out a new board or add meaningfully to an existing
+  one.
 * `references/genres.md` — the genre playbooks: sketchnote, infographic,
-  software diagrams (behavioral / architecture / design). Each gives the
-  10-second job, layout archetypes, a closed feature palette, and an
-  expert review checklist. Open BEFORE authoring any board of these
+  software diagrams (architecture / state machine / behavioral /
+  design — each picking its arrows by its question, kinds and icons
+  from the palette). Each gives the 10-second job, layout archetypes, a
+  closed feature palette, and an expert review checklist. Open BEFORE authoring any board of these
   genres — the palette decides which features you may use, and the
   expert checklist is your self-review before shipping.
 * `references/presenting.md` — flows, slide composition, and export:
@@ -488,6 +562,10 @@ task needs them:
   deliberate-incompleteness rules. Open when the user wants to *think
   through* a problem — options, trade-offs, unknowns — rather than
   document a system.
+* `examples/` — the exemplar boards the references name, each with its
+  `<name>-res/` vault, beside this file. Open the one a playbook names
+  before you author a board of its kind, and copy its moves, not its
+  content.
 ---
 
 # File operations

@@ -100,6 +100,21 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 - Share as one page — `grafli export-html` writes a board and every board
   reachable from it into a single offline HTML file: zoom into levels, peek
   at docs, switch overlays and play the tours in any browser.
+- Live in a browser tab — `grafli serve <dir>` pushes every change to a
+  board, from the app, an editor or an agent, to the tabs open on it on your
+  network or VPN; a watch, an edit and a present link per board, each with
+  its own key. The others follow the presenter's view, see each other's named
+  cursors and a laser (`k`); none of that is written to the file. Guests edit
+  with the mouse: click, double-click to rename, drag to move, drag from an
+  edge to connect, right-click for a `Q:` question. With `--reveal` a
+  prepared board shows only its title until the presenter reveals it by jump
+  label (`v`), in any order. A Claude Code session you already run connects
+  as the boards' agent (`grafli agent`, over MCP): the tabs show it by name,
+  and as gone when it drops. Plain language on the tab's `:` line, or the
+  **ask** chip on a selection, goes to it; with none connected the tab says
+  so. Its edits glow with its name and undo per
+  author; a change of more than 5 elements waits as a proposal the presenter
+  takes with <kbd>Enter</kbd> or drops with <kbd>x</kbd>.
 - Bookmarks & flows — save labeled viewpoints (semantic anchors, not pixel
   coords) and string them into guided tours: step through, auto-play, present
   fullscreen (<kbd>F5</kbd>), or export a slide PDF (`grafli export … --flow`).

@@ -60,6 +60,7 @@ from grafli.constants import (
     _SIGNIFICANT_MODS,
     _SIZE_SEQUENCE,
 )
+from grafli.arrows import label_anchor
 from grafli.format import Arrow, Board, Box, Flow, Image, Note
 from grafli.flows import FlowPlayer
 from grafli.items import ArrowLineItem, BoxItem, BoxLabelItem, ClusterHullItem, ImageItem, NoteItem, ResizeHandle
@@ -132,6 +133,9 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         super().__init__(parent)
         self._scene = QGraphicsScene(self)
         self._scene.setBackgroundBrush(QBrush(theme.SCENE_BG))
+        # The shown board's own symbols (iconset.BoardIcons, issue #299),
+        # set by load_board; items look them up through their scene.
+        self._scene.board_icons = None
         self.setScene(self._scene)
 
         # TextAntialiasing sharpens the Nerd Font glyphs / labels; SmoothPixmap
@@ -170,6 +174,13 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         self.base_dir: str = ""
         self._box_items: dict[str, BoxItem] = {}
         self._arrow_items: list[QGraphicsLineItem | QGraphicsPolygonItem | QGraphicsSimpleTextItem] = []
+        # id(arrow) → (start, end, path) of its last drawn connector: what
+        # arrows.label_anchor needs to say where its label sits.
+        self._arrow_label_geometry: dict[int, tuple] = {}
+        # id(arrow) → the point its label was centred on before its
+        # ``@dx,dy`` offset: the anchor, or the free spot the label moved to
+        # (#303). What the inline editor, the badge and a label drag start from.
+        self._arrow_label_placed: dict[int, QPointF] = {}
         self._note_items: dict[str, NoteItem] = {}
         self._image_items: dict[str, ImageItem] = {}
         self._dirty = False
@@ -1662,6 +1673,11 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
                     self._open_type_picker()
                     event.accept()
                     return
+                # r — round: a circle when square, a pill otherwise.
+                if event.key() == Qt.Key.Key_R and no_mod:
+                    self._toggle_round()
+                    event.accept()
+                    return
                 if event.key() == Qt.Key.Key_J and no_mod:
                     self._cycle_textsize(-1)
                     event.accept()
@@ -1989,6 +2005,22 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
 
     # ── SELECT mode ──
 
+    def _label_drag_offset(self, arrow: Arrow) -> tuple[float, float]:
+        """The ``@dx,dy`` a drag of ``arrow``'s label starts from.
+
+        An offset label keeps its own. A label without one may have moved to
+        a free spot (#303); its drag starts from that spot's offset to the
+        anchor, so the label does not jump back as the drag begins.
+        """
+        if arrow.label_dx or arrow.label_dy:
+            return (arrow.label_dx, arrow.label_dy)
+        placed = self._arrow_label_placed.get(id(arrow))
+        geometry = self._arrow_label_geometry.get(id(arrow))
+        if placed is None or geometry is None:
+            return (0.0, 0.0)
+        anchor = label_anchor(*geometry)
+        return (placed.x() - anchor.x(), placed.y() - anchor.y())
+
     def _press_select(self, event):
         scene_pos = self.mapToScene(event.position().toPoint())
         item = self._scene.itemAt(scene_pos, self.transform())
@@ -2056,7 +2088,7 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
                     self._push_undo()
                     self._label_drag_arrow = arrow_data
                     self._label_drag_start = scene_pos
-                    self._label_drag_orig_offset = (arrow_data.label_dx, arrow_data.label_dy)
+                    self._label_drag_orig_offset = self._label_drag_offset(arrow_data)
                     event.accept()
                     return
                 self._select_arrow(arrow_data)

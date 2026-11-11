@@ -16,15 +16,16 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsTextItem, QInputDialog
 from grafli import theme
+from grafli.arrows import label_anchor
 from grafli.constants import (
     COLOR_PALETTE,
     FONT_FAMILY,
     resolve_textsize_px,
 )
-from grafli.format import SOLID_NUMBER_PREFIX, emphasis_from_flags
+from grafli.format import SOLID_NUMBER_PREFIX, emphasis_from_flags, split_icon
 from grafli.iconset import (EMPHASIS_NAMES, ICON_NAMES, has_icon, icon_pixmap,
-                             number_badge)
-from grafli.items import BoxItem, ImageItem, NoteItem
+                             number_badge, paint_icon)
+from grafli.items import BoxItem, ImageItem, NoteItem, scene_icons
 
 
 class StyleModeMixin:
@@ -284,6 +285,20 @@ class StyleModeMixin:
             self._color_picker_move(0, -1)
         elif key == Qt.Key.Key_J:
             self._color_picker_move(0, 1)
+        elif Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
+            self._pick_palette_entry(key - Qt.Key.Key_1)
+
+    def _pick_palette_entry(self, n: int):
+        """Apply the map palette's entry number *n* + 1 at once, as hjkl to
+        it and Enter would: its colour, and on a box its whole kind."""
+        if n >= len(self._map_palette):
+            self.toast(f"The map's palette has no entry {n + 1}", "warn")
+            return
+        values = [v for _, v in self._color_choices()]
+        self._color_picker_index = values.index(
+            f"%{self._map_palette[n].name}")
+        self._apply_color_picker_live()
+        self._commit_color_picker()
 
     def _commit_color_picker(self):
         mode, targets = self._color_picker_targets()
@@ -373,6 +388,8 @@ class StyleModeMixin:
 
         gx0, gy0 = px + pad, py + pad
         cyan = QColor(0, 209, 224)
+        entries = {f"%{e.name}": (n, e)
+                   for n, e in enumerate(self._map_palette, 1)}
         for i, (_name, value) in enumerate(choices):
             if value is None:
                 continue
@@ -380,9 +397,13 @@ class StyleModeMixin:
             sy = gy0 + (i // cols) * (sw + gap)
             cell = QRectF(sx, sy, sw, sw)
             hexv = theme.resolve_color(value)
+            fill = QColor(hexv) if hexv else QColor(theme.BOX_FILL)
             painter.setPen(QPen(QColor(0, 0, 0, 90), 1))
-            painter.setBrush(QBrush(QColor(hexv) if hexv else QColor(theme.BOX_FILL)))
+            painter.setBrush(QBrush(fill))
             painter.drawRoundedRect(cell, 4, 4)
+            if value in entries:
+                self._draw_kind_swatch(painter, cell, fill,
+                                       entries[value][1])
             if not hexv:
                 # "Default" / auto swatch: a diagonal slash marks "no colour".
                 painter.setPen(QPen(QColor(150, 60, 60), 1.5))
@@ -397,8 +418,31 @@ class StyleModeMixin:
         painter.setFont(QFont(FONT_FAMILY, 9))
         painter.drawText(QRectF(px, gy0 + grid_h + 4, panel_w, label_h),
                          Qt.AlignmentFlag.AlignCenter,
-                         choices[self._color_picker_index][0])
+                         self._color_picker_caption(entries))
         painter.restore()
+
+    def _color_picker_caption(self, entries: dict) -> str:
+        """The highlighted cell's label; a palette entry's leads with the
+        digit that applies it (1-9)."""
+        label, value = self._color_choices()[self._color_picker_index]
+        n = entries.get(value, (0, None))[0]
+        return f"{n}  {label}" if 1 <= n <= 9 else label
+
+    @staticmethod
+    def _draw_kind_swatch(painter: QPainter, cell: QRectF, fill: QColor,
+                          entry):
+        """A kind's swatch shows what else it gives a box: its outline
+        pattern around the cell and its icon on it."""
+        if entry.outline:
+            pen = QPen(theme.ink_on(fill), 1.5)
+            pen.setStyle(Qt.PenStyle.DashLine if entry.outline == "dashed"
+                         else Qt.PenStyle.DotLine)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(cell.adjusted(2, 2, -2, -2), 3, 3)
+        if entry.icon:
+            paint_icon(painter, split_icon(entry.icon)[1],
+                       cell.adjusted(6, 6, -6, -6), theme.ink_on(fill))
 
     # ── Status label (style mode -> s), boxes ──
 
@@ -437,23 +481,36 @@ class StyleModeMixin:
     # ── Icon-grid picker (style mode -> i), boxes and notes ──
 
     _ICON_GRID_COLS = 6
-    _ICON_ENTRIES = [""] + ICON_NAMES   # "" = clear/none
+    _ICON_BUILTIN = [""] + ICON_NAMES   # "" = clear/none
+    _icon_picker_own: list[str] = []    # the board's own icons, as listed
     _icon_picker_digit = ""             # typed number badge ("", "0".."99")
     _icon_picker_solid = False          # f: the number badge is filled
-    # Captioned category blocks: (header, first entry index, count). The
-    # "none" cell leads the semantic block; emphasis symbols follow.
-    _ICON_BLOCKS = (
-        ("semantic", 0, len(_ICON_ENTRIES) - len(EMPHASIS_NAMES)),
-        ("emphasis", len(_ICON_ENTRIES) - len(EMPHASIS_NAMES),
-         len(EMPHASIS_NAMES)),
-    )
 
-    @classmethod
-    def _icon_grid_rows(cls) -> list[list[int]]:
+    @property
+    def _ICON_ENTRIES(self) -> list[str]:
+        """The grid's names: "none", the built-in symbols, then the board's
+        own icons (``<stem>-res/icons/``, issue #299)."""
+        return self._ICON_BUILTIN + self._icon_picker_own
+
+    @property
+    def _ICON_BLOCKS(self) -> tuple:
+        """Captioned category blocks: (header, first entry index, count).
+        The "none" cell leads the semantic block; emphasis symbols follow,
+        then the board's own icons."""
+        builtin = len(self._ICON_BUILTIN)
+        blocks = (
+            ("semantic", 0, builtin - len(EMPHASIS_NAMES)),
+            ("emphasis", builtin - len(EMPHASIS_NAMES), len(EMPHASIS_NAMES)),
+        )
+        if self._icon_picker_own:
+            blocks += (("this board", builtin, len(self._icon_picker_own)),)
+        return blocks
+
+    def _icon_grid_rows(self) -> list[list[int]]:
         """Visual rows of entry indices — blocks each start on a fresh row."""
-        cols = cls._ICON_GRID_COLS
+        cols = self._ICON_GRID_COLS
         rows: list[list[int]] = []
-        for _, start, count in cls._ICON_BLOCKS:
+        for _, start, count in self._ICON_BLOCKS:
             idxs = list(range(start, start + count))
             rows.extend(idxs[i:i + cols] for i in range(0, len(idxs), cols))
         return rows
@@ -483,6 +540,8 @@ class StyleModeMixin:
         self._icon_picker_original = {
             self._el_id(it): (self._el_icon(it), self._el_placement(it))
             for it in targets}
+        icons = getattr(self._scene, "board_icons", None)
+        self._icon_picker_own = icons.names() if icons is not None else []
         cur = self._el_icon(targets[0])
         number = number_badge(cur)
         self._icon_picker_digit, self._icon_picker_solid = number or ("", False)
@@ -643,7 +702,9 @@ class StyleModeMixin:
                 cell = QRectF(sx, sy, sw, sw)
                 name = self._ICON_ENTRIES[i]
                 if name:
-                    pm = icon_pixmap(name, ink, sw - 8, dpr)
+                    pm = icon_pixmap(name, ink, sw - 8, dpr,
+                                     getattr(self._scene, "board_icons",
+                                             None))
                     if pm is not None:
                         painter.drawPixmap(QPointF(sx + 4, sy + 4), pm)
                 else:
@@ -954,15 +1015,25 @@ class StyleModeMixin:
 
     # ── Arrow mode (vim-like style) ──
 
-    def _arrow_label_midpoint(self) -> QPointF | None:
-        """Return scene midpoint of the selected arrow's line.
+    def _arrow_label_midpoint(self, arrow=None) -> QPointF | None:
+        """Scene point an arrow's label is centred on (default: the selected
+        arrow), before its ``@dx,dy`` offset — where the canvas drew it: the
+        anchor from ``arrows.label_anchor``, or the free spot the label moved
+        to off a box or another label (#303).
 
-        Resolves any endpoint type (box, note, image) via its graphics item, so
+        An arrow not drawn yet falls back to the middle between its two
+        elements, resolved via their graphics items (box, note or image), so
         the style-mode badge appears on note/image connectors too.
         """
-        arrow = self._selected_arrow
+        arrow = arrow or self._selected_arrow
         if not arrow or not self._board:
             return None
+        placed = self._arrow_label_placed.get(id(arrow))
+        if placed is not None:
+            return placed
+        geometry = self._arrow_label_geometry.get(id(arrow))
+        if geometry is not None:
+            return label_anchor(*geometry)
         fi = (self._box_items.get(arrow.from_id)
               or self._note_items.get(arrow.from_id)
               or self._image_items.get(arrow.from_id))
@@ -1058,6 +1129,16 @@ class StyleModeMixin:
         for a in self._selected_arrows:
             setattr(a, field, value)
 
+    def _set_all_routing(self, value: str):
+        """Unify the selected connectors' routing to the pick. Direct keeps
+        an arrow that was `!straight` when the overlay opened: both draw
+        the same line, and dropping the flag would let the next `grafli
+        layout` turn the arrow into a stair (#284)."""
+        for a in self._selected_arrows:
+            was = self._elem_overlay_original.get(id(a), {}).get(
+                "routing", a.routing)
+            a.routing = "straight" if not value and was == "straight" else value
+
     def _connector_axes(self) -> list:
         """The axis spec for the active overlay kind. ``get`` reads the primary
         connector (what the matrix highlights); ``set`` unifies every selected
@@ -1088,8 +1169,10 @@ class StyleModeMixin:
              "get": lambda: primary.thickness,
              "set": lambda v: self._set_all_arrows("thickness", v)},
             {"label": "Routing", "kind": "routing", "options": list(self._CONN_ROUTING_OPTIONS),
-             "get": lambda: primary.routing,
-             "set": lambda v: self._set_all_arrows("routing", v)},
+             # `!straight` draws direct, so the Direct cell shows it.
+             "get": lambda: ("" if primary.routing == "straight"
+                             else primary.routing),
+             "set": self._set_all_routing},
             {"label": "Leaves from", "kind": "side",
              "options": list(self._CONN_SIDE_OPTIONS),
              "get": lambda: primary.from_side,
@@ -1144,7 +1227,7 @@ class StyleModeMixin:
         for those boxes and the row must say so rather than silently do nothing.
         """
         return not any(
-            it.box.icon and has_icon(it.box.icon)
+            it.box.icon and has_icon(it.box.icon, scene_icons(it))
             and it.box.icon_placement in ("", "lead")
             for it in self._color_picker_boxes())
 

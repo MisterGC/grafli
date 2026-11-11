@@ -82,8 +82,9 @@ directly onto an ADR when the decision lands.
 ## Pattern: tension map
 
 Two poles; options placed **spatially between them** — position *is* the
-data. This uses the canvas's unique property (no auto-layout means every
-x-coordinate is a statement) for what it's best at.
+data. This uses the canvas's unique property (you place every box, so
+every x-coordinate is a statement) for what it's best at. Place it by
+hand; the layered layout would rank the options away from their poles.
 
 ```
 @ note title 250,-80 "How much to invest in the editor?" ~xxlarge

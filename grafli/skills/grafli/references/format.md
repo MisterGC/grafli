@@ -7,7 +7,7 @@ element beyond it.
 ## Box syntax
 
 ```
-@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card !ink !sans !dashed|!dotted !round !pin !bold !italic] [*icon] [&attach] [~status=<text>[:%color]] [>parent]
 ```
 
 **Modifier order is enforced** — write them in exactly this sequence:
@@ -21,7 +21,7 @@ class as a misplaced triple-quote modifier.
 
 | Modifier | Values | Effect |
 |----------|--------|--------|
-| `%color` | color token, map palette `%name` or `#RRGGBB` | fill color; a palette name is `#!grafli v4` |
+| `%color` | color token, map palette `%name` or `#RRGGBB` | fill color; the label sits on the fill where the board ink reads there at WCAG AA, on a lighter plate where it does not; a palette name is `#!grafli v4` |
 | `^anchor` | `^topleft`, `^topcenter`, `^left` | label alignment (default: center); `^left` is top left and, zoomed out, keeps a container a band with its children's colours and its title on the left; `#!grafli v4` |
 | `~size` | named `~small`…`~xxxlarge`, `~4xl` (hero), short aliases `~2xl`/`~3xl`, or numeric `~16` | text size (default: medium) |
 | `!flat` | `!flat` | no border, semi-transparent fill |
@@ -29,6 +29,8 @@ class as a misplaced triple-quote modifier.
 | `!ink` | `!ink` | label and fill/lead icon in the ink that reads on the fill, no light plate — for dark fills; `#!grafli v4` |
 | `!sans` | `!sans` | label and doc line in the bundled proportional face (Inter) instead of mono; on a note, text in Inter instead of handwriting; `#!grafli v4` |
 | `!dashed` / `!dotted` | `!dashed`, `!dotted` | outline drawn dashed or dotted, for later or optional; adds an outline to a flat box or container; `#!grafli v4` |
+| `!round` | `!round` | a circle when the box is square, a pill otherwise — start/end states, terminators, bubbles; arrows end on the curve; an unlabelled round box keeps its size; `#!grafli v4` |
+| `!pin` | `!pin` | `grafli layout` (and `=` in the app) keeps the box where it is and places its siblings around it; arrows to it still rank them; draws nothing; `#!grafli v4` |
 | `!bold` / `!italic` | `!bold`, `!italic` | text emphasis, in the `!`-flag group (combine for headings/asides) |
 | `!outline` / `!shadow` | `!outline`, `!shadow` | **note** display lettering — hollow letters / drop-shadow depth, for sketchnote headers (layer with `~size` + `!bold`); render on notes, not boxes |
 | `!flat` (note) | `!flat` | drop the beige background plate — the note's text sits directly on the canvas (for a hand-lettered title/header) |
@@ -83,15 +85,31 @@ stays primary — for labeled items (`*lead:database` → a "Postgres" node).
 `*badge:name` overlays a *compact* symbol in the top-right corner and leaves
 the label/text layout untouched — the emphasis layer (`*badge:flame` on the
 hot topic, `*badge:2` as step two of a sequence). Number badges accept any
-placement (`*3` fill, `*lead:3`, `*badge:3`). `*solid-3` fills the disc and
+placement (`*3` fill, `*lead:3`, `*badge:3`); their digits stand as tall as
+the label's capitals, so a number badge is larger than a symbol badge, and a
+bare `*3` on a box too short for that above its caption sits left of the
+label. For a numbered sequence of labelled boxes use `*badge:<n>` — the
+label keeps its place. `*solid-3` fills the disc and
 knocks the digit out — for the numbered path the reader follows, outlined
 numbers for side notes; `*0` numbers a step zero. Both need `#!grafli v4`.
 Legacy `bulb`/`doc` parse as
 aliases of `lightbulb`/`document` and normalize on save.
 
+A board's own icons: when the built-in symbols lack a thing — a monitor, a
+phone, a package, a terminal — put an SVG at `<stem>-res/icons/<name>.svg`
+and write `*name` (`*lead:name`, `*badge:name`) on that board. The name is
+the file's name without `.svg` in lowercase letters, digits and dashes; a
+built-in name wins over a file of the same name. `currentColor`, black and
+an unset fill draw in the board ink, so a single-colour icon (Lucide,
+Tabler, Feather style) reads like a built-in symbol; other colours stay.
+`grafli diagnose` reports a `*name` found neither among the built-in
+symbols nor in the folder. Prefer a built-in symbol when one fits.
+
 Container behavior: when a box has children, its anchor auto-switches
-to `^topleft` and text defaults to `~small` (10 pt). Set `~large`
-explicitly on top-level containers for a more prominent heading.
+to `^topleft` and its title turns bold, sized by level: 16 pt at the top
+level, 15 pt one level in, 14 pt deeper, and a point above any label
+inside that is as large — always above the box labels it holds. Without a colour it draws a quiet plate and outline. Set
+`~large` explicitly on a top-level container for a bigger heading.
 Child positions use absolute coordinates — see the container layout
 model in `references/design.md`.
 
@@ -110,7 +128,7 @@ detail lives in notes adjacent to it or in the box's own `&doc`.
 ## Arrow syntax
 
 ```
-@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [!dot] [~size] [~kind=graph|annotation] [~from=<side>] [~to=<side>] [~id=<id>] [# annotation]
+@ arrow <from_id> (->|<-|<->|--) <to_id> ["label"] [@dx,dy] [%color] [!pattern] [!thickness] [!routing] [!dot] [~size] [~kind=graph|annotation] [~from=<side>] [~to=<side>] [~id=<id>] [# annotation]
 ```
 
 | Feature | Syntax | Effect |
@@ -119,7 +137,7 @@ detail lives in notes adjacent to it or in the box's own `&doc`.
 | Direction | `<-` | backward (arrowhead at source) |
 | Direction | `<->` | bidirectional |
 | Direction | `--` | line only (no arrowheads) |
-| Label offset | `@dx,dy` | shift label position by `dx,dy` px from center |
+| Label offset | `@dx,dy` | shift label position by `dx,dy` px from center; without it the label takes the free spot nearest the middle, along its arrow, clear of boxes and other labels |
 | Colour | `%token` / `#hex` | override the kind-derived line colour (same palette as boxes) |
 | Pattern | (default) | solid line |
 | Pattern | `!dashed` | dashed line |
@@ -127,6 +145,10 @@ detail lives in notes adjacent to it or in the box's own `&doc`.
 | Thickness | (default) | width tracks the linked nodes' size |
 | Thickness | `!thin` | half-width line |
 | Thickness | `!thick` | double-width line |
+| Routing | (default) | direct line; `grafli layout` makes it `!ortho` between two boxes it places |
+| Routing | `!ortho` | right-angle stair; steps around the boxes of a layer it skips; stairs out of one side each turn on their own line |
+| Routing | `!spline` | curve leaving each end along its side |
+| Routing | `!straight` | direct line that `grafli layout` leaves direct; `#!grafli v4` |
 | Dot ends | `!dot` | each headed end draws a dot instead of an arrowhead; `#!grafli v4` |
 | Text size | `~size` | as for boxes |
 | Connector kind | `~kind=graph` / `~kind=annotation` | override the endpoint default (see below) |
@@ -159,8 +181,9 @@ leaves its source by and enters its target at (`top` / `right` /
 Use them where the side carries meaning — every input enters from the
 left, a feedback arrow `~from=right ~to=right` U-turns back up a column —
 instead of adding waypoint boxes. A pinned end sits mid-side; an end that
-faces away steps out of its side before turning. Either token works on
-its own. A pinned `A->B` / `B->A` pair is not merged into one line. A
+faces away steps out of its side before turning; a pinned `!ortho`
+arrow that would cross a box takes the shortest way round it. Either
+token works on its own. A pinned `A->B` / `B->A` pair is not merged into one line. A
 file using either token carries a `#!grafli v4` header.
 
 **Dot ends.** `!dot` swaps every arrowhead of an arrow for a filled dot;
@@ -696,6 +719,14 @@ them all, in the app, `render` and the exports.
 * `color` is a theme token (follows light/dark) or `#RRGGBB`; `label` is
   what the colour grid (`s` `c`) shows.
 * A board using a palette name is written `#!grafli v4`.
+* An entry can carry a whole kind of box: `icon` (as after `*`:
+  `lead:puzzle`), `outline` (`dashed` / `dotted`), `bold` (`true`) and
+  `size` (a `~size` value). `%plugin` then gives a box its fill, icon,
+  outline, weight and label size at once; a token written on the box wins
+  over its kind's. When a board shows kinds of things (tools vs plugins vs
+  third party, states vs pseudo-states), define each kind once here
+  instead of repeating `*lead:… !dashed ~small` on every box. A kind shapes
+  boxes only; notes and connectors take just its colour.
 * The palette is the map's legend — don't hand-draw a key note. The user
   toggles it with `Shift+M`; for a picture or a deck pass `--legend` to
   `grafli render` or `grafli export` (PDF or PPTX). It lists the entries the board

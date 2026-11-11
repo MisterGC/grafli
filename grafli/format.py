@@ -4,7 +4,7 @@ Format spec:
   #!grafli v1                                      (file header, first line)
   # comment or title
   # source: <repo> @ <rev>                         (code refs resolve against <repo>)
-  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card] [!ink] [!sans] [!dashed|!dotted] [&url] [~status=<text>[:%color]] [>parent]
+  @ box <id> "<label>" <x>,<y> <w>x<h> [%color] [^anchor] [~size] [!flat|!card] [!ink] [!sans] [!dashed|!dotted] [!round] [!pin] [&url] [~status=<text>[:%color]] [>parent]
   @ arrow <from_id> -> <to_id> "<label>"           (forward)
   @ arrow <from_id> <- <to_id> "<label>"           (backward)
   @ arrow <from_id> <-> <to_id> "<label>"          (bidirectional)
@@ -13,6 +13,7 @@ Format spec:
   @ arrow <from_id> -> <to_id> "label" [%color]    (color override: %token / #hex)
   @ arrow <from_id> -> <to_id> "label" !dashed     (line pattern: dashed / dotted)
   @ arrow <from_id> -> <to_id> "label" !thick      (thickness: thin / thick; default tracks node size)
+  @ arrow <from_id> -> <to_id> "label" !ortho      (routing: spline / ortho / straight; default direct)
   @ arrow <from_id> -> <to_id> "label" [&url]      (resource reference)
   @ arrow <from_id> -> <to_id> "label" ~kind=graph (connector kind: graph / annotation; default derives from endpoints)
   @ arrow <from_id> -> <to_id> "label" ~from=right ~to=left (pinned sides: top / right / bottom / left; default picks from geometry; v4)
@@ -62,7 +63,10 @@ draw a dot where they would draw an arrowhead. And a board with a
 a board with a ``^left`` container, which zoomed out stays a band with its
 children's colours and its title on the left. And a board whose ``%name``
 colour names an entry of the map's palette (``<stem>-res/palette.json``,
-see ``grafli.map_palette``).
+see ``grafli.map_palette``). And a board with a ``!pin`` box, which the
+layered layout (``grafli layout``, ``=`` in the app) leaves where it is.
+And a board with a ``!straight`` arrow, a direct line ``grafli layout``
+leaves direct instead of giving it ``!ortho``.
 Each version's features are listed in ``VERSION_FEATURES``; a board whose
 header is newer than the newest listed version opens read-only.
 """
@@ -131,10 +135,14 @@ class Box:
     sans: bool = False
     # Outline pattern: "dashed", "dotted", or "" (solid).
     border: str = ""
+    # `!round`: the box draws as a circle when square, a pill otherwise.
+    round: bool = False
     # `~status=<text>[:%color]`: a short label drawn on the box's bottom edge
     # in every view. "" = none; ``status_color`` "" = the neutral pill.
     status: str = ""
     status_color: str = ""
+    # `!pin`: the layered layout keeps this box where it is.
+    pinned: bool = False
 
 
 @dataclass
@@ -147,8 +155,10 @@ class Arrow:
     style: str = ""       # line pattern: "dashed", "dotted", or "" (solid)
     thickness: str = ""   # "thin", "thick", or "" (= normal, tracks node size)
     # How the connector gets from end to end: "" (direct), "spline" (curve),
-    # "ortho" (right-angle stair). Separate from `style` on purpose — routing
-    # and line pattern are independent, so a dashed ortho connector is sayable.
+    # "ortho" (right-angle stair), "straight" (`!straight`: drawn direct, and
+    # `grafli layout` leaves it so instead of giving it `!ortho`). Separate
+    # from `style` on purpose — routing and line pattern are independent, so
+    # a dashed ortho connector is sayable.
     routing: str = ""
     color: str = ""       # "%token" / "#hex" override, or "" (= kind-derived)
     textsize: str = ""    # px number (e.g. "16"), legacy name, or "" (= default)
@@ -171,6 +181,12 @@ class Arrow:
     # (a bookmark, a tour stop, an overlay entry); "" for a plain arrow.
     id: str = ""
     annotation: str = ""     # deprecated — kept for migration parsing
+
+    @property
+    def routed(self) -> bool:
+        """Whether the connector is drawn along a shape of its own (a spline
+        or a stair) rather than as a direct line."""
+        return self.routing in ("spline", "ortho")
 
 
 DEFAULT_NOTE_WRAP_CHARS = 80
@@ -675,13 +691,16 @@ def escape_quoted(s: str) -> str:
     return s.replace('"', '\\"').replace("\n", "\\n")
 
 
+# The ``~size`` values a box takes (a palette kind's ``size`` too).
+BOX_SIZES = r'small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+'
+
 _RE_BOX = re.compile(
     r'^@\s+box\s+(\S+)\s+"' + _QT + r'"\s+'
     r'(-?[\d.]+),\s*(-?[\d.]+)\s+([\d.]+)x([\d.]+)'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
     r'(?:\s+\^(topleft|topcenter|left))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
-    r'((?:\s+!(?:flat|card|ink|sans|dashed|dotted|ratio|fit|bold|italic|outline|shadow))*)'
+    r'(?:\s+~(' + BOX_SIZES + r'))?'
+    r'((?:\s+!(?:flat|card|ink|sans|dashed|dotted|round|pin|ratio|fit|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+~status=([^\s:]+)(?::(#[0-9A-Fa-f]{6}|%[a-z]+))?)?'
@@ -695,7 +714,7 @@ _RE_ARROW = re.compile(
     r'(?:\s+"' + _QT + r'")?'
     r'(?:\s+@(-?[\d.]+),(-?[\d.]+))?'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'          # color override
-    r'((?:\s+!(?:dashed|dotted|thin|thick|spline|ortho|dot))*)'  # pattern, thickness, routing, head shape
+    r'((?:\s+!(?:dashed|dotted|thin|thick|spline|ortho|straight|dot))*)'  # pattern, thickness, routing, head shape
     r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl))?'
     r'(?:\s+&(\S+))?'
     r'(?:\s+~kind=(graph|annotation))?'
@@ -710,7 +729,7 @@ _RE_NOTE = re.compile(
     r'^@\s+note\s+(?:([a-zA-Z_]\S*)\s+)?(-?[\d.]+),\s*(-?[\d.]+)'
     r'(?:\s+"' + _QT + r'")?'    # text slot — absent on doc-bodied notes
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
+    r'(?:\s+~(' + BOX_SIZES + r'))?'
     r'(?:\s+~width=(\d+))?'
     r'((?:\s+!(?:mono|sans|flat|ink|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
@@ -728,7 +747,7 @@ _RE_NOTE_BLOCK_START = re.compile(
 _RE_NOTE_BLOCK_SUFFIX = re.compile(
     r'^\s*"""'
     r'(?:\s+(#[0-9A-Fa-f]{6}|%[a-z]+))?'
-    r'(?:\s+~(small|large|xlarge|xxlarge|xxxlarge|xxxxlarge|2xl|3xl|4xl|\d+))?'
+    r'(?:\s+~(' + BOX_SIZES + r'))?'
     r'(?:\s+~width=(\d+))?'
     r'((?:\s+!(?:mono|sans|flat|ink|bold|italic|outline|shadow))*)'
     r'(?:\s+\*([a-z0-9][a-z0-9:-]*))?'
@@ -786,14 +805,14 @@ _SIZE_TOKEN_RE = re.compile(r'(?<!\w)[\d.]+x[\d.]+(?!\w)')
 # (#145); tests cross-check them against the regex sources.
 BOX_FORM = ('@ box <id> "label" x,y wxh [%color|#rrggbb] '
             '[^topleft|^topcenter|^left] [~size] '
-            '[!flat|!card|!ink|!sans|!dashed|!dotted|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
+            '[!flat|!card|!ink|!sans|!dashed|!dotted|!round|!pin|!ratio|!fit|!bold|!italic|!outline|!shadow ...] '
             '[*icon] [&attach] [~status=<text>[:%color]] [>parent]')
 NOTE_FORM = ('@ note [<id>] x,y ["text"] [%color|#rrggbb] [~size] '
              '[~width=N] [!mono|!sans|!flat|!ink|!bold|!italic|!outline|!shadow ...] '
              '[*icon] [&attach] [>parent]')
 ARROW_FORM = ('@ arrow <from> ->|<-|<->|-- <to> ["label"] [@dx,dy] '
               '[%color|#rrggbb] '
-              '[!dashed|!dotted|!thin|!thick|!spline|!ortho|!dot ...] '
+              '[!dashed|!dotted|!thin|!thick|!spline|!ortho|!straight|!dot ...] '
               '[~size] [&attach] [~kind=graph|annotation] '
               '[~from=top|right|bottom|left] [~to=top|right|bottom|left] '
               '[~id=<id>]')
@@ -942,7 +961,7 @@ def parse(text: str) -> Board:
         if m:
             # The flags run tolerates legacy !ratio / !fit (now no-ops) so older
             # files still load; only !flat / !card / !ink / !sans / !dashed /
-            # !dotted are honoured and re-serialized.
+            # !dotted / !round / !pin are honoured and re-serialized.
             flags = set(re.findall(r'!(\w+)', m.group(10) or ""))
             kind, url = split_attach(m.group(12) or "") if m.group(12) else ("", "")
             box = Box(
@@ -962,6 +981,8 @@ def parse(text: str) -> Board:
                 sans="sans" in flags,
                 border=("dashed" if "dashed" in flags
                         else "dotted" if "dotted" in flags else ""),
+                round="round" in flags,
+                pinned="pin" in flags,
                 icon=split_icon(m.group(11) or "")[1],
                 icon_placement=split_icon(m.group(11) or "")[0],
                 url=url,
@@ -981,13 +1002,14 @@ def parse(text: str) -> Board:
             kind, url = split_attach(m.group(10) or "") if m.group(10) else ("", "")
             flags = m.group(8).split() if m.group(8) else []
             # A run of "!dashed"/"!dotted"/"!thin"/"!thick"/"!spline"/"!ortho"/
-            # "!dot" flags in any order, one per axis: thickness, line pattern,
+            # "!straight"/"!dot" flags in any order, one per axis: thickness, line pattern,
             # routing and head shape are independent, so "!dashed !ortho" is a
             # dashed stair.
             # Legacy files carrying a bare "!thick" migrate to thickness here.
             style = next((f[1:] for f in flags if f in ("!dashed", "!dotted")), "")
             thickness = next((f[1:] for f in flags if f in ("!thin", "!thick")), "")
-            routing = next((f[1:] for f in flags if f in ("!spline", "!ortho")), "")
+            routing = next((f[1:] for f in flags
+                            if f in ("!spline", "!ortho", "!straight")), "")
             head_shape = "dot" if "!dot" in flags else ""
             arrow = Arrow(
                 from_id=m.group(1),
@@ -1246,6 +1268,8 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "sans face": (4, lambda b: (any(x.sans for x in b.boxes)
                                 or any(n.style == "sans" for n in b.notes))),
     "box outlines": (4, lambda b: any(x.border for x in b.boxes)),
+    "round boxes": (4, lambda b: any(x.round for x in b.boxes)),
+    "pinned boxes": (4, lambda b: any(x.pinned for x in b.boxes)),
     "number markers": (4, uses_number_markers),
     "connector sides": (4, lambda b: any(a.from_side or a.to_side
                                          for a in b.arrows)),
@@ -1253,6 +1277,8 @@ VERSION_FEATURES: dict[str, tuple[int, Callable[[Board], bool]]] = {
     "status labels": (4, lambda b: any(x.status for x in b.boxes)),
     "left titles": (4, lambda b: any(x.anchor == "left" for x in b.boxes)),
     "palette colours": (4, uses_palette_colors),
+    "straight arrows": (4, lambda b: any(a.routing == "straight"
+                                         for a in b.arrows)),
 }
 
 
@@ -1333,6 +1359,10 @@ def _serialize_box(box: Box) -> str:
         s += " !sans"
     if box.border:
         s += f" !{box.border}"
+    if box.round:
+        s += " !round"
+    if box.pinned:
+        s += " !pin"
     s += emphasis_tokens(box.emphasis)
     if box.icon:
         s += f" *{icon_token(box)}"

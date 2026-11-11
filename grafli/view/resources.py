@@ -17,7 +17,6 @@ from PySide6.QtCore import QPoint, QSettings, QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
-    QFont,
     QFontMetricsF,
     QTextCursor,
 )
@@ -28,7 +27,8 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 from grafli import theme
-from grafli.constants import ARROW_LABEL_FONT_SIZES, FONT_FAMILY
+from grafli.constants import FONT_FAMILY
+from grafli.edge_label import arrow_label_font
 from grafli.format import Arrow, Board, Image, Note, resolve_code_ref
 from grafli.items import BoxItem, ImageItem, LabelItem, NoteItem
 from grafli.md_note import note_is_md, toggle_task
@@ -776,11 +776,11 @@ class ResourcesMixin:
         self._edit_target = arrow
         self._clear_arrow_mode()
 
-        mid = self._arrow_label_midpoint()
+        mid = self._arrow_label_midpoint(arrow)
         if not mid:
             return
 
-        font = QFont(FONT_FAMILY, ARROW_LABEL_FONT_SIZES.get(arrow.textsize, 10))
+        font = arrow_label_font(arrow.textsize)
         editor = _InlineEditorItem(arrow.label)
         editor.setFont(font)
         editor.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)

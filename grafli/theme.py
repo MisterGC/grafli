@@ -34,7 +34,7 @@ class Palette:
 
     # ── Ground & surfaces ────────────────────────────────────────
     SCENE_BG: QColor                 # the canvas itself
-    BOX_FILL: QColor                 # default node fill
+    BOX_FILL: QColor                 # default node fill: a plate lighter than the ground
     SURFACE: QColor                  # note / chip / code paper
     SURFACE_FLAT: QColor             # flat-style note paper
     GRID_COLOR: QColor
@@ -43,7 +43,8 @@ class Palette:
     # ── Ink ──────────────────────────────────────────────────────
     INK: QColor                      # primary text & node borders
     BOX_BORDER: QColor
-    ARROW_COLOR: QColor
+    BOX_OUTLINE: QColor              # a plain box's outline, quieter than its label
+    ARROW_COLOR: QColor              # a connector: quieter than the box labels it joins
     INK_ON_LIGHT_FILL: QColor        # text over a bright node fill
     INK_ON_DARK_FILL: QColor         # text over a dark node fill
     INK_SUBTLE: QColor
@@ -174,7 +175,7 @@ LIGHT = Palette(
     is_dark=False,
 
     SCENE_BG=QColor("#E8E4DD"),
-    BOX_FILL=QColor("#E8E4DD"),
+    BOX_FILL=QColor("#F6F3EE"),
     SURFACE=QColor("#F2F0EB"),
     SURFACE_FLAT=QColor("#E9E5DD"),
     GRID_COLOR=QColor("#CDC8BF"),
@@ -182,7 +183,8 @@ LIGHT = Palette(
 
     INK=QColor("#2F3437"),
     BOX_BORDER=QColor("#2F3437"),
-    ARROW_COLOR=QColor("#2F3437"),
+    BOX_OUTLINE=QColor("#B3AB9E"),
+    ARROW_COLOR=QColor("#6A645B"),
     INK_ON_LIGHT_FILL=QColor("#2D2D2D"),
     INK_ON_DARK_FILL=QColor("#F2F0EB"),
     INK_SUBTLE=QColor("#4A4A4A"),
@@ -246,15 +248,17 @@ LIGHT = Palette(
         "primary": "#004578",
         "secondary": "#0178D4",
         "tertiary": "#4EBF71",
-        "subtle": "#4A4A4A",
+        "subtle": "#D3CEC6",
         "accent": "#D4804E",
         "highlight": "#D4BA6A",
         "muted": "#B8B3AB",
         "soft": "#B0A1CA",
         # Extended muted hues filling the gaps (red / teal / pink / deep green /
         # deep purple), tuned to the same desaturated, slightly-warm character.
-        "clay": "#C56C54",
-        "teal": "#3E9B92",
+        # %clay and %teal are light enough for the board ink to read on them
+        # at WCAG AA, so their labels need no plate (#300).
+        "clay": "#D08976",
+        "teal": "#44AAA0",
         "rose": "#C98BA8",
         "forest": "#3F7A57",
         "plum": "#8160A8",
@@ -361,7 +365,8 @@ DARK = Palette(
     # read as counterparts rather than two unrelated palettes.
     INK=QColor("#E8E4DD"),
     BOX_BORDER=QColor("#E8E4DD"),
-    ARROW_COLOR=QColor("#D8D3CA"),
+    BOX_OUTLINE=QColor("#6B655C"),
+    ARROW_COLOR=QColor("#A9A49B"),
     INK_ON_LIGHT_FILL=QColor("#2D2D2D"),
     INK_ON_DARK_FILL=QColor("#F2F0EB"),
     INK_SUBTLE=QColor("#C4BFB6"),
@@ -431,18 +436,20 @@ DARK = Palette(
     # encodes its role: %highlight is a quiet tint in both themes (~1.5:1),
     # %primary is the loud one in both (~7.8:1). That flips direction — light
     # fills sit darker than the paper, dark fills sit lighter than the ground —
-    # so %primary inverts from deep navy to bright blue and %subtle from dark
-    # grey to light grey, while the quiet tokens stay quiet. Matching the ratio
-    # alone would land the quiet end so low that the hues stop being tellable
-    # apart, so saturation is raised as luminance drops: these are categorical
-    # colours, and staying distinct from each other is the job. The result
-    # tracks the light palette's own separation (min ΔE 14.6 vs 14.1).
+    # so %primary inverts from deep navy to bright blue, while the quiet
+    # tokens stay quiet: %subtle, the quietest grey, sits between %muted and
+    # an unfilled box in both. Matching the ratio alone would land the quiet
+    # end so low that the hues stop being tellable apart, so saturation is
+    # raised as luminance drops: these are categorical colours, and staying
+    # distinct from each other is the job. The result tracks the light
+    # palette's own separation (min ΔE 8.4 vs 9.8, both at %subtle–%muted:
+    # the dark greys have less room between an unfilled box and %muted).
     COLOR_TOKENS={
         "base": "#2C2924",
         "primary": "#66B7F1",
         "secondary": "#0074CD",
         "tertiary": "#0C5623",
-        "subtle": "#A6A6A6",
+        "subtle": "#3A3732",
         "accent": "#923E0D",
         "highlight": "#584818",
         "muted": "#4D4A45",
@@ -615,6 +622,17 @@ def ink_on(fill: QColor) -> QColor:
     """
     lum = 0.299 * fill.red() + 0.587 * fill.green() + 0.114 * fill.blue()
     return QColor(INK_ON_LIGHT_FILL if lum > 140 else INK_ON_DARK_FILL)
+
+
+def contrast_ratio(a: QColor, b: QColor) -> float:
+    """The WCAG 2 contrast ratio between two opaque colours, 1 to 21."""
+    def luminance(c: QColor) -> float:
+        def lin(v: float) -> float:
+            return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+        return (0.2126 * lin(c.redF()) + 0.7152 * lin(c.greenF())
+                + 0.0722 * lin(c.blueF()))
+    hi, lo = sorted((luminance(a), luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
 
 
 def overlay_ink(strength: float = 1.0) -> QColor:

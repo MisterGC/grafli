@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QFrame, QTextBrowser, QVBoxLayout
 
 from grafli import iconset, theme
 from grafli.format import Note, doc_name
-from grafli.items import BoxItem, NoteItem
+from grafli.items import BoxItem, NoteItem, scene_icons
 from grafli.lod import should_collapse
 from grafli.md_note import doc_first_sentence
 
@@ -135,9 +135,9 @@ class BoxDocsMixin:
         """A box draws its doc line below its label, containers and
         `!card` parents included, but not with a fill icon (its label is a
         caption)."""
-        icon = item.box.icon
-        return not (icon and iconset.has_icon(icon)
-                    and item.box.icon_placement == "")
+        icon = item.look.icon
+        return not (icon and iconset.has_icon(icon, scene_icons(item))
+                    and item.look.icon_placement == "")
 
     def _refresh_doc_lines(self, scale: float | None = None, skip=None,
                            lod_on: bool | None = None):
@@ -164,7 +164,7 @@ class BoxDocsMixin:
                 body = self.box_doc_body(item.box)
                 if body:
                     line = doc_first_sentence(body)
-                if line and not item.doc_line_fits():
+                if line and not item.doc_line_fits(line):
                     line = ""
                 # A slide is drawn once: no hysteresis from the canvas.
                 was_hidden = (slide_scale is None and not item._doc_line)

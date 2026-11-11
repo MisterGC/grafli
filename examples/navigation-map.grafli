@@ -19,7 +19,7 @@
 code:
 split by the files that own each step
   @grafli/view/resources.py:142 _open_resource
-  @grafli/format.py:493 split_attach
+  @grafli/format.py:507 split_attach
   @grafli/view/resources.py:106 _open_attachment
   @grafli/buffers.py:146 push_frame
   @grafli/view/flows.py:89 play_flow

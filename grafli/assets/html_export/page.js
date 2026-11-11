@@ -2,7 +2,8 @@
 // back out of, the doc peek, the overlay switch and the tour player. Every
 // board is the app's own SVG in a <template>; this script only moves the
 // camera (the viewBox), swaps drawings and places click areas from the rects
-// in #grafli-data.
+// in #grafli-data. Under grafli serve the page starts without a board
+// (DATA.live) and grafliPage.update() draws each frame the server pushes.
 (() => {
   "use strict";
   const DATA = JSON.parse(document.getElementById("grafli-data").textContent);
@@ -24,9 +25,9 @@
 
   // ── Fonts: the bundled faces, gzipped, unpacked in the browser ──
 
-  async function loadFonts() {
+  async function loadFonts(fonts) {
     if (!("DecompressionStream" in window) || !("FontFace" in window)) return;
-    for (const f of FONTS) {
+    for (const f of fonts) {
       try {
         const bin = atob(f.data);
         const bytes = new Uint8Array(bin.length);
@@ -48,10 +49,19 @@
     return { w: Math.max(r.width, 1), h: Math.max(r.height, 1) };
   }
 
+  // grafli serve listens: to every camera change, and to the ones the
+  // viewer made with the mouse or a camera key.
+  const viewListeners = [], userViewListeners = [], selectListeners = [];
+
   function setView(v) {
     vb = v;
     stage.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${v.h}`);
     placePeek();
+    for (const fn of viewListeners) fn(v);
+  }
+
+  function userMoved() {
+    for (const fn of userViewListeners) fn();
   }
 
   // A camera that shows rect [x, y, w, h] whole, at the stage's aspect.
@@ -64,6 +74,17 @@
   }
 
   function fitBoard() { return frameRect(board.bounds, 0); }
+
+  // Live, a board grows from one box (or none): fitting it never zooms in
+  // past 1:1, so a new box is drawn at its size, not across the screen.
+  function fitView() {
+    const v = fitBoard();
+    if (!DATA.live) return v;
+    const s = stageSize();
+    if (v.w >= s.w) return v;
+    const cx = v.x + v.w / 2, cy = v.y + v.h / 2;
+    return { x: cx - s.w / 2, y: cy - s.h / 2, w: s.w, h: s.h };
+  }
 
   function toBoard(clientX, clientY) {
     const r = stage.getBoundingClientRect();
@@ -187,6 +208,8 @@
 
   function enter(el) {
     if (busy || !el || !el.level) return;
+    // Live, a level is another board's own page, under the same key.
+    if (el.level.href) { location.assign(el.level.href + location.hash); return; }
     const child = DATA.boards[el.level.board];
     const frame = { board: board.id, view: vb, selected: el, via: el,
                     label: el.label, tour: leaveTour() };
@@ -286,6 +309,7 @@
       }
     }
     showLegend();
+    for (const fn of selectListeners) fn(el);
   }
 
   function openPeek(el) {
@@ -421,6 +445,7 @@
     const flow = board.flows.find((f) => f.id === flowId);
     if (!flow || !flow.steps.length) return;
     if (tour) stopTour();
+    userMoved();
     tour = { home: board.id, flow, index: 0, mode: "paused", smooth: true };
     $("tour-pick").hidden = true;
     $("player").hidden = false;
@@ -693,11 +718,18 @@
     else closePeek();
   }
 
+  // grafli serve's mouse gestures: asked first, outside a tour and a level
+  // zoom, with the press and the element under it; a hook that returns true
+  // takes the press over, and the page neither pans nor clicks for it.
+  const pointerHooks = [];
+
   let drag = null;
   stage.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || !board) return;
+    const target = e.target.__el || null;
+    if (!tour && !busy && pointerHooks.some((fn) => fn(e, target))) return;
     drag = { x: e.clientX, y: e.clientY, moved: false,
-             target: e.target.__el || null, view: vb };
+             target, view: vb };
     stage.setPointerCapture(e.pointerId);
   });
   stage.addEventListener("pointermove", (e) => {
@@ -706,7 +738,9 @@
     if (!drag.moved && Math.hypot(dx, dy) < 4) return;
     drag.moved = true;
     stage.classList.add("panning");
+    userMoved();
     const s = vb.w / stage.getBoundingClientRect().width;
+    cancelGlide();
     setView({ x: drag.view.x - dx * s, y: drag.view.y - dy * s, w: vb.w, h: vb.h });
   });
   stage.addEventListener("pointerup", () => {
@@ -718,8 +752,10 @@
   });
   stage.addEventListener("wheel", (e) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !board) return;
     const rate = e.ctrlKey ? 0.01 : 0.0015;
+    cancelGlide();
+    userMoved();
     zoomAt(toBoard(e.clientX, e.clientY), Math.exp(e.deltaY * rate));
   }, { passive: false });
 
@@ -741,10 +777,20 @@
 
   function centre() { return { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 }; }
 
+  // grafli serve's keys: asked first, in the order added, outside a tour
+  // and a level zoom and after a "g"; a hook returns true when it took the
+  // key.
+  const keyHooks = [];
+  const hooked = (e) => !tour && !busy && keyHooks.some((fn) => fn(e));
+
   let gPending = false, gTimer = 0;
   document.addEventListener("keydown", (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.target instanceof HTMLSelectElement) return;
+    if (e.target instanceof HTMLSelectElement || e.target instanceof HTMLInputElement
+        || e.target instanceof HTMLTextAreaElement || !board) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) {
+      if (!gPending && hooked(e)) e.preventDefault();
+      return;
+    }
     const k = e.key;
     if (gPending) {
       gPending = false;
@@ -761,6 +807,12 @@
       else if (!tourKey(k)) return;
       e.preventDefault();
       return;
+    }
+    if (hooked(e)) { e.preventDefault(); return; }
+    // A camera key takes over from a glide still under way.
+    if (k === "+" || k === "=" || k === "-" || k === "Z" || k.startsWith("Arrow")) {
+      cancelGlide();
+      userMoved();
     }
     let handled = true;
     if (k === "g") { gPending = true; gTimer = setTimeout(() => { gPending = false; }, 1200); }
@@ -779,7 +831,7 @@
     }
     else if (k === "+" || k === "=") zoomAt(centre(), 1 / 1.25);
     else if (k === "-") zoomAt(centre(), 1.25);
-    else if (k === "Z") setView(fitBoard());
+    else if (k === "Z") setView(fitView());
     else if (k.startsWith("Arrow")) {
       const step = vb.w * 0.1;
       const dx = k === "ArrowLeft" ? -step : k === "ArrowRight" ? step : 0;
@@ -803,15 +855,86 @@
 
   let lastStage = stageSize();
   window.addEventListener("resize", () => {
-    const s = stageSize(), k = vb.w / lastStage.w;
+    const s = stageSize();
+    if (!vb) { lastStage = s; return; }
+    const k = vb.w / lastStage.w;
     lastStage = s;
     const c = centre();
     setView({ x: c.x - s.w * k / 2, y: c.y - s.h * k / 2, w: s.w * k, h: s.h * k });
   });
 
-  // A test hook: the page's state, read by the export's browser check.
+  // ── Live: a frame grafli serve pushed ──
+
+  // Draw *frame* — {board, svgs, docs, fonts} — in place of the board on
+  // screen, keeping the camera, the selection, the peek and the overlay.
+  function update(frame) {
+    for (const [key, svg] of Object.entries(frame.svgs)) {
+      let tpl = $("svg-" + key);
+      if (!tpl) {
+        tpl = document.createElement("template");
+        tpl.id = "svg-" + key;
+        document.body.appendChild(tpl);
+      }
+      tpl.innerHTML = svg;
+    }
+    Object.assign(DATA.docs, frame.docs || {});
+    if (frame.fonts && frame.fonts.length) loadFonts(frame.fonts);
+    const next = frame.board;
+    DATA.boards[next.id] = next;
+    if (!board) {
+      showBoard(next.id);
+      setView(fitView());
+      return;
+    }
+    const wasEmpty = !board.elements.length;
+    const selId = selected ? selected.id : null;
+    const peekId = peeked ? peeked.id : null;
+    board = next;
+    if ((overlayOf[board.id] || 0) >= board.states.length) overlayOf[board.id] = 0;
+    drawState();
+    buildHits();
+    showOverlayPick();
+    showTourPick();
+    showCrumbs();
+    select(board.elements.find((e) => e.id === selId) || null);
+    const again = board.elements.find((e) => e.id === peekId);
+    if (again && again.doc) openPeek(again); else if (peekId) closePeek();
+    // The first element on an empty board: frame it.
+    if (wasEmpty && board.elements.length) setView(fitView());
+  }
+
+  // Pan so rect [x, y, w, h] is in view, at the same zoom, when it is not.
+  function reveal(r) {
+    if (!vb || !r) return;
+    const inside = r[0] >= vb.x && r[1] >= vb.y &&
+      r[0] + r[2] <= vb.x + vb.w && r[1] + r[3] <= vb.y + vb.h;
+    if (inside) return;
+    const cx = r[0] + r[2] / 2, cy = r[1] + r[3] / 2;
+    glide({ x: cx - vb.w / 2, y: cy - vb.h / 2, w: vb.w, h: vb.h }, STOP_MS / 2);
+  }
+
+  // A test hook: the page's state, read by the export's browser check; under
+  // grafli serve also what the live client's editing keys build on.
   window.grafliPage = {
-    board: () => board.id, depth: () => stack.length,
+    update, toast, reveal,
+    current: () => board,
+    selectedEl: () => selected,
+    selectId: (id) => {
+      if (board) select(board.elements.find((e) => e.id === id) || null);
+    },
+    addKeyHook: (fn) => { keyHooks.push(fn); },
+    addPointerHook: (fn) => { pointerHooks.push(fn); },
+    // What a click on *el* does: select it, zoom into its level, peek at
+    // its doc.
+    activate: (el) => activate(el),
+    toBoard: (clientX, clientY) => toBoard(clientX, clientY),
+    // Show rect [x, y, w, h] whole, at this stage's aspect.
+    frame: (r) => { cancelGlide(); setView(frameRect(r, 0)); },
+    onView: (fn) => { viewListeners.push(fn); },
+    onUserView: (fn) => { userViewListeners.push(fn); },
+    // fn(el or null) after each change of the selection.
+    onSelect: (fn) => { selectListeners.push(fn); },
+    board: () => (board ? board.id : null), depth: () => stack.length,
     selected: () => (selected ? selected.id : null),
     peek: () => (peeked ? peeked.id : null),
     overlay: () => overlayOf[board.id] || 0,
@@ -821,7 +944,11 @@
     dimmed: () => $("veil").style.display !== "none",
   };
 
-  loadFonts();
-  showBoard(DATA.root);
-  setView(fitBoard());
+  loadFonts(FONTS);
+  if (!DATA.live) {
+    showBoard(DATA.root);
+    setView(fitBoard());
+  } else {
+    $("back").disabled = true;   // nothing to go back to until a board arrives
+  }
 })();

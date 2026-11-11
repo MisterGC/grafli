@@ -359,6 +359,176 @@ def test_diagnose_warns_about_a_palette_it_cannot_read(tmp_path: Path):
     assert bad[0]["message"].startswith("map-res/palette.json: not JSON")
 
 
+# ── Kinds: an entry carries icon, outline, weight and size (#301) ──
+
+PLUGIN = {"color": "%teal", "label": "Plugin", "icon": "lead:puzzle",
+          "outline": "dashed", "bold": True, "size": "small"}
+
+
+def test_an_entry_may_carry_a_kind():
+    entries, problems = parse_palette(_palette({
+        "plugin": PLUGIN, "tool": {"color": "%primary", "size": 18},
+        "plain": {"color": HOT}}))
+    assert problems == []
+    plugin, tool, plain = entries
+    assert (plugin.icon, plugin.outline, plugin.bold, plugin.size) == (
+        "lead:puzzle", "dashed", True, "small")
+    assert plugin.is_kind and tool.is_kind and tool.size == "18"
+    assert not plain.is_kind
+
+
+def test_a_malformed_kind_is_reported_and_left_out():
+    entries, problems = parse_palette(_palette({
+        "noicon": {"color": HOT, "icon": "nosuch"},
+        "noplace": {"color": HOT, "icon": "side:gear"},
+        "wavy": {"color": HOT, "outline": "wavy"},
+        "loud": {"color": HOT, "bold": "yes"},
+        "huge": {"color": HOT, "size": "huge"},
+        "fine": {"color": HOT, "icon": "badge:star", "outline": "dotted"},
+    }))
+    assert [e.name for e in entries] == ["fine"]
+    assert [p.name for p in problems] == [
+        "noicon", "noplace", "wavy", "loud", "huge"]
+    assert "'nosuch' is not an icon" in problems[0].message
+
+
+def _kinded(*entries_json) -> None:
+    from grafli.map_palette import set_kinds
+    set_kinds(parse_palette(_palette(dict(entries_json)))[0])
+
+
+def test_a_box_of_a_kind_takes_its_icon_outline_weight_and_size():
+    from grafli.map_palette import look
+    _kinded(("plugin", PLUGIN))
+    box = parse('@ box a "A" 0,0 200x100 %plugin\n').boxes[0]
+    drawn = look(box)
+    assert (drawn.icon, drawn.icon_placement, drawn.border, drawn.emphasis,
+            drawn.textsize) == ("puzzle", "lead", "dashed", "bold", "small")
+    assert (box.icon, box.border, box.emphasis, box.textsize) == ("", "", "", "")
+
+
+def test_a_token_on_the_box_wins_over_its_kind():
+    from grafli.map_palette import look
+    _kinded(("plugin", PLUGIN))
+    box = parse('@ box a "A" 0,0 200x100 %plugin ~large !dotted !italic '
+                '*badge:star\n').boxes[0]
+    drawn = look(box)
+    assert (drawn.icon, drawn.icon_placement, drawn.border, drawn.textsize) == (
+        "star", "badge", "dotted", "large")
+    assert drawn.emphasis == "bold italic"
+
+
+def test_a_box_without_a_kind_draws_as_written():
+    from grafli.map_palette import look
+    _kinded(("plugin", PLUGIN), ("plain", {"color": HOT}))
+    for line in ('@ box a "A" 0,0 200x100 %plain\n',
+                 '@ box a "A" 0,0 200x100 %teal\n',
+                 '@ box a "A" 0,0 200x100\n'):
+        box = parse(line).boxes[0]
+        assert look(box) is box
+
+
+def test_a_kind_is_not_written_into_the_board():
+    _kinded(("plugin", PLUGIN))
+    text = '#!grafli v4\n@ box a "A" 0,0 200x100 %plugin\n'
+    board = parse(text)
+    board.palette_names = frozenset({"plugin"})
+    assert serialize(board) == text
+
+
+def _kind_map(tmp_path: Path, board_text: str, entries: dict) -> Path:
+    board = tmp_path / "map.grafli"
+    board.write_text(board_text)
+    (tmp_path / "map-res").mkdir(exist_ok=True)
+    (tmp_path / "map-res" / "palette.json").write_text(_palette(entries))
+    return board
+
+
+def test_the_canvas_draws_a_box_with_its_kind(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    view = _view_of(_kind_map(
+        tmp_path, '#!grafli v4\n@ box a "A" 0,0 240x100 %plugin\n',
+        {"plugin": PLUGIN}))
+    item = view._box_items["a"]
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    assert item._has_lead_icon()
+    assert item._label.font().bold()
+    from grafli.constants import resolve_textsize_px
+    assert item.label_px() == resolve_textsize_px("small", "")
+
+
+def test_a_kind_draws_as_its_tokens_written_out(tmp_path: Path):
+    """``%plugin`` draws pixel for pixel what the same tokens on the box
+    draw, in the PNG export as on the canvas."""
+    kinded = _kind_map(
+        tmp_path, '#!grafli v4\n@ box a "Plugin" 0,0 240x100 %plugin\n',
+        {"plugin": PLUGIN})
+    with_kind = _view_of(kinded)._render_png_image(scale=1)
+    written = tmp_path / "written"
+    written.mkdir()
+    spelled = _kind_map(
+        written, '#!grafli v4\n@ box a "Plugin" 0,0 240x100 %plugin ~small '
+        '!dashed !bold *lead:puzzle\n',
+        {"plugin": {"color": "%teal", "label": "Plugin"}})
+    assert with_kind == _view_of(spelled)._render_png_image(scale=1)
+
+
+def test_the_canvas_keeps_a_token_written_on_the_box(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    view = _view_of(_kind_map(
+        tmp_path, '#!grafli v4\n@ box a "A" 0,0 240x100 %plugin ~large '
+        '!dotted *badge:star\n', {"plugin": PLUGIN}))
+    item = view._box_items["a"]
+    assert item.pen().style() == Qt.PenStyle.DotLine
+    assert item._has_badge_icon() and not item._has_lead_icon()
+    from grafli.constants import resolve_textsize_px
+    assert item.label_px() == resolve_textsize_px("large", "")
+
+
+def test_recolouring_a_box_to_a_kind_gives_it_the_kind(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    view = _view_of(_kind_map(
+        tmp_path, '#!grafli v4\n@ box a "A" 0,0 240x100 %teal\n',
+        {"plugin": PLUGIN}))
+    item = view._box_items["a"]
+    assert not item._has_lead_icon()
+    item.set_color("%plugin")
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    assert item._has_lead_icon() and item._label.font().bold()
+    item.set_color("%teal")
+    assert item.pen().style() == Qt.PenStyle.SolidLine
+    assert not item._has_lead_icon() and not item._label.font().bold()
+    assert view._board.box_by_id("a").icon == ""
+
+
+def test_the_app_redraws_a_kind_when_the_palette_file_changes(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    _app()
+    board = _kind_map(
+        tmp_path, '#!grafli v4\n@ box a "A" 0,0 240x100 %plugin\n',
+        {"plugin": {"color": "%teal"}})
+    from grafli.app import MainWindow
+    w = MainWindow(str(board))
+    item = w._view._box_items["a"]
+    assert item.pen().style() == Qt.PenStyle.SolidLine
+    (tmp_path / "map-res" / "palette.json").write_text(
+        _palette({"plugin": PLUGIN}))
+    w._on_palette_changed([str(tmp_path / "map-res" / "palette.json")])
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    assert item._has_lead_icon() and item._label.font().bold()
+    assert board.read_text() == '#!grafli v4\n@ box a "A" 0,0 240x100 %plugin\n'
+
+
+def test_diagnose_warns_about_a_malformed_kind(tmp_path: Path):
+    root, _ = _map(tmp_path)
+    (tmp_path / "map-res" / "palette.json").write_text(_palette({
+        "storage": {"color": HOT, "outline": "wavy"}}))
+    code, findings = _diagnose(root)
+    bad = [f for f in findings if f["code"] == "bad-palette"]
+    assert len(bad) == 1 and bad[0]["severity"] == "warning"
+    assert "'outline' must be" in bad[0]["message"]
+
+
 # ── Style mode `s` `c` ─────────────────────────────────────────────
 
 def _picker(tmp_path: Path, box_id: str = "items") -> GrafliView:
@@ -429,3 +599,77 @@ def test_the_help_sheet_names_the_palette_in_the_grid():
     from grafli.view.overlays import OverlaysMixin
     source = inspect.getsource(OverlaysMixin._show_cheatsheet)
     assert '("  c", "Color grid, then the map palette\'s %names' in source
+
+
+def _key(view: GrafliView, key) -> None:
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+    view._handle_color_picker_key(
+        QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier))
+
+
+def _kind_picker(tmp_path: Path) -> GrafliView:
+    view = _picker(tmp_path)
+    (tmp_path / "map-res" / "palette.json").write_text(_palette({
+        "storage": {"color": HOT, "label": "Persistence"},
+        "plugin": PLUGIN}))
+    view.load_map_palette()
+    return view
+
+
+def test_a_digit_in_the_grid_applies_that_kind_at_once(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    view = _kind_picker(tmp_path)
+    item = view._box_items["items"]
+    view._open_color_picker()
+    _key(view, Qt.Key.Key_2)
+    assert not view._color_picker_active
+    assert view._board.box_by_id("items").color == "%plugin"
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    assert item._has_lead_icon() and item._label.font().bold()
+    view._undo()
+    assert view._board.box_by_id("items").color == "%primary"
+
+
+def test_a_digit_past_the_palette_leaves_the_grid_open(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    view = _kind_picker(tmp_path)
+    toasts = []
+    view.toast = lambda msg, *a, **k: toasts.append(msg)
+    view._open_color_picker()
+    _key(view, Qt.Key.Key_3)
+    assert view._color_picker_active
+    assert view._board.box_by_id("items").color == "%primary"
+    assert toasts == ["The map's palette has no entry 3"]
+
+
+def test_the_grid_names_the_digit_of_a_palette_entry(tmp_path: Path):
+    view = _kind_picker(tmp_path)
+    view._open_color_picker()
+    entries = {"%storage": (1, None), "%plugin": (2, None)}
+    assert view._color_picker_caption(entries) == "Primary"
+    values = [v for _, v in view._color_choices()]
+    view._color_picker_index = values.index("%plugin")
+    assert view._color_picker_caption(entries) == "2  Plugin"
+
+
+def test_the_grid_draws_a_kind_swatch_with_its_icon(tmp_path: Path):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QPainter
+    view = _kind_picker(tmp_path)
+    view._open_color_picker()
+
+    def grid() -> QImage:
+        img = QImage(900, 600, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.white)
+        painter = QPainter(img)
+        view._draw_color_picker(painter)
+        painter.end()
+        return img
+
+    with_kind = grid()
+    (tmp_path / "map-res" / "palette.json").write_text(_palette({
+        "storage": {"color": HOT, "label": "Persistence"},
+        "plugin": {"color": "%teal", "label": "Plugin"}}))
+    view.load_map_palette()
+    assert grid() != with_kind

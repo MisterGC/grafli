@@ -11,7 +11,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QFontMetricsF, QTransform
+from PySide6.QtGui import QFontMetricsF, QPainter, QTransform
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QDialog, QTextBrowser
 
@@ -22,7 +22,12 @@ from grafli.md_note import doc_first_sentence
 
 
 def _app() -> QApplication:
-    return QApplication.instance() or QApplication([])
+    """The app with grafli's bundled faces, so a doc line is measured in the
+    face the canvas, `grafli render` and the exports draw it in."""
+    from grafli.fonts import register_bundled_fonts
+    app = QApplication.instance() or QApplication([])
+    register_bundled_fonts()
+    return app
 
 
 def _write(path: Path, text: str) -> Path:
@@ -40,8 +45,8 @@ def _system(tmp_path: Path) -> tuple[Path, Path]:
     root = _write(tmp_path / "System.grafli",
                   '#!grafli v2\n'
                   '@ box plain "Plain" 0,0 240x80\n'
-                  '@ box combat "Combat" 300,0 320x80 &doc:combat\n'
-                  '@ box link "Site" 700,0 240x80 &link:https://example.org\n')
+                  '@ box combat "Combat" 300,0 400x80 &doc:combat\n'
+                  '@ box link "Site" 760,0 240x80 &link:https://example.org\n')
     doc = _write(tmp_path / "System-res" / "combat.md", COMBAT_DOC)
     return root, doc
 
@@ -134,17 +139,68 @@ def test_doc_box_shows_its_first_sentence_below_the_label(tmp_path: Path):
     win.close()
 
 
-def test_doc_line_is_one_line_cut_to_the_box(tmp_path: Path):
+def test_a_doc_line_that_fits_whole_is_drawn_on_one_line(
+        tmp_path: Path, monkeypatch):
+    painted = _painted_doc_lines(monkeypatch)
+    root, _ = _system(tmp_path)
+    win = _window(root)
+    _zoom(win, 1.0)
+    item = win._view._box_items["combat"]
+    rect = item.doc_line_rect()
+    assert rect.height() == QFontMetricsF(item._doc_line_font()).height()
+    assert QFontMetricsF(item._doc_line_font()).horizontalAdvance(
+        item._doc_line) <= rect.width() <= item.box.w
+    painted.clear()
+    _render(win._view, item)
+    assert painted == [LINE]
+    win.close()
+
+
+def test_a_doc_line_too_wide_for_the_box_is_not_drawn(tmp_path: Path,
+                                                      monkeypatch):
+    # A line cut mid-word ("The scene holds one item pe…") reads worse
+    # than none (#257).
+    painted = _painted_doc_lines(monkeypatch)
     root, doc = _system(tmp_path)
     doc.write_text("A " + "very " * 60 + "long first sentence.\n")
     win = _window(root)
     _zoom(win, 1.0)
     item = win._view._box_items["combat"]
-    assert item._doc_line.endswith("long first sentence.")
-    rect = item.doc_line_rect()
-    assert rect.height() == QFontMetricsF(item._doc_line_font()).height()
-    assert rect.width() <= item.box.w
+    assert item._doc_line == ""
+    painted.clear()
+    _render(win._view, item)
+    assert painted == []
     win.close()
+
+
+def test_a_box_shrunk_below_its_doc_line_draws_none_of_it(tmp_path: Path):
+    from PySide6.QtGui import QColor, QImage
+    root, _ = _system(tmp_path)
+    win = _window(root)
+    _zoom(win, 1.0)
+    item = win._view._box_items["combat"]
+    assert item._doc_line
+    item.doc_line_rect = lambda: QRectF(8.0, 40.0, 60.0, 16.0)
+    img = QImage(80, 80, QImage.Format.Format_ARGB32)
+    img.fill(QColor("white"))
+    before = img.copy()
+    p = QPainter(img)
+    item._paint_doc_line(p)
+    p.end()
+    assert img == before
+    win.close()
+
+
+def _render(view, item):
+    """Paint the scene around *item* once, offscreen."""
+    from PySide6.QtGui import QColor, QImage
+    rect = item.sceneBoundingRect()
+    img = QImage(int(rect.width()), int(rect.height()),
+                 QImage.Format.Format_ARGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    view._scene.render(p, QRectF(img.rect()), rect)
+    p.end()
 
 
 def test_a_number_badge_on_a_doc_box_draws_its_whole_disc(tmp_path: Path):
@@ -153,9 +209,9 @@ def test_a_number_badge_on_a_doc_box_draws_its_whole_disc(tmp_path: Path):
     from PySide6.QtGui import QColor, QImage, QPainter
     root = _write(tmp_path / "Badge.grafli",
                   '#!grafli v4\n'
-                  '@ box doc "Alpha" 0,0 200x90 %highlight *badge:solid-1 '
+                  '@ box doc "Alpha" 0,0 440x90 %highlight *badge:solid-1 '
                   '&doc:combat\n'
-                  '@ box link "Gamma" 300,0 200x90 %highlight ^topcenter '
+                  '@ box link "Gamma" 500,0 200x90 %highlight ^topcenter '
                   '*badge:solid-3 &link:https://example.org\n')
     _write(tmp_path / "Badge-res" / "combat.md", COMBAT_DOC)
     win = _window(root)
@@ -183,7 +239,8 @@ def test_a_number_badge_on_a_doc_box_draws_its_whole_disc(tmp_path: Path):
     # The doc line runs below the badge and keeps its width.
     item = view._box_items["doc"]
     assert item.doc_line_rect().width() == (
-        item.box.w - 2 * (item._badge_icon_side() + 14.0))
+        item.box.w - 2 * (item._compact_badge_side() + 14.0))
+    assert item.doc_line_rect().top() >= item.corner_icon_rects()[0].bottom()
     win.close()
 
 

@@ -1,0 +1,8 @@
+{
+  "entries": {
+    "tab": {"color": "%clay", "label": "browser tab", "icon": "lead:globe"},
+    "grafli": {"color": "%teal", "label": "grafli process", "icon": "lead:gear"},
+    "outside": {"color": "%muted", "label": "not grafli's: the presenter's session", "icon": "lead:robot", "outline": "dashed"},
+    "file": {"color": "%subtle", "label": "file on disk", "icon": "lead:document"}
+  }
+}

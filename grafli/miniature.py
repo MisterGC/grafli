@@ -87,7 +87,7 @@ class MiniatureCache:
         load_docs(path, board)
         view = self._renderer_view()
         view.base_dir = str(path.parent)
-        view.load_board(board)
+        view.load_board(board, board_file=path)
         rect = fit_rect(view._scene)
         if rect.isNull():
             return None

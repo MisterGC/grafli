@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QWidget
 
 from grafli import iconset
 from grafli.format import Arrow
-from grafli.items import BoxItem, ImageItem, NoteItem
+from grafli.items import BoxItem, ImageItem, NoteItem, scene_icons
 from grafli.lod import should_show_miniature
 
 # Durations of the level transition, in ms: the zoom into the box (or out of
@@ -86,9 +86,9 @@ class LevelsMixin:
         corner badge leaves the body free."""
         if item._is_parent:
             return False
-        icon = item.box.icon
-        return not (icon and iconset.has_icon(icon)
-                    and item.box.icon_placement != "badge")
+        icon = item.look.icon
+        return not (icon and iconset.has_icon(icon, scene_icons(item))
+                    and item.look.icon_placement != "badge")
 
     def _refresh_miniatures(self, scale: float, skip=frozenset()):
         """Give every `&graph` box whose body is large enough on screen its

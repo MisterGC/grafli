@@ -14,6 +14,19 @@ them all. An entry's colour is a theme token (it follows light/dark) or a hex.
 A name is lowercase letters, as theme tokens are, and may not shadow one: the
 theme token wins and ``diagnose`` reports the entry.
 
+An entry can also carry a whole kind of box — a plugin, a third-party
+tool, a pseudo-state — so a board does not repeat the same tokens on every
+box of the kind::
+
+    "plugin": {"color": "%teal", "label": "Plugin",
+               "icon": "lead:puzzle", "outline": "dashed",
+               "bold": true, "size": "small"}
+
+A box coloured ``%plugin`` then draws with that icon, outline, weight and
+label size (``look``); a token written on the box wins over its kind's. The
+kind is resolved where the box is drawn, so the file keeps only what was
+written.
+
 A data file beside the board, like the overlay files: nothing in the
 ``.grafli`` changes but the ``%name`` it uses.
 """
@@ -22,15 +35,18 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
-from grafli.format import THEME_COLOR_TOKENS, Board
+from grafli.format import (BOX_SIZES, ICON_PLACEMENTS, THEME_COLOR_TOKENS,
+                           Board, Box, emphasis_from_flags, split_icon)
 from grafli.resources import res_dir
 
 FILE_NAME = "palette.json"
 _RE_NAME = re.compile(r'^[a-z]+$')
 _RE_COLOR = re.compile(r'^(#[0-9A-Fa-f]{6}|%[a-z]+)$')
+_RE_SIZE = re.compile(r'^(' + BOX_SIZES + r')$')
+OUTLINES = ("dashed", "dotted")
 
 
 @dataclass
@@ -38,6 +54,16 @@ class Entry:
     name: str
     color: str      # "%token" (a theme token) or "#rrggbb"
     label: str
+    # The kind a box coloured with the entry takes, each "" / False = none:
+    icon: str = ""      # a ``*`` token's value: "puzzle", "lead:puzzle"
+    outline: str = ""   # "dashed" or "dotted"
+    bold: bool = False
+    size: str = ""      # a ``~size`` value: "small", "large", "18"
+
+    @property
+    def is_kind(self) -> bool:
+        """True when the entry gives a box more than its colour."""
+        return bool(self.icon or self.outline or self.bold or self.size)
 
 
 @dataclass
@@ -114,8 +140,42 @@ def parse_palette(text: str) -> tuple[list[Entry], list[Problem]]:
         if not isinstance(label, str):
             problems.append(Problem(name, f"%{name}: 'label' must be a string"))
             continue
-        entries.append(Entry(name, color, label or name.capitalize()))
+        kind_problem = _kind_problem(name, value)
+        if kind_problem:
+            problems.append(Problem(name, kind_problem))
+            continue
+        entries.append(Entry(name, color, label or name.capitalize(),
+                             icon=value.get("icon", ""),
+                             outline=value.get("outline", ""),
+                             bold=value.get("bold", False),
+                             size=str(value.get("size", ""))))
     return entries, problems
+
+
+def _kind_problem(name: str, value: dict) -> str:
+    """What is wrong with the kind fields of entry *name*, or ""."""
+    icon = value.get("icon", "")
+    if not isinstance(icon, str):
+        return f"%{name}: 'icon' must be a string such as \"lead:puzzle\""
+    if icon:
+        from grafli.iconset import has_icon
+        place, glyph = split_icon(icon)
+        if ":" in icon and place not in ICON_PLACEMENTS:
+            return (f"%{name}: icon {icon!r} — a placement is "
+                    + " or ".join(ICON_PLACEMENTS))
+        if not has_icon(glyph):
+            return f"%{name}: {icon!r} is not an icon"
+    outline = value.get("outline", "")
+    if outline not in ("", *OUTLINES):
+        return f"%{name}: 'outline' must be \"dashed\" or \"dotted\""
+    if not isinstance(value.get("bold", False), bool):
+        return f"%{name}: 'bold' must be true or false"
+    size = value.get("size", "")
+    if isinstance(size, int) and not isinstance(size, bool):
+        size = str(size)
+    if not isinstance(size, str) or (size and not _RE_SIZE.match(size)):
+        return f"%{name}: 'size' must be a box size such as \"small\" or 18"
+    return ""
 
 
 def read_palette(path: Path | None) -> tuple[list[Entry], list[Problem]]:
@@ -142,3 +202,46 @@ def load_palette(grafli_path: Path | None) -> list[Entry]:
     if grafli_path is None:
         return []
     return read_palette(palette_path(Path(grafli_path)))[0]
+
+
+# The shown map's kinds, ``{name: entry}`` for the entries that carry one.
+# Set by the view for the board it loads, as ``theme.set_map_palette`` is
+# for the colours.
+_kinds: dict[str, Entry] = {}
+
+
+def set_kinds(entries: list[Entry]) -> bool:
+    """Make *entries*' kinds the ones ``look`` applies; returns whether
+    they changed."""
+    global _kinds
+    kinds = {e.name: e for e in entries if e.is_kind}
+    if kinds == _kinds:
+        return False
+    _kinds = kinds
+    return True
+
+
+def kind_of(color: str) -> Entry | None:
+    """The entry whose kind a box coloured *color* takes, or None."""
+    if not color.startswith("%"):
+        return None
+    return _kinds.get(color[1:])
+
+
+def look(box: Box) -> Box:
+    """*box* as it draws: its own tokens, and for each one it leaves out,
+    its kind's. *box* itself when its colour carries no kind."""
+    entry = kind_of(box.color)
+    if entry is None:
+        return box
+    changes: dict = {}
+    if entry.icon and not box.icon:
+        changes["icon_placement"], changes["icon"] = split_icon(entry.icon)
+    if entry.outline and not box.border:
+        changes["border"] = entry.outline
+    if entry.size and not box.textsize:
+        changes["textsize"] = entry.size
+    if entry.bold and "bold" not in box.emphasis.split():
+        changes["emphasis"] = emphasis_from_flags(
+            {*box.emphasis.split(), "bold"})
+    return replace(box, **changes) if changes else box

@@ -83,6 +83,7 @@ class ContainerSummary:
     direct_children: int
     descendants: int
     rect: Rect  # union of the container and all its descendants
+    depth: int = 1  # nesting level: 1 for a top-level container
 
 
 class LodModel:
@@ -366,6 +367,7 @@ class LodModel:
             direct_children=len(self._children.get(container_id, ())),
             descendants=len(desc),
             rect=rect,
+            depth=self.depth(container_id),
         )
         self._summaries[container_id] = summ
         return summ

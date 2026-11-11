@@ -16,7 +16,7 @@ its version. It is required.
 ## Element types
 
 ```text
-@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [&attach] [~status=<text>[:color]] [>parent]
+@ box <id> "<label>" <x>,<y> <w>x<h> [color] [^anchor] [~size] [!style] [!pin] [&attach] [~status=<text>[:color]] [>parent]
 @ note [<id>] <x>,<y> "<text>" [color] [~size] [~width=N] [!style] [>parent]
 @ arrow <from> <op> <to> ["label"] [color] [!pattern] [!thickness] [!routing] [!dot] [~size] [~from=<side>] [~to=<side>]
 @ image <id> "<relative_path>" <x>,<y> <w>x<h> [!frame|!noframe] [>parent] [&attach]
@@ -79,7 +79,11 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   someone on light reads correctly on dark. Prefer them over hex, which is
   kept exactly as written and so only suits one theme. A `%name` can also
   name an entry of the map's [palette](#map-palette), which every board of
-  the map resolves the same way.
+  the map resolves the same way. A filled box draws its label straight on
+  the fill where the board ink reads there at WCAG AA — 4.5:1, or 3:1 for
+  a label of 24 px, or 18.66 px bold — and on a lighter plate inside the
+  fill where it does not; `!ink` picks an ink that reads on the fill
+  instead.
 - `^anchor` — `topleft`, `topcenter` or `left`; without one a box's label
   is centred, and a box with children takes `topleft`. Controls how a box's
   label is placed. `left` places it top left like `topleft` and, zoomed out
@@ -106,6 +110,23 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   `grafli render` and every export draw it. A board using either carries a
   `#!grafli v4` header. (Style mode → `e`, Outline row: solid / dashed /
   dotted.)
+- `!round` — on a box, draws it round: a circle when the box is square, a
+  pill (straight sides, half-circle ends) otherwise — for a state machine's
+  start and end states, a flowchart's terminators or a sketchnote's
+  bubbles. Arrows end on the curve, not on the box's corners. A round box
+  with no label keeps its size, so `@ box start "" 0,0 24x24 %primary !round`
+  stays a small circle. The canvas, `grafli render` and every export draw
+  it. A board using it carries a `#!grafli v4` header. (Style mode → `r`
+  toggles it.)
+- `!pin` — on a box, the layered layout (`grafli layout <file>`, and `=`
+  in the app) keeps the box where it is and places the other boxes of its
+  container around it; arrows to it still rank them, so `a -> pinned -> b`
+  keeps `a` before `b`. A pinned box inside a container that the layout
+  moves goes along with it — pin the container too to keep both in place.
+  The box's own children are still laid out inside it; pin them to keep
+  them. It goes with the other `!` flags, e.g. `@ box claim "Claim"
+  400,100 240x100 %highlight !pin`, and draws nothing. A board using it
+  carries a `#!grafli v4` header.
 - `~status=<text>[:color]` — on a box, a short status label (`open`,
   `designed`, `in-review`) drawn as a pill on the box's bottom edge,
   right-aligned, on the canvas, in `grafli render` and in every export. The
@@ -133,19 +154,36 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   a handwritten face by default**; `!mono` (and `code:` notes) switch to the
   monospace face — handwriting for prose, monospace for code. (Style mode →
   `t` opens the text grid; `Tab` there cycles a note's font.)
+- *(arrows)* the label is set in Inter, a step quieter than the box labels
+  it sits between. A label that opens with a cardinality — `"1"`, `"N"`,
+  `"*"`, `"N:N included in"`, `"0..1 owner"`, `"1..* items"` — draws that
+  count bold in the full ink, so it reads at a glance. The layered layout
+  (`grafli layout`, `=` in the app) makes the gap between two layers wide
+  enough for the labels of the arrows between them.
 - `!routing` *(arrows)* — how the connector travels between its ends:
   omitted for a **direct** line (the default), `!spline` for a curve, `!ortho`
-  for a right-angle stair. Independent of `!pattern` and `!thickness`, so
+  for a right-angle stair, `!straight` for a direct line that `grafli layout`
+  leaves direct. Independent of `!pattern` and `!thickness`, so
   `!dashed !ortho` is a dashed stair. A routed connector leaves each box
   perpendicular to the side that faces the other end, and several connectors
   sharing a side are spread along it automatically — anchors are always
   derived from the board, never written into the file, so a board renders the
-  same in the app and in `grafli render`. A stair also slides its turn clear of
-  boxes standing in the gap, but it never detours around them: the whole route
-  stays inside the span between its two ends, so moving a box shifts a stair
-  predictably instead of sending it off on a new path. A connector that still
-  cuts across your layout is a layout decision, and `grafli diagnose` is the
-  place to catch it.
+  same in the app and in `grafli render`. Stairs leaving one side of a box
+  each turn on their own line, nested so they never cross: the one starting
+  furthest out turns nearest the box. A stair slides its turn clear of
+  boxes standing in the gap. Where no turn clears them — an arrow that skips
+  a layer, with a box of the layer between right in its way — a stair whose
+  two ends face each other steps around them: it turns in the gap before the
+  first box in its way, runs beside the boxes along the free column nearest
+  the straight line, and turns back in the gap after the last one. It never
+  turns behind either of its ends. A stair with no such column keeps its
+  plain route, and `grafli diagnose` is the place to catch it.
+  `grafli layout` gives `!ortho` to every arrow between two boxes it places
+  (not `!pin` boxes) that has no routing flag yet, so a laid-out board is
+  drawn at right angles; an arrow to a note or an image and a loop keep their
+  shape. `!straight` keeps an arrow direct across layout runs, and `!spline`
+  or `!ortho` written by hand stay as they are. A board with a `!straight`
+  arrow carries a `#!grafli v4` header.
 - `~from=<side>` / `~to=<side>` *(arrows)* — pin the side the connector
   leaves its from element by and the side it enters its to element at:
   `top`, `right`, `bottom` or `left`. A pinned end sits on the middle of its
@@ -154,7 +192,9 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   without a helper box. Either token works alone; an unpinned end is still
   picked from the geometry. Where an end faces away from the other, the
   connector steps straight out of its side before it turns — for direct and
-  stair routing alike; a spline already leaves along the side. A pinned pair
+  stair routing alike; a spline already leaves along the side. A pinned
+  stair that would cross a box takes the shortest right-angle way round,
+  turning in the middle of the gaps between boxes. A pinned pair
   `A->B` / `B->A` keeps two lines instead of merging. A board using either
   token carries a `#!grafli v4` header. (Style mode → `e` on a connector:
   **Leaves from** and **Enters at** rows, Auto / Top / Right / Bottom / Left.)
@@ -181,7 +221,10 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   primary — `*lead:lock` → 🔒 Auth); `*badge:name` is *badge* (a compact
   overlay in the top-right corner, the label keeps its normal layout — for
   emphasis marks on existing nodes). Digits are *number badges*: `*3`,
-  `*badge:7` (1–99) render as a circled number for sequences and rankings.
+  `*badge:7` (1–99) render as a circled number for sequences and rankings,
+  its digits at least as tall as the label's capitals: a number badge grows
+  past a symbol badge's size, and a bare `*3` on a box too short to hold
+  that above its caption sits left of the label.
   `*solid-3`, `*badge:solid-12` draw the number knocked out of a filled
   disc, for the path a reader follows first; `*0` is a step zero. A board
   using `*0` or `*solid-<n>` (0–99) carries a `#!grafli v4` header.
@@ -194,8 +237,24 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   *Emphasis* names (how much it matters): `star`, `heart`, `flame`,
   `exclamation`, `brain`, `lightning`, `repeat`, `exercise`, `performance`.
   Legacy `bulb`/`doc` still parse as aliases of `lightbulb`/`document`.
-  (Style mode → `i` opens the symbol grid; `Tab` cycles fill → lead → badge;
-  `0`–`9` types a number badge, `f` makes it filled.)
+  *A board's own icons:* an SVG file at `<stem>-res/icons/<name>.svg` is
+  the symbol `*name` on that board, in every placement (`*monitor`,
+  `*lead:monitor`, `*badge:monitor`), on the canvas, in `grafli render` and
+  in every export. The name is the file's name without `.svg`, in lowercase
+  letters, digits and dashes; a file named like a built-in symbol or a
+  number is passed over, the built-in one wins. The icon draws in the ink a
+  built-in symbol would: `currentColor`, black and a fill left unset take
+  that ink (so the same file reads on a light box and on an `!ink` dark
+  one), any other colour in the file stays as drawn. It is fitted into the
+  symbol's place by its `viewBox`, so a wide icon gets a wide lead.
+  `grafli diagnose` reports a `*name` that is neither built in nor in the
+  folder, and names a file there that is not a readable SVG (an HTML page
+  saved under `.svg`, say): such a file is no icon and the box keeps the
+  layout it has without one. A `&graph` miniature draws its sub-board's icons from that
+  board's own `-res/icons/`.
+  (Style mode → `i` opens the symbol grid, the board's own icons in a
+  *this board* block after the built-in ones; `Tab` cycles fill → lead →
+  badge; `0`–`9` types a number badge, `f` makes it filled.)
 - `>parent` — nest this element inside the box with the given ID.
 
 > **When to reach for symbols and emphasis.** They shine when you're
@@ -348,6 +407,10 @@ all, in the app, `grafli render` and the exports.
 | name | Lowercase letters (`a`–`z`), like a theme token; may not be a theme token's name |
 | `color` | A theme token (`%teal`, follows light and dark) or `#rrggbb` |
 | `label` | Shown in the colour grid and the legend; the name, capitalised, when missing |
+| `icon` | *(optional)* An icon, written as after `*` on a box: `puzzle` fills the box, `lead:puzzle` sits left of the label, `badge:star` in the top-right corner |
+| `outline` | *(optional)* `dashed` or `dotted`, as `!dashed` / `!dotted` |
+| `bold` | *(optional)* `true` sets the label bold, as `!bold` |
+| `size` | *(optional)* The label size, as `~size`: `small`, `large`, `xlarge`, … or a pixel number such as `18` |
 
 A name that shadows a theme token (`"teal"`) is ignored — the token wins —
 and `grafli diagnose` reports it as an error; an entry it cannot read is a
@@ -355,6 +418,50 @@ warning, and a `%name` that is neither a token nor an entry is the usual
 `unknown-color` warning. A board using a palette entry carries a
 `#!grafli v4` header. Style mode → `c` lists the entries below the theme
 colours. The file is watched: an edit recolours the open board.
+
+### A kind of box
+
+An entry that names an `icon`, an `outline`, `bold` or a `size` is a whole
+kind of box: a box coloured with it takes all of them, so a board that shows
+kinds of things — tools, plugins, third-party parts, states and
+pseudo-states — does not repeat the same tokens on every box of a kind.
+grafli gives the kinds no meaning; the map's author names them.
+
+```json
+{
+  "entries": {
+    "tool":   {"color": "%primary", "label": "Tool"},
+    "plugin": {"color": "%teal", "label": "Plugin",
+               "icon": "lead:puzzle", "outline": "dashed", "size": "small"},
+    "vendor": {"color": "%muted", "label": "Third party",
+               "outline": "dotted", "bold": true}
+  }
+}
+```
+
+```
+@ box lint "Linter" 0,0 200x80 %plugin
+@ box fmt "Formatter" 240,0 200x80 %plugin *lead:gear
+```
+
+Both boxes draw teal with a dashed outline and a small label; `lint` leads
+with the puzzle icon, `fmt` with the gear written on it. A token written on
+the box wins over its kind's: `*…` replaces the icon, `!dashed` / `!dotted`
+the outline, `~size` the size, and `!italic` adds to the kind's bold. No
+token takes a part of a kind away — there is no solid outline or plain
+weight to write — so a box that should look otherwise takes another entry.
+The `.grafli` keeps only what is written on the box: editing the entry
+changes every box of the kind, in the app, `grafli render` and every export.
+A kind shapes boxes only; a note, status label or connector coloured with
+it takes its colour. An entry whose kind it cannot read — an unknown icon,
+an outline other than `dashed` or `dotted` — is left out and
+`grafli diagnose` warns about it (`bad-palette`).
+
+In style mode → `c` a kind's swatch shows its icon and outline, and
+<kbd>1</kbd>–<kbd>9</kbd> apply the palette's first nine entries at once,
+in the file's order, as picking one with <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd>
+and <kbd>Enter</kbd> would. The legend lists a kind like any entry, by its
+swatch and label.
 
 The palette is also the map's legend: <kbd>Shift</kbd>+<kbd>M</kbd> (or
 *Legend* in the side panel's *View* section) shows a card in the canvas's

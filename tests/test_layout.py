@@ -9,6 +9,8 @@ from grafli.layout import (
     _build_dag,
     _snap,
     compute_layout,
+    container_groups,
+    layout_groups,
 )
 
 
@@ -259,3 +261,355 @@ class TestReverseArrow:
         # B is the source (has arrow pointing to A)
         assert layers[0] == ["B"]
         assert layers[1] == ["A"]
+
+
+class TestLayoutGroups:
+    """The whole-board driver the app's `=` and `grafli layout` share."""
+
+    def test_container_groups_recurse(self):
+        board = _make_board([
+            _box("P", 0, 0, 400, 300), _box("a"), _box("b"), _box("c"),
+        ])
+        board.box_by_id("a").parent = "P"
+        board.box_by_id("b").parent = "P"
+        groups = container_groups(board)
+        assert groups == [("", {"P", "c"}), ("P", {"a", "b"})]
+
+    def test_container_grows_and_carries_children(self):
+        p = _box("P", 0, 0, 100, 300)  # tall: children flow top-down
+        a, b = _box("a", 500, 500), _box("b", 600, 500)
+        a.parent = b.parent = "P"
+        board = _make_board([p, a, b, _box("Q", 0, 600)],
+                            [_arrow("a", "b"), _arrow("P", "Q")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 20)
+        # a above b inside P, P above Q, P grown to hold both children
+        assert a.y < b.y
+        assert p.y + p.h <= board.box_by_id("Q").y
+        for c in (a, b):
+            assert p.x <= c.x and c.x + c.w <= p.x + p.w
+            assert p.y + 20 <= c.y and c.y + c.h <= p.y + p.h
+
+    def test_top_level_container_grows_before_root_is_placed(self):
+        # P must grow to hold its children before its root sibling Q is
+        # placed below it, or Q lands inside P's grown area.
+        p = _box("P", 0, 0, 400, 100)
+        a, b = _box("a"), _box("b")
+        a.parent = b.parent = "P"
+        board = _make_board([p, a, b, _box("Q")],
+                            [_arrow("a", "b"), _arrow("P", "Q")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 20,
+                      Direction.TTB)
+        assert p.y + p.h <= board.box_by_id("Q").y
+
+
+class TestRankWithinContainers:
+    """An arrow between boxes in two sibling containers ranks the containers."""
+
+    def _board(self) -> Board:
+        boxes = [_box("X", 0, 0, 400, 200), _box("Y", 0, 0, 400, 200),
+                 _box("x1"), _box("y1"), _box("y2")]
+        board = _make_board(boxes, [_arrow("y1", "x1"), _arrow("y2", "x1"),
+                                    _arrow("y1", "y2")])
+        board.box_by_id("x1").parent = "X"
+        board.box_by_id("y1").parent = "Y"
+        board.box_by_id("y2").parent = "Y"
+        return board
+
+    def test_descendant_arrow_ranks_siblings(self):
+        adj, _ = _build_dag(self._board(), {"X", "Y"})
+        assert adj["Y"] == ["X"]
+
+    def test_arrow_within_one_container_is_ignored_above_it(self):
+        board = self._board()
+        board.arrows = [_arrow("y1", "y2")]
+        adj, _ = _build_dag(board, {"X", "Y"})
+        assert not any(adj.values())
+
+    def test_layout_puts_source_container_first(self):
+        board = self._board()
+        layout_groups(board, container_groups(board), 20, lambda pid: 20,
+                      Direction.TTB)
+        X, Y = board.box_by_id("X"), board.box_by_id("Y")
+        assert Y.y + Y.h <= X.y
+
+
+def _overlaps(a: Box, b: Box) -> bool:
+    return (a.x < b.x + b.w and b.x < a.x + a.w
+            and a.y < b.y + b.h and b.y < a.y + a.h)
+
+
+class TestPinned:
+    """A `!pin` box keeps its position; the others are placed around it."""
+
+    def test_pinned_box_keeps_its_position(self):
+        pin = _box("B", 333, 777)
+        pin.pinned = True
+        board = _make_board([_box("A"), pin, _box("C", 0, 300)],
+                            [_arrow("A", "B"), _arrow("B", "C")])
+        result = compute_layout(board, {"A", "B", "C"}, "", Direction.TTB,
+                                20, 0, _sizes("A", "B", "C"))
+        assert "B" not in result
+        assert set(result) == {"A", "C"}
+
+    def test_free_boxes_move_past_a_pinned_box(self):
+        pin = _box("P", 0, 0)
+        pin.pinned = True
+        free = [_box(b, 0, 0) for b in ("A", "B", "C")]
+        board = _make_board([pin, *free])
+        layout_groups(board, container_groups(board), 20, lambda pid: 0,
+                      Direction.TTB)
+        assert (pin.x, pin.y) == (0, 0)
+        for b in free:
+            assert not _overlaps(b, pin)
+        for i, a in enumerate(free):
+            for b in free[i + 1:]:
+                assert not _overlaps(a, b)
+
+    def test_pinned_container_still_lays_out_its_children(self):
+        p = _box("P", 100, 100, 400, 400)
+        p.pinned = True
+        a, b = _box("a", 400, 400), _box("b", 100, 100)
+        a.parent = b.parent = "P"
+        board = _make_board([p, a, b, _box("Q", 900, 0)],
+                            [_arrow("a", "b"), _arrow("Q", "P")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 20,
+                      Direction.TTB)
+        assert (p.x, p.y) == (100, 100)
+        assert a.y < b.y
+
+    def test_pinned_child_moves_with_its_container(self):
+        p = _box("P", 500, 500, 400, 300)
+        c = _box("c", 540, 560)
+        c.parent = "P"
+        c.pinned = True
+        board = _make_board([_box("Q"), p, c], [_arrow("Q", "P")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 20,
+                      Direction.TTB)
+        assert (c.x - p.x, c.y - p.y) == (40, 60)
+
+    def test_pinned_box_still_ranks_its_neighbours(self):
+        # C -> B(pinned) -> A: C before A although only B links them.
+        pin = _box("B", 2000, 2000)
+        pin.pinned = True
+        board = _make_board([_box("A", 0, 0), pin, _box("C", 0, 400)],
+                            [_arrow("C", "B"), _arrow("B", "A")])
+        result = compute_layout(board, {"A", "B", "C"}, "", Direction.TTB,
+                                20, 0, _sizes("A", "B", "C"))
+        assert result["C"][1] < result["A"][1]
+
+
+class TestStableRerun:
+    """A second layout run over a laid-out board moves nothing."""
+
+    def _pinned_chain(self, pin_x: float, pin_y: float) -> Board:
+        # a -> p(pinned) -> b, c at the root: the widest layer [b, c] is
+        # pushed past the pin, which must not shift `a` on every run.
+        pin = _box("p", pin_x, pin_y, 300, 80)
+        pin.pinned = True
+        return _make_board(
+            [_box("a", 0, 0), pin, _box("b", 0, 300), _box("c", 200, 300)],
+            [_arrow("a", "p"), _arrow("p", "b"), _arrow("p", "c")],
+        )
+
+    def test_root_layout_with_a_pinned_box_is_stable(self):
+        for pin_at in ((20, 160), (13, 151)):
+            board = self._pinned_chain(*pin_at)
+            layout_groups(board, container_groups(board), 20, lambda pid: 0)
+            first = [(b.x, b.y, b.w, b.h) for b in board.boxes]
+            layout_groups(board, container_groups(board), 20, lambda pid: 0)
+            assert [(b.x, b.y, b.w, b.h) for b in board.boxes] == first, pin_at
+
+    def test_root_layout_is_stable(self):
+        board = _make_board(
+            [_box("A", 300, 0), _box("B", 0, 400), _box("C", 900, 400),
+             _box("D", 500, 900, 300, 120)],
+            [_arrow("A", "B"), _arrow("A", "C"), _arrow("B", "D")],
+        )
+        layout_groups(board, container_groups(board), 20, lambda pid: 0)
+        first = [(b.x, b.y, b.w, b.h) for b in board.boxes]
+        layout_groups(board, container_groups(board), 20, lambda pid: 0)
+        assert [(b.x, b.y, b.w, b.h) for b in board.boxes] == first
+
+    def test_root_layout_keeps_the_top_left_corner(self):
+        board = _make_board([_box("A", 300, 100), _box("B", 100, 500)],
+                            [_arrow("A", "B")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 0)
+        assert min(b.x for b in board.boxes) == 100
+        assert min(b.y for b in board.boxes) == 100
+
+    def test_free_box_steps_back_before_a_pinned_box_when_closer(self):
+        # The layer's centred slot for A overlaps the pin's left end, so
+        # A goes before the pin rather than past its far end.
+        pin = _box("P", 300, 0, 600, 80)
+        pin.pinned = True
+        board = _make_board([pin, _box("A", 0, 0), _box("W", 0, 200, 900, 80)],
+                            [_arrow("A", "W")])
+        layout_groups(board, container_groups(board), 20, lambda pid: 0,
+                      Direction.TTB)
+        a = board.box_by_id("A")
+        assert a.x + a.w <= pin.x
+        assert not _overlaps(a, pin)
+
+    def _twice(self, board: Board) -> None:
+        layout_groups(board, container_groups(board), 20, lambda pid: 20)
+        first = [(b.x, b.y, b.w, b.h) for b in board.boxes]
+        layout_groups(board, container_groups(board), 20, lambda pid: 20)
+        assert [(b.x, b.y, b.w, b.h) for b in board.boxes] == first
+
+    def test_container_that_grows_is_stable(self):
+        # A wide, low container whose four unlinked children don't fit:
+        # it grows on the first run and must not flip flow on the second.
+        p = _box("P", 0, 0, 1100, 230)
+        kids = [_box(k, 40, 80, 220, 90) for k in ("a", "b", "c", "d")]
+        for k in kids:
+            k.parent = "P"
+        self._twice(_make_board([p, *kids, _box("Q", 0, 400)],
+                                [_arrow("P", "Q")]))
+
+    def test_off_grid_container_is_stable(self):
+        p = _box("P", 33, 717, 600, 300)
+        kids = [_box("a", 50, 760, 220, 85), _box("b", 300, 760, 220, 85),
+                _box("c", 50, 900, 220, 85)]
+        for k in kids:
+            k.parent = "P"
+        self._twice(_make_board([p, *kids], [_arrow("a", "c"), _arrow("b", "c")]))
+
+    def test_gaps_within_a_layer_are_even(self):
+        boxes = [_box(b, 0, 0, 160, 85) for b in ("r", "a", "b", "c")]
+        board = _make_board(boxes, [_arrow("r", "a"), _arrow("r", "b"),
+                                    _arrow("r", "c")])
+        result = compute_layout(board, {"r", "a", "b", "c"}, "", Direction.LTR,
+                                20, 0, {b.id: (160, 85) for b in boxes})
+        ys = sorted(result[b][1] for b in ("a", "b", "c"))
+        assert ys[1] - ys[0] == ys[2] - ys[1]
+
+
+class TestFlowByFit:
+    def test_container_takes_the_flow_that_fits(self):
+        # A wide container with one layer of three: a column (LTR by
+        # shape) would make it grow, a row fits.
+        p = _box("P", 0, 0, 800, 200)
+        kids = [_box(k, 0, 0, 200, 80) for k in ("a", "b", "c")]
+        for k in kids:
+            k.parent = "P"
+        board = _make_board([p, *kids])
+        layout_groups(board, container_groups(board), 20, lambda pid: 20)
+        assert len({k.y for k in kids}) == 1
+        assert (p.w, p.h) == (800, 200)
+
+
+def test_example_board_is_stable_under_a_rerun():
+    from pathlib import Path
+
+    from grafli.board_info import top_margin
+    from grafli.format import parse
+
+    src = Path(__file__).parent.parent / "examples" / "architecture.grafli"
+    board = parse(src.read_text(encoding="utf-8"))
+
+    def label(pid: str) -> float:
+        return top_margin(board.box_by_id(pid).textsize) - 20
+
+    layout_groups(board, container_groups(board), 20, label)
+    first = [(b.x, b.y, b.w, b.h) for b in board.boxes]
+    layout_groups(board, container_groups(board), 20, label)
+    assert [(b.x, b.y, b.w, b.h) for b in board.boxes] == first
+
+
+# ── Layer gaps that hold arrow labels (#260) ─────────────────────
+
+
+def _labelled(label: str) -> Board:
+    return _make_board([_box("a"), _box("b"), _box("c")],
+                       [Arrow(from_id="a", to_id="b", label=label),
+                        _arrow("b", "c")])
+
+
+def _fixed_label(w: float, h: float):
+    return lambda arrow: (w, h) if arrow.label else (0.0, 0.0)
+
+
+def test_a_layer_gap_widens_to_hold_a_long_label_across_it():
+    board = _labelled("a long relation name")
+    sizes = _sizes("a", "b", "c")
+    pos = compute_layout(board, {"a", "b", "c"}, "", Direction.LTR, 20, 0,
+                         sizes, _fixed_label(140, 16))
+    gap_ab = pos["b"][0] - (pos["a"][0] + 160)
+    gap_bc = pos["c"][0] - (pos["b"][0] + 160)
+    assert gap_ab >= 140 + 2 * (4 + 16)     # label, plate and two stubs
+    assert gap_bc == 40                      # no label: the fixed gap
+
+
+def test_top_to_bottom_a_gap_holds_the_label_height():
+    board = _labelled("x")
+    sizes = _sizes("a", "b", "c")
+    pos = compute_layout(board, {"a", "b", "c"}, "", Direction.TTB, 20, 0,
+                         sizes, _fixed_label(10, 30))
+    assert pos["b"][1] - (pos["a"][1] + 80) >= 30 + 2 * (4 + 16)
+
+
+def test_without_a_label_measure_the_gaps_stay_fixed():
+    board = _labelled("a long relation name")
+    sizes = _sizes("a", "b", "c")
+    pos = compute_layout(board, {"a", "b", "c"}, "", Direction.LTR, 20, 0, sizes)
+    assert pos["b"][0] - (pos["a"][0] + 160) == 40
+
+
+# ── The container margin after a layout (#304) ───────────────────
+
+
+def _in(parent: str, *kids: Box) -> list[Box]:
+    for k in kids:
+        k.parent = parent
+    return list(kids)
+
+
+def test_a_grown_container_rounds_up_to_keep_its_bottom_padding():
+    # Children 85 px high: rounding the grown height to the nearest grid
+    # cell would cut the 20 px bottom padding to 15.
+    p = _box("P", 0, 0, 100, 60)
+    kids = _in("P", _box("a", 0, 0, 190, 85), _box("b", 0, 0, 190, 85))
+    board = _make_board([p, *kids], [_arrow("a", "b")])
+    layout_groups(board, container_groups(board), 20, lambda pid: 20)
+    for k in kids:
+        assert p.x + p.w - (k.x + k.w) >= 20
+        assert p.y + p.h - (k.y + k.h) >= 20
+
+
+def test_a_single_child_wider_than_its_container_keeps_the_left_padding():
+    p = _box("P", 0, 0, 200, 100)
+    (k,) = _in("P", _box("a", 0, 0, 300, 120))
+    board = _make_board([p, k])
+    layout_groups(board, container_groups(board), 20, lambda pid: 20)
+    assert k.x - p.x >= 20
+    assert k.y - p.y >= 40
+    assert p.x + p.w - (k.x + k.w) >= 20
+    assert p.y + p.h - (k.y + k.h) >= 20
+
+
+def test_a_measured_title_band_off_the_grid_keeps_the_child_below_it():
+    # The app measures the title: 27 px plus padding is no whole cell,
+    # and the first row must round down below it, not up into it.
+    p = _box("P", 0, 0, 600, 300)
+    kids = _in("P", _box("a"), _box("b"))
+    board = _make_board([p, *kids], [_arrow("a", "b")])
+    layout_groups(board, container_groups(board), 20, lambda pid: 27,
+                  Direction.TTB)
+    for k in kids:
+        assert k.y - p.y >= 27 + 20
+        assert k.x - p.x >= 20
+
+
+def test_a_container_carries_its_images_along():
+    from grafli.format import Image
+
+    outer = _box("O", 0, 0, 800, 600)
+    inner = _box("I", 400, 300, 300, 200)
+    inner.parent = "O"
+    (k,) = _in("I", _box("a", 420, 340))
+    board = _make_board([outer, inner, k])
+    img = Image(id="pic", image_path="pic.png", x=450, y=430, w=40, h=40, parent="I")
+    board.add_image(img)
+    before = (img.x - inner.x, img.y - inner.y)
+    layout_groups(board, container_groups(board), 20, lambda pid: 20)
+    assert (img.x - inner.x, img.y - inner.y) == before

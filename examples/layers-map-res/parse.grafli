@@ -32,11 +32,11 @@
 @ note evidence 0,460 """
 code:
 split by where the Board is made and read
-  @grafli/format.py:915 parse
-  @grafli/format.py:1505 serialize
-  @grafli/view/selection.py:263 load_board
-  @grafli/app.py:1915 _cmd_render
-  @grafli/app.py:2202 _cmd_export
+  @grafli/format.py:929 parse
+  @grafli/format.py:1526 serialize
+  @grafli/view/selection.py:291 load_board
+  @grafli/app.py:1884 _cmd_render
+  @grafli/app.py:2171 _cmd_export
 """ ~small
 
 @ bookmark b_read "The board is one text file" @read

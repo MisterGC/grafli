@@ -80,9 +80,11 @@ miniature updates. Zooming in on it never switches boards on its own — only
 without the miniature.
 
 A box with a `&doc` shows the first sentence of its doc on one line below its
-label, once you are close enough to read it. To read the whole doc without
-leaving the board, select the box and press <kbd>g</kbd><kbd>v</kbd>: a
-read-only panel opens beside the box, scrollable when the doc is long, and
+label, once you are close enough to read it and when the box is wide enough for
+the whole sentence; a sentence that would be cut is left out. To read the whole
+doc without leaving the board, select the box and press
+<kbd>g</kbd><kbd>v</kbd>: a read-only panel opens beside the box, scrollable
+when the doc is long, and
 <kbd>Esc</kbd> closes it. <kbd>E</kbd> opens the doc for editing. When the doc
 file changes, the line and an open panel follow. Renders and exports show the
 line too; a PDF or PPTX slide shows it only where the slide's frame keeps it
@@ -150,9 +152,11 @@ needs no setup: just zoom out (<kbd>-</kbd>, <kbd>z</kbd>, or
 What happens as you pull back:
 
 - **Containers fold into tiles.** A group whose children have shrunk too small
-  to read collapses to a single tile showing its label and a child count; its
-  contents hide and arrows re-route to the tile. Nested groups fold
-  innermost-first, and smaller groups fold before larger ones.
+  to read collapses to a single tile showing its label; its contents hide and
+  arrows re-route to the tile. The label's size follows the group's nesting
+  level, not its area: tiles at the same level show their titles at the same
+  size, top-level groups the largest. Nested groups fold innermost-first, and
+  smaller groups fold before larger ones.
 - **Leaves become shells.** A standalone box whose label is too small keeps its
   colour and shows skeleton bars where the text was — you still see *that
   there's a node here*, without the unreadable label.
@@ -232,6 +236,295 @@ The page is for reading: code refs (`@path:line`) show as plain text,
 because the people you send it to don't have the checkout, and there are no
 miniatures and no editing. A link to a board that does not exist is reported
 when exporting and left out. `--theme dark` exports the dark theme.
+
+## Show a board live in a browser tab
+
+`grafli serve <dir>` serves the boards in a directory to browser tabs on your
+network or VPN. Every change to a board's file — saved by the desktop app,
+written by an editor or an agent — is drawn again with grafli's own view and
+pushed to every tab on that board; the camera, the selection and an open doc
+stay where they were. It is the HTML export page above, kept up to date.
+
+```bash
+pip install 'grafli[serve]'
+grafli serve boards/ --host 192.168.1.20
+```
+
+It prints three links per board in the directory, of the form
+`http://<host>:<port>/b/<board>#k=<key>`: a **watch** link and an **edit**
+link for the people in the meeting, and a **present** link for you, each
+with its own key after the `#`. The page asks for nothing; the key
+travels from the link to the server over the WebSocket, and the drawing comes
+only after it. A board in a vault (`<board>-res/`) has a link too
+(`/b/<board>-res/<name>`), and clicking a level in the tab opens it with the
+same key.
+
+- `--host` takes the address of the interface to listen on: your LAN address,
+  or your VPN address (`tailscale ip -4`). Without it grafli listens on
+  127.0.0.1, this machine only. It never listens on every interface unless
+  you give `0.0.0.0`, and then it says so.
+- `--port` (default 7341; `0` picks a free one), `--theme dark`, and `-v`
+  prints a line per pushed change with how long after the file change it
+  went out.
+- `grafli serve board.grafli` serves the board's directory and prints only
+  that board's links.
+- `--reveal` starts every board with only its title showing; see
+  [Reveal a prepared board](#reveal-a-prepared-board-as-you-talk).
+- A Claude Code session you already run can be the boards' agent; see
+  [Connect your agent](#connect-your-agent-a-claude-code-session-you-run).
+
+An edit link's tab can change the board: each edit is a small operation
+(move, rename, add a box, connect, delete, a `Q:` question, grafli lines)
+applied to the
+version the tab shows and merged into the file with the same three-way merge
+the desktop app runs when the file changes under it, so an edit never
+overwrites a change the tab had not seen yet. A watch link's tab cannot edit.
+The present link's tab edits like an edit link's, and the others follow it
+(see below).
+
+The files never leave your machine, only drawings of them do, and only to the
+tabs that hold a key. The session ends when `grafli serve` stops; there is no
+copy anywhere else.
+
+### Building a board in the tab
+
+When you present by sharing only the browser tab, you build the board there
+with a few of the app's keys:
+
+| Key | Does |
+|-----|------|
+| <kbd>f</kbd> | A jump label on every element in view; type one to select that element (a watch link's tab has this key too) |
+| <kbd>o</kbd> / <kbd>O</kbd> | A new box below / above the selection, its size, in its container, with an arrow from it; type the label, <kbd>Enter</kbd>. With nothing selected, the box goes in the middle of the view |
+| <kbd>Ctrl</kbd>+arrow | The same, on that side (macOS may keep Ctrl+arrows for switching desktops) |
+| <kbd>c</kbd> | Connect the selection to the box whose jump label you type; with nothing selected, the first label is where the arrow starts |
+| <kbd>e</kbd> | Rename the selected box, note or arrow; <kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> drops it |
+| <kbd>x</kbd> / <kbd>Delete</kbd> | Delete the selection, with its arrows |
+| <kbd>u</kbd> / <kbd>⌘</kbd>+<kbd>Z</kbd> | Undo your last edit in this tab |
+| <kbd>:</kbd> | A command line. A grafli line — `@ box cache "Cache"`, `@ arrow api -> cache "reads"` — is applied: a box line without a place goes below the selection; a line with the id of an element on the board restates that element. Anything else is plain language for the agent (see [Ask the agent](#ask-the-agent-plain-language-and-the-ask-chip)). The right end of the line says where what you typed goes. <kbd>↑</kbd> brings back the last line |
+| <kbd>a</kbd> | Ask the agent about the selection (see [Ask the agent](#ask-the-agent-plain-language-and-the-ask-chip)) |
+| <kbd>Shift</kbd>+<kbd>Z</kbd> | Fit the board in view (never closer than 1:1), so every box has a jump label |
+
+A new box lands on the side you asked for; if a box already sits there, it
+moves further along until it covers nothing. Each edit shows a dashed
+placeholder at once — the new box with its label, the new label over the
+old one, a dashed line for a new arrow, a faded element for a delete — and
+the badge counts the edits on the way, until the drawing that holds them
+arrives.
+
+Undo takes back only your own edits, one at a time, and keeps what others
+changed since: undoing a box you added also drops an arrow someone drew to
+it. The tab keeps its undo history across a reload for as long as
+`grafli serve` runs.
+
+Plain language on the command line ("add a cache between api and db") goes
+to the connected agent; with no agent connected, the tab says so and sends
+nothing.
+
+### Editing with the mouse
+
+Guests need no keys: in an edit link's tab (and the present link's) the
+mouse does the common edits.
+
+| Mouse | Does |
+|-------|------|
+| Click | Selects a box, note or arrow. A box with a level opens it after a moment, unless a second click makes it a double-click |
+| Double-click | Renames what you clicked; <kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> drops it |
+| Drag a box | Moves it, with what it holds. It goes into the box you let go over (out of every box when you let go on the canvas), and that box grows to hold it, as a drop in the app does |
+| Drag from a box's edge | Draws an arrow to the box you let go over. Near the border the pointer turns into a crosshair; inside the box it shows a move |
+| Right-click | Asks a `Q:` question, typed in place: beside the box you clicked, so the box keeps its look, or at the point on the canvas or in a container |
+
+Dragging the empty canvas still pans, and the wheel zooms. Each mouse edit
+shows the same dashed placeholder as a key's until the drawing that holds
+it arrives, and <kbd>u</kbd> takes it back. A watch link's tab selects with
+a click and pans with a drag; a double-click or a right-click says that
+editing needs the edit link. With the laser on (<kbd>k</kbd>) the mouse
+points instead of dragging boxes.
+
+### Who is here: follow, laser, cursors
+
+Every tab on a board sees the others: a coloured dot per tab in the bar
+(yours has a ring), and the others' pointers on the board as cursors with
+their names. The present link's tab is orange.
+
+- **Follow the presenter.** A tab opened with a watch or edit link follows
+  the present link's tab: it shows what the presenter's tab shows, framed
+  whole in its own window, and goes along when the presenter opens a level
+  or another board. **Stop following** in the bar stops it, one click; your
+  own pan, zoom or tour stops it too, and **Follow** brings you back. The
+  presenter's bar counts who follows.
+- **Laser.** <kbd>k</kbd> turns the laser on and off (<kbd>Esc</kbd> turns
+  it off): your pointer leaves a red trail that every tab on the board sees
+  for a moment. Every tab has it, watch links too.
+- **Your name.** "You: Guest 1" in the bar is the name the others see; click
+  it, type, <kbd>Enter</kbd>. The browser keeps it for the next session.
+
+None of this is written to the board file: cursors, the laser, who follows
+and the presenter's view travel between the tabs only and are gone when the
+tabs close. If the presenter opens the same board in a second tab, the newer
+tab is the one the others follow.
+
+### Reveal a prepared board as you talk
+
+A board you (or your agent) prepared before the call can start hidden, and
+you uncover it in whatever order the talk takes. Start the server with
+`--reveal` and every board shows the others only its title — the note with
+the id `title`, as the grafli skill writes it. In the present link's tab:
+
+| Key | Does |
+|-----|------|
+| <kbd>v</kbd> | A jump label on every hidden element in view; type one to reveal it. A box in a container brings the container's frame; a container comes with everything it holds |
+| <kbd>+</kbd> | Right after a reveal: also reveal what an arrow connects that element to |
+| <kbd>Shift</kbd>+<kbd>V</kbd> | Reveal mode on (all but the title hidden again) or off (everyone sees the whole board) — also without `--reveal` |
+
+An arrow shows once both its ends do. A bookmark and its flows show once
+everything they frame does. A box added during the talk — from a tab, the
+app or an agent — shows at once.
+
+The other tabs, watch and edit links alike, get a drawing of the board
+without the hidden elements, so nothing hidden — label, doc, bookmark —
+reaches their browser. Your tab gets the same drawing and shows what is
+still hidden as faint dashed outlines, and the bar counts it
+("revealing · 3 hidden"). What is hidden lives in the server's memory only:
+it is never written to the board file, survives a reload of your tab and
+ends when `grafli serve` stops.
+
+### Connect your agent: a Claude Code session you run
+
+The boards' agent is a Claude Code session you are already running on the
+machine that runs `grafli serve`. grafli never starts a session; without a
+connected one there is no agent.
+
+Once, register grafli's MCP server with Claude Code for every project:
+
+```bash
+claude mcp add -s user grafli -- grafli agent
+```
+
+Claude Code starts `grafli agent` with each session; it does nothing until
+you connect it. To connect, while `grafli serve` runs, type
+`/mcp__grafli__connect` in the session (or ask it to connect to grafli).
+Every tab on the board shows the agent in the bar by name, in purple —
+"Serein's agent" after the presenter's name, or the name you give it — and
+says it connected. The session can then:
+
+- read a board (`read_board`): its text, its version, what you selected in
+  the present link's tab and your view;
+- write it (`write_board`): the whole text, against the version it read,
+  merged into the file the way every tab's edit is, so what others changed
+  in the meantime stays (see
+  [The agent's edits](#the-agents-edits-marked-undoable-big-ones-proposed));
+- take back its own last edit (`undo_board`);
+- look at it (`render_board`): the board drawn as a PNG.
+- read how to author a board well (`authoring_guide`): the grafli skill as
+  it ships with grafli, so the session needs nothing installed (see
+  [What the agent gets](ai.md#on-a-live-board-what-the-agent-gets)).
+
+Without a board name the session works on the board your present link's
+tab is on.
+
+**A request from the board reaches the session** as a Claude Code
+*channel* message: `grafli agent` forwards it into the conversation, where
+it arrives as a `<channel source="grafli">` turn the session acts on
+without anyone typing in it. Claude Code takes channel messages only from a
+session started with the channel named, which for a server you added
+yourself means
+
+```bash
+claude --dangerously-load-development-channels server:grafli
+```
+
+Claude Code asks you to confirm the flag. In a session started without it,
+the tools work but requests from the board do not arrive. `grafli agent`
+answers Claude Code with MCP revision `2025-06-18`, because Claude Code
+does not deliver channel messages over the newer `2026-07-28`; if requests
+still do not arrive, start the session with
+`MCP_PROTOCOL_NEGOTIATION=legacy` set. Channels are a
+research preview in Claude Code: they need a claude.ai login or a Console
+API key, and a Team or Enterprise organisation must allow them.
+
+**When the session drops** — it ends, or its `grafli agent` stops — every
+tab shows the agent dashed, "Serein's agent · gone", and nothing is sent to
+it. Connect again from the same session (`/mcp` → Reconnect `grafli`, then
+`/mcp__grafli__connect`) or from another one, and it is present again. One
+session is the agent at a time: connecting a second takes the seat over,
+and the first is told so.
+
+`grafli serve` keeps where it listens and the agent's key in a file only
+your user can read (`~/.local/state/grafli/serve-<port>.json`, removed when
+it stops); the key is in no link, so no tab can take the agent's seat. With
+several servers running, `connect` takes the latest unless you name a port.
+
+### The agent's edits: marked, undoable, big ones proposed
+
+An edit of the agent's lands at once. In every tab the elements it added or
+changed glow in the agent's purple for a few seconds, with a tag naming it
+and the version — "✦ v42 · Serein's agent" — and a toast says what it did
+("Serein's agent: +1 box, +1 arrow").
+
+Undo is per author. In the present link's tab, <kbd>Shift</kbd>+<kbd>U</kbd>
+takes back the agent's last edit, and only that: what you and the others
+changed after it stays, the same way your own <kbd>u</kbd> works. The
+session hears that you undid it. The session can also take back its own
+last edit (`undo_board`).
+
+A change of more than 5 elements — boxes, notes, images and arrows, each
+added, removed or changed — does not touch the file. It waits on the board
+as the agent's **proposal**: a purple banner, "✦ Serein's agent proposes 7
+changes · split Payments", and dashed outlines in purple for what it adds or
+changes, where it would be, with what it removes struck through. Your
+present link's tab pans to it.
+
+| Key | Does |
+|-----|------|
+| <kbd>Enter</kbd> | Take the proposal: it is merged into the file as it is now, so what changed since it was made stays, and glows as the agent's edit (<kbd>Shift</kbd>+<kbd>U</kbd> takes it back) |
+| <kbd>x</kbd> | Drop it; the board stays as it was |
+| <kbd>Shift</kbd>+<kbd>U</kbd> | Undo the agent's last edit |
+
+These keys are for the present link's tab; the other tabs see the banner
+and the outlines, and in reveal mode only who proposes how much. While a
+proposal waits, <kbd>Enter</kbd> and <kbd>x</kbd> act on it instead of on
+the selection. One proposal waits at a time: a new one from the agent takes
+its place. The session hears whether you took it or dropped it.
+
+### Ask the agent: plain language and the ask chip
+
+In an edit or present link's tab there are two ways to ask the agent for a
+change:
+
+- **On the command line.** <kbd>:</kbd>, then plain language — "add a cache
+  between api and db" — and <kbd>Enter</kbd>. A line that starts with `@`,
+  or reads like a grafli line without it (`box cache "Cache"`), is applied
+  to the board instead. While you type, the right end of the line says where
+  it goes: "grafli line → applied" or "plain language → Serein's agent".
+- **On the selection.** A purple **✦ ask** chip sits beside the selected
+  element; click it, or press <kbd>a</kbd>, type the request in the field
+  over the element, <kbd>Enter</kbd>. The session hears which element the
+  request is about.
+
+The request reaches the session as a `<channel source="grafli">` turn with
+who asked, and the element when there is one; its answer comes back as an
+edit on the board, glowing with its name (see
+[The agent's edits](#the-agents-edits-marked-undoable-big-ones-proposed)).
+A reply takes seconds to tens of seconds. A toast says the request was
+sent.
+
+**While the agent works on it**, every tab shows a line at the top left:
+"✦ Serein's agent is working on: add a cache between api and db", followed
+by what the agent does as far as grafli sees it — "reading the board",
+"rendering the board" — and "on payments" when the request was asked on
+another board. The line goes when the agent's edit lands, when its
+proposal shows, or when it undoes its edit; with several requests open it
+shows the oldest and how many more wait. After two minutes without an
+answer it reads "has not answered in 2 minutes", and it goes when the
+session is gone. In reveal mode the other tabs see only that the presenter
+asked something, not what.
+
+**With no agent connected**, the line reads "plain language: no agent
+connected", the chip is dashed, and asking says "No agent is connected, so
+nothing was sent". When the session dropped, both say the agent is gone.
+Nothing waits to be sent later: a session that connects afterwards gets
+only what is asked from then on. A watch link's tab cannot ask, and in
+reveal mode a guest cannot ask about what is still hidden.
 
 ## When you want to *explain* the path
 

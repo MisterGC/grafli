@@ -248,6 +248,31 @@ def test_s_e_toggles_dot_previews_and_saves_v4():
     assert not any(_is_dot(e) for e in _ends(view))
 
 
+def test_direct_in_the_overlay_keeps_a_straight_arrow_straight():
+    """#284: `!straight` draws as Direct, and choosing Direct must not drop
+    the flag — the next `grafli layout` would turn the arrow into a stair."""
+    view = _overlay_view(BOXES + '@ arrow a -> b !straight\n')
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_E)
+    view._elem_overlay_row = _row(view, "Routing")
+    assert view._elem_overlay_axes[view._elem_overlay_row]["get"]() == ""
+    _press(view, Qt.Key.Key_H, Qt.Key.Key_Return)     # already on Direct
+    assert view.board.arrows[0].routing == "straight"
+
+
+def test_a_round_trip_through_spline_keeps_straight_and_stair_replaces_it():
+    view = _overlay_view(BOXES + '@ arrow a -> b !straight\n')
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_E)
+    view._elem_overlay_row = _row(view, "Routing")
+    _press(view, Qt.Key.Key_L)                        # Direct -> Spline
+    assert view.board.arrows[0].routing == "spline"
+    _press(view, Qt.Key.Key_H, Qt.Key.Key_Return)     # back to Direct
+    assert view.board.arrows[0].routing == "straight"
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_E)
+    view._elem_overlay_row = _row(view, "Routing")
+    _press(view, Qt.Key.Key_L, Qt.Key.Key_L, Qt.Key.Key_Return)
+    assert view.board.arrows[0].routing == "ortho"
+
+
 def test_ends_cancel_reverts_and_commit_is_undoable():
     view = _overlay_view(BOXES + '@ arrow a -> b\n')
     view._open_element_overlay()

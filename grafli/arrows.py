@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import heapq
 import math
 
@@ -80,6 +81,16 @@ def t_of_point(rect: tuple, side: str, pt: QPointF) -> float:
     if side in ("n", "s"):
         return 0.0 if w <= 0 else max(0.0, min(1.0, (pt.x() - x) / w))
     return 0.0 if h <= 0 else max(0.0, min(1.0, (pt.y() - y) / h))
+
+
+def along_side(rect: tuple, side: str, pt: QPointF) -> float:
+    """Where along a side a point lies, as a fraction that runs past 0..1 for
+    a point beyond either end of the side — so two points both beyond it
+    still rank against each other."""
+    x, y, w, h = rect
+    if side in ("n", "s"):
+        return 0.0 if w <= 0 else (pt.x() - x) / w
+    return 0.0 if h <= 0 else (pt.y() - y) / h
 
 
 def _line_rect_clip(p1: QPointF, p2: QPointF, rect: QRectF) -> tuple[QPointF, QPointF]:
@@ -306,6 +317,9 @@ ORTHO_MID_CLEARANCE = 10.0
 ORTHO_MAX_CANDIDATES = 16
 ORTHO_MAX_OBSTACLES = 24
 
+# How many columns a detour tries, nearest the straight line first (#284).
+ORTHO_MAX_DETOURS = 16
+
 _NORMALS = {"n": (0.0, -1.0), "s": (0.0, 1.0), "e": (1.0, 0.0), "w": (-1.0, 0.0)}
 
 
@@ -337,8 +351,11 @@ def _relevant(start: QPointF, end: QPointF,
     """
     if not obstacles:
         return []
+    # Two aligned anchors span a box of no width, and Qt finds such a box
+    # intersecting nothing — so it is widened by half a pixel each way.
     span = QRectF(QPointF(min(start.x(), end.x()), min(start.y(), end.y())),
-                  QPointF(max(start.x(), end.x()), max(start.y(), end.y())))
+                  QPointF(max(start.x(), end.x()), max(start.y(), end.y()))
+                  ).adjusted(-0.5, -0.5, 0.5, 0.5)
     return [r for r in obstacles if r.intersects(span)]
 
 
@@ -368,17 +385,22 @@ def _crossed(points: list[QPointF], obstacles: list[QRectF],
 
 
 def _best_mid(start: QPointF, end: QPointF,
-              horizontal: bool, obstacles: list[QRectF]) -> float:
+              horizontal: bool, obstacles: list[QRectF],
+              default: float | None = None) -> float:
     """Where to put a Z-bend's mid-line so it crosses as few boxes as possible.
 
     Every candidate lies between the two anchors, so the route can slide but
     never detour outside their bounding box — that confinement is what keeps
     this from becoming a router (see #142). When nothing is clear the middle of
     the gap wins, so a hard case stays predictable rather than contorted.
+
+    ``default`` replaces the middle of the gap as the line to keep when it is
+    clear: the turn line a sibling pass gave this arrow (``turn_lines``).
     """
     lo = start.x() if horizontal else start.y()
     hi = end.x() if horizontal else end.y()
-    default = (lo + hi) / 2
+    if default is None:
+        default = (lo + hi) / 2
     if not obstacles:
         return default
 
@@ -428,10 +450,97 @@ def _best_mid(start: QPointF, end: QPointF,
     return best
 
 
+def _detour(start: QPointF, end: QPointF, horizontal: bool,
+            obstacles: list[QRectF]) -> list[QPointF] | None:
+    """A stair around the boxes between two facing ends, or None (#284).
+
+    The route leaves its start, turns in the gap before the first box in its
+    way, runs along a free column beside the boxes, turns in the gap after
+    the last one and enters its end: five runs where a Z has three. A
+    layered layout puts the turns in the gaps between layers and the column
+    between two boxes of the layer it skips, the way one sketches it by hand.
+
+    Only boxes between the two ends along the way they face can be in the
+    way, so only those are looked at. The columns tried are those just clear
+    of such a box's edges, nearest the straight line first; the first column
+    whose route touches no box wins. None when there is none, and the caller
+    keeps its Z, so a hard case stays as predictable as it was.
+    """
+    def main(p: QPointF) -> float:
+        return p.x() if horizontal else p.y()
+
+    def cross(p: QPointF) -> float:
+        return p.y() if horizontal else p.x()
+
+    def at(m: float, c: float) -> QPointF:
+        return QPointF(m, c) if horizontal else QPointF(c, m)
+
+    def extent(r: QRectF, along: bool) -> tuple[float, float]:
+        if along == horizontal:
+            return r.left(), r.right()
+        return r.top(), r.bottom()
+
+    s0, e0 = main(start), main(end)
+    sc, ec = cross(start), cross(end)
+    d = 1.0 if e0 > s0 else -1.0
+    lo, hi = min(s0, e0), max(s0, e0)
+    band = [r for r in obstacles
+            if extent(r, True)[0] < hi and extent(r, True)[1] > lo]
+    if not band:
+        return None
+    default = (sc + ec) / 2
+
+    def cross_gap(r: QRectF) -> float:
+        near, far = extent(r, False)
+        return max(near - default, default - far, 0.0)
+
+    if len(band) > ORTHO_MAX_OBSTACLES:
+        band = heapq.nsmallest(ORTHO_MAX_OBSTACLES, band, key=cross_gap)
+
+    def entry(r: QRectF) -> float:
+        """Where the route meets *r* going from start to end."""
+        a, b = extent(r, True)
+        return a if d > 0 else b
+
+    def exit_(r: QRectF) -> float:
+        a, b = extent(r, True)
+        return b if d > 0 else a
+
+    def spanning(c0: float, c1: float) -> list[QRectF]:
+        """The band's boxes a run across from *c0* to *c1* could touch."""
+        a, b = min(c0, c1), max(c0, c1)
+        return [r for r in band
+                if extent(r, False)[0] <= b and extent(r, False)[1] >= a]
+
+    columns: list[float] = []
+    for r in band:
+        near, far = extent(r, False)
+        columns += [near - ORTHO_MID_CLEARANCE, far + ORTHO_MID_CLEARANCE]
+    columns.sort(key=lambda c: (abs(c - default), c))
+
+    for c in columns[:ORTHO_MAX_DETOURS]:
+        first = spanning(sc, c) or band
+        last = spanning(c, ec) or band
+        # Turn half way into the gap between an end and the nearest box
+        # the turn has to clear.
+        near = min((entry(r) for r in first), key=lambda m: d * m)
+        far = max((exit_(r) for r in last), key=lambda m: d * m)
+        m1, m2 = (s0 + near) / 2, (far + e0) / 2
+        if not (d * (m1 - s0) > 0.01 and d * (e0 - m2) > 0.01
+                and d * (m2 - m1) >= 0):
+            continue
+        pts = _tidy([start, at(m1, sc), at(m1, c), at(m2, c),
+                     at(m2, ec), end])
+        if _crossed(pts, band, 1) == 0:
+            return pts
+    return None
+
+
 def ortho_points(start: QPointF, start_side: str,
                  end: QPointF, end_side: str,
                  obstacles: list[QRectF] | None = None,
-                 ends: tuple[QRectF, QRectF] | None = None) -> list[QPointF]:
+                 ends: tuple[QRectF, QRectF] | None = None,
+                 mid: float | None = None) -> list[QPointF]:
     """Corner points of a right-angle route between two side anchors.
 
     Two parallel exits give a Z (three segments, turning at a mid-line in the
@@ -441,32 +550,121 @@ def ortho_points(start: QPointF, start_side: str,
 
     ``obstacles`` are rects the mid-line should avoid; the caller excludes the
     connector's own endpoints. Only the Z case has a free parameter to spend, so
-    an L is unaffected.
+    an L is unaffected. A Z whose ends face each other and that no mid-line
+    clears steps around the boxes in its way instead (``_detour``, #284).
 
     ``ends`` — the rects of the two endpoints — marks a connector with pinned
     sides (#209). Its route must leave and enter along those sides, so where
     the plain stair would run back across its own box it is replaced by one
     that steps out first.
+
+    ``mid`` is where a Z turns when that line is clear, in place of the middle
+    of the gap: arrows leaving one side of a box each get their own (#306).
     """
     horiz_start = start_side in ("e", "w")
     horiz_end = end_side in ("e", "w")
 
-    if horiz_start and horiz_end:
-        mid = _best_mid(start, end, True, _relevant(start, end, obstacles))
-        pts = [start, QPointF(mid, start.y()), QPointF(mid, end.y()), end]
-    elif not horiz_start and not horiz_end:
-        mid = _best_mid(start, end, False, _relevant(start, end, obstacles))
-        pts = [start, QPointF(start.x(), mid), QPointF(end.x(), mid), end]
+    if horiz_start == horiz_end:
+        near = _relevant(start, end, obstacles)
+        mid = _best_mid(start, end, horiz_start, near, mid)
+        pts = _z_points(start, end, mid, horiz_start)
+        if (near and _crossed(pts, near, 1)
+                and _along(start, end, start_side) > 0.01
+                and _along(end, start, end_side) > 0.01):
+            pts = _detour(start, end, horiz_start, obstacles) or pts
     elif horiz_start:
         pts = [start, QPointF(end.x(), start.y()), end]
     else:
         pts = [start, QPointF(start.x(), end.y()), end]
 
     pts = _tidy(pts)
-    if ends is None or _keeps_to_sides(pts, start_side, end_side):
+    if ends is None:
         return pts
-    return _pinned_stair(start, start_side, end, end_side,
-                         [*ends, *(obstacles or [])])
+    blockers = [*ends, *(obstacles or [])]
+    if not _keeps_to_sides(pts, start_side, end_side):
+        pts = _pinned_stair(start, start_side, end, end_side, blockers)
+    if _crossed(pts, blockers, 1):
+        pts = _route_around(start, start_side, end, end_side, blockers) or pts
+    return pts
+
+
+# How far apart the turn lines of two right-angle arrows leaving one side of a
+# box sit (#306): wide enough to read as two runs, and two eased corners of
+# ORTHO_RADIUS still clear each other.
+ORTHO_TURN_SEP = 14.0
+
+
+def _isotonic(values: list[float]) -> list[float]:
+    """The non-decreasing sequence nearest ``values`` in least squares
+    (pool adjacent violators)."""
+    blocks: list[list[float]] = []            # [sum, count]
+    for v in values:
+        blocks.append([v, 1.0])
+        while (len(blocks) > 1 and blocks[-2][0] / blocks[-2][1]
+               > blocks[-1][0] / blocks[-1][1]):
+            s, c = blocks.pop()
+            blocks[-1][0] += s
+            blocks[-1][1] += c
+    out: list[float] = []
+    for s, c in blocks:
+        out += [s / c] * int(c)
+    return out
+
+
+def turn_lines(routes: list[tuple[QPointF, str, QPointF, str]]
+               ) -> list[float | None]:
+    """Where each right-angle arrow leaving one side of one box turns (#306).
+
+    ``routes`` are ``(start, start_side, end, end_side)`` of the arrows that
+    leave the same side of the same box. Two Z-bends that turn the same way
+    from that side would turn at the same line and draw their runs on top of
+    each other until they split. Each gets its own line instead, nested so
+    they never cross: the arrow starting furthest out in the direction they
+    turn turns nearest the box, and the others turn one step further out
+    each. The lines stay as close as that allows to where each arrow would
+    turn on its own — the middle of its gap — and inside its gap.
+
+    Returns the turn line per route, or None for a route that keeps its own:
+    an L, a straight run, one whose end lies behind the side, or one with no
+    sibling turning its way.
+    """
+    out: list[float | None] = [None] * len(routes)
+    if len(routes) < 2:
+        return out
+    side = routes[0][1]
+    horizontal = side in ("e", "w")
+    sgn = 1.0 if side in ("e", "s") else -1.0
+
+    def main(p: QPointF) -> float:
+        return p.x() if horizontal else p.y()
+
+    def cross(p: QPointF) -> float:
+        return p.y() if horizontal else p.x()
+
+    ways: dict[float, list[tuple[int, float]]] = {}
+    for i, (start, _s_side, end, e_side) in enumerate(routes):
+        if (e_side in ("e", "w")) != horizontal:
+            continue                          # an L turns at its end
+        turn = cross(end) - cross(start)
+        gap = (main(end) - main(start)) * sgn
+        if abs(turn) < 0.5 or gap <= 0.0:
+            continue
+        ways.setdefault(1.0 if turn > 0 else -1.0, []).append((i, gap))
+
+    for way, members in ways.items():
+        if len(members) < 2:
+            continue
+        # Furthest out the way they turn first: that one turns nearest the box.
+        members.sort(key=lambda m: (-way * cross(routes[m[0]][0]), m[0]))
+        sep = min(ORTHO_TURN_SEP,
+                  min(gap for _i, gap in members) / (len(members) + 1))
+        depths = _isotonic([gap / 2 - k * sep
+                            for k, (_i, gap) in enumerate(members)])
+        for k, ((i, gap), depth) in enumerate(zip(members, depths)):
+            margin = min(ORTHO_RADIUS, gap / 2)
+            depth = max(margin, min(gap - margin, depth + k * sep))
+            out[i] = main(routes[i][0]) + sgn * depth
+    return out
 
 
 def _tidy(pts: list[QPointF]) -> list[QPointF]:
@@ -572,6 +770,169 @@ def _pinned_stair(start: QPointF, start_side: str,
     return best
 
 
+# The shortest-way search for a pinned stair that crosses a box (#306). A turn
+# costs as much as this much more length, so of two ways around, the one with
+# fewer turns wins unless it is much longer.
+ORTHO_TURN_COST = 40.0
+# How far past the outermost box in its reach the search may run.
+ORTHO_AROUND_MARGIN = 30.0
+# How far beyond that the boxes still count, as the far side of a gap.
+ORTHO_AROUND_RING = 120.0
+# What a unit of run along a stub's tip line costs, against 1 for a gap's middle.
+ORTHO_HUG_COST = 1.5
+# How many boxes the search looks at, nearest the two ends first: the cost of
+# one search grows with the square of this.
+ORTHO_AROUND_MAX = 48
+
+# The four ways a run can head, and the one that reverses each.
+_HEADINGS = ((1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0))
+_REVERSE = (1, 0, 3, 2)
+
+
+def _route_around(start: QPointF, start_side: str,
+                  end: QPointF, end_side: str,
+                  blockers: list[QRectF]) -> list[QPointF] | None:
+    """The shortest right-angle way between two pinned ends that touches no
+    box, or None (#306).
+
+    Each end steps out of its side, then the route runs along lines in the
+    middle of the gaps between the boxes in reach, and turns only where a
+    turn pays its ``ORTHO_TURN_COST``. Every line where a run can be free is
+    in that set: whether a line is clear only changes at a box edge, so the
+    middle of each gap stands for the whole gap. Searching only the boxes in
+    reach keeps the route near its ends: it goes round the outside of
+    everything only when no way through is shorter.
+    """
+    sn, en = _NORMALS[start_side], _NORMALS[end_side]
+    p1 = QPointF(start.x() + sn[0] * PINNED_STUB,
+                 start.y() + sn[1] * PINNED_STUB)
+    p2 = QPointF(end.x() + en[0] * PINNED_STUB, end.y() + en[1] * PINNED_STUB)
+
+    # The boxes in reach: those touching the box spanned by the two ends,
+    # grown until it holds every box it touches, so a way around one box is
+    # checked against its neighbours too — and then the boxes one ring
+    # further out, so a run just outside them keeps to the middle of the gap
+    # to whatever lies beyond.
+    m = ORTHO_AROUND_MARGIN
+    reach = QRectF(p1, p2).normalized().adjusted(-m, -m, m, m)
+    near: list[QRectF] = []
+    for _ in range(4):
+        found = [r for r in blockers if r.intersects(reach)]
+        if len(found) == len(near):
+            break
+        near = found
+        for r in near:
+            reach = reach.united(r.adjusted(-m, -m, m, m))
+    ring = reach.adjusted(-ORTHO_AROUND_RING, -ORTHO_AROUND_RING,
+                          ORTHO_AROUND_RING, ORTHO_AROUND_RING)
+    near = [r for r in blockers if r.intersects(ring)]
+    if len(near) > ORTHO_AROUND_MAX:
+        mid = (p1 + p2) / 2
+
+        def distance(r: QRectF) -> tuple:
+            dx = max(r.left() - mid.x(), mid.x() - r.right(), 0.0)
+            dy = max(r.top() - mid.y(), mid.y() - r.bottom(), 0.0)
+            return (dx + dy, r.left(), r.top())
+
+        near = sorted(near, key=distance)[:ORTHO_AROUND_MAX]
+
+    def gaps(edges: list[float]) -> set[float]:
+        """The middle of every gap between two box edges, and a line just
+        outside the outermost ones."""
+        edges = sorted(set(edges))
+        if not edges:
+            return set()
+        out = {edges[0] - m, edges[-1] + m}
+        out.update((a + b) / 2 for a, b in zip(edges, edges[1:]))
+        return out
+
+    gap_xs = gaps([v for r in near for v in (r.left(), r.right())])
+    gap_ys = gaps([v for r in near for v in (r.top(), r.bottom())])
+    xs = sorted(gap_xs | {p1.x(), p2.x()})
+    ys = sorted(gap_ys | {p1.y(), p2.y()})
+    # The line through a stub's tip, across the stub, is there so the route
+    # can start and end; running along it hugs the box it steps out of, so
+    # it costs more than a gap's middle and is taken only when it saves.
+    hug_xs = {p.x() for p, side in ((p1, start_side), (p2, end_side))
+              if side in ("e", "w")} - gap_xs
+    hug_ys = {p.y() for p, side in ((p1, start_side), (p2, end_side))
+              if side in ("n", "s")} - gap_ys
+
+    # Which runs between two neighbouring lines a box blocks: a run along
+    # ``ys[i]`` from ``xs[j]`` to ``xs[j + 1]`` is ``h_open[i][j]``.
+    def open_runs(rows: list[float], cols: list[float],
+                  across: bool) -> list[list[bool]]:
+        free = [[True] * (len(cols) - 1) for _ in rows]
+        for r in near:
+            r_lo, r_hi = ((r.left(), r.right()) if across
+                          else (r.top(), r.bottom()))
+            c_lo, c_hi = ((r.top(), r.bottom()) if across
+                          else (r.left(), r.right()))
+            first = max(bisect.bisect_right(cols, c_lo) - 1, 0)
+            last = bisect.bisect_left(cols, c_hi)
+            for i, row in enumerate(rows):
+                if r_lo <= row <= r_hi:
+                    for j in range(first, min(last, len(cols) - 1)):
+                        free[i][j] = False
+        return free
+
+    h_open = open_runs(ys, xs, False)       # rows are y, runs along x
+    v_open = open_runs(xs, ys, True)        # columns are x, runs along y
+
+    def heading_of(normal: tuple[float, float]) -> int:
+        return _HEADINGS.index(normal)
+
+    goal = (xs.index(p2.x()), ys.index(p2.y()))
+    last_heading = heading_of((-en[0], -en[1]))
+    first = (xs.index(p1.x()), ys.index(p1.y()), heading_of(sn))
+    best = {first: 0.0}
+    came: dict[tuple, tuple | None] = {first: None}
+    heap = [(0.0, *first)]
+    found = None
+    while heap:
+        cost, j, i, h = heapq.heappop(heap)
+        if cost > best.get((j, i, h), math.inf):
+            continue
+        if (j, i) == goal and h != _REVERSE[last_heading]:
+            found = (j, i, h)
+            break
+        for nh, (dx, dy) in enumerate(_HEADINGS):
+            if nh == _REVERSE[h]:
+                continue
+            nj, ni = j + int(dx), i + int(dy)
+            if not (0 <= nj < len(xs) and 0 <= ni < len(ys)):
+                continue
+            if dx and not h_open[i][min(j, nj)]:
+                continue
+            if dy and not v_open[j][min(i, ni)]:
+                continue
+            step = abs(xs[nj] - xs[j]) + abs(ys[ni] - ys[i])
+            if (ys[i] in hug_ys) if dx else (xs[j] in hug_xs):
+                step *= ORTHO_HUG_COST
+            turn = ORTHO_TURN_COST if nh != h else 0.0
+            if (nj, ni) == goal and nh != last_heading:
+                turn += ORTHO_TURN_COST       # one more turn into the end
+            new = cost + step + turn
+            key = (nj, ni, nh)
+            if new < best.get(key, math.inf):
+                best[key] = new
+                came[key] = (j, i, h)
+                heapq.heappush(heap, (new, nj, ni, nh))
+    if found is None:
+        return None
+
+    corners: list[QPointF] = []
+    state: tuple | None = found
+    while state is not None:
+        corners.append(QPointF(xs[state[0]], ys[state[1]]))
+        state = came[state]
+    pts = _tidy([start, *reversed(corners), end])
+    if _crossed(pts, blockers, 1) or not _keeps_to_sides(pts, start_side,
+                                                         end_side):
+        return None
+    return pts
+
+
 def pinned_direct_points(start: QPointF, start_side: str,
                          end: QPointF, end_side: str) -> list[QPointF]:
     """The run of a direct connector between two pinned anchors (#209).
@@ -640,23 +1001,282 @@ def spline_path(start: QPointF, start_side: str,
 def routed_path(routing: str, start: QPointF, start_side: str,
                 end: QPointF, end_side: str,
                 obstacles: list[QRectF] | None = None,
-                ends: tuple[QRectF, QRectF] | None = None) -> QPainterPath:
+                ends: tuple[QRectF, QRectF] | None = None,
+                mid: float | None = None) -> QPainterPath:
     """The connector body for a routing, as a path.
 
     ``obstacles`` lets a stair slide its mid-line clear of intervening boxes;
     the other routings have no free parameter to spend and ignore it. ``ends``
     marks a connector with pinned sides (see ``ortho_points``); a spline already
-    leaves along each side's normal and needs nothing more.
+    leaves along each side's normal and needs nothing more. ``mid`` is a
+    stair's turn line from ``turn_lines``.
     """
     if routing == "spline":
         return spline_path(start, start_side, end, end_side)
     if routing == "ortho":
         return _rounded_polyline(
-            ortho_points(start, start_side, end, end_side, obstacles, ends),
+            ortho_points(start, start_side, end, end_side, obstacles, ends,
+                         mid),
             ORTHO_RADIUS)
     path = QPainterPath(start)
     path.lineTo(end)
     return path
+
+
+def label_anchor(start: QPointF, end: QPointF,
+                 path: QPainterPath | None = None) -> QPointF:
+    """Where an arrow's label is centred, before its ``@dx,dy`` offset.
+
+    The one place this is decided: the canvas draws the label here, and the
+    inline label editor and the arrow-mode badge open here, so editing a
+    label never starts away from it. A shaped connector (routed, bowed,
+    pinned) puts it on the path (``label_point``); a straight one at the
+    middle between its two ends."""
+    if path is not None:
+        return label_point(path)
+    return QPointF((start.x() + end.x()) / 2, (start.y() + end.y()) / 2)
+
+
+def label_point(path: QPainterPath) -> QPointF:
+    """Where a connector's label sits: the middle of its longest straight run.
+
+    The middle of the whole path can fall on a short jog of a stair, where
+    the label hides the turn and reads as belonging to neither run (#260). A
+    tie goes to the run nearest the path's middle; a path with no straight
+    run (a spline, a bow) keeps the label at its middle."""
+    middle = path.pointAtPercent(0.5)
+    best, best_len, best_off = None, 0.0, 0.0
+    prev = None
+    for i in range(path.elementCount()):
+        el = path.elementAt(i)
+        pt = QPointF(el.x, el.y)
+        if el.type == QPainterPath.ElementType.LineToElement and prev is not None:
+            length = math.hypot(pt.x() - prev.x(), pt.y() - prev.y())
+            mid = QPointF((prev.x() + pt.x()) / 2, (prev.y() + pt.y()) / 2)
+            off = math.hypot(mid.x() - middle.x(), mid.y() - middle.y())
+            if (length > best_len + 0.5
+                    or (abs(length - best_len) <= 0.5 and off < best_off)):
+                best, best_len, best_off = mid, length, off
+        if el.type in (QPainterPath.ElementType.MoveToElement,
+                       QPainterPath.ElementType.LineToElement):
+            prev = pt
+        elif el.type == QPainterPath.ElementType.CurveToElement:
+            prev = None               # control points follow; resynced below
+        else:
+            prev = pt                 # last data point of a curve is its end
+    return best if best is not None else middle
+
+
+# ── Label placement in free space (#303) ───────────────────────────
+#
+# A label centred on its anchor can land on a box the connector passes, on its
+# own end box when the connector is short, or on another connector's label
+# where two cross or fan out. ``place_label`` keeps the anchor when the label
+# is clear there, and otherwise moves it to the nearest free spot along its
+# connector: on the line where there is room, beside it where there is not.
+
+# The plate drawn behind a label reaches this far past its text on each side.
+# The one definition: ``LabelItem`` paints its plate with it, the line is
+# clipped around it, and placement and ``grafli diagnose`` size plates by it.
+LABEL_PAD = 4.0
+# How finely a label slides along its connector looking for room.
+LABEL_SLIDE_STEP = 6.0
+# The space between the line and a label set beside it.
+LABEL_BESIDE_GAP = 3.0
+
+
+def label_plate(centre: QPointF, w: float, h: float) -> QRectF:
+    """The plate of a ``w`` x ``h`` label centred on ``centre``."""
+    return QRectF(centre.x() - w / 2 - LABEL_PAD, centre.y() - h / 2 - LABEL_PAD,
+                  w + 2 * LABEL_PAD, h + 2 * LABEL_PAD)
+
+
+def place_label(path: QPainterPath, w: float, h: float, anchor: QPointF,
+                blocked: list[QRectF]) -> QPointF:
+    """Where a ``w`` x ``h`` label riding ``path`` is centred: the free spot
+    nearest ``anchor``.
+
+    Free means its plate touches none of the ``blocked`` rects — the boxes it
+    must stay off and the plates of the labels already placed. The anchor
+    itself wins when it is free, so a board with room keeps every label where
+    it was. Otherwise the label slides along the path, the free spot nearest
+    the anchor winning. Only a path with no room on it sets the label beside
+    the line: a label on its line interrupts it and reads as that line's,
+    one beside it can sit as near another line where two meet. With no free
+    spot anywhere the anchor stays: the label still names its connector, and
+    ``grafli diagnose`` reports it.
+    """
+    def free(centre: QPointF) -> bool:
+        plate = label_plate(centre, w, h)
+        return not any(plate.intersects(r) for r in blocked)
+
+    if free(anchor):
+        return anchor
+    length = path.length()
+    if length < 1:
+        return anchor
+    reach = max(w, h) + 2 * (LABEL_PAD + LABEL_BESIDE_GAP)
+    zone = path.boundingRect().adjusted(-reach, -reach, reach, reach)
+    blocked = [r for r in blocked if r.intersects(zone)]
+
+    steps = max(1, int(length // LABEL_SLIDE_STEP))
+    samples = []
+    for i in range(steps + 1):
+        pct = path.percentAtLength(length * i / steps)
+        samples.append((length * i / steps, pct, path.pointAtPercent(pct)))
+    here = min(samples, key=lambda s: math.hypot(s[2].x() - anchor.x(),
+                                                 s[2].y() - anchor.y()))[0]
+
+    candidates = []
+    for at, pct, pt in samples:
+        slide = abs(at - here)
+        candidates.append((0, slide, pt))
+        # Qt's angle runs counter-clockwise from 3 o'clock on a y-down canvas;
+        # the normal below points up, or right on a vertical run, first.
+        rad = math.radians(path.angleAtPercent(pct))
+        nx, ny = math.sin(rad), math.cos(rad)
+        if ny > 1e-9 or (abs(ny) <= 1e-9 and nx < 0):
+            nx, ny = -nx, -ny
+        # The plate's half-extent across the line, so all of it clears it.
+        off = abs(nx) * w / 2 + abs(ny) * h / 2 + LABEL_PAD + LABEL_BESIDE_GAP
+        for side, sign in ((1, 1.0), (2, -1.0)):
+            candidates.append((side, slide,
+                               QPointF(pt.x() + sign * nx * off,
+                                       pt.y() + sign * ny * off)))
+    # On the line before beside it; nearest first; above (or right) first.
+    candidates.sort(key=lambda c: (c[0] > 0, c[1], c[0]))
+    for _side, _slide, centre in candidates:
+        if free(centre):
+            return centre
+    return anchor
+
+
+def label_ground(board, from_id: str, to_id: str) -> set[str]:
+    """The containers a connector's label may sit on: every box enclosing
+    either end. Its label rides inside them like the connector does; any
+    other box, note or image — its own two ends included — it stays off."""
+    out: set[str] = set()
+    for elem_id in (from_id, to_id):
+        elem = (board.box_by_id(elem_id) or board.note_by_id(elem_id)
+                or next((im for im in board.images if im.id == elem_id), None))
+        parent = getattr(elem, "parent", "") if elem is not None else ""
+        while parent and parent not in out:
+            out.add(parent)
+            box = board.box_by_id(parent)
+            parent = box.parent if box is not None else ""
+    return out
+
+
+def _ray_circle(p: QPointF, d: tuple[float, float],
+                c: tuple[float, float], r: float) -> float | None:
+    """The first ``s >= 0`` at which ``p + s * d`` (``d`` a unit vector)
+    is on or inside the circle at ``c`` with radius ``r``."""
+    fx, fy = p.x() - c[0], p.y() - c[1]
+    b = fx * d[0] + fy * d[1]
+    disc = b * b - (fx * fx + fy * fy - r * r)
+    if disc < 0:
+        return None
+    root = math.sqrt(disc)
+    if -b + root < 0:
+        return None                        # the circle lies behind the ray
+    return max(0.0, -b - root)
+
+
+def _ray_rect(p: QPointF, d: tuple[float, float],
+              x0: float, y0: float, x1: float, y1: float) -> float | None:
+    """The first ``s >= 0`` at which ``p + s * d`` is inside the rectangle."""
+    lo, hi = 0.0, math.inf
+    for o, v, a, b in ((p.x(), d[0], x0, x1), (p.y(), d[1], y0, y1)):
+        if abs(v) < 1e-12:
+            if not a - 1e-9 <= o <= b + 1e-9:
+                return None
+            continue
+        t0, t1 = (a - o) / v, (b - o) / v
+        lo, hi = max(lo, min(t0, t1)), min(hi, max(t0, t1))
+    return lo if lo <= hi + 1e-9 else None
+
+
+def onto_round_outline(rect: tuple, p: QPointF,
+                       inward: tuple[float, float]) -> QPointF:
+    """Where a connector end on ``rect``'s edge meets a ``!round`` box.
+
+    A round box is a circle when square and a pill otherwise: the rectangle
+    with corners of half its shorter side, which lies inside the rectangle
+    and touches it only along the straight parts. ``p`` sits on the
+    rectangle's edge; the connector reaching it is carried on along
+    ``inward`` (the way it travels into the box) until it meets that
+    outline. A point already on it, or a line that would miss it, keeps
+    ``p``.
+    """
+    x, y, w, h = rect
+    length = math.hypot(*inward)
+    if length < 1e-12 or w <= 0 or h <= 0:
+        return QPointF(p)
+    d = (inward[0] / length, inward[1] / length)
+    r = min(w, h) / 2
+    if w >= h:
+        ends = ((x + r, y + r), (x + w - r, y + r))
+        core = (x + r, y, x + w - r, y + h)
+    else:
+        ends = ((x + r, y + r), (x + r, y + h - r))
+        core = (x, y + r, x + w, y + h - r)
+    hits = [s for s in (*(_ray_circle(p, d, c, r) for c in ends),
+                        _ray_rect(p, d, *core)) if s is not None]
+    if not hits:
+        return QPointF(p)
+    s = min(hits)
+    return QPointF(p.x() + d[0] * s, p.y() + d[1] * s)
+
+
+def _path_tangent(path: QPainterPath, at_end: bool) -> tuple[float, float]:
+    """The direction ``path`` travels at its start, or at its end."""
+    n = path.elementCount()
+    order = range(n - 1, -1, -1) if at_end else range(n)
+    first = None
+    for i in order:
+        e = path.elementAt(i)
+        if first is None:
+            first = (e.x, e.y)
+        elif math.hypot(e.x - first[0], e.y - first[1]) > 1e-9:
+            if at_end:
+                return (first[0] - e.x, first[1] - e.y)
+            return (e.x - first[0], e.y - first[1])
+    return (0.0, 0.0)
+
+
+def round_ends(start: QPointF, end: QPointF, path: QPainterPath | None,
+               from_rect: tuple | None, to_rect: tuple | None,
+               ) -> tuple[QPointF, QPointF, QPainterPath | None]:
+    """Carry a connector's ends onto the outline of a ``!round`` box.
+
+    ``from_rect`` / ``to_rect`` name the round box at that end, or None for
+    an end that stays where it is. A straight connector just has its ends
+    moved along its own line; a shaped one keeps its path and gains a short
+    run along its own direction at each moved end, so the arrowhead still
+    points the way the path travels.
+    """
+    if path is None:
+        dx, dy = end.x() - start.x(), end.y() - start.y()
+        if from_rect is not None:
+            start = onto_round_outline(from_rect, start, (-dx, -dy))
+        if to_rect is not None:
+            end = onto_round_outline(to_rect, end, (dx, dy))
+        return start, end, None
+    new_start, new_end = QPointF(start), QPointF(end)
+    if from_rect is not None:
+        tx, ty = _path_tangent(path, False)
+        new_start = onto_round_outline(from_rect, start, (-tx, -ty))
+    if to_rect is not None:
+        new_end = onto_round_outline(to_rect, end, _path_tangent(path, True))
+    if new_start == start and new_end == end:
+        return start, end, path
+    out = QPainterPath(new_start)
+    if new_start != start:
+        out.lineTo(start)
+    out.connectPath(path)
+    if new_end != end:
+        out.lineTo(new_end)
+    return new_start, new_end, out
 
 
 def path_end_angle(path: QPainterPath, at_end: bool = True) -> float:
@@ -738,6 +1358,10 @@ def split_path_at_rect(path: QPainterPath, rect: QRectF) -> list[QPainterPath]:
                     runs.append(current)
                 current = []
                 continue
+            if current and head[0] != a:  # re-emerging from the label
+                if len(current) > 1:
+                    runs.append(current)
+                current = []
             if not current:
                 current.append(head[0])
             current.append(head[1])
@@ -783,7 +1407,7 @@ ANCHOR_MARGIN = 0.06
 
 
 def relax_positions(desired: list[float], min_sep: float,
-                    order_key: list[float] | None = None) -> list[float]:
+                    order_key: list | None = None) -> list[float]:
     """Push crowded anchors apart along a side, preserving their order.
 
     Order is what keeps connectors from swapping places and crossing each

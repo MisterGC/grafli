@@ -4,6 +4,7 @@ named layers — full-width bands, one under the other, each titled."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -47,8 +48,18 @@ def _write(tmp_path: Path) -> Path:
     return path
 
 
-def test_the_example_passes_diagnose_strict(tmp_path: Path):
-    assert _cmd_diagnose([str(_write(tmp_path)), "--strict"]) == 0
+def test_the_example_passes_diagnose_strict(tmp_path: Path, capsys):
+    # Its layers' parts are related by arrows, so diagnose no longer reads
+    # the board as a list (`unrelated-board`, #259; #285).
+    path = _write(tmp_path)
+    capsys.readouterr()
+    assert _cmd_diagnose([str(path), "--strict"]) == 0
+    capsys.readouterr()
+    _cmd_diagnose([str(path), "--strict", "--json"])
+    findings = json.loads(capsys.readouterr().out)
+    codes = {d["code"] for d in findings}
+    assert "unrelated-board" not in codes
+    assert "unrelated-children" not in codes
 
 
 def test_zoomed_out_the_example_is_a_stack_of_named_layers(tmp_path: Path):

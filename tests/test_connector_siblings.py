@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import math
 import os
+import re
 
+import pytest
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtWidgets import QApplication, QGraphicsPolygonItem
 
@@ -299,6 +301,257 @@ def test_a_routed_connector_keeps_its_route():
                           '@ arrow a -> b "two" !spline\n')
     one, two = _points(view, "one"), _points(view, "two")
     assert one and two and one != two
+
+
+# ── Fans in the app and in `grafli render` (#140) ──────────────────
+#
+# Two or three distinct arrows between one pair, alone and beside a merged
+# opposite pair. Each entry lists the drawn connectors in file order as
+# (the connector's own label, the text its label item shows): a merged pair
+# is one connector carrying both captions.
+
+_FANS = {
+    "two": ('@ arrow a -> b "reads"\n@ arrow a -> b "writes"\n',
+            [("reads", "reads"), ("writes", "writes")]),
+    "three": ('@ arrow a -> b "sync"\n@ arrow a -> b "async"\n'
+              '@ arrow a -> b "batch"\n',
+              [("sync", "sync"), ("async", "async"), ("batch", "batch")]),
+    "merged-and-one": ('@ arrow a -> b "fwd"\n@ arrow b -> a "back"\n'
+                       '@ arrow a -> b "third"\n',
+                       [("fwd", "fwd\nback"), ("third", "third")]),
+    "merged-and-reverse": ('@ arrow a -> b "fwd"\n@ arrow b -> a "back"\n'
+                           '@ arrow b -> a "again"\n',
+                           [("fwd", "fwd\nback"), ("again", "again")]),
+    "merged-and-two": ('@ arrow a -> b "fwd"\n@ arrow b -> a "back"\n'
+                       '@ arrow a -> b "first"\n@ arrow a -> b "second"\n',
+                       [("fwd", "fwd\nback"), ("first", "first"),
+                        ("second", "second")]),
+}
+
+
+def _pieces(view, label: str) -> list[list[tuple[float, float]]]:
+    """Each drawn piece of the connector carrying ``label``, kept apart —
+    a label cuts its connector in two, and the gap is not part of the line."""
+    out = []
+    for gfx in view._arrow_items:
+        arrow = gfx.data(0)
+        if isinstance(gfx, ArrowLineItem) and arrow is not None \
+                and arrow.label == label:
+            out.extend([(p.x(), p.y()) for p in poly]
+                       for poly in gfx.path().toSubpathPolygons())
+    return out
+
+
+def _dense(view, label: str, step: float = 4.0) -> list[tuple[float, float]]:
+    """The connector carrying ``label`` sampled every ``step`` along it."""
+    out = []
+    for pts in _pieces(view, label):
+        out.extend(pts[:1])
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            n = max(1, int(math.hypot(x1 - x0, y1 - y0) / step))
+            out.extend((x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n)
+                       for i in range(1, n + 1))
+    return out
+
+
+def _distance(pt: tuple[float, float], line) -> float:
+    return min(math.hypot(pt[0] - x, pt[1] - y) for x, y in line)
+
+
+@pytest.mark.parametrize("name", sorted(_FANS))
+def test_a_fan_keeps_every_connector_apart(name):
+    src, members = _FANS[name]
+    view = _view(_BOARD + src)
+    lines = [_dense(view, own) for own, _text in members]
+    for i, one in enumerate(lines):
+        for two in lines[i + 1:]:
+            assert min(_distance(p, two) for p in one) > 8
+
+
+@pytest.mark.parametrize("name", sorted(_FANS))
+def test_every_label_sits_on_its_own_connector(name):
+    """Nearer its own line than any sibling's, so it reads as that one's."""
+    src, members = _FANS[name]
+    view = _view(_BOARD + src)
+    lines = {own: _dense(view, own) for own, _text in members}
+    for own, text in members:
+        c = _label_rect(view, text).center()
+        mine = _distance((c.x(), c.y()), lines[own])
+        others = [_distance((c.x(), c.y()), line)
+                  for label, line in lines.items() if label != own]
+        assert mine < min(others), f"{text!r} sits nearer a sibling"
+
+
+@pytest.mark.parametrize("name", sorted(_FANS))
+def test_no_connector_runs_through_a_label(name):
+    """A bowed line breaks round its label, the stacked two-line label of a
+    merged pair included."""
+    src, members = _FANS[name]
+    view = _view(_BOARD + src)
+    plates = [_label_rect(view, text).adjusted(-1, -1, 1, 1)
+              for _own, text in members]
+    for own, _text in members:
+        for x, y in _dense(view, own, step=1.0):
+            assert not any(r.contains(QPointF(x, y)) for r in plates), \
+                f"{own!r} runs through a label at {x:.0f},{y:.0f}"
+
+
+@pytest.mark.parametrize("name", sorted(_FANS))
+def test_the_fan_runs_top_down_in_file_order(name):
+    """``a`` is left of ``b``, so the first connector written bows up."""
+    src, members = _FANS[name]
+    view = _view(_BOARD + src)
+    ys = [_label_rect(view, text).center().y() for _own, text in members]
+    assert ys == sorted(ys)
+
+
+def test_a_third_arrow_against_a_merged_pair_is_not_merged_into_it():
+    """The forward arrow merges with the first reverse one only; the second
+    reverse arrow keeps its own line instead of pairing with it again."""
+    view = _view(_BOARD + _FANS["merged-and-reverse"][0])
+    texts = [g.text() for g in view._arrow_items if isinstance(g, LabelItem)]
+    assert sorted(texts) == ["again", "fwd\nback"]
+
+
+def _svg_labels(svg: str) -> dict[str, tuple[float, float]]:
+    """Each label line in a rendered SVG and the origin of its label."""
+    out = {}
+    for tx, ty, text in re.findall(
+            r'<g [^>]*transform="matrix\(1,0,0,1,([-\d.e]+),([-\d.e]+)\)"'
+            r'[^>]*>\s*<text [^>]*>([^<]*)</text>', svg):
+        out.setdefault(text, (float(tx), float(ty)))
+    return out
+
+
+def _svg_lines(svg: str) -> list[list[tuple[float, float]]]:
+    """Every open path in a rendered SVG — the connector lines; boxes, label
+    plates and arrowheads are closed."""
+    out = []
+    for d in re.findall(r'<path [^>]*\bd="([^"]*)"', svg):
+        if "Z" in d:
+            continue
+        nums = [float(v) for v in re.findall(r"-?[\d.]+(?:e-?\d+)?", d)]
+        out.append(list(zip(nums[::2], nums[1::2])))
+    return out
+
+
+def _canvas_lines(view) -> list[list[tuple[float, float]]]:
+    out = []
+    for gfx in view._arrow_items:
+        if isinstance(gfx, ArrowLineItem):
+            path = gfx.path()
+            out.append([(path.elementAt(i).x, path.elementAt(i).y)
+                        for i in range(path.elementCount())])
+    return out
+
+
+def _same_line(one, two) -> bool:
+    return len(one) == len(two) and all(
+        math.hypot(x0 - x1, y0 - y1) < 0.05
+        for (x0, y0), (x1, y1) in zip(one, two))
+
+
+def _render_svg(tmp_path, src: str) -> str:
+    from grafli.app import _cmd_render
+    board = tmp_path / "board.grafli"
+    board.write_text(src, encoding="utf-8")
+    out = tmp_path / "board.svg"
+    assert _cmd_render([str(board), str(out)]) == 0
+    return out.read_text(encoding="utf-8")
+
+
+def _svg_tips(svg: str) -> list[tuple[float, float]]:
+    """The tip of every arrowhead in a rendered SVG — its first point."""
+    return [tuple(float(v) for v in pts.split()[0].split(","))
+            for pts in re.findall(r'<polygon [^>]*\bpoints="([^"]*)"', svg)]
+
+
+# ── Self-connectors in the app and in `grafli render` (#139) ───────
+#
+# Each entry lists the loops on ``a`` by label and the sides the loop must
+# keep off: beside ``a -> b`` the loop leaves the east side to that arrow.
+
+_LOOPS = {
+    "lone": ('@ arrow a -> a "retry"\n', ["retry"], set()),
+    "beside-an-arrow": ('@ arrow a -> b\n@ arrow a -> a "retry"\n',
+                        ["retry"], {"e"}),
+    "two": ('@ arrow a -> a "x"\n@ arrow a -> a "y"\n', ["x", "y"], set()),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_LOOPS))
+def test_grafli_render_draws_the_loop_the_app_draws(tmp_path, name):
+    """Same loop on the same corner, its head and label in the same place."""
+    src, labels, kept_off = _LOOPS[name]
+    svg = _render_svg(tmp_path, _BOARD + src)
+    view = _view(_BOARD + src)
+
+    drawn, canvas = _svg_lines(svg), _canvas_lines(view)
+    assert len(drawn) == len(canvas)
+    assert all(any(_same_line(line, c) for c in canvas) for line in drawn)
+
+    anchors = view._connector_anchors(_render_list(view))
+    rect = (0.0, 0.0, 200.0, 100.0)
+    starts = [line[0] for line in drawn]
+    ends = [line[-1] for line in drawn]
+    tips = _svg_tips(svg)
+    svg_labels = _svg_labels(svg)
+    corners = set()
+    for idx, arrow in enumerate(view.board.arrows):
+        if arrow.from_id != arrow.to_id:
+            continue
+        start, s_side, end, e_side, _moved = anchors[idx]
+        assert (s_side, e_side) in arrows.SELF_LOOP_SIDES
+        assert not kept_off & {s_side, e_side}
+        corners.add((s_side, e_side))
+        # The rendered loop leaves and re-enters where the app's does.
+        out_at = min(starts, key=lambda p: math.hypot(p[0] - start.x(),
+                                                      p[1] - start.y()))
+        in_at = min(ends, key=lambda p: math.hypot(p[0] - end.x(),
+                                                   p[1] - end.y()))
+        assert math.hypot(out_at[0] - start.x(), out_at[1] - start.y()) < 0.05
+        assert math.hypot(in_at[0] - end.x(), in_at[1] - end.y()) < 0.05
+        assert arrows.side_of_point(rect, QPointF(*out_at)) == s_side
+        assert arrows.side_of_point(rect, QPointF(*in_at)) == e_side
+        # It is a loop hanging off the box, not a chord across the corner.
+        line = next(ln for ln in drawn if ln[0] == out_at)
+        assert len(line) > 2
+        assert any(not _A_RECT.adjusted(-10, -10, 10, 10).contains(QPointF(*p))
+                   for p in line)
+        # Its head is drawn at the end of the loop.
+        assert any(math.hypot(tx - end.x(), ty - end.y()) < 0.05
+                   for tx, ty in tips)
+        # Its label is where the app puts it.
+        tx, ty = svg_labels[arrow.label]
+        pos = _label_rect(view, arrow.label).topLeft()
+        assert abs(tx - pos.x()) < 0.05 and abs(ty - pos.y()) < 0.05
+    assert len(corners) == len(labels)
+
+
+@pytest.mark.parametrize("name", sorted(_FANS))
+def test_grafli_render_draws_the_fan_the_app_draws(tmp_path, name):
+    """Same lines, same labels at the same places, so the same order."""
+    from grafli.app import _cmd_render
+    src, members = _FANS[name]
+    board = tmp_path / "board.grafli"
+    board.write_text(_BOARD + src, encoding="utf-8")
+    out = tmp_path / "board.svg"
+    assert _cmd_render([str(board), str(out)]) == 0
+    svg = out.read_text(encoding="utf-8")
+
+    view = _view(_BOARD + src)
+    drawn, canvas = _svg_lines(svg), _canvas_lines(view)
+    assert len(drawn) == len(canvas)
+    assert all(any(_same_line(line, c) for c in canvas) for line in drawn)
+
+    labels = _svg_labels(svg)
+    origins = []
+    for _own, text in members:
+        tx, ty = labels[text.split("\n")[0]]
+        pos = _label_rect(view, text).topLeft()
+        assert abs(tx - pos.x()) < 0.05 and abs(ty - pos.y()) < 0.05
+        origins.append(ty)
+    assert origins == sorted(origins)
 
 
 # ── The connect gesture can author a loop ─────────────────────────

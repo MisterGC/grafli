@@ -1,0 +1,27 @@
+#!grafli v4
+# Who may write a board during a live session, and how does a write land?
+# source: grafli/serve (server.py, room.py, agent.py, mcp.py)
+# Genre exemplar: architecture (references/genres.md → Software diagrams).
+# Arrows are the claim's relations only: who sends an edit, where it lands.
+# Secondary relations (keys, presence, rendering, the state file) are each
+# box's doc line. Kinds come from the palette; render with --legend.
+
+@ note title 0,-90 "Every edit, a tab's or the agent's, lands through one merge" ~xlarge !flat !bold
+
+@ box editors "Who edits" 0,0 1520x200 ^topleft ~large !flat
+@ box tab "browser tab ×N" 100,70 340x100 %tab &doc:tab >editors
+@ box bridge "grafli agent" 590,70 340x100 %grafli &doc:bridge >editors
+@ box claude "Claude Code session" 1140,70 340x100 %outside &doc:claude >editors
+
+@ box serve "grafli serve" 0,330 1520x200 ^topleft ~large !flat
+@ box server "server: HTTP + WebSocket" 40,400 890x100 %grafli &doc:server >serve
+@ box room "room, one per board" 1140,400 340x100 %grafli !bold &doc:room >serve
+
+@ box disk "On disk" 0,660 1520x200 ^topleft ~large !flat
+@ box board "board.grafli + vault" 1140,730 340x100 %file &doc:board >disk
+
+@ arrow claude -> bridge "call: MCP, stdio"
+@ arrow tab -> server "call: N tabs → edit ops"
+@ arrow bridge -> server "call: whole-board write"
+@ arrow server -> room "call: edit + base"
+@ arrow room -> board "data: three-way merge" !thick

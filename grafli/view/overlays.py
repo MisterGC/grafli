@@ -432,10 +432,11 @@ class OverlaysMixin:
             ("Style", [
                 ("s", "Style mode — same keys for box / note / connector:"),
                 ("  e", "Appearance: plate/flat/card, label spot (left: a band zoomed out), label ink, outline"),
-                ("  c", "Color grid, then the map palette's %names (hjkl pick, live, ⏎ apply)"),
-                ("  i", "Symbol grid (⇥ fill/lead/badge, 0-9 number, f filled)"),
+                ("  c", "Color grid, then the map palette's %names and kinds (hjkl pick, live, ⏎ apply; 1-9 an entry at once)"),
+                ("  i", "Symbol grid (⇥ fill/lead/badge, 0-9 number, f filled), then the board's own icons: each .svg in its -res/icons/ is *name"),
                 ("  t", "Text grid: size × bold/italic (⇥ sans/mono/hand, o outline, s shadow)"),
                 ("  s", "Status label on a box (~status=): type it, then pick its colour"),
+                ("  r", "Round box: circle when square, pill otherwise (!round)"),
                 ("  j / k", "Nudge text size"),
                 ("  d", "Dimension mode (resize)"),
                 ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),

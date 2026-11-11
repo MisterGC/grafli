@@ -118,7 +118,7 @@ def test_a_collapsed_left_band_carries_its_children_colours():
     view._present_detail = "summary"
     view._refresh_lod()
     ui = view._box_items["ui"]
-    assert ui._lod_tile == ("UI layer", 4)
+    assert ui._lod_tile == ("UI layer", 1)
     colours = [QColor.fromRgba(rgba) for _, _, rgba in ui._lod_strip]
     secondary = QColor(theme.resolve_color("%secondary"))
     plum = QColor(theme.resolve_color("%plum"))
@@ -133,7 +133,7 @@ def test_a_collapsed_topleft_container_has_no_strip():
     view = _view(TOPLEFT)
     view._present_detail = "summary"
     view._refresh_lod()
-    assert view._box_items["ui"]._lod_tile == ("UI layer", 4)
+    assert view._box_items["ui"]._lod_tile == ("UI layer", 1)
     assert view._box_items["ui"]._lod_strip == ()
 
 

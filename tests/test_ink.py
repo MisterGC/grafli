@@ -91,9 +91,9 @@ def test_a_dark_ink_box_draws_its_icon_in_the_label_ink(monkeypatch):
     seen = []
     real = items.iconset.paint_icon
 
-    def spy(painter, name, rect, color):
+    def spy(painter, name, rect, color, *args):
         seen.append(QColor(color))
-        real(painter, name, rect, color)
+        real(painter, name, rect, color, *args)
 
     monkeypatch.setattr(items.iconset, "paint_icon", spy)
     view = _view('#!grafli v4\n'
@@ -111,6 +111,35 @@ def test_toggling_ink_on_a_box_switches_the_label_ink():
     assert item._label.defaultTextColor() != QColor(theme.INK)
     item.set_ink(False)
     assert item._label.defaultTextColor() == QColor(theme.INK)
+
+
+# A translucent coloured fill picks its ink from its own colour, as before
+# the container plate (#294); only that uncoloured plate reads as its blend
+# over the canvas.
+TRANSLUCENT = ('#!grafli v4\n'
+               '@ box f "Flat teal" 0,0 200x80 %teal !flat !ink\n'
+               '@ box c "Teal container" 300,0 300x200 %teal !ink\n'
+               '@ box k "Kid" 320,80 200x80 >c\n'
+               '@ box p "Plain container" 700,0 300x200 !ink\n'
+               '@ box q "Kid" 720,80 200x80 >p\n')
+
+
+def test_a_flat_teal_ink_box_keeps_the_ink_of_its_own_colour():
+    view = _view(TRANSLUCENT)
+    ink = view._box_items["f"]._label.defaultTextColor()
+    assert ink == QColor("#f2f0eb")
+
+
+def test_a_teal_ink_container_keeps_the_ink_of_its_own_colour():
+    view = _view(TRANSLUCENT)
+    ink = view._box_items["c"]._label.defaultTextColor()
+    assert ink == QColor("#f2f0eb")
+
+
+def test_an_uncoloured_ink_container_takes_the_ink_of_its_plate():
+    view = _view(TRANSLUCENT)
+    item = view._box_items["p"]
+    assert item._label.defaultTextColor() == QColor(theme.INK_ON_LIGHT_FILL)
 
 
 NOTES = ('#!grafli v4\n'

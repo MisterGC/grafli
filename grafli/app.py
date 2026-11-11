@@ -37,6 +37,11 @@ from grafli.sync import Conflict, atomic_write, merge_boards
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
 from grafli.map_palette import attach_names
 from grafli.sidepanel import PanelToggleButton, SidePanel, ThemeToggleButton
+from grafli.skills import (skill_concat as _skill_concat,
+                           skill_dir as _skill_dir,
+                           skill_examples as _skill_examples,
+                           skill_path as _skill_path,
+                           skill_references as _skill_references)
 from grafli.slideplan import describe_overload
 from grafli.view import GrafliView
 
@@ -1270,7 +1275,9 @@ class MainWindow(QMainWindow):
         self._palette_watcher.start()
 
     def _on_palette_changed(self, _changed: list):
-        # Not a board change: no reload, no dirty flag — just recolour.
+        # Not a board change: no reload — recolour, and lay out the boxes
+        # again for their kinds. Only a box whose kind's label no longer
+        # fits grows, which changes the board as resizing it would.
         if self._view.load_map_palette():
             self._apply_theme()
 
@@ -1553,49 +1560,6 @@ SKILL.md with every reference file inlined, for single-file consumers.
 Pass --core for just the lean core SKILL.md.
 """
 
-# Concat / inline order for the reference files; unknown names sort after.
-_REFERENCE_ORDER = ("format.md", "design.md", "presenting.md", "thinking.md")
-
-
-def _skill_dir() -> Path:
-    """Return the path to the bundled skill directory."""
-    from importlib.resources import files
-    return Path(str(files("grafli.skills.grafli")))
-
-
-def _skill_path() -> Path:
-    """Return the path to the bundled SKILL.md."""
-    return _skill_dir() / "SKILL.md"
-
-
-def _skill_references() -> dict[str, str]:
-    """Return the bundled reference files as ``{name: content}``, in
-    the canonical inline order.
-    """
-    ref_dir = _skill_dir() / "references"
-    if not ref_dir.is_dir():
-        return {}
-    def order(p: Path) -> tuple[int, str]:
-        try:
-            return (_REFERENCE_ORDER.index(p.name), p.name)
-        except ValueError:
-            return (len(_REFERENCE_ORDER), p.name)
-    return {
-        p.name: p.read_text(encoding="utf-8")
-        for p in sorted(ref_dir.glob("*.md"), key=order)
-    }
-
-
-def _skill_concat() -> str:
-    """The single-file build: SKILL.md with every reference inlined."""
-    parts = [_skill_path().read_text(encoding="utf-8")]
-    for name, content in _skill_references().items():
-        parts.append(
-            f"\n\n---\n\n<!-- inlined from references/{name} -->\n\n{content}"
-        )
-    return "".join(parts)
-
-
 def _grafli_version() -> str:
     from grafli._version import __version__
     return __version__
@@ -1728,13 +1692,14 @@ def _cmd_skill_install(argv: list[str]) -> int:
 
     packaged = _skill_path().read_text(encoding="utf-8")
     references = _skill_references()
+    examples = _skill_examples()
     version = _grafli_version()
 
     any_drift = False
     any_action = False
 
     for t in targets:
-        st = compute_status(t, packaged, version, references)
+        st = compute_status(t, packaged, version, references, examples)
         # Show context line so the user always sees the destination.
         if st.status == OK:
             print(f"[ok]      {t}: already current at {st.path} (grafli {version})")
@@ -1786,10 +1751,12 @@ def _cmd_skill_install(argv: list[str]) -> int:
                 print(f"  skipped {t}")
                 continue
 
-        path = write_skill(t, packaged, version, references)
+        path = write_skill(t, packaged, version, references, examples)
         print(f"  wrote {path}")
         if references:
             print(f"  wrote {path.parent / 'references'} ({len(references)} files)")
+        if examples:
+            print(f"  wrote {path.parent / 'examples'} ({len(examples)} files)")
         any_action = True
 
     if args.dry_run and any_drift:
@@ -1821,9 +1788,10 @@ def _cmd_skill_check(argv: list[str]) -> int:
     targets = _resolve_targets(args.target)
     packaged = _skill_path().read_text(encoding="utf-8")
     references = _skill_references()
+    examples = _skill_examples()
     version = _grafli_version()
 
-    statuses = [compute_status(t, packaged, version, references) for t in targets]
+    statuses = [compute_status(t, packaged, version, references, examples) for t in targets]
 
     if args.json:
         print(_json.dumps([s.to_dict() for s in statuses], indent=2))
@@ -1884,10 +1852,11 @@ def _cmd_skill_uninstall(argv: list[str]) -> int:
 
     packaged = _skill_path().read_text(encoding="utf-8")
     references = _skill_references()
+    examples = _skill_examples()
     version = _grafli_version()
 
     for t in targets:
-        st = compute_status(t, packaged, version, references)
+        st = compute_status(t, packaged, version, references, examples)
         if st.status == MISSING:
             print(f"[missing] {t}: nothing to remove at {st.path.parent}")
             continue
@@ -2454,6 +2423,66 @@ def _cmd_export_html(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_serve(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="grafli serve",
+        description="Serve the boards in a directory live to browser tabs on "
+                    "your network or VPN: every change to a board's file is "
+                    "drawn again and pushed to its tabs. Prints a watch, an "
+                    "edit and a present link per board; the key is after '#'.",
+    )
+    parser.add_argument("dir", type=Path,
+                        help="Directory of .grafli boards, or one board")
+    parser.add_argument(
+        "--host", default=None,
+        help="Address of the interface to listen on — your LAN or VPN "
+             "address, e.g. from `tailscale ip -4` (default 127.0.0.1, this "
+             "machine only; never every interface unless you give 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=None,
+                        help="Port (default 7341; 0 picks a free one)")
+    parser.add_argument(
+        "--theme", default="light", choices=("light", "dark"),
+        help="Colour theme of the drawing (default light)")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Print a line per pushed change with its timing")
+    parser.add_argument(
+        "--reveal", action="store_true",
+        help="Reveal mode: every board shows only its title until the "
+             "present link's tab reveals it, element by element (v); never "
+             "written to the file")
+    args = parser.parse_args(argv)
+    try:
+        import starlette  # noqa: F401
+        import uvicorn  # noqa: F401
+        import websockets  # noqa: F401
+    except ImportError:
+        print("grafli serve needs its extra: pip install 'grafli[serve]'",
+              file=sys.stderr)
+        return 2
+    from grafli.serve.render import board_name
+    from grafli.serve.server import DEFAULT_HOST, DEFAULT_PORT, run
+    target = args.dir
+    if not target.exists():
+        print(f"Not found: {target}", file=sys.stderr)
+        return 2
+    open_board = None
+    if target.is_file():
+        if target.suffix != ".grafli":
+            print(f"Not a board: {target}", file=sys.stderr)
+            return 2
+        open_board = board_name(target.parent, target)
+        target = target.parent
+    host = args.host or DEFAULT_HOST
+    port = DEFAULT_PORT if args.port is None else args.port
+    try:
+        return run(target, host=host, port=port, theme=args.theme,
+                   verbose=args.verbose, open_board=open_board,
+                   reveal=args.reveal)
+    except OSError as e:
+        print(f"Cannot listen on {host}:{port}: {e}", file=sys.stderr)
+        return 2
+
+
 def _make_note_rect_provider():
     """Return a callable that computes a note's rendered scene rect.
 
@@ -2480,21 +2509,47 @@ def _make_arrow_label_size_provider():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     QApplication.instance() or QApplication([])
     _register_bundled_fonts()
-    from PySide6.QtGui import QFont, QFontMetricsF
-    from grafli.constants import ARROW_LABEL_FONT_SIZES, FONT_FAMILY
+    from grafli.items import arrow_label_size
 
     def provider(arrow):
-        font = QFont(
-            FONT_FAMILY,
-            ARROW_LABEL_FONT_SIZES.get(arrow.textsize, ARROW_LABEL_FONT_SIZES[""]),
-        )
-        fm = QFontMetricsF(font)
-        text = arrow.label or ""
-        if not text:
-            return (0.0, 0.0)
-        longest_w = max(fm.horizontalAdvance(line) for line in text.split("\n"))
-        height = fm.height() * max(1, len(text.split("\n")))
-        return (longest_w, height)
+        return arrow_label_size(arrow)
+
+    return provider
+
+
+def _make_arrow_label_rects_provider(board_file: Path | None = None):
+    """Return a callable that lists the arrow labels a board draws.
+
+    Renders the board in a never-shown view, as ``grafli export`` does,
+    and reads each label's scene rect back — so a label on a routed,
+    stacked or two-way connector is where the canvas puts it. The view
+    gets a copy of the board; the pairs name the caller's own arrows.
+    """
+    import copy
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    from grafli.items import LabelItem
+    from grafli.view import GrafliView
+
+    view = GrafliView()
+    if board_file is not None:
+        view.base_dir = str(board_file.resolve().parent)
+        view.render_headless(board_file.resolve())
+
+    def provider(board):
+        drawn = copy.deepcopy(board)
+        original = {id(c): a for c, a in zip(drawn.arrows, board.arrows)}
+        view.load_board(drawn)
+        out = []
+        for item in view._scene.items():
+            if not isinstance(item, LabelItem):
+                continue
+            arrow = original.get(id(item.data(0)))
+            if arrow is not None:
+                out.append((arrow, item.sceneBoundingRect().getCoords()))
+        out.sort(key=lambda pair: board.arrows.index(pair[0]))
+        return out
 
     return provider
 
@@ -2508,7 +2563,8 @@ def _cmd_diagnose(argv: list[str]) -> int:
         description=(
             "Run static layout diagnostics on a .grafli file. "
             "Surfaces children outside parents, sibling overlaps, cramped "
-            "containers, likely-truncated labels, missing images, board "
+            "containers, likely-truncated labels, arrow labels drawn on "
+            "top of each other, missing images, board "
             "links and code refs that lead nowhere, unknown colours and the "
             "map's palette.json."
         ),
@@ -2547,6 +2603,7 @@ def _cmd_diagnose(argv: list[str]) -> int:
     from grafli.diagnostics import Diagnostic, apply_fixes
     note_rect = _make_note_rect_provider()
     arrow_label_size = _make_arrow_label_size_provider()
+    arrow_label_rects = _make_arrow_label_rects_provider(args.input)
     from grafli.resources import classify_attachments, vault_docs
 
     def _collect(b) -> list:
@@ -2556,6 +2613,7 @@ def _cmd_diagnose(argv: list[str]) -> int:
             note_rect=note_rect,
             arrow_label_size=arrow_label_size,
             grafli_path=args.input,
+            arrow_label_rects=arrow_label_rects,
         )
         # Vault integrity: referenced docs whose file is gone (error — a
         # doc-bodied note would render blank) and unreferenced docs (info —
@@ -2711,6 +2769,97 @@ def _cmd_fmt(argv: list[str]) -> int:
     return 0
 
 
+def _cmd_layout(argv: list[str]) -> int:
+    """Run the app's layered layout (`=` with nothing selected) headless:
+    rank each container's boxes by their arrows, keep `!pin` boxes, and
+    route the arrows between placed boxes at right angles."""
+    from grafli.board_info import top_margin
+    from grafli.constants import LAYOUT_PADDING
+    from grafli.layout import (
+        Direction,
+        container_groups,
+        layout_groups,
+        route_placed_arrows,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="grafli layout",
+        description=(
+            "Rewrite a board's box coordinates with the layered layout the "
+            "app runs on '=' with nothing selected: every container's boxes "
+            "are ranked by the arrows between them (an arrow into a box's "
+            "contents counts for that box), containers grow to fit. Boxes "
+            "marked !pin keep their position; the others are placed around "
+            "them. Notes, images and arrows are not moved, except that a "
+            "container carries its contents along. An arrow between two "
+            "placed boxes without a routing flag gets !ortho and is drawn "
+            "at right angles; !straight keeps an arrow direct. Boards with "
+            "malformed lines or a newer #!grafli vN header are left "
+            "untouched."
+        ),
+    )
+    parser.add_argument("files", nargs="+", type=Path,
+                        help="Input .grafli files (rewritten in place)")
+    parser.add_argument("--direction", choices=("ltr", "ttb"), default=None,
+                        help="Flow of every container: ltr (left to right) "
+                             "or ttb (top to bottom); default: per container "
+                             "the flow that needs it to grow least, by its "
+                             "shape when both fit; ttb at the root")
+    parser.add_argument("--check", action="store_true",
+                        help="Write nothing; exit 1 if any file would change")
+    args = parser.parse_args(argv)
+    direction = Direction(args.direction) if args.direction else None
+
+    def label_height(parent_id: str) -> float:
+        parent = board.box_by_id(parent_id)
+        textsize = parent.textsize if parent else ""
+        return top_margin(textsize or "") - LAYOUT_PADDING
+
+    # Layer gaps make room for the arrow labels, measured as drawn.
+    label_size = _make_arrow_label_size_provider()
+
+    changed = untouched = 0
+    for path in args.files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"cannot read {path}: {exc}", file=sys.stderr)
+            return 2
+        board = parse(text)
+        if is_newer(board):
+            print(f"{path}: left untouched — {_newer_board_reason(board)}",
+                  file=sys.stderr)
+            untouched += 1
+            continue
+        if board.parse_warnings:
+            for w in board.parse_warnings:
+                print(f"{path}:{w.line}: {w.reason}", file=sys.stderr)
+            print(f"{path}: left untouched — fix the lines above first",
+                  file=sys.stderr)
+            untouched += 1
+            continue
+        attach_names(board, path)
+        groups = container_groups(board)
+        layout_groups(board, groups, 20,  # app grid
+                      label_height,
+                      direction, label_size)
+        route_placed_arrows(board, groups)
+        out = serialize(board)
+        if out == text:
+            continue
+        changed += 1
+        if args.check:
+            print(f"would lay out {path}")
+        else:
+            path.write_text(out, encoding="utf-8")
+            print(f"laid out {path}")
+    if untouched:
+        return 2
+    if args.check and changed:
+        return 1
+    return 0
+
+
 def _cmd_inspect(argv: list[str]) -> int:
     """Resolved-geometry report (JSON) for agents: element bounds,
     container inner rects, sibling gaps, next free slot per container."""
@@ -2844,7 +2993,8 @@ def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
     if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
                                               "export", "export-html",
-                                              "vault", "inspect", "fmt"):
+                                              "vault", "inspect", "fmt",
+                                              "layout", "serve", "agent"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
         if sub == "export-html":
@@ -2861,12 +3011,20 @@ def main():
             sys.exit(_cmd_inspect(rest))
         if sub == "fmt":
             sys.exit(_cmd_fmt(rest))
+        if sub == "layout":
+            sys.exit(_cmd_layout(rest))
+        if sub == "serve":
+            sys.exit(_cmd_serve(rest))
+        if sub == "agent":
+            from grafli.serve.mcp import main as agent_main
+            sys.exit(agent_main(rest))
         sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
         description="Grafli whiteboard. Subcommands: skill, render, diagnose, "
-                    "inspect, export, export-html, vault, fmt.",
+                    "inspect, export, export-html, vault, fmt, layout, serve, "
+                    "agent.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

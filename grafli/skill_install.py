@@ -3,8 +3,9 @@
 Pure logic lives here; the CLI orchestrator in ``app.py`` adds prompts,
 TTY detection, and exit codes. Each target maps to a user-level skill
 directory following the agentskills.io convention — one directory per
-skill, named ``grafli``, containing a ``SKILL.md`` plus a ``references/``
-directory of on-demand reference files.
+skill, named ``grafli``, containing a ``SKILL.md``, a ``references/``
+directory of on-demand reference files and an ``examples/`` directory of
+the example boards the skill names.
 """
 
 from __future__ import annotations
@@ -123,11 +124,32 @@ def _references_match(target: str, references: dict[str, str]) -> bool:
     )
 
 
+def _examples_match(target: str, examples: dict[str, bytes]) -> bool:
+    """True when the installed ``examples/`` directory carries exactly the
+    packaged boards and vault files, byte for byte. A file the package
+    never ships (a ``.DS_Store`` Finder wrote) is not counted. An empty
+    packaged set matches a missing/empty directory (installs from before
+    examples)."""
+    from grafli.skills import is_example_file
+    ex_dir = TARGETS[target] / "examples"
+    installed = (
+        {p.relative_to(ex_dir).as_posix(): p
+         for p in ex_dir.rglob("*")
+         if p.is_file() and is_example_file(p.relative_to(ex_dir))}
+        if ex_dir.is_dir() else {}
+    )
+    if set(installed) != set(examples):
+        return False
+    return all(installed[rel].read_bytes() == data
+               for rel, data in examples.items())
+
+
 # ── status detection ──────────────────────────────────────────────
 
 def compute_status(
     target: str, packaged_content: str, packaged_version: str,
     references: dict[str, str] | None = None,
+    examples: dict[str, bytes] | None = None,
 ) -> TargetStatus:
     path = target_path(target)
     if not path.exists():
@@ -139,7 +161,8 @@ def compute_status(
     installed = path.read_text(encoding="utf-8")
     installed_ver = extract_version(installed)
     skill_ok = _canonical(installed) == _canonical(packaged_content)
-    refs_ok = _references_match(target, references or {})
+    refs_ok = (_references_match(target, references or {})
+               and _examples_match(target, examples or {}))
     if skill_ok and refs_ok:
         status = OK
     elif installed_ver is None:
@@ -157,9 +180,11 @@ def compute_status(
 def compute_all(
     targets: Iterable[str], packaged_content: str, packaged_version: str,
     references: dict[str, str] | None = None,
+    examples: dict[str, bytes] | None = None,
 ) -> list[TargetStatus]:
     return [
-        compute_status(t, packaged_content, packaged_version, references)
+        compute_status(t, packaged_content, packaged_version, references,
+                       examples)
         for t in targets
     ]
 
@@ -169,10 +194,12 @@ def compute_all(
 def write_skill(
     target: str, packaged_content: str, packaged_version: str,
     references: dict[str, str] | None = None,
+    examples: dict[str, bytes] | None = None,
 ) -> Path:
-    """Write the stamped SKILL.md and the ``references/`` set for
-    ``target``. Creates parent dirs; replaces any existing references
-    directory so stale files never linger. Returns the SKILL.md path.
+    """Write the stamped SKILL.md, the ``references/`` set and the
+    ``examples/`` boards for ``target``. Creates parent dirs; replaces any
+    existing references and examples directories so stale files never
+    linger. Returns the SKILL.md path.
     """
     path = target_path(target)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -185,6 +212,13 @@ def write_skill(
         ref_dir.mkdir()
         for name, content in references.items():
             (ref_dir / name).write_text(content, encoding="utf-8")
+    ex_dir = path.parent / "examples"
+    if ex_dir.exists():
+        shutil.rmtree(ex_dir)
+    for rel, data in (examples or {}).items():
+        dest = ex_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
     return path
 
 

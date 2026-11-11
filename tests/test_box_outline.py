@@ -147,3 +147,23 @@ def test_the_pdf_export_draws_the_dashed_outline(tmp_path: Path):
                          tmp_path / "solid.pdf")
     assert dashed.size() == solid.size()
     assert dashed != solid
+
+
+def test_a_plain_box_is_a_light_plate_with_a_quiet_outline():
+    """#260: the outline of a box with no colour is quieter than its label,
+    and its plate is lighter than the ground, so a filled box stands out."""
+    item = _view('#!grafli v4\n@ box p "Plain" 0,0 200x80\n')._box_items["p"]
+    assert item.pen().color() == QColor(theme.BOX_OUTLINE)
+    assert item.brush().color() == QColor(theme.BOX_FILL)
+    assert theme.BOX_FILL.lightness() > theme.SCENE_BG.lightness()
+
+
+def test_a_plain_box_outline_is_quieter_than_its_label_in_both_themes():
+    for name in ("light", "dark"):
+        theme.set_theme(name)
+        try:
+            outline, ground = theme.BOX_OUTLINE, theme.SCENE_BG
+            assert (abs(outline.lightness() - ground.lightness())
+                    < abs(theme.INK.lightness() - ground.lightness()))
+        finally:
+            theme.set_theme("light")

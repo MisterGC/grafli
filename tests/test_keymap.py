@@ -1,4 +1,6 @@
-"""The key table (`grafli/keymap.py`, #324): the F1 help shows every row of it."""
+"""The key table (`grafli/keymap.py`, #324): the F1 help and the "grafli at a
+glance" page show every row of it, and the website's copy of the page is
+current."""
 
 from __future__ import annotations
 
@@ -96,3 +98,48 @@ def test_the_help_filter_keeps_only_matching_rows():
     html = cheatsheet_html(keymap.APP, "heatmap")
     assert "Connectivity heatmap" in html
     assert "Zoom to fit" not in html
+
+
+# ── The "grafli at a glance" page ──────────────────────────────────
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+@pytest.mark.parametrize("where", [keymap.APP, keymap.TAB])
+def test_the_page_shows_every_key_of_the_table(where):
+    from grafli import helppage
+    page = helppage.render_page()
+    missing = [
+        (g.id, k.keys) for g, k in _rows(where)
+        if helppage.keys_html(k) not in page
+        or helppage._e(k.does) not in page
+    ]
+    assert not missing, f"not on the page: {missing}"
+    for g in keymap.groups(where):
+        assert f'id="k-{g.id}"' in page, g.id
+
+
+def test_the_page_shows_both_ways_of_working_with_the_agent():
+    from grafli import helppage
+    page = helppage.render_page()
+    desk, meeting = page.split('class="way meet"')
+    assert "<b>T:</b>" in desk and "<b>Q:</b>" in desk
+    assert "grafli skill install claude" in desk
+    for part in ("/mcp__grafli__connect", "<kbd>:</kbd>",
+                 helppage.keys_html(keymap.key("Shift+U", "")),
+                 "disconnect from grafli"):
+        assert part in meeting, part
+
+
+def test_the_website_copy_is_the_page_the_table_renders():
+    from grafli import helppage
+    copy = REPO / helppage.DOCS_COPY
+    assert copy.read_text(encoding="utf-8") == helppage.render_page(), (
+        "docs/at-a-glance.html is out of date: run "
+        "python -m grafli.helppage docs/at-a-glance.html")
+
+
+def test_the_page_has_no_trailing_whitespace():
+    from grafli import helppage
+    lines = helppage.render_page().splitlines()
+    assert [i for i, ln in enumerate(lines, 1) if ln != ln.rstrip()] == []

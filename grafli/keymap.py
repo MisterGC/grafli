@@ -46,6 +46,8 @@ class Group:
     enter: str = ""
     # One line on where the keys apply.
     blurb: str = ""
+    # For the browser tab: the links whose tabs have these keys.
+    links: tuple[str, ...] = ()
 
 
 def key(keys: str, does: str) -> Key:
@@ -111,7 +113,7 @@ _APP_GROUPS = (
         key("Esc", "Cancel / back to Select"),
     )),
     Group("navigate", "Navigate", APP, blurb="In Select", keys=(
-        key("← ↑ ↓ →", "Pan the view (when nothing is selected)"),
+        key("←↑↓→", "Pan the view (when nothing is selected)"),
         gesture("Middle / right drag", "Pan from anywhere"),
         gesture("Two-finger scroll", "Pan (trackpad)"),
         gesture("Wheel / ⌃scroll / pinch", "Zoom in / out"),
@@ -148,7 +150,7 @@ _APP_GROUPS = (
     )),
     Group("create", "Create", APP, blurb="In Select", keys=(
         key("o / O", "New box below / above the selection"),
-        key("Ctrl+← / Ctrl+→ / Ctrl+↑ / Ctrl+↓",
+        key("Ctrl+←↑↓→",
             "New connected box on that side"),
         key("Ctrl+G", "Wrap the selection in a new parent box"),
         gesture("Alt+drag", "Connect nodes: boxes, notes, images"),
@@ -261,7 +263,7 @@ _APP_GROUPS = (
 # ── The browser tab of `grafli serve` ───────────────────────────────
 
 _TAB_GROUPS = (
-    Group("tab-read", "Every tab", TAB,
+    Group("tab-read", "Every tab", TAB, links=("watch", "edit", "present"),
           blurb="Watch, edit and present links alike", keys=(
         gesture("Drag / wheel", "Pan and zoom"),
         key("Shift+Z", "Fit the board in view"),
@@ -272,10 +274,10 @@ _TAB_GROUPS = (
         key("A", "Next overlay file"),
         key("k", "Laser on / off: a trail every tab sees"),
     )),
-    Group("tab-build", "Build", TAB,
+    Group("tab-build", "Build", TAB, links=("edit", "present"),
           blurb="Edit and present links", keys=(
         key("o / O", "New box below / above, with an arrow from it"),
-        key("Ctrl+← / Ctrl+→ / Ctrl+↑ / Ctrl+↓",
+        key("Ctrl+←↑↓→",
             "The same, on that side"),
         key("c", "Connect to the box whose label you type"),
         key("e", "Rename the selection"),
@@ -284,7 +286,7 @@ _TAB_GROUPS = (
         key(":", "Command line: a grafli line, or plain language"),
         key("↑", "On the command line: the last line"),
     )),
-    Group("tab-mouse", "Mouse", TAB,
+    Group("tab-mouse", "Mouse", TAB, links=("edit", "present"),
           blurb="Edit and present links: guests need no keys", keys=(
         gesture("Click", "Select; a box with a level opens it"),
         gesture("Double-click", "Rename what you clicked"),
@@ -292,7 +294,7 @@ _TAB_GROUPS = (
         gesture("Drag from a box's edge", "Draw an arrow"),
         gesture("Right-click", "Ask a Q: question in place"),
     )),
-    Group("tab-agent", "Your agent", TAB,
+    Group("tab-agent", "Your agent", TAB, links=("edit", "present"),
           blurb="A Claude Code session you run and connect", keys=(
         key(":", "Plain language goes to the agent"),
         key("a", "Ask the agent about the selection (the ✦ ask chip)"),
@@ -300,13 +302,13 @@ _TAB_GROUPS = (
         key("x", "Present link: drop the proposal"),
         key("Shift+U", "Present link: undo the agent's last edit"),
     )),
-    Group("tab-reveal", "Reveal", TAB,
+    Group("tab-reveal", "Reveal", TAB, links=("present",),
           blurb="Present link: uncover a prepared board as you talk", keys=(
         key("v", "Jump labels on the hidden: type one to reveal it"),
         key("+", "Right after: also what an arrow connects it to"),
         key("Shift+V", "Reveal mode on / off"),
     )),
-    Group("tab-tour", "Tour", TAB,
+    Group("tab-tour", "Tour", TAB, links=("watch", "edit", "present"),
           blurb="While a tour plays in a tab", keys=(
         key("Space / → / l / j", "Next stop"),
         key("← / h / k", "Previous stop"),

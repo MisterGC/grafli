@@ -595,10 +595,9 @@ def test_the_grid_skips_the_gap_before_the_palette_rows(tmp_path: Path,
 
 
 def test_the_help_sheet_names_the_palette_in_the_grid():
-    import inspect
-    from grafli.view.overlays import OverlaysMixin
-    source = inspect.getsource(OverlaysMixin._show_cheatsheet)
-    assert '("  c", "Color grid, then the map palette\'s %names' in source
+    from grafli import keymap
+    assert keymap.find("style", "c").does.startswith(
+        "Color grid, then the map palette's %names")
 
 
 def _key(view: GrafliView, key) -> None:

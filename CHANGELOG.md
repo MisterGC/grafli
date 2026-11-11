@@ -471,6 +471,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A board using it is written `#!grafli v4`; older builds open it
   read-only.
   ([#307](https://github.com/MisterGC/grafli/issues/307))
+- **grafli at a glance: how to work with grafli and your agent, and every
+  key by mode, on one page.** It draws both ways of working with a Claude
+  Code session: at your desk, where the session edits the file and works
+  the `T:` and `Q:` notes you leave on the board, and in a meeting, where
+  you connect it to `grafli serve` and ask it with <kbd>:</kbd> or
+  <kbd>a</kbd>, take back its edit with <kbd>Shift</kbd>+<kbd>U</kbd> and
+  let it leave. Below that, every key of the app grouped by mode, with
+  Select in the middle and a key to each mode, and the browser tab's keys
+  by the link they come with (watch, edit, present). The website links it
+  as *At a glance*; in the app, **grafli at a glance ↗** in the
+  <kbd>F1</kbd> help opens it in your browser, offline. The <kbd>F1</kbd>
+  help and the page take their keys from the same table, and the <kbd>F1</kbd>
+  help gained a *Browser Tab* tab with the tab's keys.
+  ([#324](https://github.com/MisterGC/grafli/issues/324))
 
 ### Changed
 - **Software diagrams from the skill draw only the arrows their question

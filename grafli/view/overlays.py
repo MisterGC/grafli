@@ -2,24 +2,35 @@
 
 The view's ephemeral UI layer: confirmation flashes, toasts, the shared
 fade helper behind all transient micro-motion, the empty-board hint, the
-debug overlay, the glyph picker, and the Shift+H cheatsheet dialog. Nothing
+debug overlay, the glyph picker, and the F1 help dialog. Nothing
 here touches the board model — it is presentation-only feedback on top of
 the canvas.
 """
 
 from __future__ import annotations
 
+from html import escape
+
 from PySide6.QtCore import (
     QEasingCurve,
     QPoint,
     QRectF,
     QTimer,
+    QUrl,
     QVariantAnimation,
     Qt,
 )
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPen
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QDesktopServices,
+    QFont,
+    QPainter,
+    QPen,
+)
 from PySide6.QtWidgets import (
     QDialog,
+    QHBoxLayout,
     QLineEdit,
     QPushButton,
     QTabWidget,
@@ -27,10 +38,79 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from grafli import theme
+from grafli import keymap, theme
 from grafli.constants import FONT_FAMILY, MINIMAP_MARGIN
-from grafli.format import MAX_DESCRIPTION_CHARS
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
+
+
+# The app's keys fill three columns; the browser tab's fewer keys two.
+HELP_COLUMNS = {keymap.APP: 3, keymap.TAB: 2}
+
+
+def escape_(text: str) -> str:
+    return escape(text, quote=False)
+
+
+def _columns(groups, n: int) -> list[list]:
+    """``groups`` in order, cut into ``n`` columns of about equal rows."""
+    total = sum(len(g.keys) + 1 for g in groups)
+    cols, col, rows = [], [], 0
+    for g in groups:
+        if col and rows >= total * (len(cols) + 1) / n and len(cols) < n - 1:
+            cols.append(col)
+            col = []
+        col.append(g)
+        rows += len(g.keys) + 1
+    cols.append(col)
+    return cols
+
+
+def cheatsheet_html(where: str, filter_text: str = "") -> str:
+    """The F1 help's table of ``where``'s keys (:data:`keymap.APP` or
+    :data:`keymap.TAB`), rows matching ``filter_text`` only."""
+    ft = filter_text.lower()
+    hdr = (
+        f"color:{theme.INFO_COLOR.name()};font-weight:bold;"
+        "padding-top:8px;padding-bottom:2px"
+    )
+    blurb = f"color:{theme.INK_FAINT.name()};padding-bottom:2px"
+
+    def _render_column(groups):
+        rows = []
+        for g in groups:
+            entries = [
+                (keymap.compact_keys(k), k.does, k.is_gesture)
+                for k in g.keys
+                if not ft or ft in keymap.compact_keys(k).lower()
+                or ft in k.does.lower() or ft in g.title.lower()
+            ]
+            if not entries:
+                continue
+            title = g.title.upper()
+            if g.enter:
+                title += f" &nbsp;({escape_(g.enter)})"
+            rows.append(f"<tr><td colspan='2' style='{hdr}'>{title}</td></tr>")
+            if g.blurb:
+                rows.append(f"<tr><td colspan='2' style='{blurb}'>"
+                            f"<i>{escape_(g.blurb)}</i></td></tr>")
+            for keys, desc, is_gesture in entries:
+                # Keys stay on one line; a gesture's words may wrap.
+                wrap = "" if is_gesture else ";white-space:nowrap"
+                rows.append(
+                    "<tr>"
+                    f"<td style='padding-right:12px{wrap}'>"
+                    f"<b>{escape_(keys)}</b></td>"
+                    f"<td width='60%' style='padding:2px 0'>"
+                    f"{escape_(desc)}</td>"
+                    "</tr>"
+                )
+        return f"<table cellpadding='2'>{''.join(rows)}</table>"
+
+    col_html = "</td><td width='24'></td><td valign='top'>".join(
+        _render_column(col)
+        for col in _columns(keymap.groups(where), HELP_COLUMNS[where])
+    )
+    return f"<table><tr><td valign='top'>{col_html}</td></tr></table>"
 
 
 class OverlaysMixin:
@@ -369,202 +449,9 @@ class OverlaysMixin:
             self._editor.setTextCursor(cursor)
             self._editor.setFocus()
 
-    # ── Cheatsheet (Shift+H) ──
+    # ── Cheatsheet (F1) ──
 
     def _show_cheatsheet(self):
-        groups = [
-            ("File", [
-                ("\u2318N", "New file"),
-                ("\u2318O", "Open file"),
-                ("\u2318S", "Save file"),
-                ("\u2318Q", "Quit"),
-            ]),
-            ("Modes", [
-                ("V", "Select mode"),
-                ("N", "Create node (\u21e7click stays in mode)"),
-                ("T", "Create note (\u21e7click stays in mode)"),
-                ("C", "Connect arrow (one-shot)"),
-            ]),
-            ("Navigate", [
-                ("Arrow keys", "Pan viewport (when nothing selected)"),
-                ("Middle/Right-drag", "Pan anywhere"),
-                ("Two-finger scroll", "Pan (trackpad)"),
-                ("Wheel / ⌃scroll / pinch", "Zoom in / out"),
-                ("+ / -", "Zoom in / out"),
-                ("z", "Zoom in: 25 → 50 → 100 → 150 % (cycle)"),
-                ("⇧Z", "Zoom to fit (whole graph)"),
-                ("gz", "Focus: zoom to selection ⇄ back"),
-                ("gp", "Select parent (zoom if needed)"),
-                ("gc", "Select first child"),
-                ("gd / Return", "Zoom into the box's sub-board"),
-                ("gu", "Back to the board you came from"),
-                ("gv", "Peek at the box's doc (Esc closes)"),
-                ("gt", "Pick a tour through the box, play from there"),
-                ("Tab / \u21e7Tab", "Cycle siblings (or search matches)"),
-                ("f / Ctrl+J", "Jump to any item (global)"),
-                ("Ctrl+O / Ctrl+I", "Nav history back / forward"),
-                ("Alt (hold)", "Graph nav: follow connectors"),
-                ("/", "Search dim-filter \u2014 Tab/\u21e7Tab cycle, Esc clears"),
-            ]),
-            ("Edit", [
-                ("e / Dbl-click", "Edit selected element (inline)"),
-                ("E", "Zen editor — note text / box-image markdown"),
-                ("W", "Set URL on selected item"),
-                ("Return", "Open URL in browser"),
-                ("Enter", "Accept edit"),
-                ("y / p", "Yank / Paste"),
-                ("u / \u2318Z", "Undo"),
-                ("Ctrl+R / \u2318\u21e7Z", "Redo"),
-                ("x / Delete", "Delete selected / arrow"),
-                ("Ctrl+G", "Insert glyph (while editing)"),
-            ]),
-            ("Create", [
-                ("o / O", "Create box below / above"),
-                ("Ctrl+Arrow", "Create adjacent box"),
-                ("Ctrl+G", "Encapsulate selection in a new parent box"),
-                ("Alt+Drag", "Connect nodes — boxes, notes, images (from SELECT)"),
-                ("Alt+Click", "Paste at position"),
-            ]),
-            ("Notes", [
-                ("Drag right edge", "Resize note wrap width (persists as ~width=N)"),
-                ("Default wrap", "80 chars — set ~width=N for per-note override"),
-            ]),
-            ("Style", [
-                ("s", "Style mode — same keys for box / note / connector:"),
-                ("  e", "Appearance: plate/flat/card, label spot (left: a band zoomed out), label ink, outline"),
-                ("  c", "Color grid, then the map palette's %names and kinds (hjkl pick, live, ⏎ apply; 1-9 an entry at once)"),
-                ("  i", "Symbol grid (⇥ fill/lead/badge, 0-9 number, f filled), then the board's own icons: each .svg in its -res/icons/ is *name"),
-                ("  t", "Text grid: size × bold/italic (⇥ sans/mono/hand, o outline, s shadow)"),
-                ("  s", "Status label on a box (~status=): type it, then pick its colour"),
-                ("  r", "Round box: circle when square, pill otherwise (!round)"),
-                ("  j / k", "Nudge text size"),
-                ("  d", "Dimension mode (resize)"),
-                ("d then r", "Snap box(es) to the slide aspect ratio (export frame)"),
-                ("Drag corner", "Scale the selection (size + font); Shift keeps ratio"),
-                ("Shift+G", "Snap to grid"),
-                ("=", "Auto-layout selection (or all)"),
-            ]),
-            ("Focus & Analysis", [
-                (",", "Dim arrows"),
-                ("\u21e7N", "Dim notes \u2014 concentrate on the graph"),
-                ("A", "Connectivity heatmap (graph arrows per box), then each overlay file (also in exports)"),
-                ("B", "Subgraph focus (cycle direction)"),
-                ("\u21e7B", "Toggle focus depth (full/1-hop)"),
-            ]),
-            ("View", [
-                ("#", "Toggle grid"),
-                ("M", "Toggle minimap"),
-                ("\u21e7M", "Toggle the legend of the map's palette (also in exports)"),
-                ("⇧D", "Toggle level-of-detail (semantic zoom)"),
-                ("Dbl-click tile", "Fly into a collapsed group"),
-                ("\\", "Toggle tools panel"),
-                ("⌘⇧D", "Toggle light / dark theme"),
-            ]),
-            ("Bookmarks & Flows", [
-                ("gb", "Bookmark what's shown (logical)"),
-                ("Select + gb", "Scope step to selection"),
-                ("1 note + gb, no caption", "Text slide (clickable links)"),
-                ("gB", "Bookmark exact viewport"),
-                ("gf", "Start / stop flow recording"),
-                ("gF", "Auto-flow: walk forward arrows from selected node"),
-                ("Flows tab (\\)", "Edit flows: reorder, add/remove, dwell, re-generate (↻)"),
-                ("Select step + gb", "Insert new bookmark after it"),
-                ("Space / →", "Next stop (during playback)"),
-                ("←", "Previous stop"),
-                ("t", "Toggle smooth / instant"),
-                ("p", "Cycle paused / playing / loop"),
-                ("gd / Return", "Leave the tour into a level; gu resumes it"),
-                ("F5", "Present flow fullscreen"),
-                ("Esc", "Exit playback / present"),
-                ("Caption", f"Shown in full, wrapped — keep it ≤ "
-                            f"{MAX_DESCRIPTION_CHARS} chars"),
-                ("~detail=", "Flow/step LoD: full / summary (file token, "
-                             "step overrides flow)"),
-                ("~focus=", "Flow/step focus: complete fades partly framed "
-                            "elements"),
-            ]),
-            ("Export", [
-                ("Y", "Yank diagram as PNG to clipboard"),
-                ("Ctrl+E", "Export SVG to file"),
-            ]),
-            ("Arrow", [
-                ("e", "Edit arrow label"),
-                ("s", "Enter arrow style mode"),
-                ("s then e", "Appearance: heads, ends, line, thickness, routing, sides, colour"),
-                ("s then c", "Color grid"),
-                ("s then t", "Label text size"),
-                ("h / l", "Toggle arrowheads"),
-                ("j / k", "Arrow label size"),
-                ("\u21e7J / \u21e7K", "Cycle arrow style"),
-                ("s then r", "Cycle routing: direct / spline / stair"),
-                ("s then a", "Toggle connector kind: graph edge \u21c4 annotation"),
-            ]),
-            ("Buffers", [
-                ("Ctrl+K", "Open / switch buffer"),
-                ("Ctrl+6", "Toggle last buffer"),
-                ("Q", "Close buffer (no selection)"),
-            ]),
-            ("Other", [
-                ("Shift+Click", "Toggle selection"),
-                ("Click @ref", "Open source from code-mode note"),
-                ("F1", "This cheatsheet"),
-                ("`", "Toggle debug overlay"),
-                ("Escape", "Cancel / back to SELECT"),
-            ]),
-        ]
-
-        columns = [
-            ["File", "Modes", "Navigate"],
-            ["Edit", "Create", "Focus & Analysis", "View", "Bookmarks & Flows"],
-            ["Style", "Arrow", "Export", "Buffers", "Other"],
-        ]
-        group_map = {name: entries for name, entries in groups}
-
-        hdr = (
-            f"color:{theme.INFO_COLOR.name()};font-weight:bold;"
-            "padding-top:8px;padding-bottom:2px"
-        )
-
-        def _render_html(filter_text: str) -> str:
-            ft = filter_text.lower()
-
-            def _render_column(group_names):
-                rows = []
-                for name in group_names:
-                    entries = group_map[name]
-                    if ft:
-                        entries = [
-                            (k, d) for k, d in entries
-                            if ft in k.lower() or ft in d.lower()
-                        ]
-                    if not entries:
-                        continue
-                    rows.append(
-                        f"<tr><td colspan='2' style='{hdr}'>"
-                        f"{name.upper()}</td></tr>"
-                    )
-                    for key, desc in entries:
-                        rows.append(
-                            f"<tr>"
-                            f"<td style='padding-right:12px;"
-                            f"white-space:nowrap'>"
-                            f"<b>{key}</b></td>"
-                            f"<td style='padding:2px 0'>{desc}</td>"
-                            f"</tr>"
-                        )
-                return f"<table cellpadding='2'>{''.join(rows)}</table>"
-
-            col_html = (
-                "</td><td width='24'></td><td valign='top'>".join(
-                    _render_column(col) for col in columns
-                )
-            )
-            return (
-                "<table><tr>"
-                f"<td valign='top'>{col_html}</td>"
-                "</tr></table>"
-            )
-
         dlg = QDialog(self)
         dlg.setWindowTitle("Help")
 
@@ -606,16 +493,27 @@ class OverlaysMixin:
             f"QTextBrowser {{ background: {theme.HELP_BG.name()};"
             f" color: {theme.HELP_FG.name()}; border: none; }}"
         )
-        browser.setHtml(_render_html(""))
+        browser.setHtml(cheatsheet_html(keymap.APP))
         filter_input.textChanged.connect(
-            lambda t: browser.setHtml(_render_html(t))
+            lambda t: browser.setHtml(cheatsheet_html(keymap.APP, t))
         )
         sc_layout = QVBoxLayout(shortcuts_tab)
         sc_layout.addWidget(filter_input)
         sc_layout.addWidget(browser, 1)
         tabs.addTab(shortcuts_tab, "Shortcuts")
 
-        # ── Tab 2: text annotation formats ──
+        # ── Tab 2: the browser tab of grafli serve ──
+        tab_browser = QTextBrowser(tabs)
+        tab_browser.setOpenLinks(False)
+        tab_browser.setFont(font)
+        tab_browser.setStyleSheet(
+            f"QTextBrowser {{ background: {theme.HELP_BG.name()};"
+            f" color: {theme.HELP_FG.name()}; border: none; }}"
+        )
+        tab_browser.setHtml(cheatsheet_html(keymap.TAB))
+        tabs.addTab(tab_browser, "Browser Tab")
+
+        # ── Tab 3: text annotation formats ──
         notes_browser = QTextBrowser(tabs)
         notes_browser.setOpenLinks(False)
         notes_browser.setFont(font)
@@ -629,15 +527,36 @@ class OverlaysMixin:
         # The Markdown editor (textli) owns its own help now — press F1 while the
         # zen editor is open to see it. grafli's F1 covers only the diagram.
 
+        page_btn = QPushButton("grafli at a glance \u2197", dlg)
+        page_btn.setObjectName("at_a_glance")
+        page_btn.setToolTip("How to work with grafli and your agent, and "
+                            "every key by mode, in your browser")
+        page_btn.clicked.connect(self._open_help_page)
         btn = QPushButton("Close", dlg)
         btn.clicked.connect(dlg.accept)
+        buttons = QHBoxLayout()
+        buttons.addWidget(page_btn)
+        buttons.addStretch(1)
+        buttons.addWidget(btn)
 
         layout = QVBoxLayout(dlg)
         layout.addWidget(tabs, 1)
-        layout.addWidget(btn)
+        layout.addLayout(buttons)
 
         filter_input.setFocus()
         dlg.exec()
+
+    def _open_help_page(self):
+        """Write the "grafli at a glance" page for this version and open it
+        in the browser: it needs no internet and matches the keys here."""
+        from grafli import helppage
+        try:
+            page = helppage.local_copy()
+        except OSError as exc:
+            self.toast(f"Could not write the help page: {exc.strerror or exc}",
+                       "warn")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(page)))
 
     def _notes_help_html(self) -> str:
         hdr = (

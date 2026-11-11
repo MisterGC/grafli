@@ -4,6 +4,11 @@ Grafli is modal. Most commands are a single key in **Select** mode (the
 default). The full cheat sheet is also available in-app via <kbd>F1</kbd>,
 with live filtering.
 
+[grafli at a glance](at-a-glance.html) shows every key as a picture,
+grouped by mode, with the browser tab's keys and both ways of working with
+your agent; **grafli at a glance ↗** in the <kbd>F1</kbd> help opens it
+from the app.
+
 ## Modes
 
 | Key | Mode |
@@ -257,5 +262,5 @@ one closes the others.
 
 | Key | Action |
 |-----|--------|
-| <kbd>F1</kbd> | In-app cheat sheet (with filter) and text-annotation reference |
+| <kbd>F1</kbd> | In-app cheat sheet (with filter), the browser tab's keys, the text-annotation reference, and a button that opens [grafli at a glance](at-a-glance.html) |
 | <kbd>`</kbd> | Toggle debug overlay |

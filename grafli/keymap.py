@@ -139,6 +139,7 @@ _APP_GROUPS = (
     Group("edit", "Edit", APP, blurb="In Select, on the selection", keys=(
         key("e", "Edit the element inline: label, note, image's file"),
         gesture("Double-click", "Edit what you clicked"),
+        gesture("Shift+click", "Add to / take from the selection"),
         key("E", "textli, the full editor: note text / box or image markdown"),
         key("W", "Set URL on the selected item"),
         key("Return", "Open the attachment: a link, a sub-board"),
@@ -229,6 +230,8 @@ _APP_GROUPS = (
     Group("tours", "Bookmarks & tours", APP, blurb="In Select", keys=(
         key("g b", "Bookmark what's shown (or the selection)"),
         key("g B", "Bookmark the exact viewport"),
+        gesture("One note + g b, no caption", "A text slide, links clickable"),
+        gesture("Flows tab step + g b", "Insert a new bookmark after it"),
         key("g f", "Start / stop recording a flow"),
         key("g F", "Auto-flow: walk forward arrows from the box"),
         key("g t", "Pick a tour through the box, play from there"),

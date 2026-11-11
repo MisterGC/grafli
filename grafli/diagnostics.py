@@ -409,6 +409,35 @@ def check_label_truncated(board: Board) -> list[Diagnostic]:
     return diags
 
 
+# A box label of this many lines or more is a stack of detail, not a name.
+LABEL_LINES_MAX = 2
+
+
+def check_label_lines(board: Board) -> list[Diagnostic]:
+    """Warn on a box whose label runs to three or more lines: a box is a
+    title (a short name, two lines at most), and its detail belongs in the
+    box's doc line (the first sentence of its ``&doc``) or a ``!card``
+    body note."""
+    diags: list[Diagnostic] = []
+    for b in board.boxes:
+        lines = [ln for ln in b.label.split("\n") if ln.strip()]
+        if len(lines) <= LABEL_LINES_MAX:
+            continue
+        diags.append(Diagnostic(
+            code="label-lines",
+            severity=WARNING,
+            message=(
+                f"{b.id!r} label has {len(lines)} lines — keep the title "
+                f"({lines[0].strip()!r}) and move the rest into its &doc, "
+                "whose first sentence shows as the doc line under the "
+                "label, or into a note it owns as a !card body"
+            ),
+            item_ids=[b.id],
+            fixable=False,
+        ))
+    return diags
+
+
 def _id_rect_map(board: Board, note_rect: NoteRectFn | None = None) -> dict:
     """Return id -> rect for everything an arrow could connect to."""
     out: dict = {}
@@ -952,6 +981,7 @@ def run_all(
     diags.extend(check_sibling_overlap(board, note_rect=note_rect))
     diags.extend(check_cramped_container(board, note_rect=note_rect))
     diags.extend(check_label_truncated(board))
+    diags.extend(check_label_lines(board))
     diags.extend(check_unrelated_children(board))
     diags.extend(check_unrelated_board(board))
     if arrow_label_rects is not None:

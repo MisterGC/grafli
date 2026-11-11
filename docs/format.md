@@ -24,7 +24,7 @@ its version. It is required.
 
 | Element | Purpose |
 |---------|---------|
-| `box`   | Rectangular container with a label. Can nest via `>parent`. |
+| `box`   | Rectangular container with a label. Can nest via `>parent`. The label is a title — one line, or two for a short name; detail goes into the box's `&doc`, whose first sentence shows as the doc line under the label, or a `!card` body. `grafli diagnose` warns on a label of three or more lines (`label-lines`). |
 | `note`  | Free-form text block. Supports tasks, questions, code-mode, Markdown-mode, and discussions (see [Text annotations](text-annotations.md)). |
 | `arrow` | Directed/bidirectional connector between two elements. |
 | `image` | A picture placed on the board (see [Images](images.md)). |
@@ -251,7 +251,9 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   folder, and names a file there that is not a readable SVG (an HTML page
   saved under `.svg`, say): such a file is no icon and the box keeps the
   layout it has without one. A `&graph` miniature draws its sub-board's icons from that
-  board's own `-res/icons/`.
+  board's own `-res/icons/`. An icon for a box goes this way, as
+  `*lead:<name>`, rather than as an `@ image` placed over the box: the
+  image is its own element and does not move or tint with the box.
   (Style mode → `i` opens the symbol grid, the board's own icons in a
   *this board* block after the built-in ones; `Tab` cycles fill → lead →
   badge; `0`–`9` types a number badge, `f` makes it filled.)

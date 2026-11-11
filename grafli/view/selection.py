@@ -508,6 +508,21 @@ class SelectionMixin:
         return {b.id: QRectF(b.x, b.y, b.w, b.h) for b in self._board.boxes
                 if self._lod_hull_member.get(b.id) is None}
 
+    def _live_pins(self, from_id: str, to_id: str,
+                   arrow: Arrow) -> tuple[str, str]:
+        """The arrow's pinned sides that still hold where it is drawn (#326).
+
+        A pin names a side of the element it was authored on. Zoomed out, an
+        end inside a collapsed container re-attaches to the container's tile,
+        and that side of the tile can face away from the other end: two
+        stacked layers joined by a `~from=left ~to=left` arrow would then run
+        down the board's left edge instead of through the gap between them.
+        Such an end is drawn unpinned, like any arrow between two tiles.
+        """
+        return (arrow.from_side if self._lod_reroute(from_id) == from_id
+                else "",
+                arrow.to_side if self._lod_reroute(to_id) == to_id else "")
+
     def _box_ancestors(self, box_id: str) -> set[str]:
         """Every container enclosing ``box_id``, walking up the parent chain."""
         out: set[str] = set()
@@ -566,8 +581,9 @@ class SelectionMixin:
             f_rect = self._elem_rect(f_elem)
             t_rect = self._elem_rect(t_elem)
 
-            pin_s = SIDE_NAMES.get(fwd.from_side, "")
-            pin_e = SIDE_NAMES.get(fwd.to_side, "")
+            pin_from, pin_to = self._live_pins(from_id, to_id, fwd)
+            pin_s = SIDE_NAMES.get(pin_from, "")
+            pin_e = SIDE_NAMES.get(pin_to, "")
             if f_id == t_id:
                 self_conns.append((idx, f_id, f_rect, pin_s, pin_e))
                 continue                     # placed once the sides are known
@@ -788,6 +804,7 @@ class SelectionMixin:
             # an edge that collapsed into a single tile, so it survives the drop
             # below and draws from the anchors chosen for it.
             is_self = from_id == to_id
+            pin_from, pin_to = self._live_pins(from_id, to_id, fwd)
             # Level-of-Detail: an endpoint inside a collapsed container re-routes
             # to that container's tile; an edge that becomes internal to a single
             # tile (both ends resolve to it) is dropped.
@@ -901,9 +918,9 @@ class SelectionMixin:
                          if bid not in skip],
                         (QRectF(*self._elem_rect(from_elem)),
                          QRectF(*self._elem_rect(to_elem)))
-                        if fwd.from_side or fwd.to_side else None,
+                        if pin_from or pin_to else None,
                         turn_at.get(idx))
-                elif fwd.from_side or fwd.to_side:
+                elif pin_from or pin_to:
                     # A direct connector between pinned sides stays one
                     # straight run unless an end faces away from the other.
                     pts = pinned_direct_points(start, a_start_side,
@@ -918,7 +935,7 @@ class SelectionMixin:
             # does a pinned one: its author placed its ends (#209).
             offset = conn_offsets.get(idx, 0.0)
             if (conn_path is None and offset and not fwd.routed
-                    and not (fwd.from_side or fwd.to_side)):
+                    and not (pin_from or pin_to)):
                 bow_side = (anchors[1] if anchors and from_hull is None
                             else side_of_point(self._elem_rect(from_elem), start))
                 conn_path = bowed_path(start, end, bow_side, offset)

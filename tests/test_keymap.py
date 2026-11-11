@@ -161,16 +161,20 @@ def test_the_page_has_no_trailing_whitespace():
     assert [i for i, ln in enumerate(lines, 1) if ln != ln.rstrip()] == []
 
 
-def test_the_help_opens_the_page_in_the_browser(tmp_path: Path, monkeypatch):
+def _click_page_button(tmp_path: Path, monkeypatch):
+    """Click **grafli at a glance** in the F1 help, the temp directory in
+    ``tmp_path``; the URLs it opened and the view."""
     _app()
     from PySide6.QtGui import QDesktopServices
     from PySide6.QtWidgets import QPushButton
     from grafli import helppage
     from grafli.app import MainWindow
+    temp = tmp_path / "tmp"
+    temp.mkdir(exist_ok=True)
     board = tmp_path / "b.grafli"
     board.write_text('#!grafli v4\n@ box a "A" 0,0 100x60\n')
     win = MainWindow(str(board))
-    monkeypatch.setattr(helppage.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(helppage.tempfile, "gettempdir", lambda: str(temp))
     opened = []
     monkeypatch.setattr(QDesktopServices, "openUrl",
                         lambda url: opened.append(url) or True)
@@ -182,7 +186,30 @@ def test_the_help_opens_the_page_in_the_browser(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(QDialog, "exec", _exec)
     win._view._show_cheatsheet()
     win.close()
+    return opened, win._view, temp
+
+
+def test_the_help_opens_the_page_in_the_browser(tmp_path: Path, monkeypatch):
+    from grafli import helppage
+    opened, _, temp = _click_page_button(tmp_path, monkeypatch)
     assert len(opened) == 1 and opened[0].isLocalFile()
     page = Path(opened[0].toLocalFile())
-    assert page.parent == tmp_path
+    assert page.parent == temp
     assert page.read_text(encoding="utf-8") == helppage.render_page()
+
+
+def test_a_file_squatting_the_old_fixed_name_does_not_stop_the_page(
+        tmp_path: Path, monkeypatch):
+    from grafli import helppage
+    temp = tmp_path / "tmp"
+    temp.mkdir()
+    squat = temp / "grafli-at-a-glance.html"
+    squat.write_text("someone else's")
+    squat.chmod(0o444)
+    opened, _, _ = _click_page_button(tmp_path, monkeypatch)
+    assert len(opened) == 1
+    page = Path(opened[0].toLocalFile())
+    assert page != squat
+    assert page.read_text(encoding="utf-8") == helppage.render_page()
+    assert squat.read_text() == "someone else's"
+

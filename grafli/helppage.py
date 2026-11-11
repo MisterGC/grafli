@@ -12,6 +12,7 @@ Regenerate that copy after changing the table::
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 from html import escape
@@ -534,8 +535,16 @@ def write_page(path: Path) -> Path:
 
 
 def local_copy() -> Path:
-    """The page written for this installed version, for the F1 help."""
-    return write_page(Path(tempfile.gettempdir()) / "grafli-at-a-glance.html")
+    """The page written for this installed version, for the F1 help.
+
+    Each call makes a new file with a name nobody else can claim first:
+    on Linux the temp directory is shared, and a fixed name there could
+    already be another account's file or a symlink."""
+    fd, name = tempfile.mkstemp(prefix="grafli-at-a-glance-", suffix=".html",
+                                dir=tempfile.gettempdir())
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(render_page())
+    return Path(name)
 
 
 if __name__ == "__main__":

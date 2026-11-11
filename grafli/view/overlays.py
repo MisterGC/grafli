@@ -550,8 +550,13 @@ class OverlaysMixin:
         """Write the "grafli at a glance" page for this version and open it
         in the browser: it needs no internet and matches the keys here."""
         from grafli import helppage
-        QDesktopServices.openUrl(
-            QUrl.fromLocalFile(str(helppage.local_copy())))
+        try:
+            page = helppage.local_copy()
+        except OSError as exc:
+            self.toast(f"Could not write the help page: {exc.strerror or exc}",
+                       "warn")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(page)))
 
     def _notes_help_html(self) -> str:
         hdr = (

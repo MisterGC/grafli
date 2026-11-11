@@ -213,3 +213,16 @@ def test_a_file_squatting_the_old_fixed_name_does_not_stop_the_page(
     assert page.read_text(encoding="utf-8") == helppage.render_page()
     assert squat.read_text() == "someone else's"
 
+
+def test_the_help_says_so_when_the_page_cannot_be_written(
+        tmp_path: Path, monkeypatch):
+    from grafli import helppage
+
+    def _fail():
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(helppage, "local_copy", _fail)
+    opened, view, _ = _click_page_button(tmp_path, monkeypatch)
+    assert opened == []
+    assert view._toast_text == ("Could not write the help page: "
+                                "No space left on device")

@@ -126,12 +126,16 @@ def _references_match(target: str, references: dict[str, str]) -> bool:
 
 def _examples_match(target: str, examples: dict[str, bytes]) -> bool:
     """True when the installed ``examples/`` directory carries exactly the
-    packaged boards and vault files, byte for byte. An empty packaged set
-    matches a missing/empty directory (installs from before examples)."""
+    packaged boards and vault files, byte for byte. A file the package
+    never ships (a ``.DS_Store`` Finder wrote) is not counted. An empty
+    packaged set matches a missing/empty directory (installs from before
+    examples)."""
+    from grafli.skills import is_example_file
     ex_dir = TARGETS[target] / "examples"
     installed = (
         {p.relative_to(ex_dir).as_posix(): p
-         for p in ex_dir.rglob("*") if p.is_file()}
+         for p in ex_dir.rglob("*")
+         if p.is_file() and is_example_file(p.relative_to(ex_dir))}
         if ex_dir.is_dir() else {}
     )
     if set(installed) != set(examples):

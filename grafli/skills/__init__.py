@@ -60,6 +60,14 @@ def skill_concat() -> str:
     return "".join(parts)
 
 
+def is_example_file(rel: Path) -> bool:
+    """True for a file the skill ships among its examples: no part of its
+    path relative to ``examples/`` starts with ``.`` or ``__``, so a
+    ``.DS_Store`` or ``__pycache__`` is never shipped nor counted when an
+    install is checked."""
+    return not any(part.startswith((".", "__")) for part in rel.parts)
+
+
 def named_examples() -> list[str]:
     """The stems of the example boards the skill's text names, sorted."""
     texts = [skill_path().read_text(encoding="utf-8"),
@@ -92,7 +100,6 @@ def skill_examples() -> dict[str, bytes]:
         if vault.is_dir():
             for p in sorted(vault.rglob("*")):
                 rel = p.relative_to(root)
-                if p.is_file() and not any(part.startswith((".", "__"))
-                                           for part in rel.parts):
+                if p.is_file() and is_example_file(rel):
                     out[rel.as_posix()] = p.read_bytes()
     return out

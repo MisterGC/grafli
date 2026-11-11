@@ -43,7 +43,8 @@ from grafli.constants import FONT_FAMILY, MINIMAP_MARGIN
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 
 
-HELP_COLUMNS = 3
+# The app's keys fill three columns; the browser tab's fewer keys two.
+HELP_COLUMNS = {keymap.APP: 3, keymap.TAB: 2}
 
 
 def escape_(text: str) -> str:
@@ -78,7 +79,8 @@ def cheatsheet_html(where: str, filter_text: str = "") -> str:
         rows = []
         for g in groups:
             entries = [
-                (keymap.compact_keys(k), k.does) for k in g.keys
+                (keymap.compact_keys(k), k.does, k.is_gesture)
+                for k in g.keys
                 if not ft or ft in keymap.compact_keys(k).lower()
                 or ft in k.does.lower() or ft in g.title.lower()
             ]
@@ -91,19 +93,22 @@ def cheatsheet_html(where: str, filter_text: str = "") -> str:
             if g.blurb:
                 rows.append(f"<tr><td colspan='2' style='{blurb}'>"
                             f"<i>{escape_(g.blurb)}</i></td></tr>")
-            for keys, desc in entries:
+            for keys, desc, is_gesture in entries:
+                # Keys stay on one line; a gesture's words may wrap.
+                wrap = "" if is_gesture else ";white-space:nowrap"
                 rows.append(
                     "<tr>"
-                    "<td style='padding-right:12px;white-space:nowrap'>"
+                    f"<td style='padding-right:12px{wrap}'>"
                     f"<b>{escape_(keys)}</b></td>"
-                    f"<td style='padding:2px 0'>{escape_(desc)}</td>"
+                    f"<td width='60%' style='padding:2px 0'>"
+                    f"{escape_(desc)}</td>"
                     "</tr>"
                 )
         return f"<table cellpadding='2'>{''.join(rows)}</table>"
 
     col_html = "</td><td width='24'></td><td valign='top'>".join(
         _render_column(col)
-        for col in _columns(keymap.groups(where), HELP_COLUMNS)
+        for col in _columns(keymap.groups(where), HELP_COLUMNS[where])
     )
     return f"<table><tr><td valign='top'>{col_html}</td></tr></table>"
 

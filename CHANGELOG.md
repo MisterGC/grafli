@@ -700,6 +700,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **A pinned arrow between stacked layers runs through the gap when
+  zoomed out.** An arrow such as `@ arrow canvas3d -> world !ortho
+  ~from=left ~to=left`, between boxes in two neighbouring layer
+  containers, moves onto the two containers when they fold zoomed out.
+  It kept its pins on the containers' left sides there, which are the
+  board's edge, so it ran down that edge instead of through the gap
+  between the layers. Zoomed out, an end that has moved to a container
+  is no longer pinned. At full zoom the pins hold as before.
+  ([#326](https://github.com/MisterGC/grafli/issues/326))
 - **Number markers read at board zoom.** On a 200x70 box at 100% zoom
   `*badge:1` drew a ring with a digit about 4 px tall, which read as an
   empty circle, and `*1` drew a digit about 10 px tall above the label.

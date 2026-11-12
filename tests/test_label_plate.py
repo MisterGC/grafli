@@ -140,3 +140,66 @@ def test_a_flat_teal_box_inside_a_primary_container_keeps_the_plate():
     view = _view(_board('@ box outer "Outer" 0,0 500x300 %primary',
                         '@ box f "Flat teal" 40,100 240x100 %teal !flat >outer'))
     _assert_plate_reads(view, view._box_items["f"])
+
+
+# A label over an image keeps its plate: the ink cannot be checked against a
+# picture, so the plate is near opaque and the ink reads on any (#325).
+def _image_view(tmp_path, colour: str, *lines: str):
+    img = QImage(400, 300, QImage.Format.Format_RGB32)
+    img.fill(QColor(colour))
+    img.save(str(tmp_path / "picture.png"))
+    from grafli.view import GrafliView
+    _app()
+    view = GrafliView()
+    path = tmp_path / "board.grafli"
+    view.load_board(parse(_board('@ image pic "picture.png" 0,0 400x300',
+                                 *lines)), path)
+    return view
+
+
+@pytest.mark.parametrize("name, picture", (("light", "#000000"),
+                                           ("dark", "#FFFFFF")))
+def test_a_coloured_label_over_an_image_keeps_a_plate_its_ink_reads_on(
+        tmp_path, name, picture):
+    theme.set_theme(name)
+    view = _image_view(tmp_path, picture,
+                       '@ box cpu "CPU" 40,40 200x80 %soft')
+    item = view._box_items["cpu"]
+    assert not item._fill_needs_plate()   # %soft alone draws no plate
+    assert item._label_on_plate()
+    ink = QColor(theme.INK)
+    assert theme.contrast_ratio(ink, _plate_pixel(view, item)) >= 4.5
+
+
+def test_a_plain_label_over_an_image_takes_the_plate(tmp_path):
+    view = _image_view(tmp_path, "#000000", '@ box ram "RAM" 40,40 200x80')
+    item = view._box_items["ram"]
+    assert item._label_on_plate()
+    assert (theme.contrast_ratio(QColor(theme.INK), _plate_pixel(view, item))
+            >= 4.5)
+
+
+def test_a_label_beside_the_image_keeps_the_fill_rule(tmp_path):
+    view = _image_view(tmp_path, "#000000",
+                       '@ box soft "Soft" 500,40 200x80 %soft',
+                       '@ box plain "Plain" 500,200 200x80')
+    assert not view._box_items["soft"]._label_on_plate()
+    assert not view._box_items["plain"]._label_on_plate()
+
+
+def test_an_opaque_box_drawn_above_the_image_keeps_the_fill_rule(tmp_path):
+    # Two levels deep, a leaf box draws above an unparented image, so its
+    # own fill hides the picture under its label.
+    view = _image_view(tmp_path, "#000000",
+                       '@ box outer "Outer" -100,-100 700x600',
+                       '@ box mid "Mid" -80,-40 640x500 >outer',
+                       '@ box leaf "Leaf" 40,100 200x80 %soft >mid')
+    leaf = view._box_items["leaf"]
+    assert leaf.zValue() > view._image_items["pic"].zValue()
+    assert not leaf._label_on_plate()
+
+
+def test_an_ink_label_over_an_image_takes_no_plate(tmp_path):
+    view = _image_view(tmp_path, "#000000",
+                       '@ box ink "Ink" 40,40 200x80 %soft !ink')
+    assert not view._box_items["ink"]._label_on_plate()

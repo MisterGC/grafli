@@ -82,8 +82,9 @@ in `grafli render`. A pair carrying a single arrow is drawn exactly as before.
   the map resolves the same way. A filled box draws its label straight on
   the fill where the board ink reads there at WCAG AA — 4.5:1, or 3:1 for
   a label of 24 px, or 18.66 px bold — and on a lighter plate inside the
-  fill where it does not; `!ink` picks an ink that reads on the fill
-  instead.
+  fill where it does not. A box label over an image, coloured or not,
+  always sits on a near-opaque plate. `!ink` picks an ink that reads on
+  the fill instead, and takes no plate.
 - `^anchor` — `topleft`, `topcenter` or `left`; without one a box's label
   is centred, and a box with children takes `topleft`. Controls how a box's
   label is placed. `left` places it top left like `topleft` and, zoomed out

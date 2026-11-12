@@ -471,6 +471,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A board using it is written `#!grafli v4`; older builds open it
   read-only.
   ([#307](https://github.com/MisterGC/grafli/issues/307))
+- **grafli at a glance: how to work with grafli and your agent, and every
+  key by mode, on one page.** It draws both ways of working with a Claude
+  Code session: at your desk, where the session edits the file and works
+  the `T:` and `Q:` notes you leave on the board, and in a meeting, where
+  you connect it to `grafli serve` and ask it with <kbd>:</kbd> or
+  <kbd>a</kbd>, take back its edit with <kbd>Shift</kbd>+<kbd>U</kbd> and
+  let it leave. Below that, every key of the app grouped by mode, with
+  Select in the middle and a key to each mode, and the browser tab's keys
+  by the link they come with (watch, edit, present). The website links it
+  as *At a glance*; in the app, **grafli at a glance ↗** in the
+  <kbd>F1</kbd> help opens it in your browser, offline. The <kbd>F1</kbd>
+  help and the page take their keys from the same table, and the <kbd>F1</kbd>
+  help gained a *Browser Tab* tab with the tab's keys.
+  ([#324](https://github.com/MisterGC/grafli/issues/324))
 
 ### Changed
 - **`grafli diagnose` warns when a box label stacks details, and the
@@ -510,9 +524,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dark fill such as `%primary` keeps the plate. For this the light theme's
   `%clay` is lighter (`#C56C54` → `#D08976`) and so is its `%teal`
   (`#3E9B92` → `#44AAA0`), so a board using them looks a shade paler. A
-  coloured box inside another one is judged against what it shows on.
-  `grafli render` draws it the same way.
-  ([#300](https://github.com/MisterGC/grafli/issues/300))
+  coloured box inside another one is judged against what it shows on. A
+  box label over an image, coloured or plain, sits on a near-opaque plate,
+  so CPU, RAM and Storage labels on a motherboard picture read whatever
+  the picture shows under them. `grafli render` draws it the same way.
+  ([#300](https://github.com/MisterGC/grafli/issues/300),
+  [#325](https://github.com/MisterGC/grafli/issues/325))
 - **Arrow labels move into free space.** A label sat at the middle of its
   arrow even where that put it on a box, on its own end box or on another
   arrow's label, so a fan-out or two crossing arrows read as a mess. A
@@ -699,6 +716,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **A pinned arrow between stacked layers runs through the gap when
+  zoomed out.** An arrow such as `@ arrow canvas3d -> world !ortho
+  ~from=left ~to=left`, between boxes in two neighbouring layer
+  containers, moves onto the two containers when they fold zoomed out.
+  It kept its pins on the containers' left sides there, which are the
+  board's edge, so it ran down that edge instead of through the gap
+  between the layers. Zoomed out, an end that has moved to a container
+  is no longer pinned. At full zoom the pins hold as before.
+  ([#326](https://github.com/MisterGC/grafli/issues/326))
+- **A right-angle arrow that skips a layer crosses it where it is empty.**
+  On a board of stacked layer containers, an `!ortho` arrow from a box in
+  one layer to the box straight below it two layers down treated the
+  layer in between as one solid block. It went out to the board's edge,
+  down past the layer and back in. It now runs straight down through the
+  layer's empty space, drawn behind it, and steps round only the boxes
+  inside it. Zoomed out, a layer folded into a tile is still solid.
+  ([#326](https://github.com/MisterGC/grafli/issues/326))
+- **A small image shows its picture at 100%.** An image under 32 px on
+  a side, such as a 30x30 SVG icon, drew the zoomed-out stand-in — a
+  grey plate with an "SVG" tag — even at 100% zoom, on the canvas, in
+  `grafli render` and in the live tab. An image now keeps its picture
+  until it is drawn at less than half its own size; a big image still
+  swaps for the stand-in at 32 px on screen when zoomed far out.
+  ([#327](https://github.com/MisterGC/grafli/issues/327))
 - **Number markers read at board zoom.** On a 200x70 box at 100% zoom
   `*badge:1` drew a ring with a digit about 4 px tall, which read as an
   empty circle, and `*1` drew a digit about 10 px tall above the label.

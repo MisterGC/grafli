@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>grafli at a glance</title>
+<meta name="description" content="How to work with grafli and your agent, and every key by mode.">
+<style>
+:root {
+  --bg: #F6F3EE; --card: #FFFDF9; --ink: #2F3437; --muted: #5A5A5A;
+  --faint: #8A8580; --rule: #D5D0C8; --cap: #FFFFFF; --cap-edge: #B3AB9E;
+  --surface: #ECE8E1; --teal: #2F5D5C; --agent: #7048E8;
+  --present: #C9692F; --task: #C53030; --question: #805AD5;
+  --agent-soft: #7048E81A; --present-soft: #D4804E22;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1C1B18; --card: #24221E; --ink: #E8E4DD; --muted: #C4BFB6;
+    --faint: #8C877F; --rule: #3B372F; --cap: #2F2C27; --cap-edge: #5A554C;
+    --surface: #2A2823; --teal: #6FB3B0; --agent: #A48BF5;
+    --present: #DB8B5C; --task: #E07070; --question: #A98BE8;
+    --agent-soft: #A48BF524; --present-soft: #DB8B5C24;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1C1B18; --card: #24221E; --ink: #E8E4DD; --muted: #C4BFB6;
+  --faint: #8C877F; --rule: #3B372F; --cap: #2F2C27; --cap-edge: #5A554C;
+  --surface: #2A2823; --teal: #6FB3B0; --agent: #A48BF5;
+  --present: #DB8B5C; --task: #E07070; --question: #A98BE8;
+  --agent-soft: #A48BF524; --present-soft: #DB8B5C24;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+code, kbd { font-family: "JetBrains Mono", ui-monospace,
+  SFMono-Regular, Menlo, Consolas, monospace; }
+a { color: inherit; }
+.top {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem 1.5rem;
+  padding: 1rem clamp(1rem, 4vw, 3rem); border-bottom: 1px solid var(--rule);
+}
+.mark { font-weight: 800; font-size: 1.25rem; letter-spacing: -.02em;
+  text-decoration: none; }
+.top nav { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem;
+  font-size: .9rem; }
+.top nav a { color: var(--muted); text-decoration: none; }
+.top nav a:hover { color: var(--ink); text-decoration: underline; }
+main { max-width: 76rem; margin: 0 auto;
+  padding: 0 clamp(1rem, 4vw, 3rem) 4rem; }
+.hero { padding: 3rem 0 1rem; }
+.hero h1 { font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.05;
+  letter-spacing: -.03em; margin: 0 0 .75rem; font-weight: 800; }
+.hero p { font-size: 1.1rem; color: var(--muted); max-width: 44rem;
+  margin: 0; }
+section { padding-top: 2.5rem; }
+h2 { font-size: 1.5rem; letter-spacing: -.02em; margin: 0 0 .25rem; }
+.lede { color: var(--muted); margin: 0 0 1.25rem; max-width: 48rem; }
+.ways { display: grid; gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr)); }
+.way { background: var(--card); border: 1px solid var(--rule);
+  border-radius: 14px; padding: 1.25rem 1.25rem 1rem; min-width: 0; }
+.eyebrow { margin: 0; font-size: .75rem; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--teal); }
+.meet .eyebrow { color: var(--present); }
+.way h3 { margin: .15rem 0 1rem; font-size: 1.15rem; letter-spacing: -.01em; }
+.flow { display: flex; align-items: stretch; gap: 0; margin-bottom: .75rem; }
+.node { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
+  align-items: center; text-align: center; gap: .1rem; padding: .7rem .4rem;
+  border: 1.5px solid var(--ink); border-radius: 10px;
+  background: var(--bg); }
+.node svg { width: 26px; height: 26px; fill: none; stroke: currentColor;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+  margin-bottom: .15rem; }
+.node b { font-size: .92rem; }
+.node span { font-size: .75rem; color: var(--muted); line-height: 1.3; }
+.node.file { border-style: dashed; }
+.node.agent { border-color: var(--agent); background: var(--agent-soft); }
+.node.agent svg, .node.agent b { color: var(--agent); }
+.node.present { border-color: var(--present); background: var(--present-soft); }
+.node.present svg, .node.present b { color: var(--present); }
+.wire { flex: 0 0 6.25rem; display: flex; flex-direction: column;
+  justify-content: center; gap: .35rem; padding: 0 .35rem;
+  font-size: .72rem; color: var(--muted); line-height: 1.2; }
+.wire span { display: flex; align-items: baseline; gap: .25rem; }
+.wire .back { justify-content: flex-end; text-align: right;
+  flex-direction: row-reverse; }
+.wire .ar { font-style: normal; color: var(--ink); font-size: .95rem; }
+.wire .ar.d { display: none; }
+.wire kbd { font-size: .68rem; padding: 0 .3em; min-width: 1.3em; }
+.notes { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center;
+  margin: 0 0 .75rem; }
+.note { font-size: .82rem; padding: .3rem .6rem; border-radius: 6px;
+  border: 1px solid currentColor; background: var(--bg); }
+.note.task { color: var(--task); }
+.note.question { color: var(--question); }
+.steps { list-style: none; counter-reset: s; margin: 0; padding: 0; }
+.steps li { counter-increment: s; display: grid;
+  grid-template-columns: 1.75rem 1fr; column-gap: .5rem;
+  padding: .55rem 0; border-top: 1px solid var(--rule); }
+.steps li::before { content: counter(s); grid-row: span 2; width: 1.5rem;
+  height: 1.5rem; border-radius: 50%; background: var(--surface);
+  font-size: .78rem; font-weight: 700; display: grid; place-items: center;
+  margin-top: .05rem; }
+.do { font-weight: 600; font-size: .9rem; overflow-wrap: anywhere; }
+.get { color: var(--muted); font-size: .88rem; }
+.do code, .get code { font-size: .82em; background: var(--surface);
+  padding: .05em .35em; border-radius: 4px; font-weight: 500; }
+q { font-style: italic; font-weight: 500; }
+kbd { display: inline-block; min-width: 1.6em; padding: .05em .4em;
+  border: 1px solid var(--cap-edge); border-bottom-width: 2.5px;
+  border-radius: 5px; background: var(--cap); color: var(--ink);
+  font-size: .8rem; line-height: 1.45; text-align: center;
+  font-weight: 600; white-space: nowrap; }
+kbd.glyph { font-family: ui-sans-serif, system-ui, -apple-system,
+  "Segoe UI", sans-serif; font-size: .9rem; line-height: 1.3; }
+.plus { color: var(--faint); font-size: .75rem; margin: 0 .12em; }
+.or { color: var(--faint); margin: 0 .3em; font-size: .85rem; }
+.seq { display: inline-flex; gap: .15em; align-items: center;
+  white-space: nowrap; }
+.gest { font-size: .8rem; color: var(--teal); font-weight: 600;
+  font-style: italic; line-height: 1.3; }
+.modemap { display: grid; grid-template-columns: minmax(11rem, 15rem) 1fr;
+  align-items: center; margin: 0 0 1.5rem; }
+.hub { display: flex; flex-direction: column; align-items: flex-start;
+  gap: .35rem; padding: 1rem 1.1rem; border: 2px solid var(--ink);
+  border-radius: 14px; background: var(--card); position: relative;
+  z-index: 1; }
+.hub-name { font-size: 1.35rem; font-weight: 800; letter-spacing: -.02em; }
+.hub-note { font-size: .78rem; color: var(--muted); }
+.spokes { display: grid; gap: .5rem;
+  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  margin-left: 1.5rem; padding: .25rem 0 .25rem 1.25rem;
+  border-left: 2px solid var(--ink); position: relative; }
+.spokes::before { content: ""; position: absolute; left: -1.5rem;
+  top: 50%; width: 1.5rem; border-top: 2px solid var(--ink); }
+.spoke { display: flex; align-items: center; gap: .55rem;
+  padding: .45rem .6rem; border: 1px solid var(--rule); border-radius: 9px;
+  background: var(--card); text-decoration: none; font-size: .88rem;
+  font-weight: 600; }
+.spoke:hover { border-color: var(--ink); }
+.cards { columns: 3 20rem; column-gap: 1rem; }
+.card { background: var(--card); border: 1px solid var(--rule);
+  border-radius: 12px; padding: .9rem 1rem .6rem; min-width: 0;
+  scroll-margin-top: 1rem; break-inside: avoid; margin: 0 0 1rem;
+  display: inline-block; width: 100%; }
+.card:target { outline: 2px solid var(--teal); }
+.card h3 { margin: 0; font-size: 1rem; display: flex; align-items: center;
+  justify-content: space-between; gap: .5rem; }
+.card.agent { border-color: var(--agent); }
+.card.agent h3 { color: var(--agent); }
+.card.present { border-color: var(--present); }
+.card.present h3 { color: var(--present); }
+.blurb { margin: .1rem 0 .5rem; font-size: .8rem; color: var(--faint); }
+.rows { display: grid; grid-template-columns: max-content 1fr;
+  column-gap: .75rem; }
+.row { display: contents; }
+.row > div { padding: .32rem 0; border-top: 1px solid var(--rule); }
+.k { display: flex; flex-wrap: wrap; align-items: center; row-gap: .2rem;
+  max-width: 10rem; }
+.d { font-size: .87rem; }
+.links { display: grid; gap: 1rem; margin: 0 0 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); }
+.link { border-radius: 12px; padding: .9rem 1rem; border: 1px solid
+  var(--rule); background: var(--card); }
+.link.present { border: 2px solid var(--present); }
+.link h3 { margin: 0; font-size: 1rem; }
+.link.present h3 { color: var(--present); }
+.link p { margin: .15rem 0 .6rem; color: var(--muted); font-size: .85rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.chip { font-size: .8rem; font-weight: 600; text-decoration: none;
+  padding: .15rem .55rem; border-radius: 999px; background: var(--surface); }
+.chip.agent { background: var(--agent-soft); color: var(--agent); }
+.chip.present { background: var(--present-soft); color: var(--present); }
+footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid
+  var(--rule); color: var(--faint); font-size: .82rem; }
+footer code { font-size: .9em; }
+@media (max-width: 40rem) {
+  .flow { flex-direction: column; align-items: stretch; }
+  .node { flex-direction: row; text-align: left; gap: .6rem;
+    padding: .55rem .75rem; flex-wrap: wrap; }
+  .node svg { margin: 0; }
+  .node span { flex-basis: 100%; padding-left: calc(26px + .6rem);
+    margin-top: -.2rem; }
+  .wire { flex: none; flex-direction: row; justify-content: center;
+    gap: 1.25rem; padding: .35rem 0; }
+  .wire .back { flex-direction: row; text-align: left; }
+  .wire .ar.r { display: none; }
+  .wire .ar.d { display: inline; }
+  .modemap { grid-template-columns: 1fr; }
+  .spokes { margin: 0 0 0 1.25rem; padding-top: 1rem;
+    grid-template-columns: 1fr 1fr; }
+  .spokes::before { left: -2px; top: -1px; width: 0; height: 0; }
+  .spoke { font-size: .82rem; }
+  .k { max-width: 8.5rem; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+<a class="mark" href="https://grafli.mistergc.dev/">grafli</a>
+<nav>
+<a href="#agent">With your agent</a>
+<a href="#app">Desktop keys</a>
+<a href="#tab">Browser tab keys</a>
+<a href="https://grafli.mistergc.dev/keybindings/">Every key, in words ↗</a>
+</nav>
+</header>
+<main>
+<section class="hero">
+<h1>grafli at a glance</h1>
+<p>Draw a board with the keyboard, let your Claude Code session draw on it
+with you, at your desk or live in a meeting, and find every key by the mode
+it works in.</p>
+</section>
+<section id="agent">
+<h2>Two ways to work with your agent</h2>
+<p class="lede">The agent is a Claude Code session you already run. grafli
+never starts one: at your desk the session edits the file, in a meeting you
+connect it to the board.</p>
+<div class="ways">
+<article class="way desk">
+<p class="eyebrow">At your desk</p>
+<h3>The session edits the file, the app shows it</h3>
+<div class="flow"><div class="node"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4" width="19" height="15" rx="2"/><path d="M2.5 8h19"/><rect x="6" y="11" width="5" height="4" rx="1"/><path d="M11 13h4.5v-2.5"/></svg><b>grafli</b><span>your keys, saved as you go</span></div><div class="wire"><span class="fwd"><i class="ar r">→</i><i class="ar d">↓</i>saves</span><span class="back"><i class="ar r">←</i><i class="ar d">↑</i>redraws on change</span></div><div class="node file"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2.5h8l4.5 4.5v14.5h-12.5z"/><path d="M14 2.5V7h4.5M9 12h6M9 15.5h6M9 19h3.5"/></svg><b>board.grafli</b><span>plain text, in git</span></div><div class="wire"><span class="fwd"><i class="ar r">→</i><i class="ar d">↓</i>reads the notes</span><span class="back"><i class="ar r">←</i><i class="ar d">↑</i>writes the board</span></div><div class="node agent"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="M6.5 10l3 2.5-3 2.5M12 15.5h5"/></svg><b>Claude Code</b><span>with the grafli skill</span></div></div>
+<div class="notes"><span class="note task"><b>T:</b> split the cache in two</span><span class="note question"><b>Q:</b> why two queues?</span></div>
+<ol class="steps">
+<li><div class="do"><code>grafli skill install claude</code></div><div class="get">Once: the session learns to write boards that read well.</div></li>
+<li><div class="do">Ask: <q>draw the request path as a grafli board</q></div><div class="get">The session writes <code>board.grafli</code> and checks it with <code>grafli render</code>.</div></li>
+<li><div class="do"><code>grafli board.grafli</code></div><div class="get">The app opens it and redraws whenever the session changes the file.</div></li>
+<li><div class="do"><span class="seq"><kbd>t</kbd></span> click, type <code>T:</code> or <code>Q:</code></div><div class="get">A task for the session, or a question it answers on the board.</div></li>
+<li><div class="do">Ask: <q>work the notes on the board</q></div><div class="get">It does the tasks and answers the questions beside them.</div></li>
+<li><div class="do"><code>git diff</code></div><div class="get">The board is text: review what changed, line by line.</div></li>
+</ol>
+</article>
+<article class="way meet">
+<p class="eyebrow">In a meeting</p>
+<h3>grafli serve in a tab, your session as the agent</h3>
+<div class="flow"><div class="node present"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="15" rx="2"/><path d="M2.5 9.5h19M6 5v4.5M11 5v4.5"/></svg><b>Browser tabs</b><span>present, edit, watch</span></div><div class="wire"><span class="fwd"><i class="ar r">→</i><i class="ar d">↓</i>edits, <span class="seq"><kbd>:</kbd></span> requests</span><span class="back"><i class="ar r">←</i><i class="ar d">↑</i>drawings, live</span></div><div class="node"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="17" height="7" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg><b>grafli serve</b><span>on your LAN or VPN</span></div><div class="wire"><span class="fwd"><i class="ar r">→</i><i class="ar d">↓</i>requests</span><span class="back"><i class="ar r">←</i><i class="ar d">↑</i>edits it</span></div><div class="node agent"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4" width="19" height="16" rx="2"/><path d="M6.5 10l3 2.5-3 2.5M12 15.5h5"/></svg><b>Claude Code</b><span>connected via grafli agent</span></div></div>
+<ol class="steps">
+<li><div class="do"><code>claude mcp add -s user grafli -- grafli agent</code></div><div class="get">Once: Claude Code knows grafli's tools.</div></li>
+<li><div class="do"><code>grafli serve boards/ --host 192.168.1.20</code></div><div class="get">Three links per board: open <em>present</em> yourself, hand out <em>edit</em> or <em>watch</em>.</div></li>
+<li><div class="do"><code>claude --dangerously-load-development-channels server:grafli</code>, then <code>/mcp__grafli__connect</code></div><div class="get">Your session is the agent: every tab shows it in the bar, in purple.</div></li>
+<li><div class="do"><span class="seq"><kbd>:</kbd></span> plain language, or <span class="seq"><kbd>a</kbd></span> on the selection</div><div class="get">Its edit lands and glows. More than 5 changes wait as a proposal: <span class="seq"><kbd>Enter</kbd></span> takes it, <span class="seq"><kbd>x</kbd></span> drops it.</div></li>
+<li><div class="do"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>U</kbd></span></div><div class="get">Takes back the agent's last edit; what the others changed stays.</div></li>
+<li><div class="do">Ask: <q>disconnect from grafli</q></div><div class="get">Leaving: the tabs show the agent as gone. Stop <code>grafli serve</code> and the board is gone from every tab; the files never left your machine.</div></li>
+</ol>
+</article>
+</div>
+</section>
+<section id="app">
+<h2>The desktop app, by mode</h2>
+<p class="lede">Select is home: most keys work there, on what is selected.
+One key enters a mode, <kbd>Esc</kbd> comes back. <kbd>F1</kbd> shows all
+of this in the app, with a filter.</p>
+<div class="modemap">
+<div class="hub"><span class="hub-name">Select</span><span class="hub-keys"><span class="seq"><kbd>v</kbd></span><span class="or">/</span><span class="seq"><kbd>Esc</kbd></span></span><span class="hub-note">home: every topic below works here</span></div>
+<div class="spokes">
+<a class="spoke" href="#k-modes"><span class="seq"><kbd>n</kbd></span><span>Create box</span></a>
+<a class="spoke" href="#k-modes"><span class="seq"><kbd>t</kbd></span><span>Create note</span></a>
+<a class="spoke" href="#k-modes"><span class="seq"><kbd>i</kbd></span><span>SVG mockup in place</span></a>
+<a class="spoke" href="#k-modes"><span class="seq"><kbd>c</kbd></span><span>Connect</span></a>
+<a class="spoke" href="#k-note"><span class="seq"><kbd>e</kbd></span><span>Editing text</span></a>
+<a class="spoke" href="#k-style"><span class="seq"><kbd>s</kbd></span><span>Style</span></a>
+<a class="spoke" href="#k-dimension"><span class="seq"><kbd>d</kbd></span><span>Dimension</span></a>
+<a class="spoke" href="#k-search"><span class="seq"><kbd>/</kbd></span><span>Search</span></a>
+<a class="spoke" href="#k-playback"><span class="seq"><kbd>F5</kbd></span><span>Tour playback</span></a>
+</div>
+</div>
+<div class="cards">
+<article class="card" id="k-modes">
+<h3>Modes</h3>
+<p class="blurb">One key from Select; Esc comes back</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>v</kbd></span></div><div class="d">Select mode, the default</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>n</kbd></span></div><div class="d">Create box (⇧click stays in mode)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>t</kbd></span></div><div class="d">Create note (⇧click stays in mode)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>i</kbd></span></div><div class="d">SVG mockup in place: a starter .svg opens in its app</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>c</kbd></span></div><div class="d">Connect: click two nodes (the same twice: a loop)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Esc</kbd></span></div><div class="d">Cancel / back to Select</div></div>
+</div>
+</article>
+<article class="card" id="k-navigate">
+<h3>Navigate</h3>
+<p class="blurb">In Select</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">←↑↓→</kbd></span></div><div class="d">Pan the view (when nothing is selected)</div></div>
+<div class="row"><div class="k"><span class="gest">Middle / right drag</span></div><div class="d">Pan from anywhere</div></div>
+<div class="row"><div class="k"><span class="gest">Two-finger scroll</span></div><div class="d">Pan (trackpad)</div></div>
+<div class="row"><div class="k"><span class="gest">Wheel / ⌃scroll / pinch</span></div><div class="d">Zoom in / out</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>+</kbd></span><span class="or">/</span><span class="seq"><kbd>-</kbd></span></div><div class="d">Zoom in / out</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>z</kbd></span></div><div class="d">Zoom in: 25 → 50 → 100 → 150 % (cycle)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>Z</kbd></span></div><div class="d">Zoom to fit (whole graph)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>z</kbd></span></div><div class="d">Focus: zoom to the selection ⇄ back</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>p</kbd></span></div><div class="d">Select parent (zoom if needed)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>c</kbd></span></div><div class="d">Select first child</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Tab</kbd></span><span class="or">/</span><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>Tab</kbd></span></div><div class="d">Cycle siblings (or search matches)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>f</kbd></span><span class="or">/</span><span class="seq"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>J</kbd></span></div><div class="d">Jump to any item: type its label</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>O</kbd></span><span class="or">/</span><span class="seq"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>I</kbd></span></div><div class="d">View history back / forward</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Alt</kbd></span></div><div class="d">Hold: follow connectors with keys</div></div>
+</div>
+</article>
+<article class="card" id="k-levels">
+<h3>Boards &amp; levels</h3>
+<p class="blurb">In Select</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>d</kbd></span><span class="or">/</span><span class="seq"><kbd>Return</kbd></span></div><div class="d">Zoom into the box's sub-board</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>u</kbd></span></div><div class="d">Back to the board you came from</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>v</kbd></span></div><div class="d">Peek at the box's doc (Esc closes)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>K</kbd></span></div><div class="d">Open / switch buffer</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>6</kbd></span></div><div class="d">Toggle last buffer</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Q</kbd></span></div><div class="d">Close buffer (no selection)</div></div>
+</div>
+</article>
+<article class="card" id="k-edit">
+<h3>Edit</h3>
+<p class="blurb">In Select, on the selection</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>e</kbd></span></div><div class="d">Edit the element inline: label, note, image's file</div></div>
+<div class="row"><div class="k"><span class="gest">Double-click</span></div><div class="d">Edit what you clicked</div></div>
+<div class="row"><div class="k"><span class="gest">Shift+click</span></div><div class="d">Add to / take from the selection</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>E</kbd></span></div><div class="d">textli, the full editor: note text / box or image markdown</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>W</kbd></span></div><div class="d">Set URL on the selected item</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Return</kbd></span></div><div class="d">Open the attachment: a link, a sub-board</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>y</kbd></span><span class="or">/</span><span class="seq"><kbd>p</kbd></span></div><div class="d">Yank / paste</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>u</kbd></span><span class="or">/</span><span class="seq"><kbd class="glyph">⌘</kbd><span class="plus">+</span><kbd>Z</kbd></span></div><div class="d">Undo</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>R</kbd></span><span class="or">/</span><span class="seq"><kbd class="glyph">⌘</kbd><span class="plus">+</span><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>Z</kbd></span></div><div class="d">Redo</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>x</kbd></span><span class="or">/</span><span class="seq"><kbd>Delete</kbd></span></div><div class="d">Delete the selection</div></div>
+<div class="row"><div class="k"><span class="gest">Drag a note's right edge</span></div><div class="d">Note wrap width (~width=N; 80 by default)</div></div>
+</div>
+</article>
+<article class="card" id="k-create">
+<h3>Create</h3>
+<p class="blurb">In Select</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>o</kbd></span><span class="or">/</span><span class="seq"><kbd>O</kbd></span></div><div class="d">New box below / above the selection</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Ctrl</kbd><span class="plus">+</span><kbd class="glyph">←↑↓→</kbd></span></div><div class="d">New connected box on that side</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>G</kbd></span></div><div class="d">Wrap the selection in a new parent box</div></div>
+<div class="row"><div class="k"><span class="gest">Alt+drag</span></div><div class="d">Connect nodes: boxes, notes, images</div></div>
+<div class="row"><div class="k"><span class="gest">Alt+click</span></div><div class="d">Paste at that point</div></div>
+</div>
+</article>
+<article class="card" id="k-note">
+<h3>Editing text <span class="enter"><span class="seq"><kbd>e</kbd></span></span></h3>
+<p class="blurb">The inline editor is vim-capable and opens in INSERT</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>Esc</kbd></span></div><div class="d">In INSERT: to NORMAL (vim motions)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Esc</kbd></span></div><div class="d">In NORMAL: keep and close</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>Esc</kbd></span></div><div class="d">In NORMAL: drop and close</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Enter</kbd></span></div><div class="d">Accept a label edit</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>G</kbd></span></div><div class="d">Insert a glyph</div></div>
+<div class="row"><div class="k"><span class="gest">Click elsewhere</span></div><div class="d">Keep and close</div></div>
+</div>
+</article>
+<article class="card" id="k-style">
+<h3>Style <span class="enter"><span class="seq"><kbd>s</kbd></span></span></h3>
+<p class="blurb">s on a selection; the same keys for box, note, arrow</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>e</kbd></span></div><div class="d">Appearance: plate / flat / card, label spot (left: a band zoomed out), ink, outline</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>c</kbd></span></div><div class="d">Color grid, then the map palette's %names and kinds (hjkl, Enter; 1–9 an entry)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>i</kbd></span></div><div class="d">Symbol grid, then the board's own icons from -res/icons/ (Tab: fill / lead / badge; 0–9 a number badge, f filled)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>t</kbd></span></div><div class="d">Text grid: size × bold / italic (Tab: the font; o outline, s shadow)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>s</kbd></span></div><div class="d">Status label on a box (~status=), then its colour</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>r</kbd></span></div><div class="d">Round box: a circle when square, a pill otherwise</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>j</kbd></span><span class="or">/</span><span class="seq"><kbd>k</kbd></span></div><div class="d">Nudge text size</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>d</kbd></span></div><div class="d">On to Dimension mode</div></div>
+</div>
+</article>
+<article class="card" id="k-dimension">
+<h3>Dimension <span class="enter"><span class="seq"><kbd>d</kbd></span></span></h3>
+<p class="blurb">d on a selection of boxes, or s then d</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>h</kbd></span><span class="or">/</span><span class="seq"><kbd>j</kbd></span><span class="or">/</span><span class="seq"><kbd>k</kbd></span><span class="or">/</span><span class="seq"><kbd>l</kbd></span></div><div class="d">Shrink the boxes on that side</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>H</kbd></span><span class="or">/</span><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>J</kbd></span><span class="or">/</span><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>K</kbd></span><span class="or">/</span><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>L</kbd></span></div><div class="d">Grow them on that side</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>r</kbd></span></div><div class="d">Snap to the slide aspect ratio (an export frame)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>s</kbd></span></div><div class="d">Back to Style</div></div>
+</div>
+</article>
+<article class="card" id="k-arrow">
+<h3>Arrows</h3>
+<p class="blurb">With an arrow selected</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>e</kbd></span></div><div class="d">Edit the arrow's label</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>s</kbd></span></div><div class="d">Arrow style mode</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>s</kbd><kbd>e</kbd></span></div><div class="d">Appearance: heads, ends, line, routing, sides, colour</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>s</kbd><kbd>c</kbd></span></div><div class="d">Colour grid</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>s</kbd><kbd>t</kbd></span></div><div class="d">Label text size</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>s</kbd><kbd>r</kbd></span></div><div class="d">Routing: direct / spline / stair</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>s</kbd><kbd>a</kbd></span></div><div class="d">Kind: graph edge ⇄ annotation</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>h</kbd></span><span class="or">/</span><span class="seq"><kbd>l</kbd></span></div><div class="d">In style mode: toggle arrowheads</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>j</kbd></span><span class="or">/</span><span class="seq"><kbd>k</kbd></span></div><div class="d">In style mode: label size</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>J</kbd></span><span class="or">/</span><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>K</kbd></span></div><div class="d">In style mode: line pattern</div></div>
+<div class="row"><div class="k"><span class="gest">Shift+click</span></div><div class="d">Add an arrow to the selection, style many</div></div>
+</div>
+</article>
+<article class="card" id="k-layout">
+<h3>Lay out</h3>
+<p class="blurb">In Select</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>G</kbd></span></div><div class="d">Snap to grid</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>=</kbd></span></div><div class="d">Auto-layout the selection (or all)</div></div>
+<div class="row"><div class="k"><span class="gest">Drag a corner</span></div><div class="d">Scale size and font; ⇧ frees the ratio</div></div>
+<div class="row"><div class="k"><span class="gest">Drag an edge</span></div><div class="d">Stretch one axis</div></div>
+</div>
+</article>
+<article class="card" id="k-focus">
+<h3>Focus &amp; analysis</h3>
+<p class="blurb">In Select</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>,</kbd></span></div><div class="d">Dim arrows</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>N</kbd></span></div><div class="d">Dim notes: concentrate on the graph</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>A</kbd></span></div><div class="d">Connectivity heatmap, then each overlay file</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>B</kbd></span></div><div class="d">Subgraph focus (cycle direction)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>B</kbd></span></div><div class="d">Focus depth: full / 1-hop</div></div>
+</div>
+</article>
+<article class="card" id="k-search">
+<h3>Search <span class="enter"><span class="seq"><kbd>/</kbd></span></span></h3>
+<p class="blurb">Dims everything that does not match</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="gest">Type</span></div><div class="d">Filter by label, id and note text</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Tab</kbd></span><span class="or">/</span><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>Tab</kbd></span></div><div class="d">Next / previous match</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Enter</kbd></span></div><div class="d">Hide the input, keep the filter</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Esc</kbd></span></div><div class="d">Clear the filter</div></div>
+</div>
+</article>
+<article class="card" id="k-view">
+<h3>View</h3>
+<p class="blurb">Anywhere</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>#</kbd></span></div><div class="d">Grid</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>M</kbd></span></div><div class="d">Minimap</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>M</kbd></span></div><div class="d">Toggle the legend of the map's palette (also in exports)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>D</kbd></span></div><div class="d">Level of detail (semantic zoom) on / off</div></div>
+<div class="row"><div class="k"><span class="gest">Double-click a tile</span></div><div class="d">Fly into a collapsed group</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>\</kbd></span></div><div class="d">Tools panel</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⌘</kbd><span class="plus">+</span><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>D</kbd></span></div><div class="d">Light / dark theme</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>`</kbd></span></div><div class="d">Debug overlay</div></div>
+</div>
+</article>
+<article class="card" id="k-tours">
+<h3>Bookmarks &amp; tours</h3>
+<p class="blurb">In Select</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>b</kbd></span></div><div class="d">Bookmark what's shown (or the selection)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>B</kbd></span></div><div class="d">Bookmark the exact viewport</div></div>
+<div class="row"><div class="k"><span class="gest">One note + g b, no caption</span></div><div class="d">A text slide, links clickable</div></div>
+<div class="row"><div class="k"><span class="gest">Flows tab step + g b</span></div><div class="d">Insert a new bookmark after it</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>f</kbd></span></div><div class="d">Start / stop recording a flow</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>F</kbd></span></div><div class="d">Auto-flow: walk forward arrows from the box</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>t</kbd></span></div><div class="d">Pick a tour through the box, play from there</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>F5</kbd></span></div><div class="d">Present the flow fullscreen</div></div>
+<div class="row"><div class="k"><span class="gest">Flows tab (\)</span></div><div class="d">Reorder, add, remove, dwell, re-generate</div></div>
+<div class="row"><div class="k"><span class="gest">Caption</span></div><div class="d">Shown whole, wrapped: keep it ≤ 280 chars</div></div>
+<div class="row"><div class="k"><span class="gest">~detail=</span></div><div class="d">Flow / stop level of detail: full / summary</div></div>
+<div class="row"><div class="k"><span class="gest">~focus=</span></div><div class="d">Flow / stop focus: complete fades what is cut</div></div>
+</div>
+</article>
+<article class="card" id="k-playback">
+<h3>Tour playback <span class="enter"><span class="seq"><kbd>F5</kbd></span></span></h3>
+<p class="blurb">While a tour plays, in the app or presenting</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>Space</kbd></span><span class="or">/</span><span class="seq"><kbd class="glyph">→</kbd></span></div><div class="d">Next stop</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">←</kbd></span></div><div class="d">Previous stop</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>t</kbd></span></div><div class="d">Smooth camera ⇄ instant cuts</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>p</kbd></span></div><div class="d">Paused → playing → loop</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>d</kbd></span><span class="or">/</span><span class="seq"><kbd>Return</kbd></span></div><div class="d">Leave into the box's level; g u resumes</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Esc</kbd></span></div><div class="d">Stop playback</div></div>
+</div>
+</article>
+<article class="card" id="k-files">
+<h3>Files &amp; export</h3>
+<p class="blurb">Anywhere</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⌘</kbd><span class="plus">+</span><kbd>N</kbd></span></div><div class="d">New file</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⌘</kbd><span class="plus">+</span><kbd>O</kbd></span></div><div class="d">Open file</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⌘</kbd><span class="plus">+</span><kbd>S</kbd></span></div><div class="d">Save file</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⌘</kbd><span class="plus">+</span><kbd>Q</kbd></span></div><div class="d">Quit</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Y</kbd></span></div><div class="d">Copy the diagram as PNG</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Ctrl</kbd><span class="plus">+</span><kbd>E</kbd></span></div><div class="d">Export SVG to a file</div></div>
+<div class="row"><div class="k"><span class="gest">Click @path:line</span></div><div class="d">Open the source in your editor</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>F1</kbd></span></div><div class="d">This help</div></div>
+</div>
+</article>
+</div>
+</section>
+<section id="tab">
+<h2>The browser tab</h2>
+<p class="lede"><code>grafli serve</code> prints three links per board. Each
+link's tab has its own share of the keys:</p>
+<div class="links">
+<div class="link watch"><h3>Watch link</h3><p>follows the presenter, points, reads</p><div class="chips"><a class="chip " href="#k-tab-read">Every tab</a><a class="chip " href="#k-tab-tour">Tour</a></div></div>
+<div class="link edit"><h3>Edit link</h3><p>builds and asks the agent, by key or mouse</p><div class="chips"><a class="chip " href="#k-tab-read">Every tab</a><a class="chip " href="#k-tab-build">Build</a><a class="chip " href="#k-tab-mouse">Mouse</a><a class="chip agent" href="#k-tab-agent">Your agent</a><a class="chip " href="#k-tab-tour">Tour</a></div></div>
+<div class="link present"><h3>Present link</h3><p>yours: the others follow it</p><div class="chips"><a class="chip " href="#k-tab-read">Every tab</a><a class="chip " href="#k-tab-build">Build</a><a class="chip " href="#k-tab-mouse">Mouse</a><a class="chip agent" href="#k-tab-agent">Your agent</a><a class="chip present" href="#k-tab-reveal">Reveal</a><a class="chip " href="#k-tab-tour">Tour</a></div></div>
+</div>
+<div class="cards">
+<article class="card" id="k-tab-read">
+<h3>Every tab</h3>
+<p class="blurb">Watch, edit and present links alike</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="gest">Drag / wheel</span></div><div class="d">Pan and zoom</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>Z</kbd></span></div><div class="d">Fit the board in view</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>f</kbd></span></div><div class="d">Jump labels: type one to select</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>d</kbd></span><span class="or">/</span><span class="seq"><kbd>Return</kbd></span></div><div class="d">Into the box's level</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>u</kbd></span><span class="or">/</span><span class="seq"><kbd>Backspace</kbd></span></div><div class="d">Back up</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>g</kbd><kbd>v</kbd></span></div><div class="d">Read the box's doc (Esc closes)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>A</kbd></span></div><div class="d">Next overlay file</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>k</kbd></span></div><div class="d">Laser on / off: a trail every tab sees</div></div>
+</div>
+</article>
+<article class="card" id="k-tab-build">
+<h3>Build</h3>
+<p class="blurb">Edit and present links</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>o</kbd></span><span class="or">/</span><span class="seq"><kbd>O</kbd></span></div><div class="d">New box below / above, with an arrow from it</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Ctrl</kbd><span class="plus">+</span><kbd class="glyph">←↑↓→</kbd></span></div><div class="d">The same, on that side</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>c</kbd></span></div><div class="d">Connect to the box whose label you type</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>e</kbd></span></div><div class="d">Rename the selection</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>x</kbd></span><span class="or">/</span><span class="seq"><kbd>Delete</kbd></span></div><div class="d">Delete the selection, with its arrows</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>u</kbd></span><span class="or">/</span><span class="seq"><kbd class="glyph">⌘</kbd><span class="plus">+</span><kbd>Z</kbd></span></div><div class="d">Undo your last edit in this tab</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>:</kbd></span></div><div class="d">Command line: a grafli line, or plain language</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">↑</kbd></span></div><div class="d">On the command line: the last line</div></div>
+</div>
+</article>
+<article class="card" id="k-tab-mouse">
+<h3>Mouse</h3>
+<p class="blurb">Edit and present links: guests need no keys</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="gest">Click</span></div><div class="d">Select; a box with a level opens it</div></div>
+<div class="row"><div class="k"><span class="gest">Double-click</span></div><div class="d">Rename what you clicked</div></div>
+<div class="row"><div class="k"><span class="gest">Drag a box</span></div><div class="d">Move it, into the box you drop it on</div></div>
+<div class="row"><div class="k"><span class="gest">Drag from a box's edge</span></div><div class="d">Draw an arrow</div></div>
+<div class="row"><div class="k"><span class="gest">Right-click</span></div><div class="d">Ask a Q: question in place</div></div>
+</div>
+</article>
+<article class="card agent" id="k-tab-agent">
+<h3>Your agent</h3>
+<p class="blurb">A Claude Code session you run and connect</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>:</kbd></span></div><div class="d">Plain language goes to the agent</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>a</kbd></span></div><div class="d">Ask the agent about the selection (the ✦ ask chip)</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Enter</kbd></span></div><div class="d">Present link: take the agent's proposal</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>x</kbd></span></div><div class="d">Present link: drop the proposal</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>U</kbd></span></div><div class="d">Present link: undo the agent's last edit</div></div>
+</div>
+</article>
+<article class="card present" id="k-tab-reveal">
+<h3>Reveal</h3>
+<p class="blurb">Present link: uncover a prepared board as you talk</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>v</kbd></span></div><div class="d">Jump labels on the hidden: type one to reveal it</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>+</kbd></span></div><div class="d">Right after: also what an arrow connects it to</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">⇧</kbd><span class="plus">+</span><kbd>V</kbd></span></div><div class="d">Reveal mode on / off</div></div>
+</div>
+</article>
+<article class="card" id="k-tab-tour">
+<h3>Tour</h3>
+<p class="blurb">While a tour plays in a tab</p>
+<div class="rows">
+<div class="row"><div class="k"><span class="seq"><kbd>Space</kbd></span><span class="or">/</span><span class="seq"><kbd class="glyph">→</kbd></span><span class="or">/</span><span class="seq"><kbd>l</kbd></span><span class="or">/</span><span class="seq"><kbd>j</kbd></span></div><div class="d">Next stop</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd class="glyph">←</kbd></span><span class="or">/</span><span class="seq"><kbd>h</kbd></span><span class="or">/</span><span class="seq"><kbd>k</kbd></span></div><div class="d">Previous stop</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>p</kbd></span></div><div class="d">Paused / playing / loop</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>t</kbd></span></div><div class="d">Smooth or instant camera</div></div>
+<div class="row"><div class="k"><span class="seq"><kbd>Esc</kbd></span><span class="or">/</span><span class="seq"><kbd>q</kbd></span></div><div class="d">End the tour</div></div>
+</div>
+</article>
+</div>
+</section>
+<footer>
+<p>Every key on this page comes from <code>grafli/keymap.py</code>, the
+table the app's <kbd>F1</kbd> help shows. The words for each key are on the
+<a href="https://grafli.mistergc.dev/keybindings/">keybindings page</a>, the browser tab in
+<a href="https://grafli.mistergc.dev/navigating/#show-a-board-live-in-a-browser-tab">Show a board
+live in a browser tab</a>.</p>
+</footer>
+</main>
+</body>
+</html>

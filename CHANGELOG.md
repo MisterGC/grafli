@@ -511,9 +511,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dark fill such as `%primary` keeps the plate. For this the light theme's
   `%clay` is lighter (`#C56C54` → `#D08976`) and so is its `%teal`
   (`#3E9B92` → `#44AAA0`), so a board using them looks a shade paler. A
-  coloured box inside another one is judged against what it shows on.
-  `grafli render` draws it the same way.
-  ([#300](https://github.com/MisterGC/grafli/issues/300))
+  coloured box inside another one is judged against what it shows on. A
+  box label over an image, coloured or plain, sits on a near-opaque plate,
+  so CPU, RAM and Storage labels on a motherboard picture read whatever
+  the picture shows under them. `grafli render` draws it the same way.
+  ([#300](https://github.com/MisterGC/grafli/issues/300),
+  [#325](https://github.com/MisterGC/grafli/issues/325))
 - **Arrow labels move into free space.** A label sat at the middle of its
   arrow even where that put it on a box, on its own end box or on another
   arrow's label, so a fan-out or two crossing arrows read as a mess. A
@@ -717,6 +720,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layer's empty space, drawn behind it, and steps round only the boxes
   inside it. Zoomed out, a layer folded into a tile is still solid.
   ([#326](https://github.com/MisterGC/grafli/issues/326))
+- **A small image shows its picture at 100%.** An image under 32 px on
+  a side, such as a 30x30 SVG icon, drew the zoomed-out stand-in — a
+  grey plate with an "SVG" tag — even at 100% zoom, on the canvas, in
+  `grafli render` and in the live tab. An image now keeps its picture
+  until it is drawn at less than half its own size; a big image still
+  swaps for the stand-in at 32 px on screen when zoomed far out.
+  ([#327](https://github.com/MisterGC/grafli/issues/327))
 - **Number markers read at board zoom.** On a 200x70 box at 100% zoom
   `*badge:1` drew a ring with a digit about 4 px tall, which read as an
   empty circle, and `*1` drew a digit about 10 px tall above the label.

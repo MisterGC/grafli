@@ -666,6 +666,13 @@ class ResizeForeshadow(QGraphicsItem):
         painter.drawRoundedRect(body, 1.5, 1.5)
 
 
+# The light plate under a box label: translucent on a fill, near opaque over
+# an image, where SURFACE at this opacity keeps the board ink at WCAG AA on
+# black and on white in both themes (#325).
+LABEL_PLATE_ALPHA = 0.6
+IMAGE_LABEL_PLATE_ALPHA = 0.85
+
+
 class BoxLabelItem(QGraphicsTextItem):
     """Scene-level label for a BoxItem, renders above arrows."""
 
@@ -702,10 +709,11 @@ class BoxLabelItem(QGraphicsTextItem):
         # nothing, so the contrast plate doesn't linger as an empty strip.
         if not self._box_item.box.label:
             return
-        if self._box_item._label_on_plate():
+        alpha = self._box_item._label_plate_alpha()
+        if alpha:
             bg_rect = self._plate_rect()
             bg = QColor(theme.SURFACE)
-            bg.setAlphaF(0.6)
+            bg.setAlphaF(alpha)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QBrush(bg))
@@ -928,12 +936,48 @@ class BoxItem(QGraphicsRectItem):
         """The colour the label reads against: the fill as it shows."""
         return self._shown_fill()
 
+    def _label_over_image(self) -> bool:
+        """True when an image shows under the label: it overlaps the label
+        and is drawn above the box, or shows through a translucent fill."""
+        view = _get_view(self)
+        images = getattr(view, "_image_items", None) or {}
+        if not images:
+            return False
+        plate = self._label.mapRectToScene(self._label._plate_rect())
+        opaque = (self.brush().style() != Qt.BrushStyle.NoBrush
+                  and self.brush().color().alphaF() >= 1.0)
+        for image in images.values():
+            if (not image.isVisible()
+                    or not image.sceneBoundingRect().intersects(plate)):
+                continue
+            if opaque and image.zValue() < self.zValue():
+                continue
+            return True
+        return False
+
+    def _label_plate_alpha(self) -> float:
+        """How opaque the light plate under the label is; 0 for none.
+
+        Over an image, whose colours the ink cannot be checked against, the
+        plate is near opaque, so the board ink reads at WCAG AA on any
+        picture (#325). On a coloured fill it shows where the board ink
+        falls below AA — 4.5:1, or 3:1 for large text — and the label sits
+        on the fill itself where it passes (#300). An ``!ink`` box picks its
+        ink from the fill, so it never takes one."""
+        if self.box.ink:
+            return 0.0
+        if self._label_over_image():
+            return IMAGE_LABEL_PLATE_ALPHA
+        return LABEL_PLATE_ALPHA if self._fill_needs_plate() else 0.0
+
     def _label_on_plate(self) -> bool:
-        """True when a coloured box draws its label on the light plate: the
-        board ink on the fill falls below WCAG AA — 4.5:1, or 3:1 for large
-        text. Where it passes, the label sits on the fill itself (#300). An
-        ``!ink`` box picks its ink from the fill, so it never takes one."""
-        if not theme.resolve_color(self.box.color) or self.box.ink:
+        """True when the box draws its label on the light plate."""
+        return self._label_plate_alpha() > 0.0
+
+    def _fill_needs_plate(self) -> bool:
+        """True when the board ink on the box's coloured fill falls below
+        WCAG AA."""
+        if not theme.resolve_color(self.box.color):
             return False
         font = self._box_font()
         px = self.label_px()
@@ -3632,9 +3676,12 @@ IMAGE_FIT_W = 320.0
 IMAGE_FIT_H = 240.0
 
 # Below this on-screen size (shorter side, px) an image paints a generic
-# indicator instead of shrunken artwork (#150). Sits under the 40px minimum
-# element size, so at 100% zoom even the smallest image still shows its art.
+# indicator instead of shrunken artwork (#150).
 IMAGE_LOD_PX = 32.0
+# ... but only once it is drawn at less than this share of its own size: an
+# image smaller than IMAGE_LOD_PX (a 30x30 icon) shows its art at 100% and
+# swaps for the indicator only when zoomed out (#327).
+IMAGE_LOD_MIN_SCALE = 0.5
 
 
 def default_image_size(natural_w: float, natural_h: float,
@@ -3947,10 +3994,13 @@ class ImageItem(QGraphicsPixmapItem):
         """Whether the zoomed-out generic indicator replaces the artwork.
 
         Stateless — a pure function of the current zoom — so geometry,
-        connectors, and high-resolution exports are untouched (#150).
+        connectors, and high-resolution exports are untouched (#150). The
+        threshold is IMAGE_LOD_PX on screen, or half the image's own size
+        when that is smaller, so a small image keeps its art at 100% (#327).
         """
-        short = min(self.image.w, self.image.h) * _view_scale(self)
-        return short < IMAGE_LOD_PX
+        own = min(self.image.w, self.image.h)
+        threshold = min(IMAGE_LOD_PX, own * IMAGE_LOD_MIN_SCALE)
+        return own * _view_scale(self) < threshold
 
     def _paint_lod_indicator(self, painter: QPainter, target: QRectF):
         """A calm stand-in at thumbnail size: muted plate, picture glyph,

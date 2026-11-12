@@ -344,7 +344,9 @@ in `references/genres.md` instead.)
     **dropped lines** (`parse-error` — a malformed directive or
     misplaced modifier silently removes the element; always fix these
     first), children outside parents, sibling overlaps, cramped
-    containers, likely-truncated labels, boxes that relate to nothing
+    containers, likely-truncated labels, box labels of three or more
+    lines (`label-lines`: keep the title, move the rest into the doc
+    line or a `!card` body), boxes that relate to nothing
     (`unrelated-children`: a container of 4+ boxes with no arrow between
     them; `unrelated-board`: more than half of 4+ boxes touch no arrow),
     arrow labels on a box (`arrow-label-crowded`: the canvas moves a
@@ -417,6 +419,13 @@ By default a raster image gets a subtle border and an `.svg` renders bare
 (transparent vector art sits directly on the canvas); `!frame` / `!noframe`
 override that per image.
 
+An icon on a box is not an `@ image` laid over it: an image is its own
+element, so it does not move, resize or tint with the box, and the label
+does not make room for it. Put the SVG at `<stem>-res/icons/<name>.svg`
+and write `*lead:<name>` on the box — the board's own icon then draws
+left of the label like a built-in symbol (see "A board's own icons" in
+`references/format.md`).
+
 `&attach` is a typed attachment: `&link:<url>` (the only kind that may
 point outside the board), `&doc:<name>` (a markdown document at
 `<stem>-res/<name>.md`), or `&graph:<name>` (a sub-board at
@@ -444,14 +453,27 @@ to a v1 file, bump the header yourself).
   colours in `<stem>-res/palette.json` and use them as `%name` on every
   board of the map (see `references/format.md`, "Map palette").
 * Modifiers in `[]` are optional and order-sensitive as shown.
-* Multi-line text: use `\n` in labels and note text; a literal quote
-  inside quoted text is `\"` (triple-quoted blocks need no escapes).
+* A box label is a title: one line, or two with `\n` for a short
+  two-line name (`"Order Processing\n& Fulfillment"`) — never a stack of
+  details. The detail goes into the box's `&doc`, whose first sentence
+  shows as the doc line under the label, or into a note the box owns as
+  a `!card` body. Note text may run over many lines with `\n` or a
+  triple-quoted block; a literal quote inside quoted text is `\"`
+  (triple-quoted blocks need no escapes).
 
 ## Common mistakes — check before you save
 
 These are the failure modes that recur most often. A 30-second checklist
 catches them before the user opens the file.
 
+* **Details stacked in a box label.** `"CPU: 486\n80486 DX4\n100 MHz\n…"`
+  is a list, not a name. Keep the title (`"CPU: 486"`) and put the rest
+  into the box's `&doc` — its first sentence (`80486 DX4 at 100 MHz.`)
+  shows as the doc line — or into a `!card` body note. `diagnose` warns
+  on a label of three or more lines (`label-lines`).
+* **An icon as an `@ image` over a box.** It drifts when the box moves
+  and the label runs under it. Put the SVG into `<stem>-res/icons/` and
+  write `*lead:<name>` on the box.
 * **Quote characters in quoted text.** A `"` inside single-line quoted
   text must be escaped as `\"`; an unescaped one breaks the line (it
   surfaces as a `parse-error` in diagnose). For quote-heavy or

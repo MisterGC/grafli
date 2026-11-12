@@ -2563,7 +2563,8 @@ def _cmd_diagnose(argv: list[str]) -> int:
         description=(
             "Run static layout diagnostics on a .grafli file. "
             "Surfaces children outside parents, sibling overlaps, cramped "
-            "containers, likely-truncated labels, arrow labels drawn on "
+            "containers, likely-truncated labels, box labels of three or "
+            "more lines, arrow labels drawn on "
             "top of each other, missing images, board "
             "links and code refs that lead nowhere, unknown colours and the "
             "map's palette.json."

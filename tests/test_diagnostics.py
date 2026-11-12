@@ -12,6 +12,7 @@ from grafli.diagnostics import (
     check_child_outside_parent,
     check_code_refs,
     check_cramped_container,
+    check_label_lines,
     check_label_truncated,
     check_missing_resource,
     check_sibling_overlap,
@@ -127,6 +128,40 @@ def test_label_uses_longest_line_for_multiline():
     b = Box(id="b", label="ok\n" + "x" * 200, x=0, y=0, w=80, h=80)
     diags = check_label_truncated(_make_board(boxes=[b]))
     assert any(d.code == "label-truncated" for d in diags)
+
+
+# ── label-lines ────────────────────────────────────────────────
+
+def test_a_label_of_five_lines_is_a_warning_naming_doc_line_and_card():
+    b = Box(id="cpu", x=0, y=0, w=300, h=200,
+            label="CPU: 486\n80486 DX4\n100 MHz\n"
+                  "built-in FPU, 16 KB cache\n~1.6M transistors")
+    (d,) = check_label_lines(_make_board(boxes=[b]))
+    assert (d.code, d.severity, d.item_ids) == ("label-lines", "warning",
+                                                ["cpu"])
+    assert "5 lines" in d.message and "'CPU: 486'" in d.message
+    assert "&doc" in d.message and "doc line" in d.message
+    assert "!card" in d.message
+    assert d.fixable is False and d.fix is None
+
+
+def test_a_three_line_label_is_flagged_and_a_two_line_name_is_not():
+    three = Box(id="a", label="A\nB\nC", x=0, y=0, w=200, h=120)
+    two = Box(id="b", label="Order Processing\n& Fulfillment",
+              x=300, y=0, w=240, h=90)
+    diags = check_label_lines(_make_board(boxes=[three, two]))
+    assert [d.item_ids for d in diags] == [["a"]]
+
+
+def test_blank_label_lines_are_not_counted():
+    b = Box(id="b", label="Web App\n\nReact", x=0, y=0, w=200, h=100)
+    assert check_label_lines(_make_board(boxes=[b])) == []
+
+
+def test_run_all_reports_label_lines():
+    b = Box(id="b", label="one\ntwo\nthree", x=0, y=0, w=200, h=120)
+    codes = [d.code for d in run_all(_make_board(boxes=[b]))]
+    assert "label-lines" in codes
 
 
 # ── missing-resource ───────────────────────────────────────────

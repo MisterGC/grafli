@@ -487,6 +487,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#324](https://github.com/MisterGC/grafli/issues/324))
 
 ### Changed
+- **`grafli diagnose` warns when a box label stacks details, and the
+  skill says where they go.** Agents wrote boxes such as
+  `"CPU: 486\n80486 DX4\n100 MHz\n…"` and laid icons over boxes as
+  separate images, because the skill said both "never inline multi-line
+  detail into a box label" and "use `\n` in labels". It now says one
+  thing: a box label is a title, one line or two for a short name, and
+  the detail goes into the box's doc, whose first sentence shows under
+  the label, or into a `!card` body. An icon goes into the board's
+  `-res/icons/` folder and onto the box as `*lead:<name>`. `diagnose`
+  reports a label of three or more lines as `label-lines`, naming both
+  places the detail can go. A session connected through `grafli agent`
+  gets the same text from `authoring_guide`.
+  ([#328](https://github.com/MisterGC/grafli/issues/328))
 - **Software diagrams from the skill draw only the arrows their question
   asks for, and their icons say what kind of thing a box is.** The skill
   told agents to leave symbols off software diagrams and never said which

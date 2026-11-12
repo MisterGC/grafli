@@ -271,6 +271,40 @@ def test_box_without_room_shows_no_doc_line_and_does_not_grow(tmp_path: Path):
     win.close()
 
 
+def _small(tmp_path: Path) -> Path:
+    """A `~small` box whose doc line is 8 px, under the 10 px cutoff (#334)."""
+    root = _write(tmp_path / "Small.grafli",
+                  '#!grafli v4\n'
+                  '@ box cpu "CPU: 486" 0,0 260x130 ~small &doc:cpu\n')
+    _write(tmp_path / "Small-res" / "cpu.md",
+           "80486 DX4 at 100 MHz.\n\n- built-in FPU\n")
+    return root
+
+
+def test_a_small_box_shows_its_doc_line_at_100_percent(tmp_path: Path):
+    win = _window(_small(tmp_path))
+    view = win._view
+    item = view._box_items["cpu"]
+    assert item.doc_line_px() < 10
+    _zoom(win, 1.0)
+    view._refresh_lod()
+    assert item._doc_line == "80486 DX4 at 100 MHz."
+    _zoom(win, 0.3)
+    view._refresh_lod()
+    assert item._doc_line == ""
+    _zoom(win, 1.0)
+    view._refresh_lod()
+    assert item._doc_line == "80486 DX4 at 100 MHz."
+    win.close()
+
+
+def test_a_small_box_doc_line_in_a_headless_render(tmp_path: Path):
+    view = _headless(_small(tmp_path))
+    view.setTransform(QTransform().scale(1.0, 1.0))
+    view._refresh_lod()
+    assert view._box_items["cpu"]._doc_line == "80486 DX4 at 100 MHz."
+
+
 def test_missing_doc_shows_no_doc_line(tmp_path: Path):
     root, doc = _system(tmp_path)
     doc.unlink()

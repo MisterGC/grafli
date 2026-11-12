@@ -21,7 +21,10 @@ from grafli import theme
 from grafli.constants import (
     ARROWHEAD_SIZE,
     BOX_FONT_SIZES,
+    DEFAULT_BOX_H,
+    DEFAULT_BOX_W,
     LAYOUT_PADDING,
+    resolve_textsize_px,
 )
 from grafli.format import (
     Arrow, Board, Box, Image, Note, parse, resolve_code_ref,
@@ -435,6 +438,116 @@ def check_label_lines(board: Board) -> list[Diagnostic]:
             item_ids=[b.id],
             fixable=False,
         ))
+    return diags
+
+
+# A leaf box at least this many times as tall as its text needs reads
+# empty: the text floats lost in it (#337). Width is left alone: a box
+# wider than its label is often deliberate, a bar across columns.
+SPARSE_HEIGHT_FACTOR = 1.5
+# JetBrains Mono is ~0.6em per char, and a size is in points drawn at
+# 96 dpi: ~0.8 px per point per char. Erring wide keeps a shrink from
+# hiding a doc line that fitted before.
+_CHAR_FACTOR = 0.8
+_LINE_FACTOR = 1.35  # line height per font px
+
+
+def _ceil20(v: float) -> float:
+    return float(math.ceil(v / 20.0) * 20)
+
+
+def _box_doc_line(box: Box, grafli_path: Path | None) -> str:
+    """The first sentence of *box*'s `&doc`, "" without one."""
+    if box.attach_kind != "doc" or grafli_path is None:
+        return ""
+    from grafli.format import doc_name
+    from grafli.md_note import doc_first_sentence
+    from grafli.resources import doc_path
+    try:
+        body = doc_path(Path(grafli_path), doc_name(box)).read_text(
+            encoding="utf-8")
+    except OSError:
+        return ""
+    return doc_first_sentence(body)
+
+
+def box_fit_size(box: Box, doc_line: str = "") -> tuple[float, float]:
+    """The size a leaf box needs for its label, its doc line and a lead
+    icon, with the label's 8 px margins, on the 20 px grid and never under
+    the default new-box size. An estimate, like `label-truncated`'s."""
+    px = resolve_textsize_px(box.textsize, "")
+    lines = [ln for ln in box.label.split("\n") if ln.strip()] or [""]
+    text_w = max(len(ln) for ln in lines) * px * _CHAR_FACTOR
+    text_h = len(lines) * px * _LINE_FACTOR
+    if doc_line:
+        doc_px = max(8, round(px * 0.8))
+        text_w = max(text_w, len(doc_line) * doc_px * _CHAR_FACTOR)
+        text_h += 2.0 + doc_px * _LINE_FACTOR
+    gutter = 16.0
+    if box.icon and box.icon_placement == "lead":
+        gutter += max(14.0, px * 1.7) + 8.0
+    return (max(float(DEFAULT_BOX_W), _ceil20(gutter + text_w)),
+            max(float(DEFAULT_BOX_H), _ceil20(16.0 + text_h)))
+
+
+def check_sparse_box(board: Board,
+                     grafli_path: Path | None = None) -> list[Diagnostic]:
+    """Info on a leaf box at least 1.5 times as tall as its text needs
+    (#337).
+
+    The fix shrinks its height to what the text needs, keeping its top-left
+    and its width. Siblings of the same size shrink together to the tallest
+    any of them needs, so a grid of equal boxes stays equal. Containers, `!card` parents, boxes
+    with a sub-board miniature, boxes whose icon fills the body and boxes
+    over an image are left alone: something besides the label sizes them."""
+    parents = {el.parent for el in (*board.boxes, *board.notes,
+                                    *board.images) if el.parent}
+
+    def on_image(b: Box) -> bool:
+        return any(i.x < b.x + b.w and b.x < i.x + i.w
+                   and i.y < b.y + b.h and b.y < i.y + i.h
+                   for i in board.images)
+
+    fits: dict[str, tuple[float, float]] = {}
+    for b in board.boxes:
+        # A box placed over a picture is sized to the picture, not its text.
+        if (b.id in parents or b.attach_kind == "graph"
+                or (b.icon and not b.icon_placement) or on_image(b)):
+            continue
+        fits[b.id] = box_fit_size(b, _box_doc_line(b, grafli_path))
+    groups: dict[tuple, list[Box]] = {}
+    for b in board.boxes:
+        if b.id in fits:
+            groups.setdefault((b.parent, b.w, b.h), []).append(b)
+    diags: list[Diagnostic] = []
+    for (_, w, h), members in groups.items():
+        new_h = min(h, max(fits[m.id][1] for m in members))
+        sparse = [m for m in members
+                  if h >= SPARSE_HEIGHT_FACTOR * fits[m.id][1]]
+        if not sparse or new_h == h:
+            continue
+        # The whole group shrinks together, so a grid of equal boxes
+        # stays equal; each member carries its own resize.
+        for b in members:
+            fit_h = fits[b.id][1]
+            same = (f", like its {len(members) - 1} same-sized siblings"
+                    if len(members) > 1 else "")
+            diags.append(Diagnostic(
+                code="sparse-box",
+                severity=INFO,
+                message=(
+                    f"{b.id!r} is {h:.0f} px tall but its text needs about "
+                    f"{fit_h:.0f} — shrink it to {w:.0f}x{new_h:.0f}{same}, "
+                    "or raise the text size of the whole group"
+                ),
+                item_ids=[b.id],
+                fixable=True,
+                fix={
+                    "action": "resize", "id": b.id,
+                    "old": {"w": b.w, "h": b.h},
+                    "new": {"w": w, "h": new_h},
+                },
+            ))
     return diags
 
 
@@ -982,6 +1095,7 @@ def run_all(
     diags.extend(check_cramped_container(board, note_rect=note_rect))
     diags.extend(check_label_truncated(board))
     diags.extend(check_label_lines(board))
+    diags.extend(check_sparse_box(board, grafli_path))
     diags.extend(check_unrelated_children(board))
     diags.extend(check_unrelated_board(board))
     if arrow_label_rects is not None:

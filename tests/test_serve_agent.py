@@ -139,6 +139,14 @@ def test_the_guide_returns_one_reference_file_and_refuses_an_unknown_one():
     assert got["isError"] and "format.md" in got["content"][0]["text"]
 
 
+def test_the_guide_says_a_box_fits_its_content():
+    core = _guide()["content"][0]["text"]
+    assert "A box fits its content" in core and "`sparse-box`" in core
+    assert "never one box" in core
+    fmt = _guide(reference="format.md")["content"][0]["text"]
+    assert "A box fits its content" in fmt and "`sparse-box`" in fmt
+
+
 def test_the_guide_says_a_box_is_a_title_and_an_icon_goes_into_icons():
     core = _guide()["content"][0]["text"]
     assert "A box label is a title" in core

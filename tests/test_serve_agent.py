@@ -143,6 +143,7 @@ def test_the_guide_says_a_box_fits_its_content():
     core = _guide()["content"][0]["text"]
     assert "A box fits its content" in core and "`sparse-box`" in core
     assert "never one box" in core
+    assert "fits whole on one line" in core and "about\n  25 characters" in core
     fmt = _guide(reference="format.md")["content"][0]["text"]
     assert "A box fits its content" in fmt and "`sparse-box`" in fmt
 

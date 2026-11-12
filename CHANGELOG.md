@@ -504,7 +504,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   size is a fixed token, so a box left at the size of a longer label read
   mostly empty. The skill now says a box fits its content, about 240x80
   for a title with a doc line and a lead icon, and to raise a whole
-  group's text size rather than one box's.
+  group's text size rather than one box's, and to keep a doc's first
+  sentence short enough to show whole as the box's subtitle.
   ([#336](https://github.com/MisterGC/grafli/issues/336)) `diagnose`
   reports a leaf box at least one and a half times as tall as its text needs as
   `sparse-box`, and `--fix` shrinks its height with its same-sized

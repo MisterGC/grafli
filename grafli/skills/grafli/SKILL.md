@@ -469,6 +469,11 @@ to a v1 file, bump the header yourself).
   siblings of one kind share one size. `diagnose` reports a box at least
   one and a half times as tall as its text needs (`sparse-box`);
   `diagnose --fix` shrinks its height, and its same-sized siblings' with it.
+* A doc's first sentence is the box's subtitle, and it shows only when it
+  fits whole on one line: never cut, it is left out. Keep it short — about
+  25 characters at the default size on a 260 px box with a lead icon,
+  about 18 on a 160 px box (`80486 DX4 at 100 MHz.`, not `IDE hard disk
+  of a few hundred MB.`) — and put the rest after it.
 
 ## Common mistakes — check before you save
 

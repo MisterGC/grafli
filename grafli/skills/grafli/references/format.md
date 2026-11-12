@@ -124,7 +124,10 @@ content belongs in the box's own `&doc` (its first sentence shows on
 one line under the label as the doc line, `gv` peeks the rest), in a
 note the box owns as a `!card` body, or in a `code:` or plain note
 next to the box. `grafli diagnose` warns on a label of three or more
-lines (`label-lines`).
+lines (`label-lines`). The doc line shows only when the first sentence
+fits whole on one line, so keep that sentence short: about 25
+characters at the default size on a 260 px box with a lead icon, about
+18 on a 160 px box.
 
 **A box fits its content.** A text size is a fixed token and does not
 grow with the box, so a box keeps about the size its text needs: 160x80

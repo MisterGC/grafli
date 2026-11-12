@@ -1,5 +1,6 @@
 #!grafli v1
 # Shop architecture — who owns what, who talks to whom on the order path.
+# source: code
 # Genre exemplar: architecture (references/genres.md → Software diagrams).
 # Containers = ownership; every edge carries a semantic prefix; depth lives
 # in the code note and the &graph sub-board on Order Processing.

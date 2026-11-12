@@ -10,43 +10,60 @@ machinery.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPen, QTransform
+from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform
 from PySide6.QtWidgets import (
     QGraphicsLineItem,
     QGraphicsPolygonItem,
     QGraphicsSimpleTextItem,
 )
 from grafli import theme
+from grafli.iconset import BoardIcons
 from grafli.arrows import (
-    _aligned_edge_points,
     _arrowhead_polygon,
-    _box_edge_point,
+    _dot_polygon,
     _line_rect_clip,
-    _rect_edge_point,
+    _rect_centre,
+    along_side,
     ANCHOR_MIN_SEP,
+    LABEL_PAD,
     ROUTED_CENTRE_BIAS,
+    SIDE_NAMES,
+    bowed_path,
+    endpoint_pair,
+    fan_offsets,
+    label_anchor,
+    label_ground,
+    label_plate,
     path_end_angle,
+    place_label,
+    pick_self_loop_sides,
+    pinned_direct_points,
+    pinned_self_loop_sides,
     point_on_side,
+    polyline_path,
     relax_positions,
+    round_ends,
     routed_path,
+    self_loop_path,
+    self_loop_ts,
     side_of_point,
     split_path_at_rect,
     t_of_point,
+    turn_lines,
 )
 from grafli.buffers import ViewState
 from grafli.constants import (
     ANNOTATION_ARROW_WIDTH,
     ARROWHEAD_SIZE,
-    ARROW_LABEL_FONT_SIZES,
     ARROW_WIDTH,
     CONNECTOR_REF_SIZE,
     CONNECTOR_WIDTH_MAX,
     CONNECTOR_WIDTH_MIN,
-    FONT_FAMILY,
     MIN_BOX_SIZE,
 )
-from grafli.edge_label import edge_kind_color, parse_edge_label
+from grafli.edge_label import arrow_label_font, edge_kind_color, parse_edge_label
 from grafli.format import Arrow, Board, Box, Image, Note
 from grafli.items import (
     ArrowLineItem,
@@ -58,7 +75,28 @@ from grafli.items import (
     ResizeForeshadow,
 )
 from grafli.lod import LodModel
+from grafli.map_palette import attach_names, set_kinds
 from pathlib import Path
+
+
+@dataclass
+class _Connector:
+    """One connector as ``_redraw_arrows`` resolved it, ready to draw."""
+    fwd: Arrow
+    rev: Arrow | None
+    from_id: str
+    to_id: str
+    start: QPointF
+    end: QPointF
+    path: QPainterPath | None
+    pen: QPen
+    color: QColor
+    head_size: float
+    head_to: bool
+    head_from: bool
+    label_dropped: bool
+    label: LabelItem | None = None
+    label_anchor: QPointF | None = None
 
 
 class SelectionMixin:
@@ -250,8 +288,16 @@ class SelectionMixin:
             for nid, it in self._note_items.items()
         })
 
-    def load_board(self, board: Board):
+    def load_board(self, board: Board, board_file: Path | None = None):
+        """Show *board*. Its own symbols come from the icon folder beside
+        *board_file*, or beside the view's board file when that is not
+        given (a `&graph` miniature's view has none of its own)."""
+        self._cancel_level_transition()
+        self._reset_box_docs()
         self._board = board
+        self._scene.board_icons = BoardIcons.of(
+            board_file or self._board_file())
+        self.load_map_palette()
         self._lod = LodModel.from_board(board)
         self._lod_simplified = set()
         self._lod_collapsed = set()
@@ -261,9 +307,10 @@ class SelectionMixin:
         self._lod_hulls = {}          # items live in the about-to-be-rebuilt scene
         self._lod_hull_member = {}
         self._lod_state = None
-        # A fresh board invalidates any in-flight flow recording/playback.
+        # A fresh board invalidates any in-flight flow recording/playback —
+        # unless the tour itself switched boards to show its next stop.
         self._recording_flow = None
-        if self._flow_player is not None:
+        if self._flow_player is not None and not self._flow_player.navigating:
             self._flow_player.stop()
         self._rebuild_scene()
         # Feed real note footprints to the model now the items exist, so a
@@ -271,7 +318,33 @@ class SelectionMixin:
         self._feed_lod_note_extents()
         self._lod_dirty = False  # fresh model; ignore any mark_dirty during load
         self._refresh_lod()
+        self._refresh_doc_peek()
         self.flows_changed.emit()
+
+    def load_map_palette(self) -> bool:
+        """Read the shown board's map palette (``%name`` colours and kinds)
+        and make it the one colours and kinds resolve against; returns
+        whether it changed.
+
+        A view that renders a board for another (a ``&graph`` miniature) has
+        no board file of its own and leaves the palette as it is.
+        """
+        path = self._board_file()
+        if path is None and not hasattr(self.window(), "_file_path"):
+            return False
+        self._map_palette = attach_names(self._board, path)
+        recoloured = theme.set_map_palette(
+            {e.name: e.color for e in self._map_palette})
+        rekinded = set_kinds(self._map_palette)
+        if rekinded:
+            # A kind's icon, weight and size move the label, so the boxes
+            # built from the board lay out again; a new colour alone is
+            # left to the repaint.
+            shown = {id(b) for b in self._board.boxes}
+            for item in self._box_items.values():
+                if id(item.box) in shown:
+                    item.refresh_auto_layout()
+        return recoloured or rekinded
 
     def snapshot_state(self) -> ViewState:
         """Capture view state for buffer switching."""
@@ -291,6 +364,8 @@ class SelectionMixin:
             v_scroll=self.verticalScrollBar().value(),
             selected_box_ids=sel_boxes,
             selected_note_ids=sel_notes,
+            nav_stack=list(self._nav_stack),
+            nav_index=self._nav_index,
         )
 
     def restore_state(self, vs: ViewState):
@@ -298,6 +373,12 @@ class SelectionMixin:
         self._undo_stack = list(vs.undo_stack)
         self._redo_stack = list(vs.redo_stack)
         self._dirty = vs.dirty
+        self._nav_stack = list(vs.nav_stack)
+        self._nav_index = vs.nav_index
+        self.restore_view(vs)
+
+    def restore_view(self, vs: ViewState):
+        """Apply only the place you were at: zoom, scroll and selection."""
         if vs.transform:
             m11, m12, m21, m22, dx, dy = vs.transform
             self.setTransform(QTransform(m11, m12, m21, m22, dx, dy))
@@ -316,6 +397,8 @@ class SelectionMixin:
         self._scene.clear()
         self._box_items.clear()
         self._arrow_items.clear()
+        self._arrow_label_geometry.clear()
+        self._arrow_label_placed.clear()
         self._note_items.clear()
         self._image_items.clear()
         # The scene clear above deleted any LoD hull/overlay items; drop the now
@@ -347,7 +430,10 @@ class SelectionMixin:
         self._notes_hidden = False
         self._complexity_active = False
         self._complexity_node_heat.clear()
+        self._complexity_legend = None
         self._complexity_saved.clear()
+        self._complexity_reading = None
+        self._complexity_saved_notes.clear()
         self._note_highlight_active = False
         self._update_focus_status()
         self._update_complexity_status()
@@ -406,6 +492,7 @@ class SelectionMixin:
         self._update_z_values()
         self._update_scene_rect()
         self._invalidate_graph_stats()
+        self._refresh_doc_lines()
 
     def _routing_obstacles(self) -> dict[str, QRectF]:
         """Box rects a stair slides clear of, keyed by box id.
@@ -415,11 +502,36 @@ class SelectionMixin:
         depend on font metrics and break the parity between the app and a
         headless render. Boxes swallowed by a collapsed cluster are left out;
         they aren't on screen to be crossed.
+
+        An open container is left out too (#326): an arrow that only passes
+        one is drawn behind it (#283), so the space between its children is
+        free to cross, and its children are obstacles of their own. Counted
+        whole, a layer between two others blocked every straight route and
+        sent an arrow round it along the board's edge. Zoomed out, a container
+        folded into a tile is solid again, and what it holds is hidden.
         """
         if not self._board:
             return {}
+        parents = {b.parent for b in self._board.boxes if b.parent}
         return {b.id: QRectF(b.x, b.y, b.w, b.h) for b in self._board.boxes
-                if self._lod_hull_member.get(b.id) is None}
+                if self._lod_hull_member.get(b.id) is None
+                and self._lod_reroute(b.id) == b.id
+                and (b.id not in parents or b.id in self._lod_collapsed)}
+
+    def _live_pins(self, from_id: str, to_id: str,
+                   arrow: Arrow) -> tuple[str, str]:
+        """The arrow's pinned sides that still hold where it is drawn (#326).
+
+        A pin names a side of the element it was authored on. Zoomed out, an
+        end inside a collapsed container re-attaches to the container's tile,
+        and that side of the tile can face away from the other end: two
+        stacked layers joined by a `~from=left ~to=left` arrow would then run
+        down the board's left edge instead of through the gap between them.
+        Such an end is drawn unpinned, like any arrow between two tiles.
+        """
+        return (arrow.from_side if self._lod_reroute(from_id) == from_id
+                else "",
+                arrow.to_side if self._lod_reroute(to_id) == to_id else "")
 
     def _box_ancestors(self, box_id: str) -> set[str]:
         """Every container enclosing ``box_id``, walking up the parent chain."""
@@ -445,18 +557,26 @@ class SelectionMixin:
         makes a connector heading right sit to the right of one arriving from
         above-left, instead of crossing it.
 
+        A self-connector has no ray at all — both ends resolve to the same
+        element — so its ends are chosen rather than derived: it loops over the
+        corner whose two sides carry the fewest other connectors (#139). It
+        registers those ends like any other connector, so a second self-loop on
+        the same element picks a different corner and the spread below keeps the
+        loop clear of the connectors already there.
+
         Returns ``idx -> (start, start_side, end, end_side, moved)``, where
         ``moved`` is False for a direct connector that kept its natural
         position — the caller leaves those on the untouched code path.
         """
         natural: dict[int, list] = {}
         groups: dict[tuple[str, str], list] = {}
+        self_conns: list[tuple[int, str, tuple]] = []
 
         for idx, (from_id, to_id, _ht, _hf, fwd, _rev) in enumerate(render_list):
             f_id = self._lod_reroute(from_id)
             t_id = self._lod_reroute(to_id)
-            if f_id == t_id:
-                continue
+            if f_id == t_id and from_id != to_id:
+                continue                     # collapsed into one tile
             if (self._lod_hull_member.get(f_id) is not None
                     or self._lod_hull_member.get(t_id) is not None):
                 continue                     # hull boundary, not a box side
@@ -471,18 +591,16 @@ class SelectionMixin:
             f_rect = self._elem_rect(f_elem)
             t_rect = self._elem_rect(t_elem)
 
-            aligned = (_aligned_edge_points(f_elem, t_elem)
-                       if isinstance(f_elem, Box) and isinstance(t_elem, Box)
-                       else None)
-            if aligned:
-                s_pt, e_pt = aligned
-            else:
-                f_mid = QPointF(f_rect[0] + f_rect[2] / 2,
-                                f_rect[1] + f_rect[3] / 2)
-                t_mid = QPointF(t_rect[0] + t_rect[2] / 2,
-                                t_rect[1] + t_rect[3] / 2)
-                s_pt = _rect_edge_point(*f_rect, t_mid)
-                e_pt = _rect_edge_point(*t_rect, f_mid)
+            pin_from, pin_to = self._live_pins(from_id, to_id, fwd)
+            pin_s = SIDE_NAMES.get(pin_from, "")
+            pin_e = SIDE_NAMES.get(pin_to, "")
+            if f_id == t_id:
+                self_conns.append((idx, f_id, f_rect, pin_s, pin_e))
+                continue                     # placed once the sides are known
+
+            s_pt, e_pt = endpoint_pair(
+                f_rect, t_rect,
+                isinstance(f_elem, Box) and isinstance(t_elem, Box))
 
             s_side = side_of_point(f_rect, s_pt)
             e_side = side_of_point(t_rect, e_pt)
@@ -494,14 +612,41 @@ class SelectionMixin:
             # that pulled value could drop it below a neighbour and invert the
             # pair into a crossing.
             s_want, e_want = s_t, e_t
-            if fwd.routing:
+            if fwd.routed:
                 s_want = 0.5 + (s_t - 0.5) * ROUTED_CENTRE_BIAS
                 e_want = 0.5 + (e_t - 0.5) * ROUTED_CENTRE_BIAS
+            # A pinned end sits on the middle of its side (#209), ranked
+            # against its neighbours by where the other element lies along it.
+            if pin_s:
+                s_side, s_want = pin_s, 0.5
+                s_t = t_of_point(f_rect, s_side, _rect_centre(t_rect))
+            if pin_e:
+                e_side, e_want = pin_e, 0.5
+                e_t = t_of_point(t_rect, e_side, _rect_centre(f_rect))
+            # A right-angle arrow runs along its side to where the other
+            # element lies, so that is its rank: ranked by its ray instead, an
+            # end the aligned shortcut placed could swap with a neighbour and
+            # the two runs cross (#306). The ray breaks a tie.
+            if fwd.routing == "ortho":
+                s_t = (along_side(f_rect, s_side, _rect_centre(t_rect)), s_t)
+                e_t = (along_side(t_rect, e_side, _rect_centre(f_rect)), e_t)
             natural[idx] = [f_rect, s_side, s_want,
                             t_rect, e_side, e_want,
-                            bool(fwd.routing), s_t, e_t]
+                            bool(fwd.routed or pin_s or pin_e), s_t, e_t]
             groups.setdefault((f_id, s_side), []).append((idx, 0))
             groups.setdefault((t_id, e_side), []).append((idx, 1))
+
+        for idx, elem_id, rect, pin_s, pin_e in self_conns:
+            load = {side: len(groups.get((elem_id, side), ()))
+                    for side in ("n", "e", "s", "w")}
+            out_side, in_side = (pinned_self_loop_sides(pin_s, pin_e, load)
+                                 if pin_s or pin_e
+                                 else pick_self_loop_sides(load))
+            out_t, in_t = self_loop_ts(out_side, in_side)
+            natural[idx] = [rect, out_side, out_t, rect, in_side, in_t,
+                            True, out_t, in_t]
+            groups.setdefault((elem_id, out_side), []).append((idx, 0))
+            groups.setdefault((elem_id, in_side), []).append((idx, 1))
 
         slots: dict[tuple[int, int], float] = {}
         for (_elem_id, side), members in groups.items():
@@ -512,56 +657,138 @@ class SelectionMixin:
             span = rect[2] if side in ("n", "s") else rect[3]
             min_sep = ANCHOR_MIN_SEP / span if span > 0 else 0.2
             values = [natural[i][2 if w == 0 else 5] for i, w in members]
+            # A right-angle arrow's rank is a pair (see above); every other
+            # rank becomes one too, so the two compare.
             ranks = [natural[i][7 if w == 0 else 8] for i, w in members]
+            ranks = [r if isinstance(r, tuple) else (r, r) for r in ranks]
             for member, value in zip(
                     members, relax_positions(values, min_sep, ranks)):
                 slots[member] = value
 
         anchors = {}
-        for idx, (f_rect, s_side, s_t, t_rect, e_side, e_t, routed,
+        for idx, (f_rect, s_side, s_t, t_rect, e_side, e_t, derived,
                   _rs, _re) in natural.items():
+            # ``derived`` marks a connector whose shape comes from these anchors
+            # whether or not they moved — a routed one, or a self-loop.
             new_s = slots.get((idx, 0), s_t)
             new_e = slots.get((idx, 1), e_t)
             moved = abs(new_s - s_t) > 1e-6 or abs(new_e - e_t) > 1e-6
-            if not routed and not moved:
+            if not derived and not moved:
                 continue                     # untouched: keep the old path
             anchors[idx] = (point_on_side(f_rect, s_side, new_s), s_side,
                             point_on_side(t_rect, e_side, new_e), e_side,
                             moved)
         return anchors
 
+    def _turn_lines(self, render_list, conn_anchors) -> dict[int, float]:
+        """Where each right-angle arrow sharing a side with others turns.
+
+        Arrows leaving the same side of a box each get their own turn line, so
+        their runs keep apart instead of sharing one until they split (#306).
+        Grouped by the side the anchor pass gave each start; an arrow alone on
+        its side, or with no sibling turning its way, keeps the middle of its
+        gap and is not listed.
+        """
+        groups: dict[tuple[str, str], list[int]] = {}
+        for idx, (from_id, to_id, _ht, _hf, fwd, _rev) in enumerate(
+                render_list):
+            anchors = conn_anchors.get(idx)
+            if anchors is None or fwd.routing != "ortho":
+                continue
+            f_id = self._lod_reroute(from_id)
+            if f_id == self._lod_reroute(to_id):
+                continue                     # a self-loop draws its own shape
+            groups.setdefault((f_id, anchors[1]), []).append(idx)
+
+        out: dict[int, float] = {}
+        for members in groups.values():
+            mids = turn_lines([conn_anchors[i][:4] for i in members])
+            for idx, mid in zip(members, mids):
+                if mid is not None:
+                    out[idx] = mid
+        return out
+
+    def _parallel_offsets(self, render_list) -> dict[int, float]:
+        """How far each connector between an already-linked pair bows aside.
+
+        Two connectors between the same two elements have the same geometry, so
+        nothing local to one of them can tell it apart from its sibling — the
+        fan is the one place a connector has to know what else runs alongside it
+        (#140). The order is the order the connectors appear in the file, so the
+        app and a headless render fan them the same way.
+
+        Only pairs are grouped, never a self-connector: a loop has no run to bow
+        and gets its own corner instead. Returns nothing for a pair carrying a
+        single connector, which is what keeps those boards untouched.
+        """
+        groups: dict[tuple[str, str], list[int]] = {}
+        for idx, (from_id, to_id, *_rest) in enumerate(render_list):
+            f_id = self._lod_reroute(from_id)
+            t_id = self._lod_reroute(to_id)
+            if f_id == t_id:
+                continue
+            groups.setdefault(tuple(sorted((f_id, t_id))), []).append(idx)
+
+        offsets: dict[int, float] = {}
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            for idx, offset in zip(members, fan_offsets(len(members))):
+                offsets[idx] = offset
+        return offsets
+
     def _redraw_arrows(self):
         for item in self._arrow_items:
             self._scene.removeItem(item)
         self._arrow_items.clear()
+        self._arrow_label_geometry.clear()
+        self._arrow_label_placed.clear()
+        self._merged_reverse.clear()
 
         if not self._board:
             return
 
-        # Merge opposite arrow pairs (A->B + B->A) into one line.
-        # Build directed lookup: (from, to) -> arrow
-        directed: dict[tuple[str, str], Arrow] = {}
+        # Merge opposite arrow pairs (A->B + B->A) into one line. Each arrow
+        # pairs with the first opposite one after it in the file that no
+        # earlier arrow took, so a third arrow between the pair stays its own
+        # line instead of merging an arrow a second time (#140).
+        arrows_ = self._board.arrows
         merged: set[int] = set()  # indices of arrows consumed by merge
         # Each entry: (from_box_id, to_box_id, draw_head_to, draw_head_from, fwd_arrow, rev_arrow|None)
         render_list: list[tuple[str, str, bool, bool, Arrow, Arrow | None]] = []
 
-        for i, arrow in enumerate(self._board.arrows):
-            directed[(arrow.from_id, arrow.to_id)] = arrow
+        # (from, to) -> indices of the arrows running that way, in file order
+        directed: dict[tuple[str, str], list[int]] = {}
+        for i, arrow in enumerate(arrows_):
+            directed.setdefault((arrow.from_id, arrow.to_id), []).append(i)
 
-        for i, arrow in enumerate(self._board.arrows):
-            if i in merged:
-                continue
-            reverse_key = (arrow.to_id, arrow.from_id)
-            reverse = directed.get(reverse_key)
-            if (
-                reverse is not None
-                and reverse is not arrow
+        def mergeable(arrow: Arrow, reverse: Arrow) -> bool:
+            return (
+                arrow.from_id != arrow.to_id   # two loops aren't a pair
                 and not (arrow.head_from and arrow.head_to)
                 and not (reverse.head_from and reverse.head_to)
-                and id(reverse) not in {id(self._board.arrows[j]) for j in merged}
-            ):
+                # A pinned side belongs to one direction; merging would drop
+                # the reverse's pins or misapply the forward's.
+                and not (arrow.from_side or arrow.to_side
+                         or reverse.from_side or reverse.to_side)
+                # One line draws one end shape; a dot-ended arrow and an
+                # arrowheaded one stay two lines (#210).
+                and arrow.head_shape == reverse.head_shape
+            )
+
+        for i, arrow in enumerate(arrows_):
+            if i in merged:
+                continue
+            j = next((j for j in directed.get((arrow.to_id, arrow.from_id), ())
+                      if j > i and j not in merged
+                      and mergeable(arrow, arrows_[j])), None)
+            if j is not None:
+                reverse = arrows_[j]
                 # Merge: combine head flags from both arrows
-                merged.add(self._board.arrows.index(reverse))
+                merged.add(j)
+                # The merged line carries only the forward arrow; remember the
+                # reverse so emphasising it by id finds the line.
+                self._merged_reverse[id(arrow)] = reverse
                 render_list.append((
                     arrow.from_id, arrow.to_id,
                     arrow.head_to or reverse.head_from,
@@ -576,16 +803,24 @@ class SelectionMixin:
                 ))
 
         conn_anchors = self._connector_anchors(render_list)
+        turn_at = self._turn_lines(render_list, conn_anchors)
+        connectors: list[_Connector] = []
+        conn_offsets = self._parallel_offsets(render_list)
         obstacle_rects = self._routing_obstacles()
 
         for idx, (from_id, to_id, draw_head_to, draw_head_from, fwd, rev) in enumerate(
                 render_list):
+            # A connector authored onto one element loops back to it; it is not
+            # an edge that collapsed into a single tile, so it survives the drop
+            # below and draws from the anchors chosen for it.
+            is_self = from_id == to_id
+            pin_from, pin_to = self._live_pins(from_id, to_id, fwd)
             # Level-of-Detail: an endpoint inside a collapsed container re-routes
             # to that container's tile; an edge that becomes internal to a single
             # tile (both ends resolve to it) is dropped.
             from_id = self._lod_reroute(from_id)
             to_id = self._lod_reroute(to_id)
-            if from_id == to_id:
+            if from_id == to_id and not is_self:
                 continue
             from_hull = self._lod_hull_member.get(from_id)
             to_hull = self._lod_hull_member.get(to_id)
@@ -624,6 +859,11 @@ class SelectionMixin:
                 if resolved:
                     arrow_color = QColor(resolved)
 
+            # A path stop's arrow: the tour accent, twice as thick (heads too).
+            if self._arrow_emphasised(fwd):
+                arrow_color = QColor(theme.FLOWS_ACCENT)
+                arrow_width *= 2
+
             # Arrowheads grow with the line, but gently, so they stay tasteful.
             # Sized off the base width so an explicit thickness doesn't bloat them.
             head_size = ARROWHEAD_SIZE * (arrow_width / ARROW_WIDTH) ** 0.6
@@ -640,26 +880,20 @@ class SelectionMixin:
                 pen.setWidthF(max(0.5, arrow_width * 0.5))
 
             # Calculate start/end points
-            if both_boxes:
-                aligned = _aligned_edge_points(from_elem, to_elem)
-                if aligned:
-                    start, end = aligned
-                else:
-                    from_center = QPointF(
-                        from_elem.x + from_elem.w / 2, from_elem.y + from_elem.h / 2
-                    )
-                    to_center = QPointF(
-                        to_elem.x + to_elem.w / 2, to_elem.y + to_elem.h / 2
-                    )
-                    start = _box_edge_point(from_elem, to_center)
-                    end = _box_edge_point(to_elem, from_center)
+            if is_self:
+                # No centre-to-centre ray to cross an edge with: a loop's two
+                # ends are the side anchors chosen in _connector_anchors, and
+                # without them there is nothing to draw.
+                loop = conn_anchors.get(idx)
+                if loop is None:
+                    continue
+                start, end = loop[0], loop[2]
             else:
-                from_r = self._elem_rect(from_elem)
-                to_r = self._elem_rect(to_elem)
-                from_center = QPointF(from_r[0] + from_r[2] / 2, from_r[1] + from_r[3] / 2)
-                to_center = QPointF(to_r[0] + to_r[2] / 2, to_r[1] + to_r[3] / 2)
-                start = _rect_edge_point(*from_r, to_center)
-                end = _rect_edge_point(*to_r, from_center)
+                # Same call as _connector_anchors makes, so the drawn line and
+                # the anchors the spread pass reasons about cannot disagree.
+                start, end = endpoint_pair(self._elem_rect(from_elem),
+                                           self._elem_rect(to_elem),
+                                           both_boxes)
 
             # An endpoint hidden inside a cluster re-attaches to its hull outline.
             if from_hull is not None or to_hull is not None:
@@ -678,7 +912,11 @@ class SelectionMixin:
             if anchors and from_hull is None and to_hull is None:
                 a_start, a_start_side, a_end, a_end_side, _moved = anchors
                 start, end = a_start, a_end
-                if fwd.routing:
+                if is_self:
+                    conn_path = self_loop_path(self._elem_rect(from_elem),
+                                               start, a_start_side,
+                                               end, a_end_side)
+                elif fwd.routed:
                     # A connector may pass over its own endpoints and over any
                     # container holding them — it starts on their edges, so
                     # counting those as obstacles would block every candidate.
@@ -687,152 +925,64 @@ class SelectionMixin:
                     conn_path = routed_path(
                         fwd.routing, start, a_start_side, end, a_end_side,
                         [r for bid, r in obstacle_rects.items()
-                         if bid not in skip])
+                         if bid not in skip],
+                        (QRectF(*self._elem_rect(from_elem)),
+                         QRectF(*self._elem_rect(to_elem)))
+                        if pin_from or pin_to else None,
+                        turn_at.get(idx))
+                elif pin_from or pin_to:
+                    # A direct connector between pinned sides stays one
+                    # straight run unless an end faces away from the other.
+                    pts = pinned_direct_points(start, a_start_side,
+                                               end, a_end_side)
+                    if len(pts) > 2:
+                        conn_path = polyline_path(pts)
 
-            dx = end.x() - start.x()
-            dy = end.y() - start.y()
+            # Connectors sharing a pair leave from anchors the spread pass has
+            # already pushed apart, but the run between them still coincides, so
+            # each bows aside by its slot in the fan. A routed connector is
+            # already shaped from its own anchors and keeps its route, and so
+            # does a pinned one: its author placed its ends (#209).
+            offset = conn_offsets.get(idx, 0.0)
+            if (conn_path is None and offset and not fwd.routed
+                    and not (pin_from or pin_to)):
+                bow_side = (anchors[1] if anchors and from_hull is None
+                            else side_of_point(self._elem_rect(from_elem), start))
+                conn_path = bowed_path(start, end, bow_side, offset)
 
-            # Forward arrowhead (at to_id end)
-            if draw_head_to:
-                angle = (path_end_angle(conn_path, True) if conn_path is not None
-                         else math.atan2(dy, dx))
-                head = QGraphicsPolygonItem(_arrowhead_polygon(end, angle, head_size))
-                head.setPen(QPen(arrow_color, 1))
-                head.setBrush(QBrush(arrow_color))
-                head.setData(0, fwd)
-                self._scene.addItem(head)
-                self._arrow_items.append(head)
+            # A `!round` box is a circle or pill inside its rectangle (#307):
+            # an end on it runs on along its own direction to the outline.
+            # An end re-attached to a cluster hull already sits on that hull.
+            def round_rect(elem, hull):
+                if hull is None and isinstance(elem, Box) and elem.round:
+                    return self._elem_rect(elem)
+                return None
+            f_round = round_rect(from_elem, from_hull)
+            t_round = round_rect(to_elem, to_hull)
+            if f_round is not None or t_round is not None:
+                start, end, conn_path = round_ends(start, end, conn_path,
+                                                   f_round, t_round)
 
-            # Backward arrowhead (at from_id end)
-            if draw_head_from:
-                back_angle = (path_end_angle(conn_path, False)
-                              if conn_path is not None else math.atan2(-dy, -dx))
-                back_head = QGraphicsPolygonItem(
-                    _arrowhead_polygon(start, back_angle, head_size)
-                )
-                back_head.setPen(QPen(arrow_color, 1))
-                back_head.setBrush(QBrush(arrow_color))
-                back_head.setData(0, fwd)
-                self._scene.addItem(back_head)
-                self._arrow_items.append(back_head)
+            connectors.append(_Connector(
+                fwd=fwd, rev=rev, from_id=from_id, to_id=to_id,
+                start=start, end=end, path=conn_path,
+                pen=pen, color=arrow_color, head_size=head_size,
+                head_to=draw_head_to, head_from=draw_head_from,
+                # Drop the connector label when either end is a LoD-collapsed
+                # node (tile or hull) — its authored size would render as
+                # illegible clutter on a rerouted edge.
+                label_dropped=(from_hull is not None or to_hull is not None
+                               or from_id in self._lod_collapsed
+                               or to_id in self._lod_collapsed),
+            ))
 
-            # Collect labels: for merged pairs show both, stacked vertically
-            label_texts: list[str] = []
-            label_tooltips: list[str] = []
-            if fwd.label:
-                label_texts.append(fwd.label)
-            if fwd.url:
-                label_tooltips.append(fwd.url)
-            if rev and rev.label:
-                label_texts.append(rev.label)
-            if rev and rev.url:
-                label_tooltips.append(rev.url)
-
-            total_len = math.hypot(dx, dy)
-            # Drop the connector label when either end is a LoD-collapsed node
-            # (tile or hull) — its authored size would render as illegible
-            # clutter on a rerouted edge.
-            endpoint_collapsed = (
-                from_hull is not None or to_hull is not None
-                or from_id in self._lod_collapsed or to_id in self._lod_collapsed)
-            # Illegible at this zoom (set by _refresh_lod): the label is kept in
-            # the scene (hidden) so it's still tracked, but the line draws
-            # unbroken — no leftover gap where the caption sat.
-            label_too_small = (fwd.from_id, fwd.to_id) in self._lod_arrow_labels_hidden
-            has_label = False
-            if label_texts and total_len > 0 and not endpoint_collapsed:
-                # The label rides the connector, so on a routed one it follows
-                # the path's midpoint — the chord midpoint of an L-bend sits off
-                # in empty space, nowhere near the line it is labelling.
-                if conn_path is not None:
-                    mid = conn_path.pointAtPercent(0.5)
-                    mid_x, mid_y = mid.x(), mid.y()
-                else:
-                    mid_x = (start.x() + end.x()) / 2
-                    mid_y = (start.y() + end.y()) / 2
-
-                combined = "\n".join(label_texts)
-                label = LabelItem(combined)
-                label.setFont(QFont(FONT_FAMILY, ARROW_LABEL_FONT_SIZES.get(fwd.textsize, 10)))
-                label.setBrush(QBrush(QColor(theme.INK)))
-                label.setData(0, fwd)
-                if label_tooltips:
-                    label.setToolTip("\n".join(label_tooltips))
-                br = label.boundingRect()
-                label_x = mid_x - br.width() / 2 + fwd.label_dx
-                label_y = mid_y - br.height() / 2 + fwd.label_dy
-
-                pad = 4
-                gap = QRectF(
-                    label_x - pad, label_y - pad,
-                    br.width() + 2 * pad, br.height() + 2 * pad,
-                )
-
-                label.setPos(label_x, label_y)
-                label.setVisible(not label_too_small)
-                self._scene.addItem(label)
-                self._arrow_items.append(label)
-                has_label = not label_too_small
-
-            # Draw line (split around label gap if needed)
-            if conn_path is not None:
-                # A path has no single parametric line to clip, so the label
-                # gap is walked out of it instead — one piece when the label
-                # misses the connector, two when it interrupts it.
-                pieces = (split_path_at_rect(conn_path, gap) if has_label
-                          else [conn_path])
-                tooltip_parts = [a.annotation for a in (fwd, rev)
-                                 if a is not None and a.annotation]
-                for piece in pieces:
-                    line = ArrowLineItem(piece)
-                    line.setPen(pen)
-                    line.setData(0, fwd)
-                    if tooltip_parts and not has_label:
-                        line.setToolTip("\n".join(tooltip_parts))
-                    self._scene.addItem(line)
-                    self._arrow_items.append(line)
-            elif has_label:
-                seg1_end, seg2_start = _line_rect_clip(start, end, gap)
-                # If gap doesn't intersect the line, draw one unbroken line
-                if ((seg1_end - start).manhattanLength() < 1
-                        and (end - seg2_start).manhattanLength() < 1):
-                    line = ArrowLineItem(
-                        start.x(), start.y(), end.x(), end.y()
-                    )
-                    line.setPen(pen)
-                    line.setData(0, fwd)
-                    self._scene.addItem(line)
-                    self._arrow_items.append(line)
-                else:
-                    line1 = ArrowLineItem(
-                        start.x(), start.y(), seg1_end.x(), seg1_end.y()
-                    )
-                    line1.setPen(pen)
-                    line1.setData(0, fwd)
-                    self._scene.addItem(line1)
-                    self._arrow_items.append(line1)
-                    line2 = ArrowLineItem(
-                        seg2_start.x(), seg2_start.y(), end.x(), end.y()
-                    )
-                    line2.setPen(pen)
-                    line2.setData(0, fwd)
-                    self._scene.addItem(line2)
-                    self._arrow_items.append(line2)
-            else:
-                line = ArrowLineItem(
-                    start.x(), start.y(), end.x(), end.y()
-                )
-                line.setPen(pen)
-                line.setData(0, fwd)
-                tooltip_parts = []
-                if fwd.annotation:
-                    tooltip_parts.append(fwd.annotation)
-                if rev and rev.annotation:
-                    tooltip_parts.append(rev.annotation)
-                if tooltip_parts:
-                    line.setToolTip("\n".join(tooltip_parts))
-                self._scene.addItem(line)
-                self._arrow_items.append(line)
+        # Every connector's geometry is known before any is drawn, so a label
+        # can be placed knowing what else is on the board.
+        for conn in connectors:
+            self._connector_label(conn)
+        self._place_arrow_labels(connectors)
+        for conn in connectors:
+            self._draw_connector(conn)
 
         self._update_z_values()
         self._invalidate_graph_stats()
@@ -844,9 +994,234 @@ class SelectionMixin:
         if self._arrows_dimmed and not self._focus_active and not self._complexity_active:
             for gfx in self._arrow_items:
                 gfx.setOpacity(0.08)
-        if self._present_focus_rect is not None:
+        if (self._present_focus_rect is not None
+                or self._present_emphasis is not None):
             # Rebuilt arrow gfx start at full opacity — refresh the focus fade.
             self._apply_presentation_focus()
+
+    def _connector_label(self, conn: "_Connector") -> None:
+        """Give ``conn`` its label item and the anchor it is centred on.
+
+        For a merged pair both labels show, stacked vertically. A connector
+        with no label, no length, or an end collapsed by LoD gets none.
+        """
+        fwd, rev, start, end = conn.fwd, conn.rev, conn.start, conn.end
+        # What label_anchor needs, kept so the inline editor and the
+        # arrow-mode badge open where this label is drawn.
+        for arrow in (fwd, rev):
+            if arrow is not None:
+                self._arrow_label_geometry[id(arrow)] = (start, end, conn.path)
+        label_texts = [a.label for a in (fwd, rev) if a is not None and a.label]
+        label_tooltips = [a.url for a in (fwd, rev) if a is not None and a.url]
+        total_len = math.hypot(end.x() - start.x(), end.y() - start.y())
+        if not label_texts or total_len <= 0 or conn.label_dropped:
+            return
+        # The label rides the connector, so on a routed one it sits on
+        # the path's longest straight run — the chord midpoint of an
+        # L-bend sits off in empty space, and the path's own middle can
+        # land on a short jog.
+        conn.label_anchor = label_anchor(start, end, conn.path)
+        label = LabelItem("\n".join(label_texts))
+        label.setFont(arrow_label_font(fwd.textsize))
+        label.setBrush(QBrush(QColor(theme.INK_MUTED)))
+        label.setData(0, fwd)
+        if label_tooltips:
+            label.setToolTip("\n".join(label_tooltips))
+        conn.label = label
+
+    def _label_obstacles(self) -> dict[str, QRectF]:
+        """Every element on screen an arrow label must not cover, by id:
+        boxes (a collapsed container as its tile), notes and images. What a
+        collapsed container or a cluster swallows is not on screen."""
+        if not self._board:
+            return {}
+        out: dict[str, QRectF] = {}
+        for elem in (*self._board.boxes, *self._board.notes, *self._board.images):
+            if (self._lod_reroute(elem.id) != elem.id
+                    or self._lod_hull_member.get(elem.id) is not None
+                    or elem.id in self._lod_hidden_notes):
+                continue
+            out[elem.id] = QRectF(*self._elem_rect(elem))
+        return out
+
+    def _place_arrow_labels(self, connectors: list["_Connector"]) -> None:
+        """Move each label off boxes and off the other labels (#303).
+
+        A label its author offset (``@dx,dy``) stays where it was put, and
+        goes first, so no other label takes its spot. Every other label keeps
+        its anchor when that is free and otherwise takes the nearest free spot
+        along its connector (``arrows.place_label``), in file order. It stays
+        off every element except the containers its connector runs inside,
+        and off its own two ends by an arrowhead more, so the head stays in
+        sight. Where a label lands does not depend on the zoom: one hidden as
+        too small at this zoom still holds its spot.
+        """
+        labelled = [c for c in connectors if c.label is not None]
+        if not labelled:
+            return
+        obstacles = self._label_obstacles()
+        placed: list[QRectF] = []
+        authored = {id(c) for c in labelled if c.fwd.label_dx or c.fwd.label_dy}
+        for conn in labelled:
+            if id(conn) in authored:
+                br = conn.label.boundingRect()
+                placed.append(label_plate(
+                    conn.label_anchor + QPointF(conn.fwd.label_dx, conn.fwd.label_dy),
+                    br.width(), br.height()))
+        for conn in labelled:
+            if id(conn) not in authored:
+                ground = label_ground(self._board, conn.from_id, conn.to_id)
+                ends = {conn.from_id, conn.to_id}
+                clear = conn.head_size
+                blocked = [r.adjusted(-clear, -clear, clear, clear) if eid in ends else r
+                           for eid, r in obstacles.items() if eid not in ground]
+                path = conn.path
+                if path is None:
+                    path = QPainterPath(conn.start)
+                    path.lineTo(conn.end)
+                br = conn.label.boundingRect()
+                conn.label_anchor = place_label(
+                    path, br.width(), br.height(), conn.label_anchor,
+                    blocked + placed)
+                placed.append(label_plate(conn.label_anchor,
+                                          br.width(), br.height()))
+            for arrow in (conn.fwd, conn.rev):
+                if arrow is not None:
+                    self._arrow_label_placed[id(arrow)] = conn.label_anchor
+
+    def _draw_connector(self, conn: "_Connector") -> None:
+        """Draw one connector: its end shapes, its label, then its line —
+        split around the label where the label sits on it."""
+        fwd, rev, start, end = conn.fwd, conn.rev, conn.start, conn.end
+        conn_path, pen, arrow_color = conn.path, conn.pen, conn.color
+        head_size = conn.head_size
+        draw_head_to, draw_head_from = conn.head_to, conn.head_from
+        dx = end.x() - start.x()
+        dy = end.y() - start.y()
+
+        # A dot-ended connector (`!dot`, #210) draws a filled dot centred
+        # on each end that would carry a head, wide enough to read past
+        # the line's own width.
+        if fwd.head_shape == "dot":
+            radius = max(head_size * 0.4, pen.widthF() * 1.1)
+            for tip, wanted in ((end, draw_head_to), (start, draw_head_from)):
+                if not wanted:
+                    continue
+                dot = QGraphicsPolygonItem(_dot_polygon(tip, radius))
+                dot.setPen(QPen(arrow_color, 1))
+                dot.setBrush(QBrush(arrow_color))
+                dot.setData(0, fwd)
+                self._scene.addItem(dot)
+                self._arrow_items.append(dot)
+            draw_head_to = draw_head_from = False
+
+        # Forward arrowhead (at to_id end)
+        if draw_head_to:
+            angle = (path_end_angle(conn_path, True) if conn_path is not None
+                     else math.atan2(dy, dx))
+            head = QGraphicsPolygonItem(_arrowhead_polygon(end, angle, head_size))
+            head.setPen(QPen(arrow_color, 1))
+            head.setBrush(QBrush(arrow_color))
+            head.setData(0, fwd)
+            self._scene.addItem(head)
+            self._arrow_items.append(head)
+
+        # Backward arrowhead (at from_id end)
+        if draw_head_from:
+            back_angle = (path_end_angle(conn_path, False)
+                          if conn_path is not None else math.atan2(-dy, -dx))
+            back_head = QGraphicsPolygonItem(
+                _arrowhead_polygon(start, back_angle, head_size)
+            )
+            back_head.setPen(QPen(arrow_color, 1))
+            back_head.setBrush(QBrush(arrow_color))
+            back_head.setData(0, fwd)
+            self._scene.addItem(back_head)
+            self._arrow_items.append(back_head)
+
+        # Illegible at this zoom (set by _refresh_lod): the label is kept in
+        # the scene (hidden) so it's still tracked, but the line draws
+        # unbroken — no leftover gap where the caption sat.
+        label_too_small = (fwd.from_id, fwd.to_id) in self._lod_arrow_labels_hidden
+        has_label = False
+        label = conn.label
+        if label is not None:
+            mid = conn.label_anchor
+            br = label.boundingRect()
+            label_x = mid.x() - br.width() / 2 + fwd.label_dx
+            label_y = mid.y() - br.height() / 2 + fwd.label_dy
+
+            # The line breaks around the label's painted plate.
+            gap = QRectF(
+                label_x - LABEL_PAD, label_y - LABEL_PAD,
+                br.width() + 2 * LABEL_PAD, br.height() + 2 * LABEL_PAD,
+            )
+
+            label.setPos(label_x, label_y)
+            label.setVisible(not label_too_small)
+            self._scene.addItem(label)
+            self._arrow_items.append(label)
+            has_label = not label_too_small
+
+        # Draw line (split around label gap if needed)
+        if conn_path is not None:
+            # A path has no single parametric line to clip, so the label
+            # gap is walked out of it instead — one piece when the label
+            # misses the connector, two when it interrupts it.
+            pieces = (split_path_at_rect(conn_path, gap) if has_label
+                      else [conn_path])
+            tooltip_parts = [a.annotation for a in (fwd, rev)
+                             if a is not None and a.annotation]
+            for piece in pieces:
+                line = ArrowLineItem(piece)
+                line.setPen(pen)
+                line.setData(0, fwd)
+                if tooltip_parts and not has_label:
+                    line.setToolTip("\n".join(tooltip_parts))
+                self._scene.addItem(line)
+                self._arrow_items.append(line)
+        elif has_label:
+            seg1_end, seg2_start = _line_rect_clip(start, end, gap)
+            # If gap doesn't intersect the line, draw one unbroken line
+            if ((seg1_end - start).manhattanLength() < 1
+                    and (end - seg2_start).manhattanLength() < 1):
+                line = ArrowLineItem(
+                    start.x(), start.y(), end.x(), end.y()
+                )
+                line.setPen(pen)
+                line.setData(0, fwd)
+                self._scene.addItem(line)
+                self._arrow_items.append(line)
+            else:
+                line1 = ArrowLineItem(
+                    start.x(), start.y(), seg1_end.x(), seg1_end.y()
+                )
+                line1.setPen(pen)
+                line1.setData(0, fwd)
+                self._scene.addItem(line1)
+                self._arrow_items.append(line1)
+                line2 = ArrowLineItem(
+                    seg2_start.x(), seg2_start.y(), end.x(), end.y()
+                )
+                line2.setPen(pen)
+                line2.setData(0, fwd)
+                self._scene.addItem(line2)
+                self._arrow_items.append(line2)
+        else:
+            line = ArrowLineItem(
+                start.x(), start.y(), end.x(), end.y()
+            )
+            line.setPen(pen)
+            line.setData(0, fwd)
+            tooltip_parts = []
+            if fwd.annotation:
+                tooltip_parts.append(fwd.annotation)
+            if rev and rev.annotation:
+                tooltip_parts.append(rev.annotation)
+            if tooltip_parts:
+                line.setToolTip("\n".join(tooltip_parts))
+            self._scene.addItem(line)
+            self._arrow_items.append(line)
 
     # ── Subgraph focus filter ──
 
@@ -1194,12 +1569,13 @@ class SelectionMixin:
                            + "  (Shift+Del deletes the doc too)")
             return
         removed, shared = [], sorted(n for n in names if n in still)
+        failed = []
         for n in orphaned:
             try:
                 doc_path(Path(grafli_path), n).unlink(missing_ok=True)
                 removed.append(n)
             except OSError:
-                pass
+                failed.append(n)
         if removed and hasattr(window, "_watch_docs"):
             window._watch_docs()   # re-baseline so the unlink doesn't echo back
         msg = ""
@@ -1208,6 +1584,9 @@ class SelectionMixin:
         if shared:
             msg += (" · " if msg else "") + "kept (still referenced): " \
                 + ", ".join(f"{n}.md" for n in shared)
+        if failed:
+            msg += (" · " if msg else "") + "could not delete: " \
+                + ", ".join(f"{n}.md" for n in failed) + " — check permissions"
         if msg:
-            self.toast(msg, "warn" if shared else "info")
+            self.toast(msg, "warn" if (shared or failed) else "info")
 

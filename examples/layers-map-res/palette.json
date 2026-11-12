@@ -1,0 +1,7 @@
+{
+  "entries": {
+    "format": {"color": "%highlight", "label": "Format"},
+    "view": {"color": "%soft", "label": "View"},
+    "export": {"color": "%muted", "label": "Exports"}
+  }
+}

@@ -1,0 +1,63 @@
+#!grafli v4
+# What is grafli made of, and which way does each part lean on the next?
+# Worked example of a slide-grade explanation map drawn as layered
+# dependencies (skill: references/design.md "Layered dependencies",
+# references/explaining.md and references/presenting.md): grafli's own
+# layers, format -> view -> exports, one band per layer, every arrow a
+# dependency named for what it reads or draws, the one arrow that points up
+# in rose. One palette with its legend (layers-map-res/palette.json), a
+# generated overlay (layers-map-overlay.py) and an entry tour that exports
+# as slides.
+# source: ..
+
+# ── claim ──
+@ note claim 0,-440 "Every export draws the canvas's own scene — and only one call points up the stack" ~xlarge !flat !sans !bold
+@ note question 0,-375 "What is grafli made of, and which way does each part lean on the next? Arrows point at what a part depends on." ~small !flat !sans
+
+# ── exports ──
+@ box export "Exports" 0,-300 1080x180 %export ^left
+@ box render "render" 30,-240 240x90 ^topcenter !flat &doc:render >export
+@ box slides "PDF / PPTX" 420,-240 240x90 ^topcenter !flat &graph:exports >export
+@ box html "HTML page" 810,-240 240x90 ^topcenter !flat &doc:html >export
+
+# ── view ──
+@ box view "View" 0,20 1080x180 %view ^left
+@ box lod "Zoom levels" 30,80 240x90 ^topcenter !flat &doc:lod >view
+@ box scene "Scene items" 420,80 240x90 %primary ^topcenter !ink !sans &doc:scene >view
+@ box overlays "Overlays" 810,80 240x90 ^topcenter !flat &doc:overlays >view
+
+# ── format ──
+@ box format "Format" 0,340 1080x180 %format ^left
+@ box parser "Parser" 420,400 240x90 ^topcenter !flat &graph:parse >format
+@ box vault "Resource vault" 810,400 240x90 ^topcenter !flat &doc:vault >format
+
+# ── dependencies ──
+@ arrow render -> scene "draws" ~id=draw_render
+@ arrow slides -> scene "draws" @-35,0 ~id=carry
+@ arrow html -> scene "draws" ~id=draw_html
+@ arrow scene -> slides "asks: slide ratio" @65,0 %rose !thick ~from=top ~to=bottom ~id=up
+@ arrow scene -> lod "asks: what collapses"
+@ arrow overlays -> scene "colours"
+@ arrow scene -> parser "reads: 1 Board" ~id=feed
+@ arrow overlays -> vault "reads: *.overlay.json"
+@ arrow vault -> parser "reads: Board"
+
+# ── evidence ──
+@ note evidence 0,580 """
+code:
+split by the modules that own each layer
+  @grafli/format.py:929 parse
+  @grafli/resources.py:30 res_dir
+  @grafli/view/selection.py:291 load_board
+  @grafli/lod.py:88 LodModel
+  @grafli/view/structure.py:303 slide_content_ratio
+  @grafli/slideplan.py:74 build_slide_plan
+  @grafli/htmlexport.py:522 export_html
+""" ~small
+
+# ── tour ──
+@ bookmark b_all "One file, three layers" @export,view,format ~pad=20
+@ bookmark b_feed "The format feeds the view" @format,view,feed
+@ bookmark b_carry "Every export draws the scene" @view,export,carry
+@ bookmark b_up "One call points up" @scene,slides,up
+@ flow entry "What grafli is made of" b_all b_feed parse#b_build b_carry exports#b_same b_up "From one plain-text file through the canvas to every export, one level down where it matters, and the one dependency that points the wrong way."

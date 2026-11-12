@@ -40,6 +40,8 @@ _COLOR_VALUES = [c for _, c in COLOR_PALETTE]
 
 FONT_FAMILY = "JetBrainsMono Nerd Font"
 NOTE_FONT_FAMILY = "Patrick Hand"
+# `!sans` boxes: the bundled proportional face (Inter, OFL).
+SANS_FONT_FAMILY = "Inter"
 
 BOX_FONT = QFont(FONT_FAMILY, 13)
 NOTE_FONT = QFont(NOTE_FONT_FAMILY, 15)
@@ -58,6 +60,15 @@ ARROW_LABEL_FONT_SIZES = {"": 10, "small": 8, "large": 13, "xlarge": 18, "xxlarg
 
 BOX_RADIUS = 8
 BOX_BORDER_WIDTH = 2
+# An uncoloured container's plate: the ink at this opacity over what is
+# behind it, so each nested level sits a shade deeper (#294).
+CONTAINER_PLATE_ALPHA = 0.05
+# WCAG AA: the contrast text needs on what it sits on, and the large text
+# (24 px, or 18.66 px bold) that may take the lower ratio.
+WCAG_AA_TEXT = 4.5
+WCAG_AA_LARGE_TEXT = 3.0
+WCAG_LARGE_TEXT_PX = 24.0
+WCAG_LARGE_BOLD_TEXT_PX = 18.66
 ARROW_WIDTH = 2
 ARROWHEAD_SIZE = 10
 ANNOTATION_ARROW_WIDTH = 1
@@ -86,6 +97,8 @@ MINIMAP_STATS_FONT_SIZE = 10
 HEATMAP_COLD_ALPHA = 0.30
 HEATMAP_HOT_ALPHA = 0.95
 HEATMAP_NOTE_OPACITY = 0.15
+HEATMAP_CATEGORY_ALPHA = 0.85  # fill of a box an overlay gives a category colour
+HEATMAP_NO_DATA_ALPHA = 0.30   # hatch and border of a box with no overlay entry
 HEATMAP_BORDER_DARKEN = 125
 HEATMAP_GLOW_THRESHOLD = 0.5
 HEATMAP_GLOW_BLUR = 15
@@ -115,6 +128,23 @@ _SIZE_SEQUENCE = ["small", "", "large", "xlarge", "xxlarge", "xxxlarge", "4xl"]
 _SIZE_LADDER = [8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 40, 48, 56, 64, 72]
 _BOX_STYLE_CYCLE = ["", "flat"]
 _ARROW_STYLE_CYCLE = ["", "dashed", "dotted"]       # line pattern only
+
+
+# A container's title at full zoom, by its nesting level: a top-level
+# container first, each level inside a step smaller, every one above a
+# node's label (BOX_FONT_SIZES[""]); past the table, the last entry. The
+# largest still clears children 40 px below the container's top edge, the
+# margin a container with an unset size is laid out with (#294). The view
+# raises a title a point above any direct child's label that reaches it
+# (StructureMixin._container_title_sizes), so on a board more than three
+# container levels deep the outer titles grow past this table.
+CONTAINER_TITLE_PX = (16, 15, 14)
+
+
+def container_title_px(depth: int) -> int:
+    """Level size of the title of a container *depth* levels inside others
+    (0 = top level) whose size is unset."""
+    return CONTAINER_TITLE_PX[min(max(depth, 0), len(CONTAINER_TITLE_PX) - 1)]
 
 
 def resolve_textsize_px(textsize: str, default_key: str) -> int:

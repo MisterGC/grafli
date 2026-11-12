@@ -27,14 +27,22 @@ from PySide6.QtWidgets import (
 import textli
 
 from grafli import theme
-from grafli.buffers import BufferManager, BufferState, ViewState
+from grafli.buffers import BoardFrame, BufferManager, BufferState, ViewState
 from grafli.constants import Mode
 from grafli.fonts import register_bundled_fonts as _register_bundled_fonts
 from grafli.filewatcher import JsonSafeWatcher, MultiFileWatcher
-from grafli.format import Board, parse, serialize, serialize_to_file
+from grafli.format import (Board, is_newer, parse, serialize,
+                           serialize_to_file, supported_version)
 from grafli.sync import Conflict, atomic_write, merge_boards
 from grafli.fuzzy import FuzzyItem, FuzzyOverlay
+from grafli.map_palette import attach_names
 from grafli.sidepanel import PanelToggleButton, SidePanel, ThemeToggleButton
+from grafli.skills import (skill_concat as _skill_concat,
+                           skill_dir as _skill_dir,
+                           skill_examples as _skill_examples,
+                           skill_path as _skill_path,
+                           skill_references as _skill_references)
+from grafli.slideplan import describe_overload
 from grafli.view import GrafliView
 
 
@@ -123,6 +131,7 @@ class MainWindow(QMainWindow):
         self._watcher: JsonSafeWatcher | None = None
         self._docs_watcher: MultiFileWatcher | None = None
         self._images_watcher: MultiFileWatcher | None = None
+        self._palette_watcher: MultiFileWatcher | None = None
         self._buffers = BufferManager()
 
         self._autosave_timer = QTimer(self)
@@ -188,7 +197,8 @@ class MainWindow(QMainWindow):
         if path is None:
             return "Grafli — untitled"
         label = f"{path.parent.name}/{path.name}"
-        return f"Grafli — {label}{'*' if dirty else ''}"
+        ro = " [read-only]" if self.board and is_newer(self.board) else ""
+        return f"Grafli — {label}{'*' if dirty else ''}{ro}"
 
     def _on_mode_changed(self, mode: Mode):
         self._status_mode.setText(mode.value.upper())
@@ -256,6 +266,7 @@ class MainWindow(QMainWindow):
             "search":       self._view._start_search,
             "grid":         self._view.toggle_grid,
             "minimap":      self._view._toggle_minimap,
+            "legend":       self._view._toggle_legend,
             "dim_notes":    self._view._toggle_notes_hidden,
             "dim_arrows":   self._view._toggle_arrows_dimmed,
             "complexity":   self._view._toggle_complexity,
@@ -267,6 +278,9 @@ class MainWindow(QMainWindow):
             return
         if action_id == "export_flow_pptx":
             self._export_flow_pptx()
+            return
+        if action_id == "export_html":
+            self._export_html()
             return
         handler = actions.get(action_id)
         if handler:
@@ -362,13 +376,12 @@ class MainWindow(QMainWindow):
             return
         from grafli.pdfexport import export_flow_to_pdf
         try:
-            slides, overloaded = export_flow_to_pdf(self._view, flow, path)
+            slides, overloaded = export_flow_to_pdf(self._view, flow, path,
+                                                    self._file_path)
         except Exception as exc:  # surface any render/IO failure
             self._view.toast(f"PDF export failed: {exc}", "error")
             return
-        msg = f"PDF exported · {slides} slides"
-        if overloaded:
-            msg += f" · {len(overloaded)} overloaded — trim or split"
+        msg = f"PDF exported · {slides} slides" + _overload_toast(overloaded)
         self._view.toast(msg, "warn" if overloaded else "info")
 
     def _export_flow_pptx(self, flow=None):
@@ -407,14 +420,42 @@ class MainWindow(QMainWindow):
         try:
             slides, overloaded = export_flow_to_pptx(
                 self._view, flow, path, theme=theme, template=template,
-                title_layout=title_layout, content_layout=content_layout)
+                title_layout=title_layout, content_layout=content_layout,
+                board_path=self._file_path)
         except Exception as exc:  # surface any render/IO failure
             self._view.toast(f"PPTX export failed: {exc}", "error")
             return
-        msg = f"PPTX exported · {slides} slides"
-        if overloaded:
-            msg += f" · {len(overloaded)} overloaded — trim or split"
+        msg = f"PPTX exported · {slides} slides" + _overload_toast(overloaded)
         self._view.toast(msg, "warn" if overloaded else "info")
+
+    def _export_html(self):
+        """Export this board and every board reachable from it as one
+        self-contained HTML page, in the theme on screen."""
+        from PySide6.QtWidgets import QFileDialog
+        if self._file_path is None:
+            self._view.toast("Save the board first to export it", "warn")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export HTML", str(self._file_path.with_suffix(".html")),
+            "HTML files (*.html);;All Files (*)",
+        )
+        if not path:
+            return
+        from grafli.htmlexport import SIZE_WARN_BYTES, export_html, format_size
+        try:
+            result = export_html(self._file_path, Path(path))
+        except Exception as exc:  # surface any render/IO failure
+            self._view.toast(f"HTML export failed: {exc}", "error")
+            return
+        boards = len(result.boards)
+        msg = (f"HTML exported · {format_size(result.size)} · {boards} "
+               f"board{'s' if boards != 1 else ''}")
+        if result.too_big:
+            msg += f" · above {format_size(SIZE_WARN_BYTES)}, heavy to send"
+        if result.warnings:
+            msg += f" · {len(result.warnings)} left out: {result.warnings[0]}"
+        self._view.toast(msg, "warn" if result.too_big or result.warnings
+                         else "info")
 
     def _pick_pptx_template(self):
         """Choose a .pptx template and the layouts to use for the title and
@@ -478,7 +519,7 @@ class MainWindow(QMainWindow):
 
         zoom_fit = QAction(self)
         zoom_fit.setShortcut(QKeySequence("Ctrl+0"))
-        zoom_fit.triggered.connect(self._zoom_fit)
+        zoom_fit.triggered.connect(self._zoom_fit_shortcut)
         self.addAction(zoom_fit)
 
         present = QAction(self)
@@ -516,6 +557,12 @@ class MainWindow(QMainWindow):
     def _warn_parse_issues(self, board):
         """Surface lines the parser couldn't read (and demoted to comments) on
         open/reload — so an AI/hand-edit slip is visible, not silently lost."""
+        if is_newer(board):
+            # Lines in a newer board's syntax are expected not to parse; the
+            # version is the one thing worth saying.
+            self._view.toast(
+                f"Opened read-only — {_newer_board_reason(board)}", "warn")
+            return
         warnings = getattr(board, "parse_warnings", None)
         if not warnings:
             return
@@ -540,6 +587,16 @@ class MainWindow(QMainWindow):
             f"⚠ {n} line{'s' if n != 1 else ''} couldn't be parsed "
             f"({'lines' if n != 1 else 'line'} {shown}{more}) — kept as comments",
             "warn")
+
+    def _zoom_fit_shortcut(self):
+        """Ctrl+0 from the keyboard. Separate from ``_zoom_fit`` because the
+        automatic fits (open, buffer switch, first resize) must stay quiet on
+        an empty board — only the deliberate keypress explains itself."""
+        if not (self.board and (self.board.boxes or self.board.notes
+                                or self.board.images)):
+            self._view.toast("Nothing on the board yet", "info")
+            return
+        self._zoom_fit()
 
     def _zoom_fit(self, animate: bool = True):
         if not (self.board and (self.board.boxes or self.board.notes
@@ -634,7 +691,7 @@ class MainWindow(QMainWindow):
         if path:
             self._open_file(Path(path))
 
-    def _open_file(self, path: Path):
+    def _open_file(self, path: Path, *, zoom_fit: bool = True):
         # Already open — focus it and re-fit, since an explicit "open this
         # file" (CLI, single-instance forward, file pick) means "show me this
         # board," not "restore my last scroll position" (that's buffer
@@ -642,7 +699,7 @@ class MainWindow(QMainWindow):
         existing = self._buffers.find_by_path(path)
         if existing >= 0:
             self._snapshot_current()
-            self._switch_buffer(existing, zoom_fit=True)
+            self._switch_buffer(existing, zoom_fit=zoom_fit)
             return
 
         if not path.exists():
@@ -656,7 +713,8 @@ class MainWindow(QMainWindow):
 
         board = parse(text)
         from grafli.resources import migrate_all
-        if migrate_all(path, board):
+        # A newer board is never rewritten — not even by a migration.
+        if not is_newer(board) and migrate_all(path, board):
             text = serialize(board)
             path.write_text(text, encoding="utf-8")
         missing = _load_vault(path, board)
@@ -669,13 +727,142 @@ class MainWindow(QMainWindow):
 
         self._snapshot_current()
         idx = self._buffers.add(buf)
-        self._switch_buffer(idx, zoom_fit=True)
-        self._warn_parse_issues(board)
+        self._switch_buffer(idx, zoom_fit=zoom_fit)
         if missing:
             self._view.toast(
                 "Missing vault doc"
                 + ("s" if len(missing) > 1 else "")
                 + ": " + ", ".join(f"{m}.md" for m in missing), "warn")
+        self._warn_stale_source(path, board)
+        # Last, so a newer board's read-only notice is the toast that shows.
+        self._warn_parse_issues(board)
+
+    def _warn_stale_source(self, path: Path, board):
+        """Say so when the board's ``# source:`` repo has moved on from the
+        revision its refs were read at — the notice `grafli diagnose` gives."""
+        from grafli.revision import refs_stale_line
+        line = refs_stale_line(board, path.resolve().parent)
+        if line:
+            self._view.toast(line[0].upper() + line[1:], "warn")
+
+    def _enter_board(self, path: Path, label: str, target_id: str = "",
+                     via=None):
+        """Open *path* as a board entered from this one through the element
+        *label*, so `gu` comes back here as you left it. A *target_id* (the
+        link's ``#<id>``) opens it framed on that bookmark or element. With
+        the element *via* on screen, a zoom into it plays first and hands
+        over to the board."""
+        if self._view.level_transition_running():
+            # A second Return or `gd` mid-zoom would record the half-zoomed
+            # view as the place `gu` returns to; the first one is on its way.
+            return
+        here = self._file_path
+        frame = None
+        if here is not None and path.resolve() != here.resolve():
+            frame = BoardFrame(
+                parent_path=here, parent_view=self._view.snapshot_state(),
+                child_path=path, label=label or path.stem,
+                via_id=getattr(via, "id", "") or "",
+                tour=self._view.tour_position(),
+            )
+        rect = (self._view.level_entry_rect(via)
+                if frame is not None and self._view.transitions_enabled()
+                else None)
+
+        def switch():
+            if frame is not None:
+                self._buffers.push_frame(frame)
+            self._open_board_at(path, target_id)
+            if frame is not None and frame.tour is not None:
+                self._view.toast(f"Tour paused at stop {frame.tour.index + 1}"
+                                 " — gu resumes it", "info")
+
+        if rect is None:
+            switch()
+        else:
+            self._view.play_enter(via, rect, switch)
+
+    def _open_board_at(self, path: Path, target_id: str):
+        """Open *path* fitted, or framed on *target_id* when it names one."""
+        self._open_file(path, zoom_fit=not target_id)
+        if not target_id or self._file_path is None \
+                or self._file_path.resolve() != path.resolve():
+            return
+        if self._view.frame_fragment(target_id):
+            self._pending_zoom_fit = False
+            return
+        self._zoom_fit(animate=False)
+        self._view.toast(f"No element '{target_id}' in {path.name}", "warn")
+
+    def _board_path(self) -> list[str]:
+        """Labels from the root board down to this one, for the breadcrumb."""
+        return self._buffers.board_path(self._file_path)
+
+    def _go_up(self):
+        """`gu`: back to the board you entered this one from, restored to the
+        zoom, scroll and selection you left it with — no fit."""
+        frame = self._buffers.frame_for(self._file_path)
+        if frame is None:
+            self._view.toast("Already at the top", "info")
+            return
+        parent = frame.parent_path
+        existing = self._buffers.find_by_path(parent)
+        if existing < 0 and not parent.exists():
+            self._view.toast(f"{parent.name} is gone", "warn")
+            return
+        animate = self._view.transitions_enabled()
+        still = self._view.viewport().grab() if animate else None
+        self._buffers.pop_frame()
+        if existing >= 0:
+            self._snapshot_current()
+            self._switch_buffer(existing)
+        else:
+            self._open_file(parent, zoom_fit=False)
+        self._view.restore_view(frame.parent_view)
+        via = self._view.element_by_id(frame.via_id) if animate else None
+        rect = self._view.level_entry_rect(via) if via is not None else None
+        if rect is not None:
+            self._view.play_exit(via, rect, still, frame.parent_view)
+        if frame.tour is not None:
+            self._resume_tour(frame.tour)
+
+    def _resume_tour(self, position):
+        """Pick up the tour a frame kept, at the stop it was left at."""
+        home = position.home
+        board = self.board
+        if home is not None and (self._file_path is None
+                                 or home.resolve() != self._file_path.resolve()):
+            idx = self._buffers.find_by_path(home)
+            board = self._buffers.buffers[idx].board if idx >= 0 else None
+        flow = board.flow_by_id(position.flow_id) if board else None
+        if flow is None or not flow.steps:
+            self._view.toast("The paused tour is gone", "warn")
+            return
+        self._view.resume_flow(flow, position)
+
+    def _paused_tour(self):
+        """The tour a board above this one keeps for `gu`, or None."""
+        if self._buffers.frame_for(self._file_path) is None:
+            return None
+        return self._buffers.paused_tour()
+
+    def _tour_goto_board(self, path: Path) -> bool:
+        """Show *path* for a tour stop: back along the board stack when it is
+        a board the tour came through, else one level down from here. True
+        when the board is shown."""
+        here = self._file_path
+        if here is not None and here.resolve() == path.resolve():
+            return True
+        if self._buffers.find_by_path(path) < 0 and not path.exists():
+            self._view.toast(f"{path.name} is gone", "warn")
+            return False
+        if here is not None and not self._buffers.pop_to(path):
+            self._buffers.push_frame(BoardFrame(
+                parent_path=here, parent_view=self._view.snapshot_state(),
+                child_path=path, label=path.stem))
+        self._open_file(path, zoom_fit=False)
+        return (self._file_path is not None
+                and self._file_path.resolve() == path.resolve())
 
     def _snapshot_current(self):
         """Snapshot the current buffer state before switching away."""
@@ -706,6 +893,9 @@ class MainWindow(QMainWindow):
                     text = buf.file_path.read_text(encoding="utf-8")
                 except OSError:
                     text = None
+                    self._view.toast(
+                        f"Could not re-read {buf.file_path.name} — "
+                        "showing the in-memory copy", "warn")
                 if text is not None and text != buf.last_written:
                     new_board = parse(text)
                     # Smart merge positions
@@ -740,6 +930,7 @@ class MainWindow(QMainWindow):
             self._title_for_path(self._file_path, dirty=self._view.dirty)
         )
         self._update_buf_status()
+        self._view._update_breadcrumb()
 
         # An explicit open leaves the canvas focused so its shortcuts (M, ⇧Z,
         # …) work immediately — without this the keys silently do nothing until
@@ -758,7 +949,8 @@ class MainWindow(QMainWindow):
         if self._buffers.count <= 0:
             return
 
-        if self._view.dirty:
+        # A read-only board's edits can't be saved — nothing to ask.
+        if self._view.dirty and not (self.board and is_newer(self.board)):
             name = self._file_path.name if self._file_path else "untitled"
             reply = QMessageBox.question(
                 self,
@@ -799,6 +991,9 @@ class MainWindow(QMainWindow):
                     text = buf.file_path.read_text(encoding="utf-8")
                 except OSError:
                     text = None
+                    self._view.toast(
+                        f"Could not re-read {buf.file_path.name} — "
+                        "showing the in-memory copy", "warn")
                 if text is not None and text != buf.last_written:
                     new_board = parse(text)
                     old_positions = {
@@ -825,12 +1020,15 @@ class MainWindow(QMainWindow):
             self._title_for_path(self._file_path, dirty=self._view.dirty)
         )
         self._update_buf_status()
+        self._view._update_breadcrumb()
 
     def _toggle_last_buffer(self):
         prev = self._buffers.prev_index
         if prev >= 0 and prev < self._buffers.count and prev != self._buffers.active_index:
             self._snapshot_current()
             self._switch_buffer(prev)
+        else:
+            self._view.toast("No other buffer to switch to", "info")
 
     # ── Fuzzy finders ────────────────────────────────────────────
 
@@ -955,7 +1153,10 @@ class MainWindow(QMainWindow):
         if self.board and self._file_path:
             self._write_file()
 
-    def _write_file(self) -> bool:
+    def _write_file(self, *, manual: bool = False) -> bool:
+        """Serialize the board to disk. ``manual`` marks the ⌘S path, which is
+        the only one allowed to report a deferred save — autosave retries on
+        its own and must not narrate the retry."""
         if not self.board or not self._file_path:
             return False
         from grafli.resources import (classify_attachments, externalize_md_notes,
@@ -976,11 +1177,20 @@ class MainWindow(QMainWindow):
                 # from a non-atomic external editor). Skip this save and let
                 # the next tick retry against a complete file rather than
                 # overwrite an edit we couldn't read.
+                if manual:
+                    self._view.toast(
+                        "Save deferred — the file on disk is mid-write", "warn")
                 return False
             _load_vault(self._file_path, merged)
             self._view.load_board(merged)
             if conflicts:
                 self._report_conflicts(conflicts)
+        if is_newer(self.board):
+            # Written by a newer grafli: this build would drop its syntax.
+            self._view.toast(
+                f"Read-only — {_newer_board_reason(self.board)}; "
+                "changes are not saved", "warn")
+            return False
         # Save is the migration moment (opening never mutates the working
         # tree): inline md: notes become doc-bodied, legacy &url attachments
         # take their kind, and doc bodies land in the vault.
@@ -1036,7 +1246,7 @@ class MainWindow(QMainWindow):
                 buf.file_path = self._file_path
             self._start_watching()
 
-        if self._write_file():
+        if self._write_file(manual=True):
             self._view.toast(f"Saved {self._file_path.name}")
 
     def _start_watching(self):
@@ -1048,11 +1258,33 @@ class MainWindow(QMainWindow):
         self._watcher.start()
         self._watch_docs()
         self._watch_images()
+        self._watch_palette()
+
+    def _watch_palette(self):
+        """(Re)start the poller over the places the map's palette file may
+        live, so writing, editing or removing it recolours the board."""
+        if self._palette_watcher:
+            self._palette_watcher.stop()
+            self._palette_watcher = None
+        if not self._file_path:
+            return
+        from grafli.map_palette import candidate_paths
+        paths = [str(p) for p in candidate_paths(self._file_path)]
+        self._palette_watcher = MultiFileWatcher(paths)
+        self._palette_watcher.files_changed.connect(self._on_palette_changed)
+        self._palette_watcher.start()
+
+    def _on_palette_changed(self, _changed: list):
+        # Not a board change: no reload — recolour, and lay out the boxes
+        # again for their kinds. Only a box whose kind's label no longer
+        # fits grows, which changes the board as resizing it would.
+        if self._view.load_map_palette():
+            self._apply_theme()
 
     def _watch_docs(self):
         """(Re)start the consolidated poller over the board's vault docs, so
-        external edits to a doc-bodied note's .md reload live — one timer for
-        all docs, re-baselined after our own writes."""
+        external edits to a doc-bodied note's or a box's .md reload live —
+        one timer for all docs, re-baselined after our own writes."""
         if self._docs_watcher:
             self._docs_watcher.stop()
             self._docs_watcher = None
@@ -1060,8 +1292,9 @@ class MainWindow(QMainWindow):
             return
         from grafli.format import doc_name
         from grafli.resources import doc_path
-        paths = [str(doc_path(self._file_path, doc_name(n)))
-                 for n in self.board.notes if n.attach_kind == "doc"]
+        paths = [str(doc_path(self._file_path, doc_name(el)))
+                 for el in (*self.board.notes, *self.board.boxes)
+                 if el.attach_kind == "doc"]
         if not paths:
             return
         self._docs_watcher = MultiFileWatcher(paths)
@@ -1109,6 +1342,9 @@ class MainWindow(QMainWindow):
         if self._images_watcher:
             self._images_watcher.stop()
             self._images_watcher = None
+        if self._palette_watcher:
+            self._palette_watcher.stop()
+            self._palette_watcher = None
 
     def _reconcile_external(self, disk_text: str) -> tuple[Board, list[Conflict]]:
         """3-way merge an external on-disk edit into the in-memory board.
@@ -1125,6 +1361,9 @@ class MainWindow(QMainWindow):
         try:
             base = parse(self._last_written) if self._last_written else None
         except Exception:
+            # No readable base snapshot: the merge degrades to 2-way (local vs
+            # remote), which resolves more edits as conflicts. Silent by
+            # design — the conflict report is what the human acts on.
             base = None
         return merge_boards(base, self.board, remote)
 
@@ -1134,10 +1373,14 @@ class MainWindow(QMainWindow):
         try:
             text = self._file_path.read_text(encoding="utf-8")
         except OSError:
+            self._view.toast(
+                f"Could not re-read {self._file_path.name} — "
+                "showing the in-memory copy", "warn")
             return
         if text == self._last_written:
             return
 
+        was_newer = self.board is not None and is_newer(self.board)
         merged, conflicts = self._reconcile_external(text)
         _load_vault(self._file_path, merged)
         self._view.load_board(merged)
@@ -1147,7 +1390,7 @@ class MainWindow(QMainWindow):
         # If the merge folded in local edits not yet on disk, the board is
         # dirty and the next autosave converges the file to the merged
         # result; otherwise it already matches disk and is clean.
-        if serialize(merged) != text:
+        if not is_newer(merged) and serialize(merged) != text:
             self._view.mark_dirty()
         else:
             self._view.mark_clean()
@@ -1157,6 +1400,9 @@ class MainWindow(QMainWindow):
             buf.last_written = text
         if conflicts:
             self._report_conflicts(conflicts)
+        if is_newer(merged) and not was_newer:
+            self._view.toast(
+                f"Now read-only — {_newer_board_reason(merged)}", "warn")
 
     def _report_conflicts(self, conflicts: list[Conflict]) -> None:
         """Surface merge conflicts so a concurrent edit clash is never
@@ -1193,7 +1439,8 @@ class MainWindow(QMainWindow):
             dirty = buf.view_state.dirty
             if i == self._buffers.active_index:
                 dirty = self._view.dirty
-            if dirty:
+            # A read-only board's edits can't be saved — nothing to ask.
+            if dirty and not is_newer(buf.board):
                 name = buf.file_path.name if buf.file_path else "untitled"
                 reply = QMessageBox.question(
                     self,
@@ -1224,6 +1471,43 @@ class MainWindow(QMainWindow):
 # ── Entry point ─────────────────────────────────────────────────
 
 _SERVER_NAME = "grafli-instance"
+
+
+def _newer_board_reason(board: Board) -> str:
+    """Why *board* is read-only: its header is newer than this build."""
+    return (f"this board is grafli v{board.version}, this build reads up "
+            f"to v{supported_version()}")
+
+
+def _overload_toast(overloaded: list) -> str:
+    """The export toast's tail for overloaded slides: how many, and what
+    makes the first one overloaded, so the author knows where to look —
+    terse, as the toast is one line across the canvas."""
+    if not overloaded:
+        return ""
+    index, _label, findings = overloaded[0]
+    first = findings[0]
+    what = (f"overflows at {first['pt']:g} pt"
+            if first["reason"] == "overflow"
+            else f"{first['pt']:g} pt < {first['floor']:g} pt")
+    return (f" · {len(overloaded)} overloaded: "
+            f"#{index + 1} '{first['element']}' {what}")
+
+
+def _step_bookmark(board_path: Path, board: Board, ref: str):
+    """The bookmark a flow step names — on *board*, or for a
+    ``<board>#<bookmark>`` stop on that other board — or None."""
+    from grafli.format import split_step_ref
+    target, bookmark_id = split_step_ref(ref)
+    if not target:
+        return board.bookmark_by_id(bookmark_id)
+    from grafli.resources import board_target_path
+    path = board_target_path(board_path, target)
+    try:
+        other = parse(path.read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    return other.bookmark_by_id(bookmark_id)
 
 
 def _load_vault(path: Path, board: Board) -> list[str]:
@@ -1275,49 +1559,6 @@ Without a subcommand, `grafli skill` prints the full skill to stdout —
 SKILL.md with every reference file inlined, for single-file consumers.
 Pass --core for just the lean core SKILL.md.
 """
-
-# Concat / inline order for the reference files; unknown names sort after.
-_REFERENCE_ORDER = ("format.md", "design.md", "presenting.md", "thinking.md")
-
-
-def _skill_dir() -> Path:
-    """Return the path to the bundled skill directory."""
-    from importlib.resources import files
-    return Path(str(files("grafli.skills.grafli")))
-
-
-def _skill_path() -> Path:
-    """Return the path to the bundled SKILL.md."""
-    return _skill_dir() / "SKILL.md"
-
-
-def _skill_references() -> dict[str, str]:
-    """Return the bundled reference files as ``{name: content}``, in
-    the canonical inline order.
-    """
-    ref_dir = _skill_dir() / "references"
-    if not ref_dir.is_dir():
-        return {}
-    def order(p: Path) -> tuple[int, str]:
-        try:
-            return (_REFERENCE_ORDER.index(p.name), p.name)
-        except ValueError:
-            return (len(_REFERENCE_ORDER), p.name)
-    return {
-        p.name: p.read_text(encoding="utf-8")
-        for p in sorted(ref_dir.glob("*.md"), key=order)
-    }
-
-
-def _skill_concat() -> str:
-    """The single-file build: SKILL.md with every reference inlined."""
-    parts = [_skill_path().read_text(encoding="utf-8")]
-    for name, content in _skill_references().items():
-        parts.append(
-            f"\n\n---\n\n<!-- inlined from references/{name} -->\n\n{content}"
-        )
-    return "".join(parts)
-
 
 def _grafli_version() -> str:
     from grafli._version import __version__
@@ -1451,13 +1692,14 @@ def _cmd_skill_install(argv: list[str]) -> int:
 
     packaged = _skill_path().read_text(encoding="utf-8")
     references = _skill_references()
+    examples = _skill_examples()
     version = _grafli_version()
 
     any_drift = False
     any_action = False
 
     for t in targets:
-        st = compute_status(t, packaged, version, references)
+        st = compute_status(t, packaged, version, references, examples)
         # Show context line so the user always sees the destination.
         if st.status == OK:
             print(f"[ok]      {t}: already current at {st.path} (grafli {version})")
@@ -1509,10 +1751,12 @@ def _cmd_skill_install(argv: list[str]) -> int:
                 print(f"  skipped {t}")
                 continue
 
-        path = write_skill(t, packaged, version, references)
+        path = write_skill(t, packaged, version, references, examples)
         print(f"  wrote {path}")
         if references:
             print(f"  wrote {path.parent / 'references'} ({len(references)} files)")
+        if examples:
+            print(f"  wrote {path.parent / 'examples'} ({len(examples)} files)")
         any_action = True
 
     if args.dry_run and any_drift:
@@ -1544,9 +1788,10 @@ def _cmd_skill_check(argv: list[str]) -> int:
     targets = _resolve_targets(args.target)
     packaged = _skill_path().read_text(encoding="utf-8")
     references = _skill_references()
+    examples = _skill_examples()
     version = _grafli_version()
 
-    statuses = [compute_status(t, packaged, version, references) for t in targets]
+    statuses = [compute_status(t, packaged, version, references, examples) for t in targets]
 
     if args.json:
         print(_json.dumps([s.to_dict() for s in statuses], indent=2))
@@ -1607,10 +1852,11 @@ def _cmd_skill_uninstall(argv: list[str]) -> int:
 
     packaged = _skill_path().read_text(encoding="utf-8")
     references = _skill_references()
+    examples = _skill_examples()
     version = _grafli_version()
 
     for t in targets:
-        st = compute_status(t, packaged, version, references)
+        st = compute_status(t, packaged, version, references, examples)
         if st.status == MISSING:
             print(f"[missing] {t}: nothing to remove at {st.path.parent}")
             continue
@@ -1689,6 +1935,17 @@ def _cmd_render(argv: list[str]) -> int:
              "does not follow the app's theme setting, so a given file and "
              "flags always render the same image",
     )
+    parser.add_argument(
+        "--legend", action="store_true",
+        help="Draw the legend of the map's palette (the palette.json entries "
+             "the board uses) below the board",
+    )
+    parser.add_argument(
+        "--overlay", default=None, metavar="NAME",
+        help="Colour the board by its overlay file <stem>-res/NAME.overlay."
+             "json, as A shows it in the app, with the overlay's legend "
+             "below the board",
+    )
     args = parser.parse_args(argv)
 
     theme.set_theme(args.theme)
@@ -1723,7 +1980,10 @@ def _cmd_render(argv: list[str]) -> int:
     board = parse(text)
     view = GrafliView()
     view.base_dir = str(args.input.resolve().parent)
+    # Draw `&graph` miniatures and `&doc` lines as the canvas shows them.
+    view.render_headless(args.input.resolve())
     view.load_board(board)
+    view._legend_visible = args.legend
 
     region = None
     iso_ctx = nullcontext()
@@ -1748,14 +2008,34 @@ def _cmd_render(argv: list[str]) -> int:
                   f"for flow '{flow_id}'", file=sys.stderr)
             return 2
         step = flow.steps[idx]
-        bookmark_id = step.ref
+        from grafli.format import split_step_ref
+        target, bookmark_id = split_step_ref(step.ref)
+        if target:
+            # A stop in another board renders from that board.
+            from grafli.resources import board_target_path
+            other = board_target_path(args.input.resolve(), target)
+            if not other.exists():
+                print(f"Step {step_no} of flow '{flow_id}' lies in "
+                      f"{other}, which does not exist", file=sys.stderr)
+                return 2
+            board = parse(other.read_text(encoding="utf-8"))
+            view.base_dir = str(other.parent)
+            view.render_headless(other)
+            view.load_board(board)
         # Explicit CLI flags override the step's resolved settings.
         if detail is None:
             detail = step_detail(flow, step) or None
         if focus_mode is None:
             focus_mode = step_focus(flow, step) or None
+    if args.overlay:
+        try:
+            view.show_overlay(args.overlay)
+        except ValueError as e:
+            print(f"--overlay: {e}", file=sys.stderr)
+            return 2
     if bookmark_id:
-        from grafli.flows import bookmark_target_rect, isolate_focus
+        from grafli.flows import (bookmark_target_rect, emphasis_for,
+                                  isolate_focus)
         bm = board.bookmark_by_id(bookmark_id)
         if bm is None:
             ids = ", ".join(b.id for b in board.bookmarks) or "none"
@@ -1769,6 +2049,8 @@ def _cmd_render(argv: list[str]) -> int:
             return 2
         if bm.isolate and bm.focus:
             iso_ctx = isolate_focus(view, bm.focus)
+        # A bookmark framing arrows emphasises them, as its tour stop does.
+        view._set_presentation_emphasis(emphasis_for(board, bm))
     elif args.focus:
         wanted = [i.strip() for i in args.focus.split(",") if i.strip()]
         items = {**view._box_items, **view._note_items, **view._image_items}
@@ -1826,6 +2108,66 @@ def _cmd_render(argv: list[str]) -> int:
     return 0
 
 
+def _flow_findings(board_path: Path, board: Board,
+                   flow) -> tuple[list[str], list[dict]]:
+    """The flow-integrity findings of *flow* (cheap, no Qt needed):
+    ``(dangling, overlong)`` — steps referencing a missing bookmark and
+    bookmark focus ids that resolve to no element (an arrow's ~id= counts:
+    a path stop frames the arrow), and over-long captions."""
+    element_ids = (
+        {b.id for b in board.boxes}
+        | {n.id for n in board.notes}
+        | {im.id for im in board.images}
+        | {a.id for a in board.arrows if a.id}
+    )
+    dangling: list[str] = []
+    for step in flow.steps:
+        if _step_bookmark(board_path, board, step.ref) is None:
+            dangling.append(
+                f"flow '{flow.id}' step references missing bookmark "
+                f"'{step.ref}'"
+            )
+    for bm in board.bookmarks:
+        for fid in bm.focus:
+            if fid not in element_ids:
+                dangling.append(
+                    f"bookmark '{bm.id}' anchors missing element '{fid}'"
+                )
+
+    # Over-long captions: playback and slides show the full description
+    # wrapped, so a caption past the budget stops being a caption.
+    from grafli.format import MAX_DESCRIPTION_CHARS
+    overlong: list[dict] = []
+    for bm_id in dict.fromkeys(step.ref for step in flow.steps):
+        bm = _step_bookmark(board_path, board, bm_id)
+        if bm is not None and len(bm.description) > MAX_DESCRIPTION_CHARS:
+            overlong.append({"bookmark": bm.id,
+                             "chars": len(bm.description),
+                             "max": MAX_DESCRIPTION_CHARS})
+    return dangling, overlong
+
+
+def _print_check_report(report: dict) -> None:
+    """One flow's ``export --check`` report as text findings."""
+    print(f"flow '{report['flow']}': {report['slides']} slides")
+    for entry in report["overloaded"]:
+        print(f"[overloaded] slide #{entry['slide']} "
+              f"{entry['label']}".rstrip() + ": "
+              + "; ".join(describe_overload(f) for f in entry["elements"])
+              + " — trim the text or split the slide")
+    for entry in report["overlong"]:
+        print(f"[overlong-caption] bookmark '{entry['bookmark']}' — "
+              f"{entry['chars']} chars (max {entry['max']}); "
+              f"shorten it or split the stop")
+    for msg in report["dangling"]:
+        print(f"[dangling] {msg}")
+    for name in report["missing_docs"]:
+        print(f"[missing-doc] vault doc {name}.md")
+    if not (report["overloaded"] or report["overlong"] or report["dangling"]
+            or report["missing_docs"]):
+        print("No findings.")
+
+
 def _cmd_export(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="grafli export",
@@ -1845,6 +2187,11 @@ def _cmd_export(argv: list[str]) -> int:
         help="Dry-run: report slide count, overloaded slides, dangling "
              "bookmark/step refs and missing vault docs — without writing "
              "the deck. Exit 1 when anything needs fixing.",
+    )
+    parser.add_argument(
+        "--all-flows", action="store_true",
+        help="With --check: check every flow of the board in one run "
+             "(--json then emits a list of reports, one per flow)",
     )
     parser.add_argument(
         "--json", action="store_true",
@@ -1871,6 +2218,17 @@ def _cmd_export(argv: list[str]) -> int:
         help="Name of the template layout for content slides "
              "(default: auto-detected). Only with --template.",
     )
+    parser.add_argument(
+        "--legend", action="store_true",
+        help="Draw the legend of the map's palette (the palette.json entries "
+             "the board uses) at the bottom of each diagram slide.",
+    )
+    parser.add_argument(
+        "--overlay", default=None, metavar="NAME",
+        help="Colour each diagram slide by the board's overlay file "
+             "<stem>-res/NAME.overlay.json, as A shows it in the app, with "
+             "the overlay's legend beside the diagram",
+    )
     args = parser.parse_args(argv)
     if args.template is not None and not args.template.exists():
         print(f"Template not found: {args.template}", file=sys.stderr)
@@ -1882,6 +2240,12 @@ def _cmd_export(argv: list[str]) -> int:
     if args.output is None and not args.check:
         print("output is required (or pass --check for a dry-run)",
               file=sys.stderr)
+        return 2
+    if args.all_flows and not args.check:
+        print("--all-flows only goes with --check", file=sys.stderr)
+        return 2
+    if args.all_flows and args.flow:
+        print("pass either --flow or --all-flows", file=sys.stderr)
         return 2
     suffix = args.output.suffix.lower() if args.output else ".pdf"
     if suffix not in (".pdf", ".pptx"):
@@ -1898,51 +2262,24 @@ def _cmd_export(argv: list[str]) -> int:
     if not board.flows:
         print("No flows in this file — nothing to export.", file=sys.stderr)
         return 1
-    if args.flow:
+    if args.all_flows:
+        flows = list(board.flows)
+    elif args.flow:
         flow = board.flow_by_id(args.flow)
         if flow is None:
             ids = ", ".join(f.id for f in board.flows)
             print(f"Flow '{args.flow}' not found. Available: {ids}", file=sys.stderr)
             return 2
+        flows = [flow]
     elif len(board.flows) == 1:
-        flow = board.flows[0]
+        flows = [board.flows[0]]
     else:
         ids = ", ".join(f.id for f in board.flows)
         print(f"Multiple flows — pass --flow <id>. Available: {ids}",
               file=sys.stderr)
         return 2
 
-    # Flow-integrity findings (cheap, no Qt needed): steps referencing a
-    # missing bookmark, bookmark focus ids that resolve to no element.
-    element_ids = (
-        {b.id for b in board.boxes}
-        | {n.id for n in board.notes}
-        | {im.id for im in board.images}
-    )
-    dangling: list[str] = []
-    for step in flow.steps:
-        if board.bookmark_by_id(step.ref) is None:
-            dangling.append(
-                f"flow '{flow.id}' step references missing bookmark "
-                f"'{step.ref}'"
-            )
-    for bm in board.bookmarks:
-        for fid in bm.focus:
-            if fid not in element_ids:
-                dangling.append(
-                    f"bookmark '{bm.id}' anchors missing element '{fid}'"
-                )
-
-    # Over-long captions: playback and slides show the full description
-    # wrapped, so a caption past the budget stops being a caption.
-    from grafli.format import MAX_DESCRIPTION_CHARS
-    overlong: list[dict] = []
-    for bm_id in dict.fromkeys(step.ref for step in flow.steps):
-        bm = board.bookmark_by_id(bm_id)
-        if bm is not None and len(bm.description) > MAX_DESCRIPTION_CHARS:
-            overlong.append({"bookmark": bm.id,
-                             "chars": len(bm.description),
-                             "max": MAX_DESCRIPTION_CHARS})
+    board_path = args.input.resolve()
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     app = QApplication.instance() or QApplication([])
@@ -1950,63 +2287,69 @@ def _cmd_export(argv: list[str]) -> int:
     from grafli.view import GrafliView
     view = GrafliView()
     view.base_dir = str(args.input.resolve().parent)
+    # `&doc` boxes resolve their docs against the board, as in the app.
+    view.render_headless(args.input.resolve())
     view.load_board(board)
+    view._legend_visible = args.legend
+    if args.overlay:
+        try:
+            view.show_overlay(args.overlay)
+        except ValueError as e:
+            print(f"--overlay: {e}", file=sys.stderr)
+            return 2
 
     if args.check:
         # Dry-run through the real exporter (text sizing needs the real
         # layout), written to a scratch file that is removed afterwards.
         import json as _json
         import tempfile
-        with tempfile.NamedTemporaryFile(
-            suffix=suffix, delete=False,
-        ) as tmp:
-            tmp_path = Path(tmp.name)
-        try:
-            if suffix == ".pptx":
-                from grafli.pptxexport import export_flow_to_pptx
-                slides, overloaded = export_flow_to_pptx(
-                    view, flow, tmp_path, theme=args.theme,
-                    template=args.template,
-                    title_layout=args.title_layout,
-                    content_layout=args.content_layout)
-            else:
-                from grafli.pdfexport import export_flow_to_pdf
-                slides, overloaded = export_flow_to_pdf(view, flow, tmp_path)
-        finally:
-            tmp_path.unlink(missing_ok=True)
-        report = {
-            "flow": flow.id,
-            "slides": slides,
-            "overloaded": [
-                {"slide": i + 1, "label": lbl} for i, lbl in overloaded
-            ],
-            "overlong": overlong,
-            "dangling": dangling,
-            "missing_docs": list(missing),
-        }
-        clean = not (overloaded or overlong or dangling or missing)
+        reports = []
+        for flow in flows:
+            dangling, overlong = _flow_findings(board_path, board, flow)
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+            try:
+                if suffix == ".pptx":
+                    from grafli.pptxexport import export_flow_to_pptx
+                    slides, overloaded = export_flow_to_pptx(
+                        view, flow, tmp_path, theme=args.theme,
+                        template=args.template,
+                        title_layout=args.title_layout,
+                        content_layout=args.content_layout,
+                        board_path=board_path)
+                else:
+                    from grafli.pdfexport import export_flow_to_pdf
+                    slides, overloaded = export_flow_to_pdf(
+                        view, flow, tmp_path, board_path)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+            reports.append({
+                "flow": flow.id,
+                "slides": slides,
+                "overloaded": [
+                    {"slide": i + 1, "label": lbl, "elements": findings}
+                    for i, lbl, findings in overloaded
+                ],
+                "overlong": overlong,
+                "dangling": dangling,
+                "missing_docs": list(missing),
+            })
+        clean = not any(r["overloaded"] or r["overlong"] or r["dangling"]
+                        or r["missing_docs"] for r in reports)
         if args.json:
-            print(_json.dumps(report, indent=2))
+            print(_json.dumps(reports if args.all_flows else reports[0],
+                              indent=2))
         else:
-            print(f"flow '{flow.id}': {slides} slides")
-            for entry in report["overloaded"]:
-                print(f"[overloaded] slide #{entry['slide']} "
-                      f"{entry['label']}".rstrip()
-                      + " — trim the text or split the slide")
-            for entry in overlong:
-                print(f"[overlong-caption] bookmark '{entry['bookmark']}' — "
-                      f"{entry['chars']} chars (max {entry['max']}); "
-                      f"shorten it or split the stop")
-            for msg in dangling:
-                print(f"[dangling] {msg}")
-            for name in missing:
-                print(f"[missing-doc] vault doc {name}.md")
-            if clean:
-                print("No findings.")
+            for report in reports:
+                _print_check_report(report)
         del view
         del app
         return 0 if clean else 1
 
+    flow = flows[0]
+    dangling, overlong = _flow_findings(board_path, board, flow)
     for msg in dangling:
         print(f"Warning: {msg}", file=sys.stderr)
     for entry in overlong:
@@ -2019,18 +2362,125 @@ def _cmd_export(argv: list[str]) -> int:
             view, flow, args.output, theme=args.theme,
             template=args.template,
             title_layout=args.title_layout,
-            content_layout=args.content_layout)
+            content_layout=args.content_layout,
+            board_path=board_path)
     else:
         from grafli.pdfexport import export_flow_to_pdf
-        slides, overloaded = export_flow_to_pdf(view, flow, args.output)
+        slides, overloaded = export_flow_to_pdf(view, flow, args.output,
+                                                board_path)
     print(f"Wrote {args.output} ({slides} slides)", file=sys.stderr)
     if overloaded:
-        where = ", ".join(f"#{i + 1} {lbl}".strip() for i, lbl in overloaded)
+        where = "; ".join(
+            f"#{i + 1} {lbl}".strip() + ": "
+            + ", ".join(describe_overload(f) for f in findings)
+            for i, lbl, findings in overloaded)
         print(f"Warning: {len(overloaded)} slide(s) overloaded — trim or "
               f"split: {where}", file=sys.stderr)
     del view
     del app
     return 0
+
+
+def _cmd_export_html(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="grafli export-html",
+        description="Export a board and every board reachable from it "
+                    "(&graph, .grafli &link) as one self-contained HTML page: "
+                    "levels to zoom into, box docs to peek at, overlays to "
+                    "switch. No server, no internet needed to view it.",
+    )
+    parser.add_argument("input", type=Path, help="Input .grafli file")
+    parser.add_argument("output", type=Path, help="Output .html file")
+    parser.add_argument(
+        "--theme", default="light", choices=("light", "dark"),
+        help="Colour theme of the page (default light)",
+    )
+    args = parser.parse_args(argv)
+    if not args.input.exists():
+        print(f"Input not found: {args.input}", file=sys.stderr)
+        return 2
+    if args.output.suffix.lower() not in (".html", ".htm"):
+        print(f"Unsupported output format: {args.output.suffix} "
+              f"(expected .html)", file=sys.stderr)
+        return 2
+
+    theme.set_theme(args.theme)
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    from grafli.htmlexport import SIZE_WARN_BYTES, export_html, format_size
+    result = export_html(args.input, args.output)
+    for msg in result.warnings:
+        print(f"Warning: {msg}", file=sys.stderr)
+    boards = len(result.boards)
+    print(f"Wrote {args.output} ({format_size(result.size)}, {boards} "
+          f"board{'s' if boards != 1 else ''})")
+    if result.too_big:
+        print(f"Warning: {args.output} is {format_size(result.size)}, above "
+              f"{format_size(SIZE_WARN_BYTES)} — heavy to send round; large "
+              f"images and many overlays add up", file=sys.stderr)
+    del app
+    return 0
+
+
+def _cmd_serve(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="grafli serve",
+        description="Serve the boards in a directory live to browser tabs on "
+                    "your network or VPN: every change to a board's file is "
+                    "drawn again and pushed to its tabs. Prints a watch, an "
+                    "edit and a present link per board; the key is after '#'.",
+    )
+    parser.add_argument("dir", type=Path,
+                        help="Directory of .grafli boards, or one board")
+    parser.add_argument(
+        "--host", default=None,
+        help="Address of the interface to listen on — your LAN or VPN "
+             "address, e.g. from `tailscale ip -4` (default 127.0.0.1, this "
+             "machine only; never every interface unless you give 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=None,
+                        help="Port (default 7341; 0 picks a free one)")
+    parser.add_argument(
+        "--theme", default="light", choices=("light", "dark"),
+        help="Colour theme of the drawing (default light)")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Print a line per pushed change with its timing")
+    parser.add_argument(
+        "--reveal", action="store_true",
+        help="Reveal mode: every board shows only its title until the "
+             "present link's tab reveals it, element by element (v); never "
+             "written to the file")
+    args = parser.parse_args(argv)
+    try:
+        import starlette  # noqa: F401
+        import uvicorn  # noqa: F401
+        import websockets  # noqa: F401
+    except ImportError:
+        print("grafli serve needs its extra: pip install 'grafli[serve]'",
+              file=sys.stderr)
+        return 2
+    from grafli.serve.render import board_name
+    from grafli.serve.server import DEFAULT_HOST, DEFAULT_PORT, run
+    target = args.dir
+    if not target.exists():
+        print(f"Not found: {target}", file=sys.stderr)
+        return 2
+    open_board = None
+    if target.is_file():
+        if target.suffix != ".grafli":
+            print(f"Not a board: {target}", file=sys.stderr)
+            return 2
+        open_board = board_name(target.parent, target)
+        target = target.parent
+    host = args.host or DEFAULT_HOST
+    port = DEFAULT_PORT if args.port is None else args.port
+    try:
+        return run(target, host=host, port=port, theme=args.theme,
+                   verbose=args.verbose, open_board=open_board,
+                   reveal=args.reveal)
+    except OSError as e:
+        print(f"Cannot listen on {host}:{port}: {e}", file=sys.stderr)
+        return 2
 
 
 def _make_note_rect_provider():
@@ -2059,21 +2509,47 @@ def _make_arrow_label_size_provider():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     QApplication.instance() or QApplication([])
     _register_bundled_fonts()
-    from PySide6.QtGui import QFont, QFontMetricsF
-    from grafli.constants import ARROW_LABEL_FONT_SIZES, FONT_FAMILY
+    from grafli.items import arrow_label_size
 
     def provider(arrow):
-        font = QFont(
-            FONT_FAMILY,
-            ARROW_LABEL_FONT_SIZES.get(arrow.textsize, ARROW_LABEL_FONT_SIZES[""]),
-        )
-        fm = QFontMetricsF(font)
-        text = arrow.label or ""
-        if not text:
-            return (0.0, 0.0)
-        longest_w = max(fm.horizontalAdvance(line) for line in text.split("\n"))
-        height = fm.height() * max(1, len(text.split("\n")))
-        return (longest_w, height)
+        return arrow_label_size(arrow)
+
+    return provider
+
+
+def _make_arrow_label_rects_provider(board_file: Path | None = None):
+    """Return a callable that lists the arrow labels a board draws.
+
+    Renders the board in a never-shown view, as ``grafli export`` does,
+    and reads each label's scene rect back — so a label on a routed,
+    stacked or two-way connector is where the canvas puts it. The view
+    gets a copy of the board; the pairs name the caller's own arrows.
+    """
+    import copy
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QApplication.instance() or QApplication([])
+    _register_bundled_fonts()
+    from grafli.items import LabelItem
+    from grafli.view import GrafliView
+
+    view = GrafliView()
+    if board_file is not None:
+        view.base_dir = str(board_file.resolve().parent)
+        view.render_headless(board_file.resolve())
+
+    def provider(board):
+        drawn = copy.deepcopy(board)
+        original = {id(c): a for c, a in zip(drawn.arrows, board.arrows)}
+        view.load_board(drawn)
+        out = []
+        for item in view._scene.items():
+            if not isinstance(item, LabelItem):
+                continue
+            arrow = original.get(id(item.data(0)))
+            if arrow is not None:
+                out.append((arrow, item.sceneBoundingRect().getCoords()))
+        out.sort(key=lambda pair: board.arrows.index(pair[0]))
+        return out
 
     return provider
 
@@ -2087,7 +2563,10 @@ def _cmd_diagnose(argv: list[str]) -> int:
         description=(
             "Run static layout diagnostics on a .grafli file. "
             "Surfaces children outside parents, sibling overlaps, cramped "
-            "containers, likely-truncated labels, and missing linked resources."
+            "containers, likely-truncated labels, arrow labels drawn on "
+            "top of each other, missing images, board "
+            "links and code refs that lead nowhere, unknown colours and the "
+            "map's palette.json."
         ),
         epilog=(
             "Exit codes: 0 no gated findings, 1 errors present "
@@ -2120,9 +2599,11 @@ def _cmd_diagnose(argv: list[str]) -> int:
 
     text = args.input.read_text(encoding="utf-8")
     board = parse(text)
+    attach_names(board, args.input)
     from grafli.diagnostics import Diagnostic, apply_fixes
     note_rect = _make_note_rect_provider()
     arrow_label_size = _make_arrow_label_size_provider()
+    arrow_label_rects = _make_arrow_label_rects_provider(args.input)
     from grafli.resources import classify_attachments, vault_docs
 
     def _collect(b) -> list:
@@ -2131,6 +2612,8 @@ def _cmd_diagnose(argv: list[str]) -> int:
             args.input.resolve().parent,
             note_rect=note_rect,
             arrow_label_size=arrow_label_size,
+            grafli_path=args.input,
+            arrow_label_rects=arrow_label_rects,
         )
         # Vault integrity: referenced docs whose file is gone (error — a
         # doc-bodied note would render blank) and unreferenced docs (info —
@@ -2155,7 +2638,10 @@ def _cmd_diagnose(argv: list[str]) -> int:
     diags = _collect(board)
 
     applied: list = []
-    if args.fix and not args.dry_run:
+    if args.fix and not args.dry_run and is_newer(board):
+        print(f"{args.input}: not fixed — {_newer_board_reason(board)}",
+              file=sys.stderr)
+    elif args.fix and not args.dry_run:
         # Fixes can cascade (widening a box may push it back outside its
         # parent), so iterate to a fixpoint — bounded, and each pass must
         # make progress. One write at the end.
@@ -2221,6 +2707,157 @@ def _describe_fix(fix: dict) -> str:
                 f"{old['w']:.0f}x{old['h']:.0f} -> {new['x']:.0f},"
                 f"{new['y']:.0f} {new['w']:.0f}x{new['h']:.0f}")
     return f"{iid!r} {action.removeprefix('set-')} {old} -> {new}"
+
+
+def _cmd_fmt(argv: list[str]) -> int:
+    """Normalize .grafli files the way the app's save path does: quantized
+    coordinates, canonical token order and spacing. For boards authored by
+    agents or by hand, which never pass through an app save."""
+    parser = argparse.ArgumentParser(
+        prog="grafli fmt",
+        description=(
+            "Rewrite .grafli files in the canonical serialized form — "
+            "integer coordinates, canonical token order and spacing — "
+            "preserving line order, comments, and blank lines. Files with "
+            "malformed lines are left untouched (a rewrite would demote "
+            "them to comments); fix the reported lines first. So are "
+            "boards with a newer #!grafli vN header than this build reads."
+        ),
+    )
+    parser.add_argument("files", nargs="+", type=Path,
+                        help="Input .grafli files (rewritten in place)")
+    parser.add_argument("--check", action="store_true",
+                        help="Write nothing; exit 1 if any file would change")
+    args = parser.parse_args(argv)
+
+    changed = malformed = 0
+    for path in args.files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"cannot read {path}: {exc}", file=sys.stderr)
+            return 2
+        board = parse(text)
+        if is_newer(board):
+            # A rewrite would drop the newer syntax; untouched like a
+            # malformed file.
+            print(f"{path}: left untouched — {_newer_board_reason(board)}",
+                  file=sys.stderr)
+            malformed += 1
+            continue
+        if board.parse_warnings:
+            for w in board.parse_warnings:
+                print(f"{path}:{w.line}: {w.reason}", file=sys.stderr)
+            print(f"{path}: left untouched — fix the lines above first",
+                  file=sys.stderr)
+            malformed += 1
+            continue
+        attach_names(board, path)
+        out = serialize(board)
+        if out == text:
+            continue
+        changed += 1
+        if args.check:
+            print(f"would format {path}")
+        else:
+            path.write_text(out, encoding="utf-8")
+            print(f"formatted {path}")
+    if malformed:
+        return 2
+    if args.check and changed:
+        return 1
+    return 0
+
+
+def _cmd_layout(argv: list[str]) -> int:
+    """Run the app's layered layout (`=` with nothing selected) headless:
+    rank each container's boxes by their arrows, keep `!pin` boxes, and
+    route the arrows between placed boxes at right angles."""
+    from grafli.board_info import top_margin
+    from grafli.constants import LAYOUT_PADDING
+    from grafli.layout import (
+        Direction,
+        container_groups,
+        layout_groups,
+        route_placed_arrows,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="grafli layout",
+        description=(
+            "Rewrite a board's box coordinates with the layered layout the "
+            "app runs on '=' with nothing selected: every container's boxes "
+            "are ranked by the arrows between them (an arrow into a box's "
+            "contents counts for that box), containers grow to fit. Boxes "
+            "marked !pin keep their position; the others are placed around "
+            "them. Notes, images and arrows are not moved, except that a "
+            "container carries its contents along. An arrow between two "
+            "placed boxes without a routing flag gets !ortho and is drawn "
+            "at right angles; !straight keeps an arrow direct. Boards with "
+            "malformed lines or a newer #!grafli vN header are left "
+            "untouched."
+        ),
+    )
+    parser.add_argument("files", nargs="+", type=Path,
+                        help="Input .grafli files (rewritten in place)")
+    parser.add_argument("--direction", choices=("ltr", "ttb"), default=None,
+                        help="Flow of every container: ltr (left to right) "
+                             "or ttb (top to bottom); default: per container "
+                             "the flow that needs it to grow least, by its "
+                             "shape when both fit; ttb at the root")
+    parser.add_argument("--check", action="store_true",
+                        help="Write nothing; exit 1 if any file would change")
+    args = parser.parse_args(argv)
+    direction = Direction(args.direction) if args.direction else None
+
+    def label_height(parent_id: str) -> float:
+        parent = board.box_by_id(parent_id)
+        textsize = parent.textsize if parent else ""
+        return top_margin(textsize or "") - LAYOUT_PADDING
+
+    # Layer gaps make room for the arrow labels, measured as drawn.
+    label_size = _make_arrow_label_size_provider()
+
+    changed = untouched = 0
+    for path in args.files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"cannot read {path}: {exc}", file=sys.stderr)
+            return 2
+        board = parse(text)
+        if is_newer(board):
+            print(f"{path}: left untouched — {_newer_board_reason(board)}",
+                  file=sys.stderr)
+            untouched += 1
+            continue
+        if board.parse_warnings:
+            for w in board.parse_warnings:
+                print(f"{path}:{w.line}: {w.reason}", file=sys.stderr)
+            print(f"{path}: left untouched — fix the lines above first",
+                  file=sys.stderr)
+            untouched += 1
+            continue
+        attach_names(board, path)
+        groups = container_groups(board)
+        layout_groups(board, groups, 20,  # app grid
+                      label_height,
+                      direction, label_size)
+        route_placed_arrows(board, groups)
+        out = serialize(board)
+        if out == text:
+            continue
+        changed += 1
+        if args.check:
+            print(f"would lay out {path}")
+        else:
+            path.write_text(out, encoding="utf-8")
+            print(f"laid out {path}")
+    if untouched:
+        return 2
+    if args.check and changed:
+        return 1
+    return 0
 
 
 def _cmd_inspect(argv: list[str]) -> int:
@@ -2355,9 +2992,13 @@ def _resolve_launch_file(file_arg: str | None) -> Path:
 def main():
     # Subcommand dispatch — keep the bare `grafli <file>` form unchanged.
     if len(sys.argv) >= 2 and sys.argv[1] in ("skill", "render", "diagnose",
-                                              "export", "vault", "inspect"):
+                                              "export", "export-html",
+                                              "vault", "inspect", "fmt",
+                                              "layout", "serve", "agent"):
         sub = sys.argv[1]
         rest = sys.argv[2:]
+        if sub == "export-html":
+            sys.exit(_cmd_export_html(rest))
         if sub == "skill":
             sys.exit(_cmd_skill(rest))
         if sub == "render":
@@ -2368,12 +3009,22 @@ def main():
             sys.exit(_cmd_vault(rest))
         if sub == "inspect":
             sys.exit(_cmd_inspect(rest))
+        if sub == "fmt":
+            sys.exit(_cmd_fmt(rest))
+        if sub == "layout":
+            sys.exit(_cmd_layout(rest))
+        if sub == "serve":
+            sys.exit(_cmd_serve(rest))
+        if sub == "agent":
+            from grafli.serve.mcp import main as agent_main
+            sys.exit(agent_main(rest))
         sys.exit(_cmd_diagnose(rest))
 
     parser = argparse.ArgumentParser(
         prog="grafli",
         description="Grafli whiteboard. Subcommands: skill, render, diagnose, "
-                    "inspect, export, vault.",
+                    "inspect, export, export-html, vault, fmt, layout, serve, "
+                    "agent.",
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")

@@ -36,22 +36,29 @@ The skill gives the agent:
 - **Thinking-board patterns** — decision boards, tension maps,
   question landscapes, and the deliberate-incompleteness rules that
   keep the board a tool for *your* thinking.
+- **Explanation maps** — maps of any subject you read level by level:
+  each level states its question and the evidence for its split, box
+  docs and sub-boards hold the depth, tours walk through what happens
+  in order, overlay files carry analysis data with its provenance, and
+  a `Q:` you leave on the map is answered on the map — with a deeper
+  level, one line or a tour.
 - **Common-mistakes checklist** — quote escaping, disconnected nodes,
   truncated labels, deprecated keywords. The things that recur.
 
 It's structured as a lean, always-loaded core (`SKILL.md` — triggers,
 workflow, etiquette, checklist) plus `references/` files the agent
 reads on demand (full format tables, design principles, presenting,
-thinking boards) — deep coverage without a heavyweight prompt.
+thinking boards, explanation maps) — deep coverage without a heavyweight prompt.
 
 ## Install
 
 The skill ships **inside the Python package** as a directory —
-`SKILL.md` plus its `references/` files. The built-in installer places
+`SKILL.md`, its `references/` files and an `examples/` folder holding the
+example boards the references point to. The built-in installer places
 it where your AI tool expects skills:
 
 ```bash
-# Install for one or all supported tools (copies SKILL.md + references/)
+# Install for one or all supported tools (copies SKILL.md, references/, examples/)
 grafli skill install claude
 grafli skill install all
 
@@ -78,6 +85,29 @@ packaged one, so re-running `grafli skill install` after
 symlink to `grafli skill --where` works too if your platform supports
 it comfortably.
 
+## On a live board: what the agent gets
+
+A Claude Code session connected to `grafli serve` through `grafli agent`
+(see [Connect your agent](navigating.md#connect-your-agent-a-claude-code-session-you-run))
+gets the skill from the bridge itself, so nothing needs to be installed in
+that session:
+
+- **The `authoring_guide` tool** returns the skill as it ships with your
+  grafli: without arguments the core `SKILL.md`, headed by a few lines that
+  map its file steps to the board's tools (`read_board` for reading the
+  file, `write_board` for `Write` / `Edit`, `render_board` for
+  `grafli render`) and name the reference files; with
+  `reference: "format.md"` (or `design.md`, `presenting.md`, …) that one
+  reference file. It answers before the session connects too.
+- **A pointer to it, twice.** The instructions the bridge gives Claude
+  Code when the session starts, and the reply to `/mcp__grafli__connect`,
+  both tell the session to read the guide before its first `write_board`
+  — unless the grafli skill is already loaded in that session, as it is
+  after `grafli skill install claude`.
+
+The guide is always the version of the skill that ships with the running
+grafli, so it matches the format the board is read in.
+
 ## What the skill triggers on
 
 The skill is deliberately **scoped narrowly** to avoid polluting
@@ -102,6 +132,12 @@ human explainer would walk to a whiteboard. The agent then authors a
 board that structures the problem (a decision board, a tension map, a
 question landscape) rather than one that documents a system.
 
+It activates when you want to **understand, learn, explain or review a
+subject on a map** — "map this codebase so I can understand it", "help
+me learn X level by level". The agent builds an explanation map: an
+overview whose parts you enter with <kbd>g</kbd><kbd>d</kbd>, tours
+across its levels, and answers to the `Q:` notes you leave on it.
+
 It does **not** activate on generic "review this code", "explain this
 function", or "summarize this module" requests unless the user also
 asks for a visual, a board, or a diagram. Keeping the trigger tight
@@ -115,9 +151,16 @@ Once the skill is installed, the agent:
 2. Asks any clarifying question (the planning loop).
 3. Produces a `.grafli` file using `Write`.
 4. Verifies its own work headlessly: `grafli render` (with `--focus`,
-   `--lod`, and `--bookmark` for targeted looks), `grafli diagnose`
-   (incl. `parse-error` findings for lines that would silently drop),
-   `grafli inspect` for placement geometry, and `grafli export --check`
+   `--lod`, and `--bookmark` for targeted looks), `grafli fmt` to
+   normalize what it wrote into the same canonical form the app saves
+   (integer coordinates, canonical spacing — keeps diffs clean),
+   `grafli diagnose`
+   (incl. `parse-error` findings for lines that would silently drop,
+   and `unrelated-children` / `unrelated-board` warnings for boxes that
+   relate to nothing),
+   `grafli inspect` for placement geometry, `grafli layout` to run the
+   app's layered layout over a board's boxes (boxes marked `!pin` stay
+   where they are), and `grafli export --check`
    when a deck is involved. `grafli diagnose --fix` applies the
    mechanical corrections (clamping, sizing, mistyped tokens) and exits
    non-zero while errors remain, so the loop can run unattended — what

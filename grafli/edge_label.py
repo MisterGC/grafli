@@ -16,9 +16,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 
 from grafli import theme
+from grafli.constants import ARROW_LABEL_FONT_SIZES, SANS_FONT_FAMILY
 
 
 EDGE_KINDS = (
@@ -45,6 +46,14 @@ def edge_kind_color(kind: str, fallback: QColor | None = None) -> QColor:
         return color
     return fallback if fallback is not None else theme.ARROW_COLOR
 
+def arrow_label_font(textsize: str = "") -> QFont:
+    """The face an arrow label is set in: the proportional face, a step
+    quieter than the monospaced box labels it sits between, so the names
+    read first and the relations second (#260)."""
+    return QFont(SANS_FONT_FAMILY,
+                 ARROW_LABEL_FONT_SIZES.get(textsize, ARROW_LABEL_FONT_SIZES[""]))
+
+
 _RE_EDGE_LABEL = re.compile(
     r"^(?P<kind>" + "|".join(EDGE_KINDS) + r"):\s*(?P<body>.*)$",
     re.IGNORECASE,
@@ -66,3 +75,21 @@ def parse_edge_label(label: str) -> ParsedEdgeLabel:
     if not m:
         return ParsedEdgeLabel("", label)
     return ParsedEdgeLabel(m.group("kind").lower(), m.group("body"))
+
+
+# A cardinality at the start of a label: "1", "N", "*", "N:N", "1:N",
+# "0..1", "1..*" — alone or followed by the relation it counts.
+_RE_CARDINALITY = re.compile(
+    r"^(?P<card>(?:\d+|[NMn*])(?:(?::|\.\.)(?:\d+|[NMn*]))?)(?=\s|$)\s*(?P<rest>.*)$"
+)
+
+
+def split_cardinality(text: str) -> tuple[str, str]:
+    """Split a leading cardinality off a label: ``("N:N", "included in")``.
+
+    A label without one comes back as ``("", text)``. The renderer sets the
+    cardinality bold in full ink, so the count reads at a glance (#260)."""
+    m = _RE_CARDINALITY.match(text)
+    if not m:
+        return "", text
+    return m.group("card"), m.group("rest")

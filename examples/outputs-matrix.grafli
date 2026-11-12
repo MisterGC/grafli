@@ -1,0 +1,39 @@
+#!grafli v4
+# Who can change a board while it is shown, and how much of the map does it carry? — a matrix
+# Worked example of the matrix encoding (skill: references/design.md
+# "Matrix on two axes"): every way a board leaves the file, placed on two
+# forces. The arrows run from the canvas to what it produces; the one that
+# runs to the right is planned.
+# source: ..
+
+# ── claim ──
+@ note claim 0,-200 "Today a board is either changed by its author or shown as a copy nobody can change" ~xlarge !flat !sans !bold
+@ note channel 0,-135 "matrix: x = who can change it while it is shown, y = how much of the map it carries; the empty corner is what the planned live tab fills" ~small !flat !sans
+
+# ── axes ──
+@ note o 0,620 "·" !flat
+@ note xe 1240,620 "·" !flat
+@ note ye 0,-40 "·" !flat
+@ arrow o -> xe !thin
+@ arrow o -> ye !thin
+@ note xl 1060,580 "who can change it →︎" ~small !flat !sans
+@ note yl 30,-50 "↑︎ how much of the map it carries" ~small !flat !sans
+@ note x0 100,640 "nobody" ~small !flat !sans
+@ note x1 500,640 "its author, and their agent" ~small !flat !sans
+@ note x2 960,640 "everyone in the call" ~small !flat !sans
+@ note y0 -150,490 "one view" ~small !flat !sans
+@ note y1 -150,300 "one tour" ~small !flat !sans
+@ note y2 -150,110 "every level and tour" ~small !flat !sans
+
+# ── items ──
+@ box html "HTML page" 60,80 240x80
+@ box slides "PDF / PPTX deck" 60,270 240x80
+@ box render "PNG / SVG render" 60,460 240x80
+@ box canvas "desktop canvas" 480,80 240x80 %primary !ink !sans
+@ box tab "live tab, planned" 920,80 240x80 %accent !ink !dashed !bold
+
+# ── produces ──
+@ arrow canvas -> html "export-html: every board"
+@ arrow canvas -> slides "export: 1 tour"
+@ arrow canvas -> render "render: 1 view"
+@ arrow canvas -> tab "serve: #262" !dashed

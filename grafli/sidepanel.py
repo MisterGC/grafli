@@ -310,6 +310,7 @@ class SidePanel(QWidget):
         self._add_section("view", "View", [
             ("grid",          "󰕘", "Grid",     "#"),
             ("minimap",       "󰍍", "Minimap",  "M"),
+            ("legend",        "\U000F03D8", "Legend",   "⇧M"),
             ("dim_notes",     "󰎞", "Notes",    "⇧N"),
             ("dim_arrows",    "󰁔", "Edges",    ","),
             ("complexity",    "󰈸", "Analysis", "A"),
@@ -321,6 +322,7 @@ class SidePanel(QWidget):
             ("export_svg",      "󰈔", "SVG",       "^E"),
             ("export_flow_pdf", "󰈦", "Flow PDF",  ""),
             ("export_flow_pptx", "󰈦", "Flow PPTX", ""),
+            ("export_html",     "\U000F031D", "HTML",      ""),
         ])
 
     def refresh_flows(self):

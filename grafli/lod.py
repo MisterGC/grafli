@@ -40,6 +40,12 @@ EXPAND_PX = 10.0
 CHILD_COLLAPSE_PX = 64.0
 CHILD_EXPAND_PX = 80.0
 
+# A `&graph` box shows its sub-board miniature once the body below its label
+# is this large on screen (shorter side, pixels), and drops it again only
+# below the lower bound — the same hysteresis the tiers use (D3).
+MINIATURE_SHOW_PX = 72.0
+MINIATURE_HIDE_PX = 56.0
+
 Rect = tuple[float, float, float, float]  # x, y, w, h
 
 
@@ -62,6 +68,12 @@ def should_collapse_container(child_px: float, was_collapsed: bool) -> bool:
     return _hysteretic(child_px, CHILD_COLLAPSE_PX, CHILD_EXPAND_PX, was_collapsed)
 
 
+def should_show_miniature(body_px: float, was_shown: bool) -> bool:
+    """Hysteretic miniature visibility, driven by the on-screen body size."""
+    return not _hysteretic(body_px, MINIATURE_HIDE_PX, MINIATURE_SHOW_PX,
+                           not was_shown)
+
+
 @dataclass(frozen=True)
 class ContainerSummary:
     """What a collapsed container renders as: a headline tile."""
@@ -71,6 +83,7 @@ class ContainerSummary:
     direct_children: int
     descendants: int
     rect: Rect  # union of the container and all its descendants
+    depth: int = 1  # nesting level: 1 for a top-level container
 
 
 class LodModel:
@@ -354,6 +367,7 @@ class LodModel:
             direct_children=len(self._children.get(container_id, ())),
             descendants=len(desc),
             rect=rect,
+            depth=self.depth(container_id),
         )
         self._summaries[container_id] = summ
         return summ

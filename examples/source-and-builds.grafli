@@ -1,0 +1,18 @@
+#!grafli v4
+# One canonical item fanning out to its copies, tied to the releases that
+# ship it: the public twin of a hand-made sketch the renderer is compared
+# against (#260). Left = the canonical item, right = what is derived from it.
+
+@ note title 0,-120 "One source package, its builds and its releases" ~xlarge
+@ note claim 0,-60 "Shows what the text can't: the source package fans out to its builds; releases tie packages together. Left = source, right = builds." ~small
+@ box pr "Pull request" 0,40 220x70
+@ box src "Source package\ncanonical" 0,200 220x80 %primary !ink !bold
+@ box wheel "Wheel on PyPI" 420,140 240x70
+@ box img "Container images" 420,260 240x70
+@ box rel "Release" 0,400 220x70
+@ box dep "Release it needs first" 420,400 240x70
+@ arrow pr -> src "merges into"
+@ arrow src -> wheel "1"
+@ arrow src -> img "N"
+@ arrow src -- rel "N:N included in"
+@ arrow rel -> dep "depends on"

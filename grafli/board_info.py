@@ -12,7 +12,7 @@ from __future__ import annotations
 from statistics import median
 from typing import Callable, Optional
 
-from grafli.constants import LAYOUT_PADDING
+from grafli.constants import BOX_FONT_SIZES, LAYOUT_PADDING, resolve_textsize_px
 from grafli.format import Board, Note
 
 NoteRectFn = Callable[[Note], Optional[tuple]]
@@ -29,8 +29,16 @@ _LARGE_SIZES = frozenset(
 _ALIGN_EPS = 2.0
 
 
-def _top_margin(textsize: str) -> float:
-    return _TOP_MARGIN_LARGE if textsize in _LARGE_SIZES else _TOP_MARGIN_DEFAULT
+def top_margin(textsize: str) -> float:
+    """Distance from a container's top edge to its first child row.
+
+    A title set in points (``~23``) or by alias (``~2xl``) counts as a
+    large heading once it is as big as ``~large``."""
+    if textsize in _LARGE_SIZES or (
+            textsize and resolve_textsize_px(textsize, "")
+            >= BOX_FONT_SIZES["large"]):
+        return _TOP_MARGIN_LARGE
+    return _TOP_MARGIN_DEFAULT
 
 
 def _rect(x: float, y: float, w: float, h: float) -> list[float]:
@@ -93,7 +101,7 @@ def _gaps_along(rects: list[list[float]], axis: int) -> list[float]:
 
 
 def _container_entry(parent, child_boxes: list) -> dict:
-    top = _top_margin(parent.textsize or "")
+    top = top_margin(parent.textsize or "")
     inner = _rect(
         parent.x + LAYOUT_PADDING,
         parent.y + top,

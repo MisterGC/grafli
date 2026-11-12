@@ -45,6 +45,15 @@ pytest
 
 The `dev` extra installs the test dependencies.
 
+## The live board
+
+`grafli serve`, which shows boards live in a browser tab, needs three more
+packages (Starlette, uvicorn, websockets):
+
+```bash
+pip install 'grafli[serve]'
+```
+
 ## Updating
 
 ```bash

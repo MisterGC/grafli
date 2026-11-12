@@ -16,12 +16,16 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from PySide6.QtCore import QRectF
+from PySide6.QtCore import QRectF, Qt
 
-from grafli.flows import (bookmark_target_rect, presentation_detail,
+from grafli.constants import FONT_FAMILY, SANS_FONT_FAMILY
+from grafli.flows import (bookmark_target_rect, emphasis_for,
+                          presentation_detail, presentation_emphasis,
                           presentation_focus, step_detail, step_focus,
                           text_slide_note)
+from grafli.format import split_step_ref
 
 
 @dataclass
@@ -59,12 +63,22 @@ class SlidePlan:
     # off) — applied around the raster via slide_presentation().
     detail: str = ""
     focus: str = ""
+    # A path stop's (arrow ids, kept element ids), as playback emphasises
+    # them; None when the bookmark frames no arrow.
+    emphasis: tuple | None = None
+    # The view whose scene this slide renders from: the flow's own view, or
+    # one holding the other board a ``<board>#<bookmark>`` stop lies in.
+    view: object | None = None
 
 
-def build_slide_plan(view, flow) -> list[SlidePlan]:
+def build_slide_plan(view, flow,
+                     board_path: Path | None = None) -> list[SlidePlan]:
     """The ordered slide plan for ``flow``: a title cover followed by one content
     slide per step. ``view`` is a GrafliView whose scene holds the rendered graph
-    (used to resolve anchors and as the eventual render source)."""
+    (used to resolve anchors and as the eventual render source). A stop in
+    another board is resolved from ``board_path``, the flow's own board, and
+    rendered from an offscreen view of that board (``SlidePlan.view``); without
+    a ``board_path`` it renders as a missing bookmark."""
     board = view.board
     plans: list[SlidePlan] = [SlidePlan(
         kind="title",
@@ -73,18 +87,54 @@ def build_slide_plan(view, flow) -> list[SlidePlan]:
         thumbnail_art=(board is not None and board.title_bg == "thumbnail-art"),
     )]
     total = len(flow.steps)
+    views: dict[Path, object | None] = {}
     for i, step in enumerate(flow.steps):
-        bm = board.bookmark_by_id(step.ref)
-        plan = _content_plan(view, bm, i, total)
+        target, bookmark_id = split_step_ref(step.ref)
+        step_view = (_stop_view(board_path, target, views) if target
+                     else view)
+        bm = (step_view.board.bookmark_by_id(bookmark_id)
+              if step_view is not None and step_view.board else None)
+        step_view = step_view or view
+        plan = _content_plan(step_view, bm, i, total)
         plan.detail = step_detail(flow, step)
         plan.focus = step_focus(flow, step)
+        plan.emphasis = emphasis_for(step_view.board, bm)
+        plan.view = step_view
         plans.append(plan)
     return plans
 
 
+def _stop_view(board_path: Path | None, target: str, views: dict):
+    """An offscreen view of the board a stop's ``<board>`` names, made once
+    per board, or None when it can't be found. Its paper background is off,
+    as the exporters switch it off on the flow's own view."""
+    if board_path is None:
+        return None
+    from grafli.resources import board_target_path
+    path = board_target_path(Path(board_path), target).resolve()
+    if path not in views:
+        views[path] = None
+        if path.exists():
+            from grafli.format import parse
+            from grafli.resources import classify_attachments, load_docs
+            from grafli.view import GrafliView
+            board = parse(path.read_text(encoding="utf-8"))
+            classify_attachments(path, board)
+            load_docs(path, board)
+            stop_view = GrafliView()
+            stop_view.base_dir = str(path.parent)
+            # Its `&doc` boxes resolve their docs against that board.
+            stop_view.render_headless(path)
+            stop_view.load_board(board)
+            stop_view._scene.setBackgroundBrush(Qt.GlobalColor.transparent)
+            views[path] = stop_view
+    return views[path]
+
+
 @contextmanager
 def slide_presentation(view, plan: SlidePlan):
-    """Apply a plan's detail/focus settings for the duration of its raster.
+    """Apply a plan's detail/focus settings and its path stop's emphasis for
+    the duration of its raster.
 
     The focus frame is the plan's own source rect: the exported image shows
     exactly that region, so "completely inside the frame" and "completely on
@@ -92,8 +142,49 @@ def slide_presentation(view, plan: SlidePlan):
     with presentation_detail(view, plan.detail):
         rect = (plan.source if plan.focus == "complete"
                 and plan.source is not None else None)
-        with presentation_focus(view, rect):
+        with presentation_focus(view, rect), \
+                presentation_emphasis(view, plan.emphasis):
             yield
+
+
+# A slide is judged as shown 1280 px wide, the screen `render --lod` fits a
+# board to: 960 pt across the page, so 4/3 screen pixels per point.
+SLIDE_SCREEN_PX_PER_PT = 1280 / 960
+
+
+def slide_doc_lines(view, scale_pt: float):
+    """Show the doc lines a slide frame keeps legible for the duration of
+    its raster, as the canvas does at that zoom; *scale_pt* is the raster's
+    slide points per scene pixel. Call inside :func:`slide_presentation`."""
+    return view.doc_lines_at(scale_pt * SLIDE_SCREEN_PX_PER_PT)
+
+
+def overload_finding(note, pt: float, floor: float, *,
+                     overflow: bool = False) -> dict:
+    """One element that overloads a slide: the note by id, its text size in
+    pt at that slide's frame and the floor it misses — the size under the
+    readable floor, or (``overflow``) the band minimum it still overflows at."""
+    return {"element": note.id, "pt": round(pt, 1), "floor": round(floor, 1),
+            "reason": "overflow" if overflow else "below-floor"}
+
+
+def describe_overload(finding: dict) -> str:
+    """A finding as one phrase, e.g. ``note 'cap' at 7.2 pt (floor 11 pt)``."""
+    pt, floor = f"{finding['pt']:g}", f"{finding['floor']:g}"
+    if finding["reason"] == "overflow":
+        return (f"note '{finding['element']}' overflows the slide "
+                f"at {pt} pt (the minimum)")
+    return f"note '{finding['element']}' at {pt} pt (floor {floor} pt)"
+
+
+def slide_overlay(view, plan: SlidePlan):
+    """The reading of the overlay file *view* shows (``A`` in the app,
+    ``--overlay`` on the command line) when *plan* is a diagram slide, so the
+    slide carries it; None otherwise. A stop in another board renders from
+    that board's own view, which shows no overlay."""
+    if plan.kind == "text" or view._overlay_shown() is None:
+        return None
+    return view._complexity_reading
 
 
 def live_overlays(view, plan: SlidePlan) -> list:
@@ -102,8 +193,15 @@ def live_overlays(view, plan: SlidePlan) -> list:
 
     A note hidden by a "summary" collapse is subsumed by its container's tile;
     a note faded by "complete" focus must keep its faded raster look instead
-    of being re-drawn as full-opacity text."""
+    of being re-drawn as full-opacity text; a shown overlay file dims or
+    recolours every note, so they all keep their raster look."""
+    if slide_overlay(view, plan) is not None:
+        return []
     items = [it for it in plan.overlays if it.isVisible()]
+    if plan.emphasis is not None:
+        # A path stop fades every note it does not keep.
+        keep = plan.emphasis[1]
+        return [it for it in items if it.note.id in keep]
     if plan.focus == "complete" and plan.source is not None:
         contained = view._presentation_focus_contained()
         items = [it for it in items if it.note.id in contained]
@@ -171,6 +269,14 @@ def playback_text_fit(textsize: float, text_rect: QRectF | None,
     fitted = QRectF(hero.left() + (hero.width() - w) / 2,
                     hero.top() + (hero.height() - h) / 2, w, h)
     return min(size, hi), fitted
+
+
+def note_text_face(note) -> str:
+    """The face a note's native text goes out in on PDF and PPTX slides: Inter
+    for a ``!sans`` note (#206), else mono, as slides always set note text."""
+    from grafli.items import note_family
+    return (SANS_FONT_FAMILY if note_family(note) == SANS_FONT_FAMILY
+            else FONT_FAMILY)
 
 
 # ── slide-typing helpers (moved from pdfexport; re-exported there) ──────────

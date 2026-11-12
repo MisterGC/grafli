@@ -5,6 +5,859 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`grafli serve <dir>` — a board live in a browser tab on your network
+  or VPN.** A worker process draws the board with the app's own view, as
+  `grafli export-html` does, and the server pushes the drawing to every tab
+  on the board each time its file changes — measured at under 0.1 s from
+  the write to the drawing in the tab. It listens on the address given with
+  `--host` (127.0.0.1 without it, never every interface unless told), and
+  prints a watch link and an edit link per board with different keys after
+  the `#`. Edits from an edit link's tab are small operations merged into
+  the file through the same three-way merge as the app's. Needs the new
+  `serve` extra: `pip install 'grafli[serve]'`.
+  ([#262](https://github.com/MisterGC/grafli/issues/262))
+- **Build a board in the live tab with the keyboard.** An edit link's tab
+  takes the app's letters: `f` puts a jump label on every element in view,
+  `o` / `O` (or Ctrl+arrow) adds a box beside the selection, connected from
+  it, `c` connects the selection to a box by its jump label, `e` renames,
+  `x` deletes, `u` undoes your own last edit (what others changed since
+  stays), and `:` opens a command line that takes grafli lines such as
+  `@ box cache "Cache"`. Each edit shows a dashed placeholder until the
+  drawing that holds it arrives.
+  ([#263](https://github.com/MisterGC/grafli/issues/263))
+- **See who is in the live tab, follow the presenter, point with a laser.**
+  `grafli serve` prints a third link per board, **present**, for the person
+  presenting. Every other tab follows the presenter's tab — its view, and
+  along into a level or another board — until **Stop following** in the bar
+  (or your own pan or zoom); **Follow** brings it back. Each tab's pointer
+  shows on the others as a cursor with its name, `k` turns on a laser trail
+  everyone sees, and "You: …" in the bar sets your name. None of it is
+  written to the board file.
+  ([#264](https://github.com/MisterGC/grafli/issues/264))
+- **Edit the live tab with the mouse, no keys to learn.** In an edit or
+  present link's tab a click selects, a double-click renames, a drag moves a
+  box (into the box you let go over, which grows to hold it), a drag from a
+  box's edge draws an arrow to the box you let go over, and a right-click
+  asks a `Q:` question beside the box or at the point. Each goes through the
+  same merge as the keys' edits and shows in every tab on the board; a watch
+  link's tab gets none of them.
+  ([#265](https://github.com/MisterGC/grafli/issues/265))
+- **Reveal mode: a prepared board starts hidden and you uncover it as you
+  talk.** `grafli serve --reveal` shows every board with only its title
+  (the note with the id `title`); in the present link's tab `v` puts a jump
+  label on each hidden element and typing one reveals it — a box, a
+  container with what it holds — and `+` right after adds what an arrow
+  connects it to. `Shift+V` turns reveal mode on and off at any time. The
+  other tabs get a drawing without the hidden elements, so nothing hidden
+  reaches them; the presenter sees the rest as faint dashed outlines. What
+  is hidden is never written to the board file.
+  ([#266](https://github.com/MisterGC/grafli/issues/266))
+- **Connect a Claude Code session you run as the boards' agent.**
+  `grafli agent` is an MCP server Claude Code starts with each session
+  (`claude mcp add -s user grafli -- grafli agent`); `/mcp__grafli__connect`
+  joins the running `grafli serve`, and every tab shows the agent in the
+  bar by name. The session reads a board (text, version, the presenter's
+  selection and view), writes it through the same merge as every tab's
+  edit, and gets it drawn as a PNG. A request pushed from the board reaches
+  the session as a Claude Code channel message, in a session started with
+  `--dangerously-load-development-channels server:grafli`. When the session
+  drops, the tabs show the agent as gone until it, or another, connects
+  again. grafli never starts a session itself.
+  ([#267](https://github.com/MisterGC/grafli/issues/267))
+- **See the agent's edits by name, undo them alone, and take big ones
+  when you're ready.** What the agent adds or changes glows in its purple
+  in every tab for a few seconds, tagged with its name and the version.
+  In the present link's tab, Shift+U undoes the agent's last edit and keeps
+  what you changed after it. A change of more than 5 elements leaves the
+  file alone and shows as a proposal: a banner and dashed outlines of what
+  it adds, changes and removes; Enter takes it, x drops it, and the agent
+  hears which. The agent can undo its own last edit too (`undo_board`).
+  ([#268](https://github.com/MisterGC/grafli/issues/268))
+- **Ask the agent from the live tab, in plain language.** On the tab's `:`
+  line, anything that isn't a grafli line — "add a cache between api and
+  db" — goes to the connected session, and its answer comes back as an edit
+  on the board. The **✦ ask** chip beside a selection (or `a`) asks about
+  that element, and the session hears which one. The line says as you type
+  whether the text is applied or goes to the agent. With no session
+  connected, or one that dropped, the tab says so and nothing is sent
+  later.
+  ([#269](https://github.com/MisterGC/grafli/issues/269))
+- **See that the agent is working on your request.** From the moment a
+  request is sent until the agent's edit, proposal or undo lands, every
+  tab shows "✦ <agent> is working on: <request>", with "reading the board"
+  or "rendering the board" while it does so. After two minutes without an
+  answer the line says so, and it goes once the session is gone, so a long
+  request no longer looks like it never arrived.
+  ([#295](https://github.com/MisterGC/grafli/issues/295))
+- **The boards' agent knows how to author a board, with nothing installed
+  in its session.** A Claude Code session connected through `grafli agent`
+  got the board's tools but none of the grafli skill, so it drew boards
+  without the skill's rules: relations first, encodings, kinds, layout.
+  The bridge now hands the session the skill as it ships with grafli,
+  through a new `authoring_guide` tool: the core guidance, or one of its
+  reference files such as `format.md` for the full syntax. What the
+  session hears when Claude Code starts the bridge, and the reply to
+  `/mcp__grafli__connect`, both tell it to read the guide before its first
+  edit, unless the skill is already loaded there.
+  ([#302](https://github.com/MisterGC/grafli/issues/302))
+- **The installed skill carries the example boards it points to.** The
+  skill's playbooks tell the agent to copy boards such as
+  `examples/architecture.grafli`, but `grafli skill install` copied only
+  the skill and its reference files, so outside a grafli clone the agent
+  could not open them. It now also copies every board the skill names,
+  with its `-res` folder, into an `examples/` folder beside `SKILL.md`,
+  and `grafli skill check` reports an install without them as out of
+  date.
+  ([#308](https://github.com/MisterGC/grafli/issues/308))
+- **The skill draws state machines.** A new entry in its encoding
+  catalogue answers "which states can it be in, and what moves it between
+  them?": one box per state and an arrow for every transition, the error
+  and retry ones too, each labelled `event [guard] / action`, such as
+  `error [retries left] / retries -= 1`. The start is a small round dot,
+  end states are round, a transition that stays in its state loops on the
+  box.
+  ([#308](https://github.com/MisterGC/grafli/issues/308))
+- **`grafli fmt` — canonical form for hand- and agent-authored boards.**
+  Boards written outside the app never pass through its save path, so their
+  coordinates and token spacing drift from what the app would write and the
+  next in-app save shows up as a noisy diff. `grafli fmt <file>` rewrites a
+  board exactly as the app's save would — integer coordinates, canonical
+  token order and spacing — preserving line order, comments, and blank
+  lines; `--check` makes it a CI gate. Files with malformed lines are left
+  untouched and the offending lines reported.
+  ([#20](https://github.com/MisterGC/grafli/issues/20))
+- **`grafli layout <file>` — the layered layout without the app.** The
+  layout the app runs on <kbd>=</kbd> had no command, so agents placed
+  every coordinate by hand. `grafli layout` rewrites a board's box
+  coordinates with it: each container's boxes ranked by their arrows —
+  an arrow into a box's contents counts for that box, so containers rank
+  by what runs between them — and containers grown to fit. A box marked
+  `!pin` keeps its position and the others are placed around it, in the
+  app's <kbd>=</kbd> too. A second run moves nothing, so `--check` can
+  gate a board; `--direction ltr|ttb` fixes the flow. The shared layout
+  now spaces boxes in whole grid steps, lays top-level containers out
+  before the root, and picks a container's flow by what fits it.
+  ([#256](https://github.com/MisterGC/grafli/issues/256))
+- **`grafli diagnose` reports boxes that relate to nothing.** A board
+  drawn as a list passed every check. Two warnings now name it:
+  `unrelated-children` for a container of 4 or more boxes with no arrow
+  between any two of them (an arrow into a nested container counts for
+  that container), and `unrelated-board` for a board of 4 or more boxes
+  where more than half touch no arrow. Annotation arrows from notes do
+  not count as relations; containers are not counted as boxes. On a
+  matrix or a strip, where position is the relation, the warning can be
+  acknowledged.
+  ([#259](https://github.com/MisterGC/grafli/issues/259))
+- **`grafli diagnose` reports arrow labels on top of each other.** Two
+  arrows that cross could put their labels in the same spot, and
+  diagnose said nothing — it only checked a label against boxes. The
+  warning `arrow-labels-overlap` now names both arrows. It reads the
+  labels from the board drawn as the canvas draws it, so a label on a
+  routed or stacked arrow is checked where it actually sits, and a
+  two-way pair's single label is not reported.
+  ([#192](https://github.com/MisterGC/grafli/issues/192))
+- **A blank board says how to start.** An empty board — fresh untitled
+  buffer or empty file — paints a muted hint in the middle of the canvas
+  (`n box · t note · i image`, `F1 all keys`) that vanishes the moment the
+  first element lands. Painted view chrome only: it takes no clicks and
+  never appears in renders or exports.
+  ([#153](https://github.com/MisterGC/grafli/issues/153))
+- **<kbd>g</kbd><kbd>u</kbd> goes back to the board you came from, as you
+  left it.** Opening a board through a box's `&graph` sub-board or a
+  `.grafli` `&link` remembers where you were; <kbd>g</kbd><kbd>u</kbd>
+  returns there with the zoom, scroll and selection you left, instead of
+  re-fitting the parent the way re-opening it or <kbd>Ctrl</kbd>+<kbd>6</kbd>
+  would. On a board you did not enter that way it says "Already at the top".
+  The status-bar breadcrumb shows the labels you entered through
+  (`System › Combat › impact()`), and the <kbd>Ctrl</kbd>+<kbd>O</kbd> /
+  <kbd>Ctrl</kbd>+<kbd>I</kbd> view history now belongs to each board, so it
+  never jumps to places on a board you just left.
+  ([#160](https://github.com/MisterGC/grafli/issues/160))
+- **Links can open a board at one bookmark or element.** `&graph:<name>#<id>`
+  and `&link:<path>.grafli#<id>` open the board framed on the bookmark
+  `<id>` — or, without one, the element `<id>` — with it selected, so a map
+  can point into one place of another board; <kbd>g</kbd><kbd>u</kbd> comes
+  back. A missing id opens the board fitted and says
+  "No element '<id>' in <file>". A board using such a link is written with a
+  `#!grafli v3` header.
+  ([#161](https://github.com/MisterGC/grafli/issues/161))
+- **A box with a sub-board shows a miniature of it; <kbd>g</kbd><kbd>d</kbd>
+  or <kbd>Return</kbd> zooms into it.** Once a `&graph` box is large enough on
+  screen, its label moves to the top and the body shows the sub-board as it
+  looks when you open it. The miniature is rendered on first need and kept
+  until the sub-board file changes, so an edit to it shows within a second.
+  <kbd>g</kbd><kbd>d</kbd> or <kbd>Return</kbd> plays a zoom into the box
+  that hands over to the sub-board; <kbd>g</kbd><kbd>u</kbd> plays it in
+  reverse. Zooming alone never switches boards. Exports, slides and bookmark
+  thumbnails draw the box without the miniature, and a board without `&graph`
+  boxes looks as before.
+  ([#162](https://github.com/MisterGC/grafli/issues/162))
+- **A box's doc shows one line on the canvas; <kbd>g</kbd><kbd>v</kbd> peeks
+  the whole doc.** A box with `&doc:<name>` shows the doc's first sentence,
+  cut to one line, below its label — once the box is shown in full detail and
+  has room for the line; a box never grows for it. <kbd>g</kbd><kbd>v</kbd>
+  opens a read-only panel beside the box with the whole doc, rendered like a
+  Markdown note, at most twelve lines tall and scrollable; it moves nothing
+  and <kbd>Esc</kbd> closes it. <kbd>E</kbd> still opens the doc in textli.
+  Box docs are watched like note docs, so an edit to the file shows on the
+  canvas and in an open panel within a second. On a box without a doc
+  <kbd>g</kbd><kbd>v</kbd> says so. A board without box docs looks as
+  before.
+  ([#163](https://github.com/MisterGC/grafli/issues/163))
+- **Arrows can carry a stable id.** An arrow line may end in `~id=<id>`
+  (before a `# annotation`), so that a bookmark, a tour stop or an overlay
+  can name one arrow. When a board on disk and the open board are merged,
+  an arrow with an id is matched by it, so edits to two arrows between the
+  same boxes no longer collide; an arrow without one is matched by its
+  endpoints as before. A board using an arrow id is written with a
+  `#!grafli v3` header; a board without one is written as before.
+  ([#164](https://github.com/MisterGC/grafli/issues/164))
+- **A tour stop can lie in another board, and a tour you leave waits for
+  you.** A flow step `<board>#<bookmark>` — `<board>` the name of a
+  sub-board of the flow's own board, or a path ending in `.grafli` relative
+  to that board's file — is a stop in that board: playing
+  it enters the board the way a link does (the breadcrumb shows it, stepping
+  back climbs out again) and frames the bookmark with its caption. The flow
+  stays on the board it starts on, and <kbd>Esc</kbd> ends it back there.
+  During a tour, <kbd>g</kbd><kbd>d</kbd> or <kbd>Return</kbd> on a box with
+  a level leaves the tour to look around; the Flows tab shows where it is
+  paused, and <kbd>g</kbd><kbd>u</kbd> back resumes it at that stop. PDF and
+  PPTX export, `grafli export --check` and `grafli render --step` take such
+  stops from their own board. A board with one is written with a
+  `#!grafli v3` header; tours on one board play and export as before.
+  ([#165](https://github.com/MisterGC/grafli/issues/165))
+- **<kbd>g</kbd><kbd>t</kbd> lists the tours through the selected box.**
+  The picker shows each flow of the board with a stop that frames the box or
+  one of the boxes it sits in, with the first such stop; picking one plays
+  the tour from there. Without any, a toast says "no tour passes through"
+  the box's label.
+  ([#166](https://github.com/MisterGC/grafli/issues/166))
+- **A tour stop can be an arrow.** A bookmark's focus may name an arrow by
+  its `~id=`: the stop frames the arrow's two ends and, while the tour shows
+  it, draws the arrow in the tour accent, twice as thick, with everything
+  else dimmed — "this step is this call". `grafli render --bookmark` and the
+  PDF/PPTX export draw it the same way, and `grafli export --check` takes the
+  arrow id as resolved.
+  ([#167](https://github.com/MisterGC/grafli/issues/167))
+- **Overlay files colour a board with analysis data.** A script or agent
+  writes `<stem>-res/<name>.overlay.json` — a title, the producer, a
+  category or a value per element id, a note and code refs — and
+  <kbd>A</kbd> cycles off → Connectivity → each overlay file by name → off.
+  Elements without an entry draw hatched as "no data"; the legend card shows
+  the categories or scale, a **stale** line when the file's `source`
+  revision is not the repo's `HEAD`, and the selected element's note and
+  refs (a click opens a ref). Editing the file recolours the board live.
+  Nothing in the `.grafli` changes; a board without overlay files keeps the
+  plain Connectivity toggle.
+  ([#168](https://github.com/MisterGC/grafli/issues/168))
+- **`grafli export-html` shares a whole map as one page.** It writes a board
+  and every board reachable through `&graph` and `.grafli` `&link` into one
+  self-contained HTML file — no server, no internet, fonts and images inside.
+  Each board is the app's own SVG drawing, once plain and once per overlay
+  file. In the browser you pan and zoom, click a box with a level to zoom
+  into it, go back up with **↑ Back**, <kbd>Backspace</kbd> or
+  <kbd>g</kbd><kbd>u</kbd> along a breadcrumb, peek at a box's doc, and
+  switch overlays with their legend and notes. Code refs stay plain text.
+  The export prints its size and warns above 20 MB; **HTML** in the side
+  panel's Export section does the same from the app.
+  ([#169](https://github.com/MisterGC/grafli/issues/169))
+- **The exported page plays the tours.** Pick a tour from the **Tour**
+  selector and a player card steps through it: **‹ Prev** / **Next ›**,
+  **▶ Play** / **❚❚ Pause**, the stop's caption and a progress bar, the
+  camera gliding between stops. Auto-play rests on each stop for its dwell.
+  A stop in another board shows that board the way the app does, with the
+  breadcrumb. A stop framing an arrow draws it in the accent colour and dims
+  everything but the arrow and its ends; a stop with `focus=complete` dims
+  what its frame does not hold whole, as in the app. The
+  keys are the app's playback keys (<kbd>Space</kbd> / <kbd>→</kbd>,
+  <kbd>←</kbd>, <kbd>p</kbd>, <kbd>t</kbd>, <kbd>Esc</kbd>); entering a
+  level mid-tour parks it and going back up resumes it. Boards a tour stops
+  in go into the page even when nothing links to them.
+  ([#61](https://github.com/MisterGC/grafli/issues/61))
+- **The skill teaches explanation maps of any subject.** A new reference,
+  `references/explaining.md`, is what an agent reads when asked to help you
+  understand, learn, explain or review a codebase, a system or a concept on
+  a map: every level states its question and the evidence for its split,
+  about nine parts a level, one-line labels with the explanation in the
+  box's own `&doc`, one board per repo plus a bench board linking in,
+  relationship kinds on the arrows, tours across levels, overlay files with
+  their provenance, and marking a map stale. A `Q:` you leave on the map is
+  answered on the map — by a deeper level, one line or a tour, never a
+  paragraph. The skill's rule that boxes are identifiers now names the
+  box's own `&doc` as a place for its explanation.
+  ([#170](https://github.com/MisterGC/grafli/issues/170))
+- **`!card`: a box with children keeps its node look.** A box that holds a
+  note or box used to turn into a flat, square-cornered container with a
+  small top-left heading, so a card with a title and a body couldn't be
+  built. A `!card` box keeps its fill, border, rounded corners and a
+  node-size title, centred at the top, while it owns its children — on the
+  canvas, in `render` and in every export. Style mode <kbd>s</kbd>
+  <kbd>e</kbd> sets it: Background row, plate / flat / card. A board using
+  it is written `#!grafli v4`; older builds open it read-only.
+  ([#203](https://github.com/MisterGC/grafli/issues/203))
+- **`!ink`: label and icon ink follow a dark fill.** A coloured box's label
+  always sat on a light plate in dark ink, and a plain note's text was
+  always note blue while `%color` only tinted its icon. An `!ink` box drops
+  the plate and draws its label and its fill or lead icon in the ink that
+  reads on its fill; an `!ink` note draws its text in its `%color`.
+  Coloured notes without `!ink` keep their blue text. Style mode
+  <kbd>s</kbd> <kbd>e</kbd> sets it: Label ink row, plain / on fill. A
+  board using it is written `#!grafli v4`; older builds open it read-only.
+  ([#204](https://github.com/MisterGC/grafli/issues/204))
+- **`!sans`: a proportional face for a box.** Box labels were always
+  monospace, so size was the only hierarchy and every box read as code. An
+  `!sans` box sets its label and doc line in Inter, an OFL face now bundled
+  with grafli, on the canvas, in `grafli render` and in the exports; mono
+  stays the default. Style mode <kbd>s</kbd> <kbd>t</kbd>, then
+  <kbd>Tab</kbd> in the text grid toggles it. A board using it is written
+  `#!grafli v4`; older builds open it read-only.
+  ([#205](https://github.com/MisterGC/grafli/issues/205))
+- **`!sans` on notes.** A note's text was handwritten or monospace; an
+  `!sans` note sets it in Inter, on the canvas and in the PDF, PPTX and HTML
+  exports. <kbd>Tab</kbd> in the text grid now cycles a note through
+  handwritten, mono and sans. A PPTX slide names Inter on a `!sans` note's
+  text instead of the theme font.
+  ([#206](https://github.com/MisterGC/grafli/issues/206))
+- **`!dashed` and `!dotted` box outlines.** Connectors had line patterns,
+  boxes had none, so "later" or "optional" could not be drawn. A `!dashed`
+  or `!dotted` box draws its outline in that pattern, on the canvas, in
+  `grafli render` and in every export; a flat box or a container gets an
+  outline in the pattern. Style mode <kbd>s</kbd> <kbd>e</kbd> sets it:
+  Outline row, solid / dashed / dotted. A board using it is written
+  `#!grafli v4`; older builds open it read-only.
+  ([#207](https://github.com/MisterGC/grafli/issues/207))
+- **Filled number markers, and `0`.** Number markers were outlined circles
+  for 1–99 only. `*solid-3`, `*badge:solid-12` draw the number knocked out
+  of a filled disc, and `*0` is a step zero, on the canvas, in
+  `grafli render` and in every export. In the symbol grid
+  <kbd>s</kbd> <kbd>i</kbd>, <kbd>0</kbd> types a zero and <kbd>f</kbd>
+  fills the typed number. A board using either is written `#!grafli v4`;
+  older builds open it read-only.
+  ([#208](https://github.com/MisterGC/grafli/issues/208))
+- **Connectors can pin the sides they leave and enter.** Connectors picked
+  their sides from the geometry, so inputs could not be made to enter from
+  the left and a U-turn needed helper boxes. `~from=right ~to=left` (top /
+  right / bottom / left) pins them, for direct, spline and stair routing;
+  `~from=right ~to=right` draws a U-turn. Style mode <kbd>s</kbd>
+  <kbd>e</kbd> on a connector sets them: Leaves from and Enters at rows. A
+  board using it is written `#!grafli v4`; older builds open it read-only.
+  ([#209](https://github.com/MisterGC/grafli/issues/209))
+- **Connectors can end in a dot.** Mapping diagrams join rows with
+  dot-ended lines; grafli connectors ended in an arrowhead or nothing.
+  `!dot` draws a filled dot on each end that would carry a head, so
+  `a <-> b !dot` has a dot at both ends and `a -> b !dot` at one. Style mode
+  <kbd>s</kbd> <kbd>e</kbd> on a connector sets it: the Ends row, Arrow or
+  Dot. A board using it is written `#!grafli v4`; older builds open it
+  read-only. ([#210](https://github.com/MisterGC/grafli/issues/210))
+- **A box can carry a status label in every view.** A status such as
+  "designed" or "open" only existed as an overlay category, invisible until
+  <kbd>A</kbd>. `~status=open` (or `~status=open:%rose`) draws a small pill
+  on the box's bottom edge on the canvas, in `grafli render` and in the
+  exports. Style mode <kbd>s</kbd> <kbd>s</kbd> on a box types its text,
+  then the colour grid picks its colour. A board using it is written
+  `#!grafli v4`; older builds open it read-only.
+  ([#211](https://github.com/MisterGC/grafli/issues/211))
+- **Zoomed out, a `^left` container stays a band.** A board of stacked
+  containers collapsed into grey tiles with centred titles, so it stopped
+  reading as a stack. `^left` places a container's title top left at full
+  zoom and, collapsed, keeps a strip of its children's colours with its
+  title on the left edge, in the app and in `grafli render --lod`. Style
+  mode <kbd>s</kbd> <kbd>e</kbd>'s Label row gains Left. A board using it
+  is written `#!grafli v4`; older builds open it read-only.
+  ([#212](https://github.com/MisterGC/grafli/issues/212))
+- **One palette per map.** Changing what a colour means used to mean
+  rewriting every board of a map. `<stem>-res/palette.json` names entries
+  (a theme token or hex, and a label), a box, note or connector uses one as
+  `%name`, and every board of the map resolves it the same way — in the
+  app, `grafli render` and the exports; editing the file recolours the open
+  board. Style mode <kbd>s</kbd> <kbd>c</kbd> lists the entries below the
+  theme colours, and `grafli diagnose` knows the names and reports one that
+  shadows a theme token. A board using one is written `#!grafli v4`; older
+  builds open it read-only.
+  ([#213](https://github.com/MisterGC/grafli/issues/213))
+- **A legend drawn from the map's palette.** A map whose colours mean
+  something needed a hand-made note to say what. <kbd>Shift</kbd>+<kbd>M</kbd>
+  (or *Legend* in the side panel) shows a card with a swatch and label for
+  each palette entry the board uses; while it is on, the SVG/PNG exports
+  draw it below the board and PDF/PPTX diagram slides at their bottom.
+  `grafli render --legend` and `grafli export --legend` do the same from the
+  command line. Nothing in the `.grafli` changes.
+  ([#214](https://github.com/MisterGC/grafli/issues/214))
+- **A palette entry can carry a whole kind of box.** A board that shows
+  kinds of things — tools, plugins, third-party parts — used to repeat the
+  same tokens, such as `*lead:puzzle !dashed ~small`, on every box of a
+  kind. An entry in the map's `palette.json` can now name an icon, a dashed
+  or dotted outline, a bold label and a label size besides its colour, and
+  `%plugin` gives a box all of them at once. A token written on the box
+  still wins over its kind's, and the `.grafli` keeps only what is written
+  on the box, so editing the entry changes every box of the kind. In style
+  mode's colour grid (<kbd>s</kbd> <kbd>c</kbd>) a kind's swatch shows its
+  icon and outline, and <kbd>1</kbd>–<kbd>9</kbd> apply the palette's first
+  nine entries in one key.
+  ([#301](https://github.com/MisterGC/grafli/issues/301))
+- **A board can bring its own icons.** The built-in symbols are a fixed
+  set of 31, so a board could not show a monitor, a browser, a phone or a
+  gamepad. An SVG at `<stem>-res/icons/<name>.svg` is now `*name` on that
+  board, in every placement (`*name`, `*lead:name`, `*badge:name`), drawn
+  in the same ink as the built-in symbols on the canvas, in `grafli render`
+  and in every export. The symbol grid (<kbd>s</kbd> <kbd>i</kbd>) lists
+  the board's own icons after the built-in ones, and `grafli diagnose`
+  reports a `*name` that is neither built in nor in the folder.
+  ([#299](https://github.com/MisterGC/grafli/issues/299))
+- **Overlays render outside the app.** An overlay file shown with
+  <kbd>A</kbd> used to stay on screen: renders and decks came out plain, so
+  a review could not see status or coverage. While one is on, the SVG/PNG
+  exports draw the board on the overlay's canvas with its legend card below,
+  and PDF/PPTX diagram slides carry it with the card beside the diagram.
+  `grafli render --overlay <name>` and `grafli export --overlay <name>` do
+  the same from the command line.
+  ([#215](https://github.com/MisterGC/grafli/issues/215))
+- **`grafli diagnose` checks overlay files.** A malformed overlay file or an
+  entry whose id is no box, note or connector on the board used to go
+  unnoticed until the overlay was missing from the <kbd>A</kbd> cycle or
+  coloured less than expected. `diagnose` now warns about both —
+  `bad-overlay` names what does not parse, `overlay-unknown-id` names the
+  entry and the nearest id on the board.
+  ([#216](https://github.com/MisterGC/grafli/issues/216))
+- **Code refs resolve against the board's `# source:` repo.** A map of
+  another repo needed `@../../repo/src/x.py:3` refs that widened notes and
+  broke when folders moved. A board whose comment says
+  `# source: <repo> @ <rev>` now resolves a relative `@src/x.py:3` against
+  that repo: clicking it in a code note or an overlay legend opens the file
+  there, and `grafli diagnose` looks for it there. Renders and exports draw
+  the ref as written. Boards without the comment resolve as before.
+  ([#217](https://github.com/MisterGC/grafli/issues/217))
+- **A board says when its source repo moved on.** A map's `@path:line` refs
+  are true at the revision they were read at; once the repo moved on they
+  opened wrong lines or missing files without a word. When the board's
+  `# source: <repo> @ <rev>` names a revision the repo's `HEAD` is not at,
+  `grafli diagnose` warns (`stale-source`: "refs read at a1b2c3d, repo is at
+  …") and the app shows the same notice when the board opens. A comment
+  without `@ <rev>` is not checked.
+  ([#188](https://github.com/MisterGC/grafli/issues/188))
+- **A worked explanation map ships in `examples/`.**
+  `examples/navigation-map.grafli` maps grafli's own path from Return on a
+  box to the board behind it in three levels — the parts, the dispatch, the
+  algorithm with its source refs — with box docs, deep links, a tour across
+  the levels with path stops, and a Tests overlay that
+  `examples/navigation-map-overlay.py` regenerates.
+  ([#171](https://github.com/MisterGC/grafli/issues/171))
+- **A slide-grade explanation map ships in `examples/`.**
+  `examples/layers-map.grafli` explains grafli's own layers — format, view,
+  exports — problem-first as a stack of layers, with doc lines, status
+  labels, one palette and its legend, a Tests overlay that
+  `examples/layers-map-overlay.py` regenerates, and two slide-grade levels.
+  Its entry tour exports as a deck with a headline on every stop:
+  `grafli export examples/layers-map.grafli deck.pdf --legend`.
+  ([#222](https://github.com/MisterGC/grafli/issues/222))
+- **Worked examples of a matrix and a mirror.**
+  `examples/outputs-matrix.grafli` places every way a board leaves the
+  file on two axes — who can change it while it is shown, how much of the
+  map it carries; `examples/save-reload-mirror.grafli` sets reloading and
+  saving side by side, the same step at the same height, so the one step
+  only saving has shows as a gap.
+  ([#261](https://github.com/MisterGC/grafli/issues/261))
+- **Round boxes for start and end states, terminators and bubbles.** A
+  box with `!round` draws as a circle when it is square and as a pill
+  otherwise, on the canvas, in `grafli render` and in every export, and
+  arrows end on its curve instead of at its corners. Until now a state
+  machine's start state was a box labelled "●". A round box with no label
+  keeps the size it is given, so `@ box start "" 0,0 24x24 %primary !round` is
+  a small dot. In style mode, <kbd>s</kbd> <kbd>r</kbd> makes the selected
+  boxes round, and pressing <kbd>r</kbd> again makes them square-cornered.
+  A board using it is written `#!grafli v4`; older builds open it
+  read-only.
+  ([#307](https://github.com/MisterGC/grafli/issues/307))
+- **grafli at a glance: how to work with grafli and your agent, and every
+  key by mode, on one page.** It draws both ways of working with a Claude
+  Code session: at your desk, where the session edits the file and works
+  the `T:` and `Q:` notes you leave on the board, and in a meeting, where
+  you connect it to `grafli serve` and ask it with <kbd>:</kbd> or
+  <kbd>a</kbd>, take back its edit with <kbd>Shift</kbd>+<kbd>U</kbd> and
+  let it leave. Below that, every key of the app grouped by mode, with
+  Select in the middle and a key to each mode, and the browser tab's keys
+  by the link they come with (watch, edit, present). The website links it
+  as *At a glance*; in the app, **grafli at a glance ↗** in the
+  <kbd>F1</kbd> help opens it in your browser, offline. The <kbd>F1</kbd>
+  help and the page take their keys from the same table, and the <kbd>F1</kbd>
+  help gained a *Browser Tab* tab with the tab's keys.
+  ([#324](https://github.com/MisterGC/grafli/issues/324))
+
+### Changed
+- **Software diagrams from the skill draw only the arrows their question
+  asks for, and their icons say what kind of thing a box is.** The skill
+  told agents to leave symbols off software diagrams and never said which
+  relations become arrows, so boards either drew every relation or left
+  out the ones that mattered. Each recipe (architecture, state machine,
+  behavioral, design) now says which relations are its arrows; a relation
+  the question does not ask about goes into the doc line under its box.
+  An architecture board takes each kind of thing (a process of yours, a
+  browser tab, a tool that is not yours, a file) from the map's palette
+  with its colour, icon and outline, titles its layers as headings, and
+  shows the key with `grafli render --legend`. The new
+  `examples/live-session.grafli` is drawn this way: grafli's live session,
+  where every edit, a tab's or the agent's, lands through one merge.
+  Sketchnotes and infographics keep their own symbol rules.
+  ([#308](https://github.com/MisterGC/grafli/issues/308))
+- **A coloured box draws its label on the fill where it reads there.**
+  Every filled box drew its label on a lighter plate inside the fill, so
+  a coloured box read as a box inside a box. The plate now shows only
+  where the board ink on the fill falls below WCAG AA: 4.5:1, or 3:1 for
+  a label of 24 px, or 18.66 px bold. In both themes `%clay`, `%teal`,
+  `%soft` and `%highlight` draw their labels straight on the fill, while a
+  dark fill such as `%primary` keeps the plate. For this the light theme's
+  `%clay` is lighter (`#C56C54` → `#D08976`) and so is its `%teal`
+  (`#3E9B92` → `#44AAA0`), so a board using them looks a shade paler. A
+  coloured box inside another one is judged against what it shows on. A
+  box label over an image, coloured or plain, sits on a near-opaque plate,
+  so CPU, RAM and Storage labels on a motherboard picture read whatever
+  the picture shows under them. `grafli render` draws it the same way.
+  ([#300](https://github.com/MisterGC/grafli/issues/300),
+  [#325](https://github.com/MisterGC/grafli/issues/325))
+- **Arrow labels move into free space.** A label sat at the middle of its
+  arrow even where that put it on a box, on its own end box or on another
+  arrow's label, so a fan-out or two crossing arrows read as a mess. A
+  label that has room at its middle stays there; one that has none slides
+  along its own arrow to the nearest free spot, and sets beside the line
+  only when the arrow has no room on it. It keeps off every box, note and
+  image except the containers its arrow runs inside, and off its own end
+  boxes by an arrowhead's length, so the head stays in sight. A label you
+  offset with `@dx,dy` stays where you put it, and the others keep off it.
+  `grafli render` places labels the same way, and `grafli diagnose` now
+  checks each label where it is drawn against every box, not only against
+  its two ends at the middle; `arrow-label-crowded` is left for a label
+  with no free spot or one offset onto a box.
+  ([#303](https://github.com/MisterGC/grafli/issues/303))
+- **Right-angle arrows out of one side of a box keep apart, and a pinned
+  one goes round boxes.** Several `!ortho` arrows leaving the same side
+  used to turn on the same line, so they ran on top of each other until
+  they split, and two of them could swap places and cross. Each now turns
+  on its own line, 14 px from the next: the arrow starting furthest out
+  turns nearest the box, so none crosses another, and each starts at the
+  point along the side that matches where its target lies. An `!ortho`
+  arrow with `~from=` or `~to=` that would cross a box — say
+  `~from=left ~to=bottom` with a box between its ends — now takes the
+  shortest right-angle way round, turning in the middle of the gaps
+  between boxes; it goes round the outside of everything only when there
+  is no shorter way through. `grafli render` draws both the same.
+  ([#306](https://github.com/MisterGC/grafli/issues/306))
+- **A container reads as a container.** A box that holds other boxes and
+  has no colour used to draw no fill and no border, with a title smaller
+  than the labels inside it, so it read as a loose caption and an arrow
+  into it ended in empty space. It now draws a quiet plate a shade darker
+  than the canvas, each level inside a shade deeper, with an outline where
+  arrows end. Its title is bold and larger than its children's labels,
+  stepping down by level: 16 pt for a top-level container, 15 pt one level
+  in, 14 pt from there on, against 13 pt for a box label. Where a label
+  inside reaches that size — a fourth level of containers, or a child set
+  `~large` — the title takes a point more, so it stays above every label
+  it holds. A size set with `~size` still wins. This holds on the canvas, in `grafli render`, in
+  `grafli export-html` and in the live tab.
+  ([#294](https://github.com/MisterGC/grafli/issues/294))
+- **`grafli layout` draws the arrows it places at right angles, and around
+  the layer between.** After a run, every arrow between two boxes the
+  layout placed that had no routing gets `!ortho`, so a laid-out board
+  reads like a wiring diagram instead of a fan of slanted lines. A stair
+  that no turn can keep clear of the boxes in its way — an arrow that
+  skips a layer, with a box of that layer right under it — now steps
+  around them: it turns in the gap before the layer, runs beside its
+  boxes and turns back in the gap after. This holds for every `!ortho`
+  arrow, in the app, in `grafli render` and in the exports; before, such
+  a stair ran straight through the box. A new `!straight` flag keeps an
+  arrow a direct line across layout runs; a board using it is written
+  `#!grafli v4`. `=` in the app moves boxes as before and leaves the
+  arrows' routing alone.
+  ([#284](https://github.com/MisterGC/grafli/issues/284))
+- **`examples/layers-map.grafli` is drawn as layered dependencies.** Its
+  top board was three bands of three boxes and two arrows. It now opens
+  with a claim, every arrow points at what a part depends on and names
+  what it reads or draws, and the one call that points up the stack is
+  drawn in rose. The map palette's doc moved into the vault's, and the
+  status labels stay on the two levels.
+  ([#261](https://github.com/MisterGC/grafli/issues/261))
+- **A render reads in the order a hand-made sketch does.** Compared with a
+  sketch of the same board, every box outline and line weighed as much as
+  the one box the board is about. A box with no colour is now a light
+  plate with a quiet outline, so a filled box stands out against it
+  (a `!dashed` / `!dotted` outline keeps the full ink); connectors draw
+  in an ink quieter than the box labels they join; arrow labels are set
+  in Inter in a muted ink, and a label that opens with a cardinality —
+  `"1"`, `"N"`, `"N:N included in"`, `"0..1 owner"` — sets it bold in
+  the full ink. On a routed connector the label sits on its longest
+  straight run instead of on a short jog of the stair. `grafli layout`
+  (and `=` in the app) widens the gap between two layers to hold the
+  labels of the arrows between them, so a label no longer lands on a box.
+  `examples/source-and-builds.grafli` is the public board the renders
+  were compared on.
+  ([#260](https://github.com/MisterGC/grafli/issues/260))
+- **Zoomed out, a container's title is sized by its level, not its area.**
+  A collapsed container's headline grew with its tile, so the biggest
+  container was the loudest text. Tiles at the same nesting level now
+  share one title size — 20 px for top-level containers, 16 px one level
+  in, 13 px deeper — shrunk together only when one of them can't fit it.
+  The "N nodes" count under the title is gone, from cluster hulls too.
+  ([#258](https://github.com/MisterGC/grafli/issues/258))
+- **The skill draws relations first, then boxes, then an encoding.** The
+  authoring loop in `SKILL.md` starts with the claim — what the picture
+  shows that the text beside it doesn't — then the edges with their kind
+  and cardinality, then only the boxes those edges need (a thing with no
+  edge goes into a list note unless an encoding places it, like an item
+  on a matrix's axes; at most 9 units per view), then an encoding
+  from a catalogue in `references/design.md`: matrix on two axes, layered
+  dependencies, containment, mirror, proportional strip, before / after
+  and sequence, each with the question it answers and an example. The
+  references no longer say grafli has no auto-layout.
+  ([#255](https://github.com/MisterGC/grafli/issues/255))
+- **A map's tour exports as slides.** The skill's
+  `references/presenting.md` teaches framing each stop with a bookmark
+  instead of sizing containers, the legibility arithmetic (a default note
+  stays at 11 pt or more in a frame up to about 1,060 × 500 px) and a
+  claim headline per stop, with an example tour of grafli's pipeline that
+  passes `export --check`.
+  ([#221](https://github.com/MisterGC/grafli/issues/221))
+- **Explanation maps read like slides.** The skill's
+  `references/explaining.md` teaches a claim headline per board, three
+  visual weights (emphasis / normal / muted), quiet evidence, numbered
+  paths (`*lead:solid-1`), category bars with connectors in the same
+  palette colour, status labels (`~status=`) and cards (`!card`), each
+  with its GUI path, and shows them on a slide-grade example level of
+  grafli's own parser.
+  ([#220](https://github.com/MisterGC/grafli/issues/220))
+- **Explanation maps open with the problem and its layers.** The skill's
+  `references/explaining.md` says the top board of a map states the
+  problem, the shape of the answer and the layers of the problem, drawn
+  as stacked full-width containers (`%layer ^left`) that zoomed out stay a
+  stack of named bands. One concrete case is shown on every layer and
+  marked as an example, not the scope; mechanisms go one level down. A
+  layered example of grafli's own architecture shows it.
+  ([#199](https://github.com/MisterGC/grafli/issues/199))
+- **Explanation maps rest in one colour per layer.** The skill's
+  `references/explaining.md` teaches a resting scheme: one map palette
+  entry per layer of the subject, the same on every board, part boxes
+  filled with their layer's colour (or, inside a layer container, `!flat`
+  so the container shows through lighter), label and doc line as one block
+  at the top (`^topcenter`), with the GUI path for each step. Overlays draw
+  over it; plain boards keep outlines. `examples/navigation-map.grafli`
+  now colours its three levels by layer.
+  ([#197](https://github.com/MisterGC/grafli/issues/197))
+- **`grafli export --check` says what overloads a slide.** An
+  `[overloaded]` finding names each note under the 11 pt legibility floor,
+  its size in pt at that slide's frame and the floor — e.g.
+  `note 'evidence' at 2.2 pt (floor 11 pt)` — instead of only the slide
+  number; `--json` lists them under the slide's `elements`, and the export
+  warning and the app's export toast name them too. `--check --all-flows`
+  checks every flow of a board in one run (`--json` then emits one report
+  per flow). ([#193](https://github.com/MisterGC/grafli/issues/193))
+- **`grafli diagnose` fails a board whose links or code refs lead nowhere.**
+  A `&graph` sub-board or `&link:<path>.grafli` that does not exist, or whose
+  `#<id>` is no bookmark, element or connector in it, is an error
+  (`dangling-board-link`). So is a `code:` note's `@path:line` whose file
+  does not exist or has no such line (`dangling-code-ref`); it used to be an
+  info, and a line was never checked. Refs resolve as a click in the app
+  opens them — `~` expanded, a relative path from the `# source:` repo, else
+  the board's folder — so `~` paths no longer give false findings, and only
+  refs the app makes clickable are checked. The example boards' code refs
+  now point into a small stub tree, `examples/code/`.
+  ([#218](https://github.com/MisterGC/grafli/issues/218))
+- **A sub-board's miniature fills the whole box.** It used to sit small
+  below the label; now it is fitted to the box edge to edge, and the label
+  and the sub-board icon ride on a band across the top of the box, in the
+  box's own fill, so they stay readable over it. Exports still leave the
+  miniature out, and a board without sub-boards renders as before.
+  ([#198](https://github.com/MisterGC/grafli/issues/198))
+- **A box's doc line shows in every export, not only on the canvas.** A
+  `&doc` box's first sentence now shows in the PDF and PPTX slides, the
+  HTML page and the SVG and PNG exports, as it does in `grafli render`. A
+  slide judges the line at its own scale, as the canvas does at its zoom:
+  a slide whose frame makes the line too small to read leaves it out.
+  Bookmark thumbnails still draw the box without it, and a board without
+  box docs exports as before.
+  ([#202](https://github.com/MisterGC/grafli/issues/202))
+- **Every keypress either acts or explains itself.** Roughly forty keys used
+  to do nothing at all when the selection, the board or the clipboard didn't
+  suit them — no message, no clue. They now either do the obvious thing
+  (<kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> moves an image like any
+  other element) or say what's missing ("Only boxes resize with hjkl",
+  "Nothing selected to copy", "No connectors to analyse"). A refused key no
+  longer pushes an undo step or marks the board dirty, an empty yank keeps
+  the previous copy, pasting an image on an untitled board asks where to
+  save, and a failed save, re-read or editor launch reports itself instead
+  of passing unnoticed.
+  ([#154](https://github.com/MisterGC/grafli/issues/154))
+- **The <kbd>A</kbd> heatmap is called Connectivity and counts graph arrows
+  only.** Its legend said "COMPLEXITY" while it coloured boxes by the arrow
+  ends touching them; legend and help now say Connectivity, and arrows to
+  or from a note or image (annotation arrows) no longer heat a box. A board
+  whose only arrows are annotations has nothing to analyse. The count now sits
+  behind a provider the renderer reads, so other heat sources can plug in.
+  ([#159](https://github.com/MisterGC/grafli/issues/159))
+- **Adding an image to an untitled board asks for a save location instead
+  of turning you away.** Dropping an image file or placing an <kbd>i</kbd>
+  mockup used to dead-end in a "Save the board first" toast, discarding the
+  drop. The save dialog now opens right there; once the board has a path
+  the image lands where it was dropped or clicked, with the vault anchored
+  next to the new file. Cancelling the dialog cancels the add quietly.
+  ([#152](https://github.com/MisterGC/grafli/issues/152))
+
+### Fixed
+- **A pinned arrow between stacked layers runs through the gap when
+  zoomed out.** An arrow such as `@ arrow canvas3d -> world !ortho
+  ~from=left ~to=left`, between boxes in two neighbouring layer
+  containers, moves onto the two containers when they fold zoomed out.
+  It kept its pins on the containers' left sides there, which are the
+  board's edge, so it ran down that edge instead of through the gap
+  between the layers. Zoomed out, an end that has moved to a container
+  is no longer pinned. At full zoom the pins hold as before.
+  ([#326](https://github.com/MisterGC/grafli/issues/326))
+- **A right-angle arrow that skips a layer crosses it where it is empty.**
+  On a board of stacked layer containers, an `!ortho` arrow from a box in
+  one layer to the box straight below it two layers down treated the
+  layer in between as one solid block. It went out to the board's edge,
+  down past the layer and back in. It now runs straight down through the
+  layer's empty space, drawn behind it, and steps round only the boxes
+  inside it. Zoomed out, a layer folded into a tile is still solid.
+  ([#326](https://github.com/MisterGC/grafli/issues/326))
+- **A small image shows its picture at 100%.** An image under 32 px on
+  a side, such as a 30x30 SVG icon, drew the zoomed-out stand-in — a
+  grey plate with an "SVG" tag — even at 100% zoom, on the canvas, in
+  `grafli render` and in the live tab. An image now keeps its picture
+  until it is drawn at less than half its own size; a big image still
+  swaps for the stand-in at 32 px on screen when zoomed far out.
+  ([#327](https://github.com/MisterGC/grafli/issues/327))
+- **Number markers read at board zoom.** On a 200x70 box at 100% zoom
+  `*badge:1` drew a ring with a digit about 4 px tall, which read as an
+  empty circle, and `*1` drew a digit about 10 px tall above the label.
+  The digits of a number marker now stand at least as tall as the label's
+  capitals, in the corner badge, as a lead icon and filling the box: a
+  number badge grows to fit them, and a bare `*<n>` on a box too short to
+  hold a readable number above its caption sits left of the label
+  instead. A `*badge:<n>` on a note grows the same way to its text.
+  Symbol badges such as `*badge:star` keep their size.
+  ([#305](https://github.com/MisterGC/grafli/issues/305))
+- **`%subtle` is a quiet grey.** A `%subtle` box used to be filled dark
+  grey, darker than `%muted`, so a box meant to sit in the background
+  was the loudest thing on the board. It now sits between `%muted` and
+  an unfilled box — quieter than `%muted`, a shade off an unfilled box —
+  in the light and the dark theme, on the canvas and in `grafli render`. `grafli diagnose` now suggests
+  `%primary`, not `%subtle`, for an unknown `%black` or `%dark`.
+  ([#309](https://github.com/MisterGC/grafli/issues/309))
+- **`grafli layout` keeps the container margin around a container's
+  children.** A container the layout grew could end up only 10 to 15 px
+  below or beside its children, because its new size was rounded to the
+  nearest 20 px step instead of up. It now always leaves 20 px at the
+  sides and bottom and starts the children 40 px below the title, 60 px
+  for a `~large` one — a title size given in points such as `~23` or
+  `~18` counts as large too. A single child wider than its container
+  starts at the margin instead of over the edge, and a picture inside a
+  container moves along with it. `grafli inspect` reports the same top
+  margin, and `=` in the app no longer rounds into the margin either.
+  ([#304](https://github.com/MisterGC/grafli/issues/304))
+- **A box three or more containers deep shows its label.** Such a box
+  used to draw over its own label and showed up as a blank coloured
+  plate. Its label now draws above it at any depth, on the canvas, in
+  `grafli render` and in the exports.
+  ([#293](https://github.com/MisterGC/grafli/issues/293))
+- **The skill's code-map example draws the relations between its
+  layers.** The top board in `references/explaining.md` used to list its
+  parts with no arrow between them, so `grafli diagnose` read it as a list
+  (`unrelated-board`) — and agents copy that example. Its arrows now name
+  what crosses from layer to layer (`call: export`, `call: load_board`,
+  `data: Board`, `call: serialize`), and it passes
+  `grafli diagnose --strict`.
+  ([#285](https://github.com/MisterGC/grafli/issues/285))
+- **An arrow into a box inside a container draws unbroken across the
+  container's title strip.** The title strip used to sit above every arrow,
+  so an arrow faded out right where it entered the container. An arrow now
+  draws above every container that holds one of its ends, title strip
+  included, and behind any container it only passes — on the canvas, in
+  `grafli render` and in the HTML, PDF and PPTX exports.
+  ([#283](https://github.com/MisterGC/grafli/issues/283))
+- **A box that holds other items keeps its doc line.** A `&doc` container,
+  a `!card` with children and a box holding only a note now draw their
+  doc's first sentence under the title — on the canvas, in `grafli render`
+  and in the PDF and PPTX slides. Boxes without `&doc` are
+  unchanged. ([#252](https://github.com/MisterGC/grafli/issues/252))
+- **A corner badge on a box with an attachment draws whole.** The badge
+  steps aside for the attachment glyph, but the label plate did not, so
+  with a doc line or a top label the plate covered a quarter of the badge.
+  The label now stays clear of it; boxes without an attachment are
+  unchanged. ([#220](https://github.com/MisterGC/grafli/issues/220))
+- **An `!ink` note keeps its colour in the PDF and PPTX exports.** Slides
+  set note text as native text in board ink, so an `!ink` note lost its
+  `%color` there. Its text now prints in that colour; notes without `!ink`
+  export as before.
+  ([#206](https://github.com/MisterGC/grafli/issues/206))
+- **`grafli render` draws sub-board miniatures and box doc lines.** A
+  headless render looked up the board's file on a window it never has, so
+  a `&graph` box showed no miniature and a `&doc` box no first sentence.
+  The render now shows both wherever the app shows them at that zoom;
+  `--lod` keeps its zoomed-out look, and the exports leave miniatures out.
+  ([#190](https://github.com/MisterGC/grafli/issues/190))
+- **A container with a lead icon keeps its label and icon top-left.** A
+  `*lead:` icon on a container — or on any box with `^topleft` or
+  `^topcenter` — put the icon and label at mid-height, across the children,
+  ignoring the anchor. Both now sit at the top, the icon centred on the
+  label's first line; boxes without a top anchor are unchanged.
+  ([#201](https://github.com/MisterGC/grafli/issues/201))
+- **The SVG export no longer shifts a board out of its picture.** A board
+  whose content did not start at the origin was painted offset by its own
+  top-left corner inside the SVG's viewBox, cropping it; `grafli render
+  out.svg` and Ctrl+E now draw it where it lies.
+  ([#169](https://github.com/MisterGC/grafli/issues/169))
+- **An older grafli no longer rewrites a newer board.** A board whose
+  `#!grafli vN` header is newer than the running build now opens read-only,
+  with a toast naming the version and `[read-only]` in the window title:
+  autosave, save, the open-time migration, `grafli fmt` and
+  `grafli diagnose --fix` all leave the file as it is. Before, a `v3` header
+  got a `v2` header written above it. Independently, a save no longer drops
+  what it does not understand: unknown flow step segments (`bm:3:zoom=x`),
+  unknown `~key=` flow markers (which used to turn into step refs) and a
+  `# annotation` behind an attachment now survive byte for byte.
+  ([#158](https://github.com/MisterGC/grafli/issues/158))
+- **A self-connector draws a loop instead of nothing.** `@ arrow a -> a`
+  resolved both of its ends to the element's centre, so it rendered as a
+  zero-length line — invisible, while still counting in the graph stats and
+  the complexity heatmap. It now loops out over one of the element's corners,
+  carrying its arrowhead and label; the corner is the one whose two sides
+  carry the fewest other connectors, and a second loop takes the next corner.
+  `grafli render` draws the loop on the same corner as the app. Boxes, notes,
+  and images all loop.
+  ([#139](https://github.com/MisterGC/grafli/issues/139))
+- **Parallel connectors between the same pair fan apart.** Two arrows between
+  one pair had identical geometry, so the second drew on top of the first and
+  its label landed on the first's. They now bow aside from the straight run,
+  one slot each, in the order they appear in the file — including the case of
+  a merged `a -> b` / `b -> a` pair plus a third arrow between the same two
+  nodes, whichever way the third one runs: a second `b -> a` used to merge
+  the `a -> b` arrow a second time, drawing it twice with the third arrow's
+  label on it. Each bowed arrow breaks round its own label, the two-line label of
+  a merged pair included, instead of running on underneath it, and
+  `grafli render` draws the fan the app draws. A pair carrying a single
+  connector is drawn exactly as before.
+  ([#140](https://github.com/MisterGC/grafli/issues/140))
+- **Connector endpoints stay out of the corners.** A direct connector took
+  whichever edge the centre-to-centre ray crossed first, so a near-diagonal
+  relation left and arrived within a few pixels of a corner and read as a
+  corner-to-corner connection; two elements whose ranges merely grazed each
+  other got a straight segment squeezed into that sliver, hugging one corner
+  of each. An endpoint now sits in the middle half of its side, on the side
+  that faces the other element, and the straight segment is reserved for a
+  shared range that covers at least one of the two centres. A connector whose
+  ray already left centrally is drawn exactly as before, and crowded-side
+  spreading, fanning, self-loops and the `!spline` / `!ortho` routings all
+  build on the corrected positions.
+  ([#156](https://github.com/MisterGC/grafli/issues/156))
+- **Malformed-line warnings name the full grammar.** The `@ box` demotion
+  message stopped at `[%color] [~size]`, so a line rejected for putting a
+  legal token like `^topleft` or `!flat` in the wrong slot pointed the
+  author at a typo that wasn't there. All four directive warnings (`box`,
+  `note`, `arrow`, `image`) now spell out every accepted token in the order
+  the parser requires, and say that the order is load-bearing.
+  ([#145](https://github.com/MisterGC/grafli/issues/145))
+
 ## [0.10.0] - 2026-08-15
 
 ### Added

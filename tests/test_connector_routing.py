@@ -141,6 +141,21 @@ def test_label_interrupts_a_routed_connector():
     assert len(arrows.split_path_at_rect(path, gap)) == 2
 
 
+def test_a_label_over_one_bend_leaves_a_gap():
+    """One bend of the flattened line inside the label: the run leaving the
+    label starts a new piece instead of joining the run that entered it."""
+    from PySide6.QtGui import QPainterPath
+    path = QPainterPath(QPointF(0, 0))
+    path.lineTo(QPointF(100, 4))
+    path.lineTo(QPointF(200, 0))
+    gap = QRectF(80, -10, 40, 20)
+    pieces = arrows.split_path_at_rect(path, gap)
+    assert len(pieces) == 2
+    assert all(not gap.adjusted(1, 1, -1, -1).contains(p)
+               for piece in pieces for poly in piece.toSubpathPolygons()
+               for p in poly)
+
+
 def test_a_label_that_misses_leaves_the_connector_whole():
     path = arrows.routed_path("ortho", QPointF(0, 0), "e", QPointF(200, 200), "w")
     assert len(arrows.split_path_at_rect(path, QRectF(9000, 9000, 20, 20))) == 1
@@ -314,12 +329,14 @@ def test_a_clear_stair_does_not_move():
     assert _stair(start, end, far_away) == _stair(start, end, None)
 
 
-def test_a_stair_slides_but_never_detours():
+def test_a_stair_turns_only_between_its_ends():
     """The line that separates this from a router.
 
-    Every corner stays inside the bounding box of the two anchors, so a route
-    can shift within the gap but can never wander off around an obstacle. If
-    this ever fails, the change has grown into the thing D4 ruled out.
+    A stair that no mid-line clears steps around the boxes in its way
+    (#284), but it never turns behind either end: every corner lies between
+    the two anchors along the way they face, and only the run beside the
+    boxes may leave the span across. Five runs at most — a detour, not a
+    search for any path.
     """
     start, end = QPointF(0, 0), QPointF(600, 300)
     # A wall of boxes filling most of the gap — maximum pressure to escape.
@@ -327,7 +344,38 @@ def test_a_stair_slides_but_never_detours():
     pts = _stair(start, end, walls)
     for p in pts:
         assert -0.01 <= p.x() <= 600.01
-        assert -0.01 <= p.y() <= 300.01
+    assert len(pts) <= 6
+    assert arrows._crossed(pts, walls) == 0
+
+
+def test_a_stair_steps_around_the_layer_it_skips():
+    """#284: two layers apart, a box of the layer between sits right under
+    the start. No mid-line clears it — both runs down cross it — so the
+    stair turns in the gap above it, passes it beside it and turns back in
+    the gap below."""
+    top, below = QRectF(0, 0, 160, 80), QRectF(0, 240, 160, 80)
+    between = QRectF(0, 120, 160, 80)
+    start = QPointF(top.center().x(), top.bottom())
+    end = QPointF(below.center().x(), below.top())
+    plain = arrows.ortho_points(start, "s", end, "n", None)
+    assert arrows._crossed(plain, [between]) == 1
+
+    pts = arrows.ortho_points(start, "s", end, "n", [between])
+    assert arrows._crossed(pts, [between]) == 0
+    assert len(pts) == 6
+    turns = sorted({round(p.y()) for p in pts[1:-1]})
+    assert turns == [100, 220]       # the middle of each layer gap
+    for a, b in zip(pts, pts[1:]):
+        assert abs(a.x() - b.x()) < 0.01 or abs(a.y() - b.y()) < 0.01
+
+
+def test_a_detour_takes_the_gap_nearest_the_straight_line():
+    """Of two ways around, the one closer to the line between the ends."""
+    start, end = QPointF(100, 80), QPointF(100, 320)
+    between = QRectF(0, 120, 160, 80)    # its right edge 60 from the line
+    pts = arrows.ortho_points(start, "s", end, "n", [between])
+    column = {round(p.x()) for p in pts[1:-1]} - {100}
+    assert column == {170}
 
 
 def test_a_hopeless_stair_keeps_the_plain_route():
@@ -368,6 +416,61 @@ def test_notes_are_not_obstacles():
     assert set(view._routing_obstacles()) == {"a", "b"}
 
 
+# Four stacked layer containers; the third layer holds boxes only left and
+# in the middle, so the columns under Behavior and Physics are empty.
+_LAYERS = """#!grafli v2
+@ box tools "Tools" 0,0 1920x200 ^topleft ~large !flat
+@ box dojo "Dojo" 40,70 320x100 >tools
+@ box game "Game" 0,330 1920x200 ^topleft ~large !flat
+@ box behavior "Behavior" 420,400 320x100 >game
+@ box world "World" 800,400 320x100 >game
+@ box physics "Physics" 1180,400 320x100 >game
+@ box rendering "Rendering" 0,660 1920x200 ^topleft ~large !flat
+@ box char3d "Character3D" 40,730 320x100 >rendering
+@ box canvas3d "Canvas3D" 800,730 320x100 >rendering
+@ box foundation "Foundation" 0,990 1920x320 ^topleft ~large !flat
+@ box algorithm "Algorithm" 420,1060 320x100 >foundation
+@ box box2d "Box2D" 1180,1060 320x100 >foundation
+@ arrow behavior -> algorithm "link" !thick !ortho
+@ arrow physics -> box2d "import" !ortho
+"""
+
+
+def test_a_stair_two_layers_down_crosses_the_empty_layer_between():
+    """#326: the layer between is a container the arrow only passes, drawn
+    over it (#283), so its empty space is free to cross. Counted as one
+    solid box it sent each arrow round it along the board's edge."""
+    from grafli.items import ArrowLineItem
+
+    view = _view(_LAYERS)
+    columns = {"algorithm": 580, "box2d": 1340}
+    seen = set()
+    for gfx in view._arrow_items:
+        arrow = gfx.data(0) if isinstance(gfx, ArrowLineItem) else None
+        if arrow is None:
+            continue
+        seen.add(arrow.to_id)
+        for poly in gfx.path().toSubpathPolygons():
+            for p in poly:
+                assert abs(p.x() - columns[arrow.to_id]) < 0.01
+    assert seen == set(columns)
+
+
+def test_open_containers_are_not_obstacles_but_their_children_are():
+    obstacles = set(_view(_LAYERS)._routing_obstacles())
+    assert not obstacles & {"tools", "game", "rendering", "foundation"}
+    assert {"char3d", "canvas3d", "world"} <= obstacles
+
+
+def test_a_folded_container_is_an_obstacle_and_hides_its_children():
+    view = _view(_LAYERS)
+    view._present_detail = "summary"
+    view._refresh_lod()
+    obstacles = set(view._routing_obstacles())
+    assert "rendering" in obstacles
+    assert not obstacles & {"char3d", "canvas3d"}
+
+
 def test_no_ortho_connector_crosses_a_box_on_any_example_board():
     """The counterpart to the sibling-crossing guard, for obstacles.
 
@@ -399,3 +502,75 @@ def test_no_ortho_connector_crosses_a_box_on_any_example_board():
         if crossed:
             offenders[path.name] = crossed
     assert not offenders, f"stairs now cut through boxes: {offenders}"
+
+
+def test_a_straight_connector_draws_like_a_direct_one():
+    """#284: `!straight` only keeps `grafli layout` from routing an arrow;
+    on the board it is the direct line it always was."""
+    from grafli.items import ArrowLineItem
+
+    def drawn(flag: str) -> list:
+        view = _view(_BOARD + "@ arrow a -> c" + flag + "\n"
+                     "@ arrow a -> c" + flag + "\n")
+        return [[(p.x(), p.y()) for poly in gfx.path().toSubpathPolygons()
+                 for p in poly]
+                for gfx in view._arrow_items if isinstance(gfx, ArrowLineItem)]
+
+    assert drawn(" !straight") == drawn("")
+
+
+# ── Label position (#260) ──────────────────────────────────────────
+
+def test_a_stair_label_sits_on_its_longest_run_not_its_jog():
+    # A short jog in the middle of two long horizontal runs: the path's own
+    # middle is on the jog, the label belongs on a horizontal run.
+    path = arrows.polyline_path([QPointF(0, 0), QPointF(300, 0),
+                                 QPointF(300, 40), QPointF(500, 40)])
+    at = arrows.label_point(path)
+    assert at == QPointF(150, 0)
+
+
+def test_a_label_point_on_an_eased_stair_lies_on_a_straight_run():
+    path = arrows.routed_path("ortho", QPointF(0, 0), "e",
+                              QPointF(400, 60), "w")
+    at = arrows.label_point(path)
+    assert at.y() in (0.0, 60.0)
+
+
+def test_a_curve_keeps_its_label_at_its_middle():
+    path = arrows.routed_path("spline", QPointF(0, 0), "e",
+                              QPointF(400, 200), "w")
+    assert arrows.label_point(path) == path.pointAtPercent(0.5)
+
+
+def test_a_routed_connector_draws_its_label_on_a_straight_run():
+    from grafli.items import LabelItem
+    view = _view('#!grafli v4\n'
+                 '@ box a "A" 0,0 200x100\n'
+                 '@ box e "E" 600,60 200x100\n'
+                 '@ arrow a -> e "N" !ortho\n')
+    (label,) = [g for g in view._arrow_items if isinstance(g, LabelItem)]
+    centre = label.sceneBoundingRect().center()
+    # The stair turns once, halfway across the 400px gap (x=400), with a
+    # jog of about 60px: the label sits on one of the two horizontal runs,
+    # well clear of the jog, not centred on it.
+    assert abs(centre.x() - 400) > 50
+    assert 0 < centre.y() < 160
+
+
+def test_editing_a_routed_label_opens_the_editor_on_the_label():
+    """The inline editor opens where the canvas drew the label (one anchor,
+    ``arrows.label_anchor``), not at the old midpoint on the stair's jog."""
+    from grafli.items import LabelItem
+    from grafli.view.resources import _InlineEditorItem
+    view = _view('#!grafli v4\n'
+                 '@ box a "A" 0,0 200x100\n'
+                 '@ box e "E" 600,60 200x100\n'
+                 '@ arrow a -> e "depends on" !ortho\n')
+    (label,) = [g for g in view._arrow_items if isinstance(g, LabelItem)]
+    drawn = label.sceneBoundingRect().center()
+    view._start_editing_arrow(view._board.arrows[0])
+    (editor,) = [i for i in view._scene.items()
+                 if isinstance(i, _InlineEditorItem)]
+    at = editor.sceneBoundingRect().center()
+    assert abs(at.x() - drawn.x()) < 3 and abs(at.y() - drawn.y()) < 3

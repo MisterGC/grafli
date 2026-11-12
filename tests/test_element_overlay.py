@@ -11,8 +11,10 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication
 
+from grafli import theme
 from grafli.format import parse, serialize
 from grafli.view import GrafliView, Mode
 
@@ -39,12 +41,13 @@ def _row_of(view, label: str) -> int:
 
 # ── Boxes: the attributes that had no key ──────────────────────────
 
-def test_box_overlay_offers_background_and_label():
+def test_box_overlay_offers_background_label_ink_and_outline():
     view = _view('@ box a "A" 0,0 160x60\n')
     view._box_items["a"].setSelected(True)
     view._open_element_overlay()
     assert view._elem_overlay_target == "box"
-    assert [a["label"] for a in view._elem_overlay_axes] == ["Background", "Label"]
+    assert [a["label"] for a in view._elem_overlay_axes] == \
+        ["Background", "Label", "Label ink", "Outline"]
 
 
 def test_box_background_reaches_flat():
@@ -195,7 +198,8 @@ def test_connector_overlay_moved_to_e_unchanged():
     view._open_element_overlay("appearance")
     assert view._elem_overlay_target == "arrow"
     assert [a["label"] for a in view._elem_overlay_axes] == [
-        "Heads", "Line", "Thickness", "Routing", "Colour"]
+        "Heads", "Ends", "Line", "Thickness", "Routing", "Leaves from",
+        "Enters at", "Colour"]
 
 
 def test_connector_colour_key_now_opens_the_palette():
@@ -286,3 +290,120 @@ def test_image_overlay_cancel_reverts_the_preview():
     view._elem_overlay_cycle(1)                 # Frame -> None
     view._cancel_element_overlay()
     assert view.board.image_by_id("i1").frame == "on"
+
+
+def test_box_background_reaches_card():
+    """`!card` (#203): the Background row's third option."""
+    view = _view('@ box a "A" 0,0 260x150\n@ note n 30,60 "body" >a\n')
+    view._box_items["a"].setSelected(True)
+    view._open_element_overlay()
+    assert [v for _, v in _axis(view, "Background")["options"]] == \
+        ["", "flat", "card"]
+    view._elem_overlay_row = _row_of(view, "Background")
+    view._elem_overlay_cycle(1)                 # Plate -> Flat
+    view._elem_overlay_cycle(1)                 # Flat -> Card
+    assert view._box_items["a"]._get_effective_anchor() == "topcenter"
+    view._commit_element_overlay()
+    assert view.board.box_by_id("a").style == "card"
+    out = serialize(view.board)
+    assert "!card" in out and out.startswith("#!grafli v4\n")
+
+
+# ── Label ink (#204) ───────────────────────────────────────────────
+
+def _press(view, *keys):
+    from PySide6.QtTest import QTest
+    for key in keys:
+        QTest.keyClick(view, key)
+
+
+def test_s_e_toggles_ink_on_a_box():
+    view = _view('@ box a "A" 0,0 160x60 %primary\n')
+    item = view._box_items["a"]
+    item.setSelected(True)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_E)
+    assert view._elem_overlay_active
+    assert [v for _, v in _axis(view, "Label ink")["options"]] == [False, True]
+    _press(view, Qt.Key.Key_J, Qt.Key.Key_J)
+    assert view._elem_overlay_axes[view._elem_overlay_row]["label"] == \
+        "Label ink"
+    _press(view, Qt.Key.Key_L)                  # Plain -> On fill, previewed
+    assert item._label.defaultTextColor() != QColor(theme.INK)
+    _press(view, Qt.Key.Key_Return)
+    assert view.board.box_by_id("a").ink
+    out = serialize(view.board)
+    assert "%primary !ink" in out and out.startswith("#!grafli v4\n")
+
+
+def test_s_e_toggles_ink_on_a_note_and_cancel_reverts_it():
+    view = _view('@ note n 0,0 "rose text" %rose\n')
+    item = view._note_items["n"]
+    item.setSelected(True)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_E)
+    assert [a["label"] for a in view._elem_overlay_axes] == \
+        ["Background", "Label ink"]
+    _press(view, Qt.Key.Key_J, Qt.Key.Key_L)
+    assert item.note.ink                        # live preview
+    _press(view, Qt.Key.Key_Escape)
+    assert not view.board.notes[0].ink
+    _press(view, Qt.Key.Key_E, Qt.Key.Key_J, Qt.Key.Key_L, Qt.Key.Key_Return)
+    assert view.board.notes[0].ink
+    assert '"rose text" %rose !ink' in serialize(view.board)
+
+
+# ── Outline (#207) ─────────────────────────────────────────────────
+
+def test_s_e_sets_a_dashed_then_dotted_outline_on_a_box():
+    view = _view('@ box a "A" 0,0 160x60\n')
+    item = view._box_items["a"]
+    item.setSelected(True)
+    _press(view, Qt.Key.Key_S, Qt.Key.Key_E)
+    assert view._elem_overlay_active
+    assert _axis(view, "Outline")["options"] == \
+        [("Solid", ""), ("Dashed", "dashed"), ("Dotted", "dotted")]
+    _press(view, Qt.Key.Key_J, Qt.Key.Key_J, Qt.Key.Key_J)
+    assert view._elem_overlay_axes[view._elem_overlay_row]["label"] == \
+        "Outline"
+    _press(view, Qt.Key.Key_L)                  # Solid -> Dashed, previewed
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    _press(view, Qt.Key.Key_L)                  # -> Dotted
+    assert item.pen().style() == Qt.PenStyle.DotLine
+    _press(view, Qt.Key.Key_Return)
+    assert view.board.box_by_id("a").border == "dotted"
+    out = serialize(view.board)
+    assert '160x60 !dotted' in out and out.startswith("#!grafli v4\n")
+
+
+def test_outline_cancel_reverts_the_preview_and_commit_is_undoable():
+    view = _view('@ box a "A" 0,0 160x60\n')
+    item = view._box_items["a"]
+    item.setSelected(True)
+    view._open_element_overlay()
+    view._elem_overlay_row = _row_of(view, "Outline")
+    view._elem_overlay_cycle(1)                 # live preview -> Dashed
+    assert item.pen().style() == Qt.PenStyle.DashLine
+    view._cancel_element_overlay()
+    assert item.box.border == ""
+    assert item.pen().style() == Qt.PenStyle.SolidLine
+    before = len(view._undo_stack)
+    view._open_element_overlay()
+    view._elem_overlay_row = _row_of(view, "Outline")
+    view._elem_overlay_cycle(1)
+    view._commit_element_overlay()
+    assert view.board.box_by_id("a").border == "dashed"
+    assert len(view._undo_stack) == before + 1
+    view._undo()
+    assert view.board.box_by_id("a").border == ""
+    assert serialize(view.board).startswith("#!grafli v1\n")
+
+
+def test_outline_applies_to_the_whole_selection():
+    view = _view('@ box a "A" 0,0 160x60\n@ box b "B" 0,100 160x60 !flat\n')
+    for key in ("a", "b"):
+        view._box_items[key].setSelected(True)
+    view._open_element_overlay()
+    view._elem_overlay_row = _row_of(view, "Outline")
+    view._elem_overlay_cycle(1)
+    view._commit_element_overlay()
+    assert [b.border for b in view.board.boxes] == ["dashed", "dashed"]
+    assert view._box_items["b"].pen().style() == Qt.PenStyle.DashLine

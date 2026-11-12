@@ -10,6 +10,8 @@ _BUNDLED_FONTS = (
     "PatrickHand-Regular.ttf",
     "JetBrainsMonoNerdFont-Regular.ttf",
     "JetBrainsMonoNerdFont-Bold.ttf",
+    "Inter-Regular.ttf",
+    "Inter-Bold.ttf",
 )
 
 

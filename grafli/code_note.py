@@ -160,6 +160,15 @@ def tokenize_line(line: str) -> list[tuple[str, str]]:
     return _tokenize_code(line)
 
 
+def code_refs(text: str) -> list[str]:
+    """The ``@path[:line]`` refs a note's text shows as clickable: those
+    ``tokenize_line`` finds in a code-mode note, none in any other note."""
+    if not is_code_note(text):
+        return []
+    return [run for line in split_signature(text)[1]
+            for kind, run in tokenize_line(line) if kind == "ref"]
+
+
 def _find_comment(line: str) -> int | None:
     """Return index of the ``#`` starting a comment, or None.
 

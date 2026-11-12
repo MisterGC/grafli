@@ -101,11 +101,11 @@ Notes aren't just sticky labels. Grafli recognizes lightweight conventions and r
 Real diagrams sprawl. A handful of view-toggles turn a busy diagram into a focused one — combine them at will.
 
 - **Subgraph focus** — <kbd>B</kbd> on a node fades everything that isn't reachable from it. Cycle through *all incoming* / *outgoing* / *both* directions; toggle 1-hop vs unlimited depth with <kbd>Shift</kbd>+<kbd>B</kbd>.
-- **Complexity heatmap** — <kbd>A</kbd> colors every node by how many connections, parents, and children it has. Hot nodes glow; cold nodes fade. Find the parts of a diagram that need refactoring without reading every label.
+- **Connectivity heatmap** — <kbd>A</kbd> colors every box by how many graph arrows touch it; arrows to and from notes or images don't count. Hot boxes glow; cold boxes fade. Find the parts of a diagram that need refactoring without reading every label.
 - **Dim connectors** (<kbd>,</kbd>) and **dim notes** (<kbd>Shift</kbd>+<kbd>N</kbd>) — fade arrows or text-notes to 8% opacity to read the rest. Same buttons in the side panel's *View* section.
 - **Minimap** (<kbd>M</kbd>) — a corner overview shows boxes, notes, and connector density so you can spot hot regions and re-orient on a large canvas.
 
-![Town-wide NPC ecosystem with the complexity heatmap active — most-connected NPCs and events glow as hot nodes](assets/screenshots/heatmap.png)
+![Town-wide NPC ecosystem with the connectivity heatmap active — most-connected NPCs and events glow as hot nodes](assets/screenshots/heatmap.png)
 
 ## Navigate diagrams that grew
 

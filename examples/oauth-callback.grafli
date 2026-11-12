@@ -1,5 +1,6 @@
 #!grafli v1
 # OAuth callback flow — graph + code-mode notes combined.
+# source: code
 #
 # What this example shows:
 #   * The graph carries *where things happen* and *who calls whom*.

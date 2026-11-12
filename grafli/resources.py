@@ -15,7 +15,7 @@ import os
 import shutil
 from pathlib import Path
 
-from grafli.format import Board, Note, doc_name
+from grafli.format import Board, Note, doc_name, split_board_fragment
 from grafli.md_note import is_md_note, md_body
 from grafli.sync import atomic_write, merge3_text
 
@@ -156,6 +156,34 @@ def doc_path(grafli_path: Path, name: str) -> Path:
 def graph_path(grafli_path: Path, name: str) -> Path:
     """The vault path of a sub-board attachment."""
     return res_dir(grafli_path) / f"{name}.grafli"
+
+
+def board_target_path(grafli_path: Path, target: str) -> Path:
+    """The board a tour stop's ``<board>`` names: a relative path ending in
+    ``.grafli`` resolves against the board's folder, anything else is a vault
+    sub-board name."""
+    if target.endswith(".grafli"):
+        path = Path(target).expanduser()
+        return path if path.is_absolute() else grafli_path.parent / path
+    return graph_path(grafli_path, target)
+
+
+def board_link(grafli_path: Path, el) -> tuple[Path, str] | None:
+    """The board an element leads into and the ``#<id>`` it frames, or None
+    when its attachment is not a board: a ``&graph`` sub-board in the vault,
+    or a ``&link`` to a ``.grafli`` file, ``~`` expanded and a relative path
+    taken from the board's folder."""
+    if el.attach_kind == "graph" and el.url:
+        name, target = split_board_fragment(el.url)
+        return graph_path(grafli_path, name), target
+    if el.attach_kind == "link" and el.url:
+        raw, _, target = el.url.partition("#")
+        if raw.endswith(".grafli") and "://" not in raw:
+            path = Path(raw).expanduser()
+            if not path.is_absolute():
+                path = grafli_path.parent / path
+            return path, target
+    return None
 
 
 def _attachables(board: Board):

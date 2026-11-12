@@ -11,6 +11,7 @@ from __future__ import annotations
 import random
 import zlib
 from contextlib import contextmanager
+from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import (
@@ -24,7 +25,7 @@ from PySide6.QtGui import (
 )
 
 from grafli import theme
-from grafli.format import DEFAULT_BOOKMARK_PAD, Bookmark, Flow
+from grafli.format import DEFAULT_BOOKMARK_PAD, Bookmark, Flow, split_step_ref
 
 DEFAULT_DWELL = 4.0   # seconds to rest on a stop during auto-play
 
@@ -104,6 +105,10 @@ def isolate_focus(view, focus_ids: list[str]):
     exit, so the live canvas is unaffected.
     """
     keep = set(focus_ids)
+    # An arrow in the focus keeps its two ends, and so the arrow itself.
+    if view._board is not None:
+        for arrow in focus_arrows(view._board, focus_ids):
+            keep.update((arrow.from_id, arrow.to_id))
     hidden = []
 
     def hide(item):
@@ -139,17 +144,82 @@ def resolve_focus_rect(view, focus_ids: list[str]) -> QRectF:
     current layout. Ids that no longer exist are skipped.
     """
     rect = QRectF()
-    for fid in focus_ids:
-        item = (
-            view._box_items.get(fid)
-            or view._note_items.get(fid)
-            or view._image_items.get(fid)
-        )
-        if item is None:
-            continue
-        r = item.sceneBoundingRect()
+
+    def add(r: QRectF):
+        nonlocal rect
         rect = QRectF(r) if rect.isNull() else rect.united(r)
+
+    for fid in focus_ids:
+        item = _element_item(view, fid)
+        if item is not None:
+            add(item.sceneBoundingRect())
+            continue
+        # An arrow id frames the arrow's two ends and the line drawn between
+        # them, which may bow or route outside the ends' union.
+        arrow = view._board.arrow_by_id(fid) if view._board else None
+        if arrow is None:
+            continue
+        for end_id in (arrow.from_id, arrow.to_id):
+            end = _element_item(view, end_id)
+            if end is not None:
+                add(end.sceneBoundingRect())
+        for gfx in view._arrow_items:
+            if gfx.data(0) is arrow and gfx.isVisible():
+                add(gfx.sceneBoundingRect())
     return rect
+
+
+def _element_item(view, element_id: str):
+    """The graphics item of a box, note or image id, or None."""
+    return (view._box_items.get(element_id)
+            or view._note_items.get(element_id)
+            or view._image_items.get(element_id))
+
+
+def focus_arrows(board, focus_ids: list[str]) -> list:
+    """The arrows a bookmark's focus names by their ``~id=``. An element id
+    wins over an arrow carrying the same id, as it does when framing."""
+    arrows = []
+    for fid in focus_ids:
+        if (board.box_by_id(fid) or board.note_by_id(fid)
+                or board.image_by_id(fid)):
+            continue
+        arrow = board.arrow_by_id(fid)
+        if arrow is not None:
+            arrows.append(arrow)
+    return arrows
+
+
+def emphasis_for(board, bookmark: Bookmark | None):
+    """What a stop on *bookmark* emphasises, as the view's
+    ``_set_presentation_emphasis`` takes it: the ids of the arrows its focus
+    names and the elements kept bright beside them (its other focus elements
+    and each arrow's two ends). None when the focus names no arrow."""
+    if bookmark is None or board is None:
+        return None
+    arrows = focus_arrows(board, bookmark.focus)
+    if not arrows:
+        return None
+    arrow_ids = {a.id for a in arrows}
+    keep = {fid for fid in bookmark.focus if fid not in arrow_ids}
+    for arrow in arrows:
+        keep.update((arrow.from_id, arrow.to_id))
+    return arrow_ids, keep
+
+
+@contextmanager
+def presentation_emphasis(view, emphasis):
+    """Temporarily apply a path stop's emphasis (see :func:`emphasis_for`;
+    None yields unchanged), restoring the previous one on exit."""
+    if emphasis is None:
+        yield
+        return
+    prev = view._present_emphasis
+    view._set_presentation_emphasis(emphasis)
+    try:
+        yield
+    finally:
+        view._set_presentation_emphasis(prev)
 
 
 def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
@@ -176,11 +246,12 @@ def render_bookmark_pixmap(view, bookmark: Bookmark, max_w: int,
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-    if bookmark.isolate and bookmark.focus:
-        with isolate_focus(view, bookmark.focus):
+    with view.miniatures_held(), view.doc_lines_held():
+        if bookmark.isolate and bookmark.focus:
+            with isolate_focus(view, bookmark.focus):
+                view._scene.render(p, QRectF(0, 0, iw, ih), rect)
+        else:
             view._scene.render(p, QRectF(0, 0, iw, ih), rect)
-    else:
-        view._scene.render(p, QRectF(0, 0, iw, ih), rect)
     p.end()
     return QPixmap.fromImage(img)
 
@@ -287,18 +358,47 @@ def bookmark_target_rect(view, bookmark: Bookmark) -> QRectF:
     return QRectF()
 
 
+def tours_through(board, box_id: str) -> list[tuple[Flow, int]]:
+    """The flows of *board* that pass through box *box_id*, each with the
+    index of its first stop whose focus holds the box or one of its
+    containers. Only stops on the board itself count — a stop in another
+    board frames that board's elements."""
+    seen = set()
+    box = board.box_by_id(box_id)
+    while box is not None and box.id not in seen:
+        seen.add(box.id)
+        box = board.box_by_id(box.parent) if box.parent else None
+    tours = []
+    for flow in board.flows:
+        for index, step in enumerate(flow.steps):
+            target, bookmark_id = split_step_ref(step.ref)
+            bookmark = None if target else board.bookmark_by_id(bookmark_id)
+            if bookmark is not None and seen.intersection(bookmark.focus):
+                tours.append((flow, index))
+                break
+    return tours
+
+
 class FlowPlayer:
-    """Steps a flow on the live canvas, manually or auto-played."""
+    """Steps a flow on the live canvas, manually or auto-played.
+
+    A stop ``<board>#<bookmark>`` lies in another board: the player asks the
+    window to show that board (``_tour_goto_board``) before framing it. The
+    flow stays owned by ``home``, the board it started on."""
 
     _MODES = ("paused", "playing", "loop")
 
-    def __init__(self, view, flow: Flow):
+    def __init__(self, view, flow: Flow, home: Path | None = None):
         self.view = view
         self.flow = flow
+        self.home = home
         self.index = 0
         self.smooth = True       # smooth camera vs instant cuts
         self.mode = "paused"     # paused | playing | loop
         self.active = True
+        # True while the player switches boards for a stop, so loading that
+        # board does not end the tour.
+        self.navigating = False
         self._timer = QTimer(view)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._auto_advance)
@@ -308,11 +408,29 @@ class FlowPlayer:
         return self.mode != "paused"
 
     # ── lifecycle ──────────────────────────────────────────────
-    def start(self) -> None:
+    def start(self, index: int = 0) -> None:
         if not self.flow.steps:
             self.stop()
             return
-        self.goto(0)
+        self.goto(index)
+
+    def end(self) -> None:
+        """Leave the tour on purpose (Esc): stop, and come back to the board
+        the flow belongs to when a stop took you elsewhere."""
+        home = self.home
+        self.stop()
+        if home is not None and not self._on_board(home):
+            go = getattr(self.view.window(), "_tour_goto_board", None)
+            if go is not None:
+                go(home)
+
+    def position(self):
+        """Where the tour stands, for a board-stack frame to keep."""
+        from grafli.buffers import TourPosition
+        return TourPosition(home=self.home, flow_id=self.flow.id,
+                            index=self.index, mode=self.mode,
+                            smooth=self.smooth, flow_label=self.flow.label,
+                            total=len(self.flow.steps))
 
     def stop(self) -> None:
         self.active = False
@@ -320,31 +438,39 @@ class FlowPlayer:
         self._timer.stop()
         self.view._set_presentation_detail(None)
         self.view._set_presentation_focus(None)
+        self.view._set_presentation_emphasis(None)
         self.view._clear_flow_overlay()
         if self.view._flow_player is self:
             self.view._flow_player = None
         self.view.playback_ended.emit()
 
     # ── navigation ─────────────────────────────────────────────
-    def goto(self, index: int) -> None:
+    def goto(self, index: int, move: bool = True) -> None:
+        """Show stop *index*. With *move* False the camera stays where it is
+        — a resumed tour comes back to the view you left it with."""
         steps = self.flow.steps
         if not steps:
             self.stop()
             return
         self.index = max(0, min(index, len(steps) - 1))
         step = steps[self.index]
-        bookmark = self.view.board.bookmark_by_id(step.ref) if self.view.board else None
+        bookmark = self._step_bookmark(step, navigate=True)
+        if not self.active:
+            return
         # Presentation settings resolve per step (step ← flow ← global) and
         # must be in force before the camera moves, so the stop lands on the
         # intended reading. Detail "" clears the override back to the global
         # GUI state; focus fades everything not fully inside the frame the
         # viewport will actually show (the target grown to viewport aspect).
         self.view._set_presentation_detail(step_detail(self.flow, step) or None)
+        # A stop framing arrows emphasises them over everything else.
+        self.view._set_presentation_emphasis(
+            emphasis_for(self.view._board, bookmark))
         focus_frame = None
         rect = QRectF()
         if bookmark is not None:
             rect = bookmark_target_rect(self.view, bookmark)
-            if not rect.isNull():
+            if not rect.isNull() and move:
                 self.view.goto_rect(rect, animate=self.smooth)
         if step_focus(self.flow, step) == "complete" and not rect.isNull():
             vp = self.view.viewport().rect()
@@ -383,6 +509,44 @@ class FlowPlayer:
             self._schedule_next(self.flow.steps[self.index])
         self._refresh_overlay(self._current_bookmark())
 
+    # ── stops in other boards ──────────────────────────────────
+    def _step_board(self, target: str) -> Path | None:
+        """The board a step's ``<board>`` names ("" = the flow's own), or
+        None when it can't be resolved (no home board to resolve from)."""
+        if not target:
+            return self.home
+        if self.home is None:
+            return None
+        from grafli.resources import board_target_path
+        return board_target_path(self.home, target)
+
+    def _on_board(self, path: Path) -> bool:
+        current = getattr(self.view.window(), "_file_path", None)
+        return current is not None and \
+            Path(current).resolve() == path.resolve()
+
+    def _step_bookmark(self, step, navigate: bool = False) -> Bookmark | None:
+        """The bookmark *step* frames, on the board that holds it. With
+        *navigate* the window is first switched to that board; without, a
+        stop on a board not shown resolves to None."""
+        target, bookmark_id = split_step_ref(step.ref)
+        path = self._step_board(target)
+        if target and path is None:
+            return None
+        if path is not None and not self._on_board(path):
+            go = getattr(self.view.window(), "_tour_goto_board", None)
+            if not navigate or go is None:
+                return None
+            self.navigating = True
+            try:
+                shown = go(path)
+            finally:
+                self.navigating = False
+            if not shown:
+                return None
+        board = self.view.board
+        return board.bookmark_by_id(bookmark_id) if board else None
+
     # ── auto-play timing ───────────────────────────────────────
     def _schedule_next(self, step) -> None:
         dwell = step.dwell if step.dwell is not None else DEFAULT_DWELL
@@ -396,7 +560,7 @@ class FlowPlayer:
     def _current_bookmark(self) -> Bookmark | None:
         if not self.flow.steps or not self.view.board:
             return None
-        return self.view.board.bookmark_by_id(self.flow.steps[self.index].ref)
+        return self._step_bookmark(self.flow.steps[self.index])
 
     def _refresh_overlay(self, bookmark: Bookmark | None) -> None:
         total = len(self.flow.steps)
@@ -419,7 +583,7 @@ class FlowPlayer:
     def handle_key(self, event: QKeyEvent) -> None:
         key = event.key()
         if key in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
-            self.stop()
+            self.end()
         elif key in (Qt.Key.Key_Space, Qt.Key.Key_Right, Qt.Key.Key_L, Qt.Key.Key_J):
             self.next()
         elif key in (Qt.Key.Key_Left, Qt.Key.Key_H, Qt.Key.Key_K):

@@ -1,0 +1,82 @@
+{
+  "title": "Tests",
+  "producer": "examples/navigation-map-overlay.py (grep over tests/)",
+  "created": "2026-10-10T11:19:42Z",
+  "source": {
+    "repo": "..",
+    "revision": "50d8523920a9116ec38f13b9c4c590b666a8abc4"
+  },
+  "kind": "category",
+  "categories": [
+    {
+      "id": "tested",
+      "label": "3+ test files",
+      "color": "%forest"
+    },
+    {
+      "id": "thin",
+      "label": "1–2 test files",
+      "color": "%clay"
+    },
+    {
+      "id": "none",
+      "label": "No test names it",
+      "color": "%rose"
+    }
+  ],
+  "entries": {
+    "keys": {
+      "category": "thin",
+      "note": "2 test files name _go_down, _go_up, _peek_doc, _tours_through_selection",
+      "refs": [
+        "@tests/test_board_links.py:135",
+        "@tests/test_board_stack.py:94"
+      ]
+    },
+    "parse": {
+      "category": "thin",
+      "note": "2 test files name split_attach, split_board_fragment, split_step_ref",
+      "refs": [
+        "@tests/test_format_version.py:137",
+        "@tests/test_vault.py:11"
+      ]
+    },
+    "open": {
+      "category": "thin",
+      "note": "1 test files name _open_attachment, _open_url_string, _enter_board",
+      "refs": [
+        "@tests/test_navigation_map_example.py:88"
+      ]
+    },
+    "stack": {
+      "category": "thin",
+      "note": "1 test files name push_frame, pop_frame, BoardFrame",
+      "refs": [
+        "@tests/test_board_stack.py:17"
+      ]
+    },
+    "tours": {
+      "category": "tested",
+      "note": "3 test files name play_flow, resume_flow, tour_position",
+      "refs": [
+        "@tests/test_path_stops.py:89",
+        "@tests/test_presentation.py:159",
+        "@tests/test_tour_across_boards.py:90"
+      ]
+    },
+    "peek": {
+      "category": "thin",
+      "note": "1 test files name doc_first_sentence, _peek_doc",
+      "refs": [
+        "@tests/test_box_docs.py:21"
+      ]
+    },
+    "export": {
+      "category": "thin",
+      "note": "1 test files name export_html, reachable_boards",
+      "refs": [
+        "@tests/test_html_export.py:19"
+      ]
+    }
+  }
+}

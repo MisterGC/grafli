@@ -8,7 +8,6 @@ import hashlib
 from PySide6.QtCore import QPointF
 
 from grafli.constants import (
-    LAYOUT_PADDING,
     resolve_textsize_px,
     step_textsize_px,
     _BOX_STYLE_CYCLE,
@@ -19,32 +18,11 @@ from grafli.items import (
     BoxItem,
     ImageItem,
     NoteItem,
+    arrow_label_size,
     default_image_size,
     svg_natural_size,
 )
-from grafli.layout import compute_layout
-
-
-# ── TEMPORARY paste-crash diagnostics (remove once the segfault is fixed) ──
-# Writes each step of an image paste to ~/grafli-paste-debug.log, flushed and
-# fsync'd so the last line survives a hard segfault and pinpoints the crash.
-def _paste_dbg(msg: str) -> None:
-    import os
-    import sys
-    from pathlib import Path
-    line = f"[grafli-paste] {msg}\n"
-    try:
-        sys.stderr.write(line)
-        sys.stderr.flush()
-    except Exception:
-        pass
-    try:
-        with open(Path.home() / "grafli-paste-debug.log", "a") as f:
-            f.write(line)
-            f.flush()
-            os.fsync(f.fileno())
-    except Exception:
-        pass
+from grafli.layout import container_groups, layout_groups
 
 
 def _natural_size(path) -> tuple[float, float] | None:
@@ -67,18 +45,6 @@ def _natural_size(path) -> tuple[float, float] | None:
     if img.isNull():
         return None
     return (float(img.width()), float(img.height()))
-
-
-def _img_props(im, tag: str) -> None:
-    try:
-        fmt = getattr(im.format(), "value", im.format())
-        _paste_dbg(
-            f"{tag}: null={im.isNull()} fmt={fmt} "
-            f"{im.width()}x{im.height()} depth={im.depth()} "
-            f"bpl={im.bytesPerLine()} bytes={im.sizeInBytes()} "
-            f"dpr={im.devicePixelRatio()} colors={im.colorCount()}")
-    except Exception as e:
-        _paste_dbg(f"{tag}: props-error {e!r}")
 
 
 class CommandsMixin:
@@ -123,7 +89,10 @@ class CommandsMixin:
             self._pre_move_snapshot = ""
 
     def _undo(self):
-        if not self._undo_stack or not self._board:
+        if not self._board:
+            return
+        if not self._undo_stack:
+            self.toast("Nothing to undo", "info")
             return
         self._redo_stack.append(serialize(self._board, embed_doc_bodies=True))
         text = self._undo_stack.pop()
@@ -132,7 +101,10 @@ class CommandsMixin:
         self.mark_dirty()
 
     def _redo(self):
-        if not self._redo_stack or not self._board:
+        if not self._board:
+            return
+        if not self._redo_stack:
+            self.toast("Nothing to redo", "info")
             return
         self._undo_stack.append(serialize(self._board, embed_doc_bodies=True))
         text = self._redo_stack.pop()
@@ -168,6 +140,12 @@ class CommandsMixin:
             return (img.width(), img.height(), img.sizeInBytes())
 
     def _copy_selected(self):
+        # An empty yank must leave the previous copy intact — clearing here
+        # would silently throw away what the user is about to paste.
+        if not [it for it in self._scene.selectedItems()
+                if isinstance(it, (BoxItem, NoteItem, ImageItem))]:
+            self.toast("Nothing selected to copy", "warn")
+            return
         self._clipboard_boxes.clear()
         self._clipboard_notes.clear()
         self._clipboard_arrows.clear()
@@ -223,27 +201,26 @@ class CommandsMixin:
         has_internal = bool(
             self._clipboard_boxes or self._clipboard_notes or self._clipboard_images
         )
-        _paste_dbg(f"_paste: has_image={has_image} has_internal={has_internal}")
 
         # Latest copy wins. A system-clipboard image wins when there's no
         # internal copy, or when it changed since the internal copy (i.e. was
         # copied afterwards). Otherwise the internal copy wins.
         if has_image and (not has_internal
                           or self._clipboard_image_fp() != self._copy_clip_img_fp):
-            _paste_dbg("_paste: routing to clipboard-image paste")
             self._paste_clipboard_image(cursor_scene, clipboard.image())
             return
 
         # External text copied *after* the internal copy also wins: drop it as a
         # new note at the cursor rather than re-pasting the stale element.
         if clip_text and (not has_internal or clip_text != self._copy_clip_text):
-            _paste_dbg("_paste: routing to clipboard-text paste")
             self._paste_text_note(cursor_scene, clip_text)
             return
 
         if has_internal:
-            _paste_dbg("_paste: routing to internal paste")
             self._paste_at(cursor_scene)
+            return
+
+        self.toast("Nothing to paste", "info")
 
     def _paste_text_note(self, center: QPointF, text: str):
         """Drop external clipboard text as a new note centred at the cursor."""
@@ -263,47 +240,37 @@ class CommandsMixin:
     def _paste_clipboard_image(self, center: QPointF, qimage):
         """Save a QImage from the system clipboard and add it as an image element."""
         from datetime import datetime
-        from pathlib import Path
         from PySide6.QtGui import QImage
 
-        _paste_dbg("_paste_clipboard_image: enter")
         if not self._board:
-            _paste_dbg("no board, abort")
             return
-        window = self.window()
-        if not hasattr(window, '_file_path') or not window._file_path:
-            _paste_dbg("no file_path, abort")
+        # An untitled board has no vault to hold the PNG — ask for a save
+        # location instead of dropping the paste (#152).
+        file_path = self._grafli_path_or_save()
+        if file_path is None:
             return
 
         from grafli.resources import ensure_res_dir
-        file_path = window._file_path
         images_dir = ensure_res_dir(file_path)
-        _paste_dbg(f"images_dir={images_dir}")
 
-        _img_props(qimage, "incoming")
         if qimage.isNull():
-            _paste_dbg("incoming null, abort")
+            self.toast("Couldn't read the pasted image", "error")
             return
         # A QImage straight from the macOS clipboard (TIFF/CGImage-backed) can
         # share a transient buffer (or carry a stride) the PNG writer walks off,
         # crashing in QImageWriter::write. Normalize the format AND force a deep
         # copy so the encoder sees a fresh, owned, self-consistent ARGB32 buffer.
         qimage = qimage.convertToFormat(QImage.Format.Format_ARGB32)
-        _paste_dbg("convertToFormat ok")
         qimage = qimage.copy()
-        _paste_dbg("deep copy ok")
-        _img_props(qimage, "to-save")
         if qimage.isNull():
-            _paste_dbg("null after normalize, abort")
+            self.toast("Couldn't read the pasted image", "error")
             return
 
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         img_name = f"img-{timestamp}.png"
         img_path = images_dir / img_name
-        _paste_dbg(f"about to save -> {img_path}")
-        ok = qimage.save(str(img_path), "PNG")
-        _paste_dbg(f"save returned {ok}")
-        if not ok:
+        if not qimage.save(str(img_path), "PNG"):
+            self.toast(f"Couldn't write {img_name}", "error")
             return
 
         # Same placement rule as a dropped file: fitted into the 320x240 box.
@@ -319,14 +286,11 @@ class CommandsMixin:
             w=default_w, h=default_h,
         )
         self._board.add_image(image)
-        _paste_dbg(f"added image id={image.id}, rebuilding scene")
         self._rebuild_scene()
-        _paste_dbg("rebuild done")
 
         if image.id in self._image_items:
             self._image_items[image.id].setSelected(True)
         self.mark_dirty()
-        _paste_dbg("_paste_clipboard_image: complete")
 
     def _add_image_files(self, paths: list, scene_pos: QPointF) -> None:
         """Add dropped image files as image elements around the drop point.
@@ -334,17 +298,16 @@ class CommandsMixin:
         A file already inside the board's directory is referenced where it
         lies; one from outside is copied into the vault (see
         ``grafli.resources.image_ref``). Several files at once cascade so a
-        multi-file drop doesn't pile up on one spot.
+        multi-file drop doesn't pile up on one spot. An untitled board is
+        given a save location first (#152) — the drop point still holds.
         """
         from pathlib import Path
         from grafli.resources import image_ref
 
         if not self._board:
             return
-        window = self.window()
-        file_path = getattr(window, "_file_path", None)
-        if not file_path:
-            self.toast("Save the board first to add images")
+        file_path = self._grafli_path_or_save()
+        if file_path is None:
             return
 
         pending: list[Image] = []
@@ -357,7 +320,7 @@ class CommandsMixin:
                 continue
             w, h = default_image_size(natural[0], natural[1],
                                       vector=src.suffix.lower() == ".svg")
-            ref = image_ref(Path(file_path), src)
+            ref = image_ref(file_path, src)
             pending.append(Image(
                 id="", image_path=ref,
                 x=scene_pos.x() + offset - w / 2,
@@ -475,17 +438,20 @@ class CommandsMixin:
         """Step selected nodes' text size by one ladder rung.
 
         direction: +1 = larger, -1 = smaller. Sizes are stored numerically
-        (fine-grained); a parent's small-header default still applies when its
+        (fine-grained); a parent's title-by-level default still applies when its
         size is unset, but stepping always yields an explicit size so a parent
         can reach the same sizes as any other node.
         """
+        targets = [it for it in self._scene.selectedItems()
+                   if isinstance(it, (BoxItem, NoteItem))]
+        if not targets:
+            self.toast("Select a box or note to size its text", "warn")
+            return
         self._push_undo()
         new_textsize = None
-        for item in self._scene.selectedItems():
+        for item in targets:
             if isinstance(item, BoxItem):
-                is_parent = self._has_children(item.box.id)
-                cur_px = resolve_textsize_px(
-                    item.box.textsize, "small" if is_parent else "")
+                cur_px = item.label_px()
                 new = str(step_textsize_px(cur_px, direction))
                 item.set_textsize(new)
                 new_textsize = new
@@ -499,13 +465,33 @@ class CommandsMixin:
         self.mark_dirty()
 
     def _cycle_style(self):
+        boxes = [it for it in self._scene.selectedItems()
+                 if isinstance(it, BoxItem)]
+        if not boxes:
+            self.toast("Select a box to cycle its style", "warn")
+            return
         self._push_undo()
-        for item in self._scene.selectedItems():
-            if isinstance(item, BoxItem):
-                cur = item.box.style
-                seq = _BOX_STYLE_CYCLE
-                idx = seq.index(cur) if cur in seq else 0
-                item.set_style(seq[(idx + 1) % len(seq)])
+        for item in boxes:
+            cur = item.box.style
+            seq = _BOX_STYLE_CYCLE
+            idx = seq.index(cur) if cur in seq else 0
+            item.set_style(seq[(idx + 1) % len(seq)])
+        self.mark_dirty()
+
+    def _toggle_round(self):
+        """Draw the selected boxes round (``!round``: a circle when square,
+        a pill otherwise), or square-cornered again when all of them are."""
+        boxes = [it for it in self._scene.selectedItems()
+                 if isinstance(it, BoxItem)]
+        if not boxes:
+            self.toast("Select a box to make it round", "warn")
+            return
+        round_ = not all(it.box.round for it in boxes)
+        self._push_undo()
+        for item in boxes:
+            item.set_round(round_)
+        self._record_shortcut("r \u2192 round" if round_ else "r \u2192 square")
+        self.arrow_update_needed.emit()
         self.mark_dirty()
 
     def _snap_to_grid(self):
@@ -542,27 +528,13 @@ class CommandsMixin:
 
         groups = self._compute_layout_groups(selected_ids)
         if not groups:
+            self.toast("Nothing to lay out", "info")
             return
 
         self._push_undo()
-
-        # Sort bottom-up: deepest parent first
-        def _depth(parent_id: str) -> int:
-            d = 0
-            pid = parent_id
-            while pid:
-                box = self._board.box_by_id(pid)
-                if not box or not box.parent:
-                    break
-                pid = box.parent
-                d += 1
-            return d
-
-        groups.sort(key=lambda g: -_depth(g[0]))
-
-        for parent_id, child_ids in groups:
-            self._layout_group(parent_id, child_ids)
-
+        layout_groups(self._board, groups, self.GRID_SPACING,
+                      self._layout_label_height,
+                      arrow_label_size=arrow_label_size)
         self._rebuild_scene()
         self.mark_dirty()
 
@@ -578,14 +550,14 @@ class CommandsMixin:
 
         if not selected_ids:
             # Nothing selected → recursive from root
-            return self._recursive_layout_groups("")
+            return container_groups(self._board, "")
 
         # Check if single parent selected (box with children)
         if len(selected_ids) == 1:
             bid = next(iter(selected_ids))
             children = {b.id for b in self._board.boxes if b.parent == bid}
             if children:
-                return self._recursive_layout_groups(bid)
+                return container_groups(self._board, bid)
 
         # Multiple boxes — group by parent
         parent_groups: dict[str, set[str]] = {}
@@ -601,100 +573,15 @@ class CommandsMixin:
             result.append((parent_id, child_ids))
             # Recurse into children of grouped boxes
             for cid in child_ids:
-                result.extend(self._recursive_layout_groups(cid))
+                result.extend(container_groups(self._board, cid))
 
         return result
 
-    def _recursive_layout_groups(
-        self, parent_id: str,
-    ) -> list[tuple[str, set[str]]]:
-        """Build layout groups recursively from parent_id down."""
-        if not self._board:
-            return []
-
-        children = {b.id for b in self._board.boxes if b.parent == parent_id}
-        if not children:
-            return []
-
-        result: list[tuple[str, set[str]]] = [(parent_id, children)]
-        for cid in children:
-            result.extend(self._recursive_layout_groups(cid))
-        return result
-
-    def _layout_group(self, parent_id: str, child_ids: set[str]):
-        """Layout a single group of children within parent."""
-        if not self._board:
-            return
-
-        # Compute label_height from parent BoxItem
-        label_height = 0.0
-        if parent_id and parent_id in self._box_items:
-            parent_item = self._box_items[parent_id]
-            label_br = parent_item._label.boundingRect()
-            if parent_item._get_effective_anchor() in ("topleft", "topcenter"):
-                label_height = label_br.height() + 8  # 8px label padding
-
-        box_sizes: dict[str, tuple[float, float]] = {}
-        for cid in child_ids:
-            box = self._board.box_by_id(cid)
-            if box:
-                box_sizes[cid] = (box.w, box.h)
-
-        new_positions = compute_layout(
-            self._board,
-            child_ids,
-            parent_id,
-            None,
-            self.GRID_SPACING,
-            label_height,
-            box_sizes,
-        )
-
-        # Grow parent to fit naturally-spaced children
-        if parent_id and new_positions:
-            parent = self._board.box_by_id(parent_id)
-            if parent:
-                max_right = max(
-                    nx + box_sizes[bid][0]
-                    for bid, (nx, ny) in new_positions.items()
-                )
-                max_bottom = max(
-                    ny + box_sizes[bid][1]
-                    for bid, (nx, ny) in new_positions.items()
-                )
-                needed_w = max_right + LAYOUT_PADDING - parent.x
-                needed_h = max_bottom + LAYOUT_PADDING - parent.y
-                grid = self.GRID_SPACING
-                if needed_w > parent.w:
-                    parent.w = round(needed_w / grid) * grid
-                if needed_h > parent.h:
-                    parent.h = round(needed_h / grid) * grid
-
-        # Apply positions and propagate deltas to descendants/notes
-        for bid, (nx, ny) in new_positions.items():
-            box = self._board.box_by_id(bid)
-            if not box:
-                continue
-            dx = nx - box.x
-            dy = ny - box.y
-            box.x = nx
-            box.y = ny
-
-            # Propagate delta to all descendants and their notes
-            self._propagate_delta(bid, dx, dy)
-
-    def _propagate_delta(self, box_id: str, dx: float, dy: float):
-        """Move all descendants and parented notes by (dx, dy)."""
-        if not self._board:
-            return
-        # Move child boxes
-        for box in self._board.boxes:
-            if box.parent == box_id:
-                box.x += dx
-                box.y += dy
-                self._propagate_delta(box.id, dx, dy)
-        # Move parented notes
-        for note in self._board.notes:
-            if note.parent == box_id:
-                note.x += dx
-                note.y += dy
+    def _layout_label_height(self, parent_id: str) -> float:
+        """The measured label band above a container's children."""
+        parent_item = self._box_items.get(parent_id)
+        if parent_item is None:
+            return 0.0
+        if parent_item._get_effective_anchor() not in ("topleft", "topcenter"):
+            return 0.0
+        return parent_item._label.boundingRect().height() + 8  # label padding

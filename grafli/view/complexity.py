@@ -22,14 +22,15 @@ from grafli.constants import (
     BOX_BORDER_WIDTH,
     FONT_FAMILY,
     HEATMAP_BORDER_DARKEN,
+    HEATMAP_CATEGORY_ALPHA,
     HEATMAP_COLD_ALPHA,
-    HEATMAP_EQUAL_HEAT,
     HEATMAP_GLOW_BLUR,
     HEATMAP_GLOW_THRESHOLD,
     HEATMAP_HOT_ALPHA,
     HEATMAP_LEGEND_H,
     HEATMAP_LEGEND_MARGIN,
     HEATMAP_LEGEND_W,
+    HEATMAP_NO_DATA_ALPHA,
     HEATMAP_NOTE_OPACITY,
     MINIMAP_MARGIN,
     MINIMAP_STATS_FONT_SIZE,
@@ -38,36 +39,27 @@ from grafli.constants import (
 from grafli.items import ArrowLineItem, ClusterHullItem, LabelItem
 from grafli.lod import should_collapse, should_collapse_container
 
+# Below this on-screen px a level's shared tile title stops shrinking (#258).
+LOD_TITLE_FLOOR_PX = 9.0
+
 
 class ComplexityMixin:
-    """Mixin providing complexity heatmap rendering.
+    """Mixin providing heatmap rendering.
+
+    The renderer paints what ``_heat_provider`` (see ``grafli/heat.py``)
+    reads off the board; it never measures itself.
 
     Expects the host class to have: _board, _box_items, _note_items,
-    _arrow_items, _complexity_active, _complexity_node_heat,
-    _complexity_saved, _minimap_visible, _minimap_rect, viewport().
+    _arrow_items, _heat_provider, _complexity_active, _complexity_node_heat,
+    _complexity_legend, _complexity_reading, _complexity_saved,
+    _complexity_saved_notes, _minimap_visible, _minimap_rect,
+    viewport().
     """
 
-    def _compute_node_heat(self) -> dict[str, float]:
-        """Degree centrality per box, normalized 0.0-1.0."""
-        if not self._board or not self._board.boxes:
-            return {}
-
-        degree: dict[str, int] = {b.id: 0 for b in self._board.boxes}
-        for arrow in self._board.arrows:
-            if arrow.from_id in degree:
-                degree[arrow.from_id] += 1
-            if arrow.to_id in degree:
-                degree[arrow.to_id] += 1
-
-        max_deg = max(degree.values()) if degree else 0
-        if max_deg == 0:
-            return {bid: 0.0 for bid in degree}
-
-        # All-equal case
-        if min(degree.values()) == max_deg:
-            return {bid: HEATMAP_EQUAL_HEAT for bid in degree}
-
-        return {bid: d / max_deg for bid, d in degree.items()}
+    def _complexity_analysable(self) -> bool:
+        """Whether a heatmap would say anything — the provider decides."""
+        return bool(self._board
+                    and self._heat_provider.analysable(self._board))
 
     @staticmethod
     def _heat_to_color(heat: float) -> QColor:
@@ -86,10 +78,18 @@ class ComplexityMixin:
         return QColor(stops[-1][1])
 
     def _apply_complexity_heatmap(self):
-        """Color boxes/arrows by degree centrality."""
-        self._complexity_node_heat = self._compute_node_heat()
+        """Color boxes/arrows by the provider's reading."""
+        if not self._board:
+            return
+        # A re-apply while painted (an arrow redraw, a presentation focus
+        # change) starts from the originals, never from the painted state.
+        self._restore_heat_items()
+        reading = self._heat_provider.read(self._board)
+        self._complexity_node_heat = reading.values
+        self._complexity_legend = reading.legend
+        self._complexity_reading = reading
         heat = self._complexity_node_heat
-        if not heat:
+        if not heat and not reading.colors and not reading.no_data:
             return
 
         # Dark background
@@ -107,44 +107,50 @@ class ComplexityMixin:
                 item.graphicsEffect(),
             ))
 
+            if box_id in reading.colors:
+                self._paint_heat_box(item, self._reading_color(reading, box_id),
+                                     HEATMAP_CATEGORY_ALPHA, 1.0, glow=False)
+                continue
+            if reading.no_data and box_id not in heat:
+                self._paint_no_data_box(item)
+                continue
             h = heat.get(box_id, 0.0)
-            c = self._heat_to_color(h)
-
-            fill = QColor(c)
             alpha = HEATMAP_COLD_ALPHA + (HEATMAP_HOT_ALPHA - HEATMAP_COLD_ALPHA) * h
-            fill.setAlphaF(alpha)
-            item.setBrush(QBrush(fill))
-            item.setPen(QPen(c.darker(HEATMAP_BORDER_DARKEN), BOX_BORDER_WIDTH))
-
-            text_color = QColor(theme.HEATMAP_TEXT_COLOR)
-            text_alpha = 0.5 + 0.5 * h
-            text_color.setAlphaF(text_alpha)
-            item._label.setDefaultTextColor(text_color)
-
-            if h > HEATMAP_GLOW_THRESHOLD:
-                glow = QGraphicsDropShadowEffect()
-                glow.setColor(c)
-                glow.setBlurRadius(HEATMAP_GLOW_BLUR)
-                glow.setOffset(0, 0)
-                item.setGraphicsEffect(glow)
+            self._paint_heat_box(item, self._heat_to_color(h), alpha,
+                                 0.5 + 0.5 * h,
+                                 glow=h > HEATMAP_GLOW_THRESHOLD)
 
         self._complexity_saved = saved
 
-        # Dim notes
-        for item in self._note_items.values():
-            item.setOpacity(HEATMAP_NOTE_OPACITY)
+        # Dim notes; a note the reading covers stays and glows in its colour.
+        self._complexity_saved_notes = []
+        for note_id, item in self._note_items.items():
+            color = self._reading_color(reading, note_id)
+            if color is None:
+                item.setOpacity(HEATMAP_NOTE_OPACITY)
+                continue
+            self._complexity_saved_notes.append((item, item.graphicsEffect()))
+            glow = QGraphicsDropShadowEffect()
+            glow.setColor(color)
+            glow.setBlurRadius(HEATMAP_GLOW_BLUR)
+            glow.setOffset(0, 0)
+            item.setGraphicsEffect(glow)
 
-        # Color arrows by max endpoint heat (skip LabelItems)
+        # Color arrows by max endpoint heat (skip LabelItems); an arrow the
+        # reading names by id takes its own colour.
         for gfx in self._arrow_items:
             if isinstance(gfx, LabelItem):
                 continue
             arrow = gfx.data(0)
             if arrow is None:
                 continue
-            from_h = heat.get(arrow.from_id, 0.0)
-            to_h = heat.get(arrow.to_id, 0.0)
-            edge_heat = max(from_h, to_h)
-            edge_color = self._heat_to_color(edge_heat)
+            edge_color = self._reading_color(reading, arrow.id)
+            if edge_color is None and reading.no_data:
+                edge_color = self._no_data_color(HEATMAP_NO_DATA_ALPHA)
+            if edge_color is None:
+                from_h = heat.get(arrow.from_id, 0.0)
+                to_h = heat.get(arrow.to_id, 0.0)
+                edge_color = self._heat_to_color(max(from_h, to_h))
 
             if isinstance(gfx, (QGraphicsLineItem, ArrowLineItem)):
                 pen = QPen(gfx.pen())
@@ -157,28 +163,75 @@ class ComplexityMixin:
         self._update_complexity_status()
         self.viewport().update()
 
-    def _clear_complexity_heatmap(self):
-        """Restore original box/note/arrow appearance."""
-        self._complexity_active = False
+    def _reading_color(self, reading, elem_id: str) -> QColor | None:
+        """The colour a reading gives one element, or None when it gives none."""
+        if not elem_id:
+            return None
+        if elem_id in reading.colors:
+            return QColor(theme.resolve_color(reading.colors[elem_id])
+                          or theme.HEATMAP_TEXT_COLOR)
+        if elem_id in reading.values:
+            return self._heat_to_color(reading.values[elem_id])
+        return None
 
-        # Restore background
+    @staticmethod
+    def _no_data_color(alpha: float) -> QColor:
+        color = QColor(theme.HEATMAP_TEXT_COLOR)
+        color.setAlphaF(alpha)
+        return color
+
+    def _paint_heat_box(self, item, color: QColor, fill_alpha: float,
+                        text_alpha: float, glow: bool):
+        fill = QColor(color)
+        fill.setAlphaF(fill_alpha)
+        item.setBrush(QBrush(fill))
+        item.setPen(QPen(color.darker(HEATMAP_BORDER_DARKEN), BOX_BORDER_WIDTH))
+
+        text_color = QColor(theme.HEATMAP_TEXT_COLOR)
+        text_color.setAlphaF(text_alpha)
+        item._label.setDefaultTextColor(text_color)
+
+        if glow:
+            effect = QGraphicsDropShadowEffect()
+            effect.setColor(color)
+            effect.setBlurRadius(HEATMAP_GLOW_BLUR)
+            effect.setOffset(0, 0)
+            item.setGraphicsEffect(effect)
+
+    def _paint_no_data_box(self, item):
+        """No data: hatched and muted, so it reads apart from any colour."""
+        item.setBrush(QBrush(self._no_data_color(HEATMAP_NO_DATA_ALPHA),
+                             Qt.BrushStyle.BDiagPattern))
+        item.setPen(QPen(self._no_data_color(HEATMAP_NO_DATA_ALPHA),
+                         BOX_BORDER_WIDTH))
+        item._label.setDefaultTextColor(self._no_data_color(0.5))
+
+    def _restore_heat_items(self):
+        """Put back the background, boxes and notes the heatmap painted."""
         if hasattr(self, '_saved_bg_brush'):
             self._scene.setBackgroundBrush(self._saved_bg_brush)
             del self._saved_bg_brush
 
-        # Restore boxes
         for item, pen, brush, text_color, effect in self._complexity_saved:
             item.setPen(pen)
             item.setBrush(brush)
             item._label.setDefaultTextColor(text_color)
             item.setGraphicsEffect(effect)
-
         self._complexity_saved.clear()
-        self._complexity_node_heat.clear()
 
-        # Restore notes
         for item in self._note_items.values():
             item.setOpacity(1.0)
+        for item, effect in self._complexity_saved_notes:
+            item.setGraphicsEffect(effect)
+        self._complexity_saved_notes.clear()
+
+    def _clear_complexity_heatmap(self):
+        """Restore original box/note/arrow appearance."""
+        self._complexity_active = False
+        self._restore_heat_items()
+        self._complexity_node_heat.clear()
+        self._complexity_legend = None
+        self._complexity_reading = None
 
         # Redraw arrows to restore original colors
         self._redraw_arrows()
@@ -200,6 +253,8 @@ class ComplexityMixin:
         """Horizontal gradient bar above minimap stats line."""
         if not self._complexity_active or not self._minimap_visible:
             return
+        if self._overlay_shown() is not None:
+            return   # an overlay file draws its own legend card
         if not self._board:
             return
 
@@ -216,7 +271,10 @@ class ComplexityMixin:
         fm = painter.fontMetrics()
 
         stats_y = mr.y() - 6
-        title_text = "COMPLEXITY"
+        legend = self._complexity_legend
+        if legend is None:
+            return
+        title_text = legend.title
         title_w = fm.horizontalAdvance(title_text)
 
         legend_y = stats_y - fm.height() - HEATMAP_LEGEND_MARGIN
@@ -246,8 +304,8 @@ class ComplexityMixin:
         label_y = bar_y + bar_h + lfm.ascent() + 2
 
         painter.setPen(QPen(QColor(150, 150, 150)))
-        painter.drawText(QPointF(bar_x, label_y), "Low")
-        high_text = "High"
+        painter.drawText(QPointF(bar_x, label_y), legend.low)
+        high_text = legend.high
         high_w = lfm.horizontalAdvance(high_text)
         painter.drawText(QPointF(bar_x + bar_w - high_w, label_y), high_text)
 
@@ -279,7 +337,7 @@ class ComplexityMixin:
         flicker):
 
         * **tile** — a collapsed container with no collapsed ancestor: its
-          headline + child-count badge stand in for the whole group.
+          headline stands in for the whole group, sized by its nesting level.
         * **hidden** — a box inside a collapsed container (subsumed by the tile).
         * **shell** — a leaf whose own label is illegible: a bare coloured box.
         * **cluster** — a parent-less connected component (>=3) whose members are
@@ -348,7 +406,7 @@ class ComplexityMixin:
             for bid, item in self._box_items.items():
                 if bid in hidden or bid in tiles or item._is_parent:
                     continue
-                label_px = resolve_textsize_px(item.box.textsize, "") * scale
+                label_px = resolve_textsize_px(item.look.textsize, "") * scale
                 if should_collapse(label_px, bid in self._lod_simplified):
                     shells.add(bid)
 
@@ -403,6 +461,14 @@ class ComplexityMixin:
             if lod_on and should_collapse(px, key in prev_labels_hidden):
                 arrow_labels_hidden.add(key)
 
+        # Sub-board miniatures follow the zoom on every tick; boxes the tiers
+        # hide or reduce never show one.
+        self._refresh_miniatures(scale, hidden | tiles | shells)
+        # Box doc lines likewise show only on boxes at the detailed level.
+        self._refresh_doc_lines(scale, hidden | tiles | shells, lod_on)
+        # Tile titles follow the zoom too: one size per nesting level.
+        self._refresh_lod_titles(scale, tiles)
+
         state = (frozenset(collapsed), frozenset(shells), frozenset(clusters),
                  frozenset(hidden_notes), frozenset(note_shells),
                  frozenset(hidden_images), frozenset(arrow_labels_hidden))
@@ -428,7 +494,8 @@ class ComplexityMixin:
             is_shell = bid in shells
             is_tile = bid in tiles
             item.set_lod_simplified(is_shell)
-            item.set_lod_tile(model.summary(bid) if is_tile else None)
+            item.set_lod_tile(model.summary(bid) if is_tile else None,
+                              self._lod_band_strip(item) if is_tile else ())
             # The tile paints its own counter-scaled headline; a shell shows
             # nothing — so the normal label item is hidden in both cases.
             item._label.setVisible(not is_shell and not is_tile)
@@ -449,10 +516,53 @@ class ComplexityMixin:
             # Hidden endpoints re-route to their tile/hull; illegible labels
             # drop out and their lines redraw unbroken.
             self._redraw_arrows()
-        if self._present_focus_rect is not None:
+        if (self._present_focus_rect is not None
+                or self._present_emphasis is not None):
             # Tiles appearing / elements hiding change what counts as fully
             # framed — recompute the focus fade against the new composition.
             self._apply_presentation_focus()
+
+    def _refresh_lod_titles(self, scale: float, tiles: set[str]) -> None:
+        """Give every tile of a nesting level the same title size: its
+        level's size, shrunk to the largest that fits each of that level's
+        tiles, so no container's title reads louder than a sibling's for
+        its area (#258). The shared size stops at a readable floor: a tile
+        too small even for that lets its title overflow, rather than shrink
+        the whole level with it."""
+        model = self._lod
+        if model is None or scale <= 0:
+            return
+        by_level: dict[int, float] = {}
+        for bid in tiles:
+            summ = model.summary(bid)
+            px = self._box_items[bid].lod_title_fit_px(scale, summ.label,
+                                                      summ.depth)
+            by_level[summ.depth] = min(px, by_level.get(summ.depth, px))
+        for bid, item in self._box_items.items():
+            item.set_lod_title_px(
+                max(LOD_TITLE_FLOOR_PX, by_level[model.summary(bid).depth])
+                if bid in tiles else None)
+
+    def _lod_band_strip(self, item) -> tuple:
+        """A ``^left`` container's children colours for its collapsed band:
+        one ``(x0, x1, rgba)`` per direct child box, x as fractions of the
+        container's width, in the child's own fill drawn opaque (#212)."""
+        box = item.box
+        if box.anchor != "left" or box.w <= 0 or self._lod is None:
+            return ()
+        out = []
+        for cid in self._lod.children_of(box.id):
+            child = self._box_items.get(cid)
+            if child is None:
+                continue
+            x0 = max(0.0, (child.box.x - box.x) / box.w)
+            x1 = min(1.0, (child.box.x + child.box.w - box.x) / box.w)
+            if x1 <= x0:
+                continue
+            fill = QColor(child.brush().color())
+            fill.setAlpha(255)
+            out.append((x0, x1, fill.rgba()))
+        return tuple(sorted(out))
 
     def _cluster_compact(self, comp, hidden=frozenset()) -> bool:
         """A component is compact when no *visible* non-member box centre falls

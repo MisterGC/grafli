@@ -31,9 +31,12 @@ from grafli.constants import (
     LAYOUT_PADDING,
     MIN_BOX_SIZE,
     Mode,
+    container_title_px,
+    resolve_textsize_px,
 )
 from grafli.format import Arrow, Box, Note
 from grafli.items import BoxItem, ImageItem, LabelItem, NoteItem
+from grafli.map_palette import look
 from pathlib import Path
 
 
@@ -303,6 +306,7 @@ class StructureMixin:
                  if isinstance(i, BoxItem)]
         if not boxes:
             self._record_shortcut("slide-ratio: select a container box first")
+            self.toast("Select a box to snap it to the slide ratio", "warn")
             return
         ratio = slide_content_ratio(self._board)
         targets = []
@@ -312,6 +316,7 @@ class StructureMixin:
                 targets.append((item, new_h))
         if not targets:
             self._record_shortcut(f"already at slide ratio {ratio:.2f}")
+            self.toast(f"Already at slide ratio {ratio:.2f}", "info")
             return
         self._push_undo()
         for item, new_h in targets:
@@ -346,26 +351,35 @@ class StructureMixin:
             d = self._box_depth(box_id)
             if d > max_depth:
                 max_depth = d
-        # Parents (containers) stay at their depth — behind arrows
-        # Arrow lines/heads sit above parents
+        # Containers and arrow lines/heads share the range up to arrow_line_z,
+        # interleaved by _container_arrow_z (#283)
         arrow_line_z = max_depth + 1
         # Leaf boxes (no children) sit above arrows
         leaf_z = max_depth + 2
         # Notes and arrow labels above leaf boxes
         note_z = max_depth + 3
-        # Box labels always on top
-        box_label_z = max_depth + 4
+        # Box labels always on top: above the deepest leaf box, which sits
+        # at leaf_z + max_depth, and above notes (#293)
+        box_label_z = max(leaf_z + max_depth, note_z) + 1
+        # A container normally sits behind arrows (it's a backdrop for its
+        # children). But a LoD-collapsed container is a solid tile, so it
+        # rises above arrows like a leaf — an arrow crossing it passes behind,
+        # keeping the tile's headline readable.
+        containers = [bid for bid in self._box_items
+                      if self._has_children(bid)
+                      and bid not in self._lod_collapsed]
+        container_z, arrow_z, step = self._container_arrow_z(
+            containers, arrow_line_z)
         for box_id, item in self._box_items.items():
             d = self._box_depth(box_id)
-            # A container normally sits behind arrows (it's a backdrop for its
-            # children). But a LoD-collapsed container is a solid tile, so it
-            # rises above arrows like a leaf — an arrow crossing it passes behind,
-            # keeping the tile's headline readable.
-            if self._has_children(box_id) and box_id not in self._lod_collapsed:
-                item.setZValue(d)
+            if box_id in container_z:
+                item.setZValue(container_z[box_id])
+                # A container's title strip belongs to the container: right
+                # above its fill, below every arrow that ends in it.
+                item._label.setZValue(container_z[box_id] + step / 2)
             else:
                 item.setZValue(leaf_z + d)
-            item._label.setZValue(box_label_z)
+                item._label.setZValue(box_label_z)
         for note_item in self._note_items.values():
             if note_item.note.parent:
                 pd = self._box_depth(note_item.note.parent) + 1
@@ -382,7 +396,198 @@ class StructureMixin:
             if isinstance(item, LabelItem):
                 item.setZValue(note_z)
             else:
-                item.setZValue(arrow_line_z)
+                item.setZValue(arrow_z.get(id(item.data(0)), arrow_line_z))
+        # Every change to the nesting passes through here; a container's
+        # title takes its size from its level (#294).
+        self._refresh_container_titles()
+
+    def _refresh_container_titles(self):
+        """Re-set the label of each box whose title size no longer matches
+        its place in the nesting."""
+        sizes = self._container_title_sizes()
+        for box_id, item in self._box_items.items():
+            px = sizes.get(box_id)
+            if item._title_px != px:
+                item._title_px = px
+                item.refresh_auto_layout()
+
+    def _container_title_sizes(self) -> dict[str, int]:
+        """The title size of each box drawn as a container with no size set:
+        its level's size, raised a point above the largest label among its
+        direct child boxes where one reaches it, so every title stays above
+        the labels inside it however deep the nesting goes (#294). One pass
+        over the board."""
+        board = self._board
+        if not board:
+            return {}
+        boxes = {b.id: b for b in board.boxes}
+        kids: dict[str, list] = {}
+        holders: set[str] = set()
+        for b in board.boxes:
+            if b.parent:
+                kids.setdefault(b.parent, []).append(b)
+                holders.add(b.parent)
+        for el in (*board.notes, *board.images):
+            if el.parent:
+                holders.add(el.parent)
+
+        def depth(box_id: str) -> int:
+            d, current, seen = 0, box_id, set()
+            while current and current not in seen:
+                seen.add(current)
+                b = boxes.get(current)
+                if not b or not b.parent:
+                    break
+                d += 1
+                current = b.parent
+            return d
+
+        sizes: dict[str, int] = {}
+
+        def label_px(b, seen: set[str]) -> int:
+            size = look(b).textsize   # a palette kind's size counts as written
+            if size or b.style == "card" or b.id not in holders:
+                return resolve_textsize_px(size, "")
+            if b.id in sizes:
+                return sizes[b.id]
+            px = container_title_px(depth(b.id))
+            if b.id in seen:   # a parent cycle: stop at the level's size
+                return px
+            seen.add(b.id)
+            for kid in kids.get(b.id, ()):
+                px = max(px, label_px(kid, seen) + 1)
+            sizes[b.id] = px
+            return px
+
+        for b in board.boxes:
+            label_px(b, set())
+        return sizes
+
+    def _element_parent(self, eid: str) -> str:
+        """The parent box id of a box, note or image, or ''."""
+        board = self._board
+        el = (board.box_by_id(eid) or board.note_by_id(eid)
+              or board.image_by_id(eid)) if board else None
+        return getattr(el, "parent", "") or ""
+
+    def _arrow_holders(self, arrow, containers: set[str]) -> set[str]:
+        """The containers that hold one of *arrow*'s ends: an end that is a
+        container itself, and every container around an end."""
+        holders: set[str] = set()
+        for end in (arrow.from_id, arrow.to_id):
+            current, seen = end, set()
+            while current and current not in seen:
+                seen.add(current)
+                if current in containers:
+                    holders.add(current)
+                current = self._element_parent(current)
+        return holders
+
+    def _container_arrow_z(self, containers: list[str], top: float):
+        """Stack containers and arrows between 0 and *top* (#283).
+
+        An arrow draws above every container that holds one of its ends,
+        title strip included, and below every other container it crosses.
+        A container stays below the containers inside it. These rules are
+        settled as a topological order; where two arrows ask for opposite
+        orders of the same containers, the later "below" rule gives way.
+        An arrow no rule binds keeps its old place above all containers.
+
+        Returns ``({container id: z}, {id(arrow): z}, step)`` where *step*
+        is the gap between neighbouring places.
+        """
+        import heapq
+        from PySide6.QtGui import QPainterPath, QPainterPathStroker
+
+        cset = set(containers)
+        # Each arrow's drawn items, keyed by the Arrow object they draw.
+        groups: dict[int, list] = {}
+        arrow_of: dict[int, Arrow] = {}
+        for item in self._arrow_items:
+            arrow = item.data(0)
+            if isinstance(item, LabelItem) or not isinstance(arrow, Arrow):
+                continue
+            groups.setdefault(id(arrow), []).append(item)
+            arrow_of[id(arrow)] = arrow
+        nodes = [("c", c) for c in containers] + [("a", k) for k in groups]
+        if not nodes:
+            return {}, {}, 1.0
+        succ: dict[tuple, set] = {n: set() for n in nodes}
+        for c in containers:
+            parent = self._board.box_by_id(c).parent
+            if parent in cset:
+                succ[("c", parent)].add(("c", c))
+        holders_of = {k: self._arrow_holders(arrow_of[k], cset)
+                      for k in groups}
+        for k, holders in holders_of.items():
+            for h in holders:
+                succ[("c", h)].add(("a", k))
+
+        def reaches(src, dst) -> bool:
+            stack, seen = [src], {src}
+            while stack:
+                n = stack.pop()
+                if n == dst:
+                    return True
+                for m in succ[n] - seen:
+                    seen.add(m)
+                    stack.append(m)
+            return False
+
+        stroker = QPainterPathStroker()
+        stroker.setWidth(1.0)
+        rects = {}
+        for c in containers:
+            item = self._box_items[c]
+            rects[c] = item.mapRectToScene(item.rect())
+        for k, items in groups.items():
+            outlines = []
+            for item in items:
+                if hasattr(item, "path"):
+                    outlines.append(stroker.createStroke(
+                        item.mapToScene(item.path())))
+                else:
+                    path = QPainterPath()
+                    path.addRect(item.sceneBoundingRect())
+                    outlines.append(path)
+            for c in containers:
+                if c in holders_of[k]:
+                    continue
+                rect = rects[c]
+                if not any(o.boundingRect().intersects(rect)
+                           and o.intersects(rect) for o in outlines):
+                    continue
+                if not reaches(("c", c), ("a", k)):
+                    succ[("a", k)].add(("c", c))
+
+        indeg = {n: 0 for n in nodes}
+        for n in nodes:
+            for m in succ[n]:
+                indeg[m] += 1
+        # Ties fall back to the old stacking: containers by depth, arrows
+        # above them, then the order they were drawn in.
+        order = {n: i for i, n in enumerate(nodes)}
+
+        def key(n):
+            base = (self._box_depth(n[1]) if n[0] == "c"
+                    else float("inf"))
+            return (base, order[n])
+
+        heap = [(key(n), n) for n in nodes if indeg[n] == 0]
+        heapq.heapify(heap)
+        ranked = []
+        while heap:
+            _, n = heapq.heappop(heap)
+            ranked.append(n)
+            for m in succ[n]:
+                indeg[m] -= 1
+                if indeg[m] == 0:
+                    heapq.heappush(heap, (key(m), m))
+        step = top / (len(ranked) + 1)
+        container_z, arrow_z = {}, {}
+        for i, (kind, ref) in enumerate(ranked, start=1):
+            (container_z if kind == "c" else arrow_z)[ref] = i * step
+        return container_z, arrow_z, step
 
     # ── Encapsulate: wrap the selection in a new parent box ──
 
@@ -399,6 +604,7 @@ class StructureMixin:
         selected = [i for i in self._scene.selectedItems()
                     if isinstance(i, (BoxItem, NoteItem, ImageItem))]
         if not selected:
+            self.toast("Select what the group should hold", "warn")
             return
 
         def model_of(item):

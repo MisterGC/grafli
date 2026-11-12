@@ -1,0 +1,8 @@
+{
+  "entries": {
+    "format": {"color": "%highlight", "label": "Format"},
+    "canvas": {"color": "%soft", "label": "Canvas"},
+    "shell": {"color": "%rose", "label": "App shell"},
+    "export": {"color": "%muted", "label": "Exports"}
+  }
+}

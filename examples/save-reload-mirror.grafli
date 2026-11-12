@@ -1,0 +1,51 @@
+#!grafli v4
+# Do reloading and saving a board take the same steps? — a mirror
+# Worked example of the mirror encoding (skill: references/design.md
+# "Mirror"): reload on the left, save on the right, the board file on top,
+# the canvas below, the same step at the same height on both sides. The
+# step only one side has leaves a gap on the other. Left out, to keep to the
+# board file's own text: doc bodies, which travel to and from the vault the
+# same way (load_docs / save_docs), and the move of inline md: notes into
+# the vault, which a save does once per note.
+# source: ..
+
+# ── claim ──
+@ note claim 0,-260 "Reload and save meet in the same merge — only saving adds a step" ~xlarge !flat !sans !bold
+@ note channel 0,-195 "mirror: left = an outside write is reloaded, right = autosave; the same step sits at the same height, and the step reload lacks leaves a gap" ~small !flat !sans
+
+# ── sides ──
+@ note h_reload 0,-110 "reload" ~large !flat !sans
+@ note h_save 760,-110 "save" ~large !flat !sans
+
+# ── shared ──
+@ box file "board.grafli on disk" 380,-60 260x80
+@ box canvas "Board in the canvas" 380,680 260x80
+
+# ── reload ──
+@ box parse "parse()" 0,280 260x80
+@ box merge_r "merge_boards()" 0,480 260x80
+
+# ── save ──
+@ box swap "atomic_write()\ntemp file, then replace" 760,80 260x80 %accent !ink !bold
+@ box serialize "serialize()" 760,280 260x80
+@ box merge_w "merge_boards()\nwhen the disk moved" 760,480 260x80
+
+# ── data ──
+@ arrow file -> parse "text"
+@ arrow parse -> merge_r "the disk's Board"
+@ arrow merge_r -> canvas "merged Board"
+@ arrow canvas -> merge_w "the canvas's Board"
+@ arrow merge_w -> serialize "merged Board"
+@ arrow serialize -> swap "text"
+@ arrow swap -> file "the whole file at once"
+
+# ── evidence ──
+@ note evidence 0,840 """
+code:
+the two paths in the app and the merge they share
+  @grafli/app.py:1367 _on_file_changed
+  @grafli/app.py:1346 _reconcile_external
+  @grafli/app.py:1155 _write_file
+  @grafli/sync.py:216 merge_boards
+  @grafli/sync.py:43 atomic_write
+""" ~small

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import difflib
 import math
-import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
@@ -24,8 +23,11 @@ from grafli.constants import (
     BOX_FONT_SIZES,
     LAYOUT_PADDING,
 )
-from grafli.format import Arrow, Board, Box, Image, Note
-from grafli.iconset import ICON_NAMES, has_icon
+from grafli.format import (
+    Arrow, Board, Box, Image, Note, parse, resolve_code_ref,
+)
+from grafli.iconset import (BOARD_ICON_DIR, ICON_NAMES, BoardIcons,
+                            board_icon_dir, has_icon)
 
 
 # Optional callable that returns a note's rendered scene rect
@@ -37,6 +39,13 @@ NoteRectFn = Callable[[Note], Optional[tuple]]
 # Optional callable returning an arrow label's rendered size (w, h) in
 # scene units, using real font metrics. Needed for arrow-label checks.
 ArrowLabelSizeFn = Callable[[Arrow], tuple]
+
+# Optional callable returning every arrow label the canvas draws, as
+# (arrow, (x1, y1, x2, y2)) pairs in scene units. Only the canvas knows
+# where a label lands on a routed, stacked or two-way connector, so the
+# CLI renders the board offscreen to answer it. Needed for the
+# label-on-label check.
+ArrowLabelRectsFn = Callable[[Board], list]
 
 
 ERROR = "error"
@@ -254,6 +263,116 @@ def check_cramped_container(
     return diags
 
 
+# A container holding this many boxes or more with no arrow between them,
+# and a board with this many leaf boxes or more, are read as lists.
+UNRELATED_MIN_BOXES = 4
+
+
+def _relating_arrows(board: Board) -> list[Arrow]:
+    """Arrows that relate two elements: not annotation callouts.
+
+    An arrow's kind is explicit (``~kind=``) or derives from its ends —
+    a note end makes it an annotation, which points at a box without
+    relating it to anything.
+    """
+    note_ids = {n.id for n in board.notes}
+    out = []
+    for a in board.arrows:
+        kind = a.kind or (
+            "annotation" if a.from_id in note_ids or a.to_id in note_ids
+            else "graph"
+        )
+        if kind != "annotation":
+            out.append(a)
+    return out
+
+
+def check_unrelated_children(board: Board) -> list[Diagnostic]:
+    """Flag containers of 4+ boxes with no arrow between any two of them.
+
+    An arrow counts when its two ends lie under two different direct
+    children of the container (an end inside a nested container counts
+    for that container). Such a container reads as a list: its boxes
+    relate to nothing but the container.
+    """
+    parent_of = {b.id: b.parent for b in board.boxes}
+    for el in (*board.notes, *board.images):
+        parent_of.setdefault(el.id, getattr(el, "parent", ""))
+    child_boxes: dict[str, list[str]] = {}
+    for b in board.boxes:
+        if b.parent:
+            child_boxes.setdefault(b.parent, []).append(b.id)
+
+    def child_under(pid: str, iid: str) -> str:
+        # The direct child of pid that iid is or lies inside, or "".
+        seen = set()
+        while iid and iid not in seen:
+            seen.add(iid)
+            up = parent_of.get(iid, "")
+            if up == pid:
+                return iid
+            iid = up
+        return ""
+
+    arrows = _relating_arrows(board)
+    diags: list[Diagnostic] = []
+    for pid, kids in child_boxes.items():
+        if len(kids) < UNRELATED_MIN_BOXES:
+            continue
+        related = any(
+            (fa := child_under(pid, a.from_id))
+            and (ta := child_under(pid, a.to_id))
+            and fa != ta
+            for a in arrows
+        )
+        if related:
+            continue
+        diags.append(Diagnostic(
+            code="unrelated-children",
+            severity=WARNING,
+            message=(
+                f"{pid!r} holds {len(kids)} boxes and no arrow between them "
+                f"— it reads as a list: draw the edges that relate them, "
+                f"place them by an encoding's rule, or make them an md: "
+                f"list note"
+            ),
+            item_ids=[pid],
+            fixable=False,
+        ))
+    return diags
+
+
+def check_unrelated_board(board: Board) -> list[Diagnostic]:
+    """Flag a board where most leaf boxes have no arrow at either end.
+
+    Leaf boxes are boxes that hold no other box; a container is the
+    relation of its children, so it is not counted itself. A board of
+    4+ leaf boxes where more than half touch no arrow reads as a list.
+    """
+    parents = {b.parent for b in board.boxes if b.parent}
+    leaves = [b.id for b in board.boxes if b.id not in parents]
+    if len(leaves) < UNRELATED_MIN_BOXES:
+        return []
+    ends = set()
+    for a in _relating_arrows(board):
+        ends.add(a.from_id)
+        ends.add(a.to_id)
+    loose = [iid for iid in leaves if iid not in ends]
+    if len(loose) * 2 <= len(leaves):
+        return []
+    return [Diagnostic(
+        code="unrelated-board",
+        severity=WARNING,
+        message=(
+            f"{len(loose)} of {len(leaves)} boxes have no arrow — the board "
+            f"reads as a list: draw the edges that relate them, place them "
+            f"by an encoding's rule, or make them an md: list note"
+        ),
+        item_ids=loose,
+        fixable=False,
+    )]
+
+
 def check_label_truncated(board: Board) -> list[Diagnostic]:
     """Heuristic: estimate text width and warn when it likely won't fit."""
     diags: list[Diagnostic] = []
@@ -321,15 +440,25 @@ def check_arrow_label_crowded(
     board: Board,
     arrow_label_size: ArrowLabelSizeFn | None = None,
     note_rect: NoteRectFn | None = None,
+    arrow_label_rects: ArrowLabelRectsFn | None = None,
 ) -> list[Diagnostic]:
-    """Flag arrow labels that bleed into an endpoint shape.
+    """Flag arrow labels that sit on a box.
 
-    The renderer centers the label on the arrow's visible midpoint, so
-    when the gap between endpoints is shorter than the label, the label
-    sits on top of one of the boxes. Detection is grounded in real Qt
-    font metrics via ``arrow_label_size``; without it, the check is
-    skipped (heuristic would create false positives).
+    With ``arrow_label_rects`` — the labels where the canvas draws them —
+    a label is checked against every box, note and image except the
+    containers its arrow runs inside, its own two ends included. The
+    canvas moves a label off boxes when it finds room along its arrow
+    (#303), so what is left is a label with no room or one its author
+    offset there.
+
+    Without it the label is estimated at the middle between its two ends
+    and checked against those ends only: when the gap is shorter than the
+    label, it sits on top of one of them. The estimate is grounded in
+    real Qt font metrics via ``arrow_label_size``; without that too, the
+    check is skipped (a heuristic would create false positives).
     """
+    if arrow_label_rects is not None:
+        return _drawn_labels_on_elements(board, arrow_label_rects, note_rect)
     diags: list[Diagnostic] = []
     if arrow_label_size is None:
         return diags
@@ -384,6 +513,39 @@ def check_arrow_label_crowded(
                     fixable=True,
                 ))
                 break  # one finding per arrow
+    return diags
+
+
+def _drawn_labels_on_elements(
+    board: Board,
+    arrow_label_rects: ArrowLabelRectsFn,
+    note_rect: NoteRectFn | None,
+) -> list[Diagnostic]:
+    """``check_arrow_label_crowded`` on the labels the canvas draws."""
+    from grafli.arrows import LABEL_PAD, label_ground
+
+    diags: list[Diagnostic] = []
+    rects = _id_rect_map(board, note_rect)
+    for a, (x1, y1, x2, y2) in arrow_label_rects(board):
+        # The label's plate, as the canvas sizes it.
+        plate = (x1 - LABEL_PAD, y1 - LABEL_PAD, x2 + LABEL_PAD, y2 + LABEL_PAD)
+        ground = label_ground(board, a.from_id, a.to_id)
+        for elem_id, elem_rect in rects.items():
+            if elem_id in ground or not _rects_overlap(plate, elem_rect):
+                continue
+            ids = list(dict.fromkeys([a.from_id, a.to_id, elem_id]))
+            diags.append(Diagnostic(
+                code="arrow-label-crowded",
+                severity=WARNING,
+                message=(
+                    f"{_arrow_name(a)} overlaps {elem_id!r} — "
+                    f"shorten the label, widen the gap, or offset "
+                    f"the label via @dx,dy"
+                ),
+                item_ids=ids,
+                fixable=True,
+            ))
+            break  # one finding per arrow
     return diags
 
 
@@ -444,16 +606,50 @@ def check_arrow_label_covers_head(
     return diags
 
 
-# Captures `@<path>:<anything>` where path looks like a file (has an
-# extension). Trailing `:line` / `:anchor` is consumed to keep matching
-# tight, but the anchor itself is not validated.
-_REF_RE = re.compile(r"@([^\s@]+\.[A-Za-z0-9]+)(?::[^\s]+)?")
+def _arrow_name(a: Arrow) -> str:
+    return f"arrow {a.from_id!r} -> {a.to_id!r} label ({a.label!r})"
+
+
+def check_arrow_labels_overlap(
+    board: Board,
+    arrow_label_rects: ArrowLabelRectsFn | None = None,
+) -> list[Diagnostic]:
+    """Flag two arrow labels drawn on top of each other.
+
+    Two connectors that cross or run close can put their labels in the
+    same spot, and neither stays readable. Each overlapping pair is one
+    finding that names both arrows. Rects come from ``arrow_label_rects``
+    — what the canvas actually draws; without it the check is skipped.
+    """
+    diags: list[Diagnostic] = []
+    if arrow_label_rects is None:
+        return diags
+
+    labels = arrow_label_rects(board)
+    for i, (a, rect_a) in enumerate(labels):
+        for b, rect_b in labels[i + 1:]:
+            if not _rects_overlap(rect_a, rect_b):
+                continue
+            ids = list(dict.fromkeys(
+                [a.from_id, a.to_id, b.from_id, b.to_id]))
+            diags.append(Diagnostic(
+                code="arrow-labels-overlap",
+                severity=WARNING,
+                message=(
+                    f"{_arrow_name(a)} overlaps {_arrow_name(b)} — "
+                    f"offset one label via @dx,dy or move an end so "
+                    f"the arrows part"
+                ),
+                item_ids=ids,
+                fixable=True,
+            ))
+    return diags
 
 
 def check_missing_resource(
     board: Board, base_dir: Path | None
 ) -> list[Diagnostic]:
-    """Check `Image.image_path` and `@path[:anchor]` refs in text content."""
+    """Check `Image.image_path` against the board's directory."""
     diags: list[Diagnostic] = []
     if base_dir is None:
         return diags
@@ -469,34 +665,138 @@ def check_missing_resource(
                 item_ids=[im.id],
                 fixable=False,
             ))
-    sources: list[tuple[str, str]] = []
-    for b in board.boxes:
-        sources.append((b.id, b.label or ""))
-    for n in board.notes:
-        sources.append((n.id, n.text or ""))
-    for a in board.arrows:
-        sources.append((f"{a.from_id}->{a.to_id}", a.label or ""))
-    for iid, text in sources:
-        for m in _REF_RE.finditer(text):
-            ref_path = m.group(1)
-            if not (base / ref_path).exists():
-                diags.append(Diagnostic(
-                    code="missing-resource",
-                    severity=INFO,
-                    message=f"{iid!r} references {ref_path!r} which does not exist",
-                    item_ids=[iid],
-                    fixable=False,
-                ))
     return diags
 
 
-def check_unknown_icon(board: Board) -> list[Diagnostic]:
-    """A ``*name`` symbol the iconset doesn't know fails silently at paint
-    time — surface the typo, and the nearest real symbol, here."""
+def _line_count(path: Path) -> int:
+    data = path.read_bytes()
+    return data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+
+
+def check_code_refs(board: Board, base_dir: Path | None) -> list[Diagnostic]:
+    """The ``@path[:line]`` refs a code-mode note shows as clickable, resolved
+    as a click opens them (``~`` expanded, a relative path from the
+    ``# source:`` repo, else the board's folder): a file that does not exist,
+    or a line past its end, is an error — the ref opens nothing or the wrong
+    place."""
+    from grafli.code_note import code_refs
+    if base_dir is None:
+        return []
+    diags: list[Diagnostic] = []
+    for n in board.notes:
+        for ref in code_refs(n.text or ""):
+            path, line = resolve_code_ref(board, Path(base_dir), ref)
+            if not path.exists():
+                problem = f"{path} does not exist"
+            elif line is not None and path.is_file() \
+                    and not 1 <= line <= (count := _line_count(path)):
+                problem = f"{path.name} has {count} lines, no line {line}"
+            else:
+                continue
+            diags.append(Diagnostic(
+                code="dangling-code-ref",
+                severity=ERROR,
+                message=f"{n.id!r} refs {ref}: {problem}",
+                item_ids=[n.id],
+                fixable=True,
+            ))
+    return diags
+
+
+def _board_ids(path: Path) -> set[str]:
+    """The ids a link's ``#<id>`` can name in the board at *path*: its
+    bookmarks, elements and connector ids."""
+    other = parse(path.read_text(encoding="utf-8"))
+    return {*(bm.id for bm in other.bookmarks),
+            *(el.id for el in (*other.boxes, *other.notes, *other.images)),
+            *(a.id for a in other.arrows if a.id)}
+
+
+def check_board_links(board: Board,
+                      grafli_path: Path | None) -> list[Diagnostic]:
+    """``&graph:<name>[#<id>]`` and ``&link:<path>.grafli[#<id>]`` resolved as
+    the app opens them: a board that does not exist, or an ``#<id>`` that is
+    no bookmark, element or connector in it, is an error — the link opens
+    nothing or lands on the whole board."""
+    from grafli.resources import board_link
+    if grafli_path is None:
+        return []
+    grafli_path = Path(grafli_path).resolve()
+    diags: list[Diagnostic] = []
+    ids: dict[Path, set[str]] = {}
+    for el in (*board.boxes, *board.notes, *board.images, *board.arrows):
+        link = board_link(grafli_path, el)
+        if link is None:
+            continue
+        path, target = link
+        iid = (el.id if not isinstance(el, Arrow)
+               else el.id or f"{el.from_id}->{el.to_id}")
+        if not path.is_file():
+            problem = f"{path} does not exist"
+        else:
+            if path not in ids:
+                ids[path] = _board_ids(path)
+            if not target or target in ids[path]:
+                continue
+            problem = (f"{path.name} has no bookmark, element or "
+                       f"connector {target!r}")
+        kind = "&graph" if el.attach_kind == "graph" else "&link"
+        diags.append(Diagnostic(
+            code="dangling-board-link",
+            severity=ERROR,
+            message=f"{iid!r} {kind}:{el.url}: {problem}",
+            item_ids=[iid],
+            fixable=True,
+        ))
+    return diags
+
+
+def check_stale_source(
+    board: Board, base_dir: Path | None
+) -> list[Diagnostic]:
+    """A ``# source: <repo> @ <rev>`` comment whose repo's ``HEAD`` has moved
+    on: the board's ``@path:line`` refs may open the wrong lines or files
+    that are gone. A warning; a ``HEAD`` git cannot read is info."""
+    from grafli.revision import UNREADABLE, refs_stale_line
+    if base_dir is None:
+        return []
+    line = refs_stale_line(board, Path(base_dir))
+    if not line:
+        return []
+    return [Diagnostic(
+        code="stale-source",
+        severity=INFO if line.startswith(UNREADABLE) else WARNING,
+        message=line,
+        fixable=False,
+    )]
+
+
+def check_unknown_icon(board: Board,
+                       grafli_path: Path | None = None) -> list[Diagnostic]:
+    """A ``*name`` symbol that is neither built in nor in the board's icon
+    folder (``<stem>-res/icons/<name>.svg``, issue #299) fails silently at
+    paint time — surface the typo, and the nearest real symbol, here."""
+    icons = BoardIcons.of(grafli_path)
+    known = ICON_NAMES + (icons.names() if icons is not None else [])
+    where = (f"built in nor in {board_icon_dir(grafli_path).parent.name}/"
+             f"{BOARD_ICON_DIR}/" if grafli_path is not None else "")
     diags: list[Diagnostic] = []
     for el in list(board.boxes) + list(board.notes):
-        if el.icon and not has_icon(el.icon):
-            near = difflib.get_close_matches(el.icon, ICON_NAMES, n=1)
+        if el.icon and not has_icon(el.icon, icons):
+            broken = icons.unreadable(el.icon) if icons is not None else None
+            if broken is not None:
+                diags.append(Diagnostic(
+                    code="unknown-icon",
+                    severity=WARNING,
+                    message=(f"{el.id!r} uses *{el.icon}, but "
+                             f"{broken.parent.parent.name}/{BOARD_ICON_DIR}/"
+                             f"{broken.name} is not a readable SVG — it "
+                             "will not render"),
+                    item_ids=[el.id],
+                    fixable=False,
+                ))
+                continue
+            near = difflib.get_close_matches(el.icon, known, n=1)
             suggestion = near[0] if near else None
             hint = f" — did you mean *{suggestion}?" if suggestion else ""
             fix = None
@@ -508,8 +808,9 @@ def check_unknown_icon(board: Board) -> list[Diagnostic]:
             diags.append(Diagnostic(
                 code="unknown-icon",
                 severity=WARNING,
-                message=(f"{el.id!r} uses unknown symbol *{el.icon}{hint} — "
-                         "it will not render"),
+                message=(f"{el.id!r} uses unknown symbol *{el.icon}"
+                         + (f", neither {where}" if where else "")
+                         + f"{hint} — it will not render"),
                 item_ids=[el.id],
                 fixable=True,
                 fix=fix,
@@ -525,23 +826,24 @@ _COLOR_NAME_HINTS = {
     "red": "clay", "orange": "accent", "yellow": "highlight",
     "gold": "highlight", "purple": "plum", "violet": "plum",
     "pink": "rose", "magenta": "rose", "gray": "muted", "grey": "muted",
-    "lavender": "soft", "white": "base", "black": "subtle",
-    "dark": "subtle", "cyan": "teal",
+    "lavender": "soft", "white": "base", "black": "primary",
+    "dark": "primary", "cyan": "teal",
 }
 
 
 def check_unknown_color(board: Board) -> list[Diagnostic]:
-    """A ``%token`` color the palette doesn't define resolves to the
-    default fill with no other trace — the miscolor is invisible until you
-    look at the render. Surface the typo, and the nearest real token, here."""
+    """A ``%token`` color neither the theme nor the map's palette
+    (``board.palette_names``) defines resolves to the default fill with no
+    other trace — the miscolor is invisible until you look at the render.
+    Surface the typo, and the nearest real token or palette name, here."""
     diags: list[Diagnostic] = []
-    valid = list(theme.COLOR_TOKENS.keys())
+    valid = [*theme.COLOR_TOKENS.keys(), *sorted(board.palette_names)]
 
     def _check(color: str, iid: str) -> None:
         if not color.startswith("%"):
             return  # empty or #hex — nothing to validate
         token = color[1:]
-        if token in theme.COLOR_TOKENS:
+        if token in theme.COLOR_TOKENS or token in board.palette_names:
             return
         suggestion = _COLOR_NAME_HINTS.get(token)
         if suggestion is None:
@@ -571,27 +873,105 @@ def check_unknown_color(board: Board) -> list[Diagnostic]:
     return diags
 
 
+def check_palette(grafli_path: Path | None) -> list[Diagnostic]:
+    """The map's ``palette.json``: an entry that shadows a theme token is an
+    error (the token wins, so the entry can never colour anything); a file or
+    entry grafli cannot read is a warning (the entry is left out)."""
+    from grafli.map_palette import palette_path, read_palette
+    path = palette_path(grafli_path) if grafli_path is not None else None
+    diags: list[Diagnostic] = []
+    for problem in read_palette(path)[1]:
+        if problem.shadows:
+            outcome = " — the theme token wins; rename the entry"
+        elif problem.name:
+            outcome = " — the entry is ignored"
+        else:
+            outcome = ""
+        diags.append(Diagnostic(
+            code="palette-shadows-token" if problem.shadows else "bad-palette",
+            severity=ERROR if problem.shadows else WARNING,
+            message=f"{path.parent.name}/{path.name}: {problem.message}{outcome}",
+            item_ids=[problem.name] if problem.name else [],
+            fixable=False,
+        ))
+    return diags
+
+
+def check_overlays(board: Board, grafli_path: Path | None) -> list[Diagnostic]:
+    """The board's overlay files: one grafli cannot parse is left out of the
+    ``A`` cycle and the exports; an entry whose id is no box, note or
+    connector on the board colours nothing. Both are warnings."""
+    from grafli.overlay_file import load_overlay, overlay_paths
+    if grafli_path is None:
+        return []
+    ids = [*(b.id for b in board.boxes), *(n.id for n in board.notes),
+           *(a.id for a in board.arrows if a.id)]
+    known = set(ids)
+    diags: list[Diagnostic] = []
+    for path in overlay_paths(Path(grafli_path)):
+        where = f"{path.parent.name}/{path.name}"
+        try:
+            overlay = load_overlay(path)
+        except ValueError as e:
+            diags.append(Diagnostic(
+                code="bad-overlay", severity=WARNING,
+                message=f"{where}: {e} — the overlay is not shown",
+                fixable=False,
+            ))
+            continue
+        for elem_id in overlay.entries:
+            if elem_id in known:
+                continue
+            near = difflib.get_close_matches(elem_id, ids, n=1)
+            hint = f" — did you mean {near[0]!r}?" if near else ""
+            diags.append(Diagnostic(
+                code="overlay-unknown-id", severity=WARNING,
+                message=(f"{where}: entry {elem_id!r} is no box, note or "
+                         f"connector on the board{hint}"),
+                item_ids=[elem_id],
+                fixable=False,
+            ))
+    return diags
+
+
 def run_all(
     board: Board,
     base_dir: Path | None = None,
     note_rect: NoteRectFn | None = None,
     arrow_label_size: ArrowLabelSizeFn | None = None,
+    grafli_path: Path | None = None,
+    arrow_label_rects: ArrowLabelRectsFn | None = None,
 ) -> list[Diagnostic]:
     diags: list[Diagnostic] = []
     diags.extend(check_parse_errors(board))
-    diags.extend(check_unknown_icon(board))
+    diags.extend(check_palette(grafli_path))
+    diags.extend(check_overlays(board, grafli_path))
+    diags.extend(check_unknown_icon(board, grafli_path))
     diags.extend(check_unknown_color(board))
     diags.extend(check_child_outside_parent(board, note_rect=note_rect))
     diags.extend(check_sibling_overlap(board, note_rect=note_rect))
     diags.extend(check_cramped_container(board, note_rect=note_rect))
     diags.extend(check_label_truncated(board))
+    diags.extend(check_unrelated_children(board))
+    diags.extend(check_unrelated_board(board))
+    if arrow_label_rects is not None:
+        # Drawing the board is the slow part; both label checks read one.
+        drawn = arrow_label_rects(board)
+        arrow_label_rects = lambda _board: drawn  # noqa: E731
     diags.extend(check_arrow_label_crowded(
         board, arrow_label_size=arrow_label_size, note_rect=note_rect,
+        arrow_label_rects=arrow_label_rects,
     ))
     diags.extend(check_arrow_label_covers_head(
         board, arrow_label_size=arrow_label_size, note_rect=note_rect,
     ))
+    diags.extend(check_arrow_labels_overlap(
+        board, arrow_label_rects=arrow_label_rects,
+    ))
     diags.extend(check_missing_resource(board, base_dir))
+    diags.extend(check_code_refs(board, base_dir))
+    diags.extend(check_board_links(board, grafli_path))
+    diags.extend(check_stale_source(board, base_dir))
     diags.sort(key=lambda d: (_SEVERITY_ORDER.get(d.severity, 99), d.code, d.item_ids))
     return diags
 

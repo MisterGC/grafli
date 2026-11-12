@@ -416,6 +416,61 @@ def test_notes_are_not_obstacles():
     assert set(view._routing_obstacles()) == {"a", "b"}
 
 
+# Four stacked layer containers; the third layer holds boxes only left and
+# in the middle, so the columns under Behavior and Physics are empty.
+_LAYERS = """#!grafli v2
+@ box tools "Tools" 0,0 1920x200 ^topleft ~large !flat
+@ box dojo "Dojo" 40,70 320x100 >tools
+@ box game "Game" 0,330 1920x200 ^topleft ~large !flat
+@ box behavior "Behavior" 420,400 320x100 >game
+@ box world "World" 800,400 320x100 >game
+@ box physics "Physics" 1180,400 320x100 >game
+@ box rendering "Rendering" 0,660 1920x200 ^topleft ~large !flat
+@ box char3d "Character3D" 40,730 320x100 >rendering
+@ box canvas3d "Canvas3D" 800,730 320x100 >rendering
+@ box foundation "Foundation" 0,990 1920x320 ^topleft ~large !flat
+@ box algorithm "Algorithm" 420,1060 320x100 >foundation
+@ box box2d "Box2D" 1180,1060 320x100 >foundation
+@ arrow behavior -> algorithm "link" !thick !ortho
+@ arrow physics -> box2d "import" !ortho
+"""
+
+
+def test_a_stair_two_layers_down_crosses_the_empty_layer_between():
+    """#326: the layer between is a container the arrow only passes, drawn
+    over it (#283), so its empty space is free to cross. Counted as one
+    solid box it sent each arrow round it along the board's edge."""
+    from grafli.items import ArrowLineItem
+
+    view = _view(_LAYERS)
+    columns = {"algorithm": 580, "box2d": 1340}
+    seen = set()
+    for gfx in view._arrow_items:
+        arrow = gfx.data(0) if isinstance(gfx, ArrowLineItem) else None
+        if arrow is None:
+            continue
+        seen.add(arrow.to_id)
+        for poly in gfx.path().toSubpathPolygons():
+            for p in poly:
+                assert abs(p.x() - columns[arrow.to_id]) < 0.01
+    assert seen == set(columns)
+
+
+def test_open_containers_are_not_obstacles_but_their_children_are():
+    obstacles = set(_view(_LAYERS)._routing_obstacles())
+    assert not obstacles & {"tools", "game", "rendering", "foundation"}
+    assert {"char3d", "canvas3d", "world"} <= obstacles
+
+
+def test_a_folded_container_is_an_obstacle_and_hides_its_children():
+    view = _view(_LAYERS)
+    view._present_detail = "summary"
+    view._refresh_lod()
+    obstacles = set(view._routing_obstacles())
+    assert "rendering" in obstacles
+    assert not obstacles & {"char3d", "canvas3d"}
+
+
 def test_no_ortho_connector_crosses_a_box_on_any_example_board():
     """The counterpart to the sibling-crossing guard, for obstacles.
 

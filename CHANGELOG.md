@@ -703,6 +703,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#152](https://github.com/MisterGC/grafli/issues/152))
 
 ### Fixed
+- **A pinned arrow between stacked layers runs through the gap when
+  zoomed out.** An arrow such as `@ arrow canvas3d -> world !ortho
+  ~from=left ~to=left`, between boxes in two neighbouring layer
+  containers, moves onto the two containers when they fold zoomed out.
+  It kept its pins on the containers' left sides there, which are the
+  board's edge, so it ran down that edge instead of through the gap
+  between the layers. Zoomed out, an end that has moved to a container
+  is no longer pinned. At full zoom the pins hold as before.
+  ([#326](https://github.com/MisterGC/grafli/issues/326))
+- **A right-angle arrow that skips a layer crosses it where it is empty.**
+  On a board of stacked layer containers, an `!ortho` arrow from a box in
+  one layer to the box straight below it two layers down treated the
+  layer in between as one solid block. It went out to the board's edge,
+  down past the layer and back in. It now runs straight down through the
+  layer's empty space, drawn behind it, and steps round only the boxes
+  inside it. Zoomed out, a layer folded into a tile is still solid.
+  ([#326](https://github.com/MisterGC/grafli/issues/326))
 - **A small image shows its picture at 100%.** An image under 32 px on
   a side, such as a 30x30 SVG icon, drew the zoomed-out stand-in — a
   grey plate with an "SVG" tag — even at 100% zoom, on the canvas, in

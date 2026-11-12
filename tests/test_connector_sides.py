@@ -207,6 +207,43 @@ def test_a_pinned_direct_connector_does_not_bow_beside_a_sibling():
     assert len(pts) == 2                    # one straight run, no curve
 
 
+# ── Zoomed out, an end on a container's tile drops its pin (#326) ──
+
+# Four stacked layer containers; the arrow joins boxes in the second and
+# third layer, pinned to both boxes' left sides.
+LAYERS = ('#!grafli v4\n'
+          '@ box l1 "Tools" 0,0 4000x240 ^left !flat\n'
+          '@ box t1 "Dojo" 40,70 900x140 >l1\n'
+          '@ box l2 "Game" 0,330 4000x240 ^left !flat\n'
+          '@ box g1 "World" 1020,400 900x140 >l2\n'
+          '@ box l3 "Rendering" 0,660 4000x240 ^left !flat\n'
+          '@ box r1 "Canvas3D" 1020,730 900x140 >l3\n'
+          '@ box l4 "Foundation" 0,990 4000x240 ^left !flat\n'
+          '@ box f1 "Common" 40,1060 900x140 >l4\n'
+          '@ arrow r1 -> g1 !ortho ~from=left ~to=left\n')
+
+
+def test_a_pinned_arrow_between_folded_layers_runs_through_their_gap():
+    """Zoomed out, the arrow re-attaches to the two layers' tiles, whose left
+    sides are the board's edge: kept pinned, it ran down that edge. It runs
+    through the gap between the two layers instead."""
+    view = _view(LAYERS)
+    view._present_detail = "summary"
+    view._refresh_lod()
+    pts = _polyline(view)
+    assert pts[0].y() == pytest.approx(660)          # top of the third layer
+    assert pts[-1].y() == pytest.approx(570)         # bottom of the second
+    for p in pts:
+        assert 570 - 0.01 <= p.y() <= 660 + 0.01
+        assert 0 < p.x() < 4000
+
+
+def test_at_full_zoom_the_layered_arrow_keeps_its_pins():
+    pts = _polyline(_view(LAYERS))
+    assert _close(pts[0], _midpoint((1020, 730, 900, 140), "left"))
+    assert _close(pts[-1], _midpoint((1020, 400, 900, 140), "left"))
+
+
 # ── Style mode `s` `e` ─────────────────────────────────────────────
 
 def _overlay_view(src: str) -> GrafliView:

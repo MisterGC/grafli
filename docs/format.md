@@ -24,7 +24,7 @@ its version. It is required.
 
 | Element | Purpose |
 |---------|---------|
-| `box`   | Rectangular container with a label. Can nest via `>parent`. The label is a title — one line, or two for a short name; detail goes into the box's `&doc`, whose first sentence shows as the doc line under the label, or a `!card` body. `grafli diagnose` warns on a label of three or more lines (`label-lines`). |
+| `box`   | Rectangular container with a label. Can nest via `>parent`. The label is a title — one line, or two for a short name; detail goes into the box's `&doc`, whose first sentence shows as the doc line under the label, or a `!card` body. `grafli diagnose` warns on a label of three or more lines (`label-lines`). A box fits its text — text sizes don't grow with the box — and `diagnose` reports a box at least one and a half times as tall as its text needs (`sparse-box`); `--fix` shrinks it with its same-sized siblings. |
 | `note`  | Free-form text block. Supports tasks, questions, code-mode, Markdown-mode, and discussions (see [Text annotations](text-annotations.md)). |
 | `arrow` | Directed/bidirectional connector between two elements. |
 | `image` | A picture placed on the board (see [Images](images.md)). |

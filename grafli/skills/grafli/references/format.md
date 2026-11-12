@@ -124,7 +124,21 @@ content belongs in the box's own `&doc` (its first sentence shows on
 one line under the label as the doc line, `gv` peeks the rest), in a
 note the box owns as a `!card` body, or in a `code:` or plain note
 next to the box. `grafli diagnose` warns on a label of three or more
-lines (`label-lines`).
+lines (`label-lines`). The doc line shows only when the first sentence
+fits whole on one line, so keep that sentence short: about 25
+characters at the default size on a 260 px box with a lead icon, about
+18 on a 160 px box.
+
+**A box fits its content.** A text size is a fixed token and does not
+grow with the box, so a box keeps about the size its text needs: 160x80
+for a one-line title, about 240x80 to 260x80 for a title with a doc line
+and a lead icon. To fill bigger boxes, raise the text size of the whole
+group of siblings one step, never one box. `grafli diagnose` reports a
+leaf box at least one and a half times as tall as its text needs (`sparse-box`, info);
+`--fix` shrinks its height, and every sibling's of the same size to the
+same new height, keeping their top-left corners and widths. Containers, `!card` parents, boxes
+with a sub-board miniature or a body-filling icon, and boxes over an
+image are left alone.
 
 ```
 @ box cpu "CPU: 486" 0,0 300x110 *lead:chip &doc:cpu

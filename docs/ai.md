@@ -159,7 +159,8 @@ Once the skill is installed, the agent:
    `unrelated-children` / `unrelated-board` warnings for boxes that
    relate to nothing, and `label-lines` warnings for a box label of
    three or more lines, whose detail belongs in the box's doc line or a
-   `!card` body),
+   `!card` body, and `sparse-box` for a box at least one and a half times as tall
+   as its text needs, which `--fix` shrinks with its same-sized siblings),
    `grafli inspect` for placement geometry, `grafli layout` to run the
    app's layered layout over a board's boxes (boxes marked `!pin` stay
    where they are), and `grafli export --check`

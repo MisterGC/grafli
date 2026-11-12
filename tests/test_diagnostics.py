@@ -12,10 +12,13 @@ from grafli.diagnostics import (
     check_child_outside_parent,
     check_code_refs,
     check_cramped_container,
+    apply_fixes,
+    box_fit_size,
     check_label_lines,
     check_label_truncated,
     check_missing_resource,
     check_sibling_overlap,
+    check_sparse_box,
     check_unknown_color,
     run_all,
 )
@@ -162,6 +165,87 @@ def test_run_all_reports_label_lines():
     b = Box(id="b", label="one\ntwo\nthree", x=0, y=0, w=200, h=120)
     codes = [d.code for d in run_all(_make_board(boxes=[b]))]
     assert "label-lines" in codes
+
+
+# ── sparse-box ─────────────────────────────────────────────────
+
+def _cpu(tmp_path, w=260, h=130, **kw):
+    """A 'CPU: 486' box with a lead icon and a doc on a board file."""
+    path = tmp_path / "pc.grafli"
+    path.write_text("#!grafli v4\n")
+    res = tmp_path / "pc-res"
+    res.mkdir(exist_ok=True)
+    (res / "cpu.md").write_text("80486 DX4 at 100 MHz.\n\n- FPU\n")
+    box = Box(id=kw.pop("id", "cpu"), label="CPU: 486", x=kw.pop("x", 0),
+              y=0, w=w, h=h, icon="chip", icon_placement="lead",
+              attach_kind="doc", url="cpu", **kw)
+    return path, box
+
+
+def test_a_box_far_bigger_than_its_text_is_reported_with_a_shrink(tmp_path):
+    path, box = _cpu(tmp_path)
+    (d,) = check_sparse_box(_make_board(boxes=[box]), path)
+    assert (d.code, d.severity, d.item_ids) == ("sparse-box", "info",
+                                                ["cpu"])
+    assert d.fixable and d.fix["action"] == "resize"
+    assert d.fix["new"] == {"w": 260, "h": 80}
+    assert box_fit_size(box, "80486 DX4 at 100 MHz.")[1] == 80
+    assert "130 px tall" in d.message
+
+
+def test_a_box_sized_for_its_text_is_not_reported(tmp_path):
+    path, box = _cpu(tmp_path, w=240, h=80)
+    plain = Box(id="api", label="Api", x=400, y=0, w=160, h=80)
+    roomy = Box(id="auth", label="Auth", x=600, y=0, w=220, h=90)
+    bar = Box(id="srv", label="grafli serve", x=0, y=200, w=890, h=100)
+    assert check_sparse_box(_make_board(boxes=[box, plain, roomy, bar]),
+                            path) == []
+
+
+def test_same_sized_siblings_shrink_together_to_one_size(tmp_path):
+    path, _ = _cpu(tmp_path)
+    grp = Box(id="grp", label="PC", x=0, y=0, w=700, h=400, style="flat")
+    short = Box(id="ram", label="RAM", x=20, y=40, w=300, h=150,
+                parent="grp")
+    long = Box(id="bus", label="Expansion bus and slots", x=360, y=40,
+               w=300, h=150, parent="grp")
+    diags = check_sparse_box(_make_board(boxes=[grp, short, long]), path)
+    assert sorted(d.item_ids[0] for d in diags) == ["bus", "ram"]
+    assert len({(d.fix["new"]["w"], d.fix["new"]["h"]) for d in diags}) == 1
+    (fix,) = {(d.fix["new"]["w"], d.fix["new"]["h"]) for d in diags}
+    assert fix == (300, 80)
+
+
+def test_containers_images_miniatures_and_fill_icons_are_left_alone(tmp_path):
+    path, _ = _cpu(tmp_path)
+    grp = Box(id="grp", label="G", x=0, y=0, w=600, h=400)
+    kid = Box(id="kid", label="k", x=20, y=40, w=160, h=80, parent="grp")
+    mini = Box(id="mini", label="Sub", x=700, y=0, w=400, h=300,
+               attach_kind="graph", url="sub")
+    fill = Box(id="fill", label="Db", x=1200, y=0, w=400, h=300,
+               icon="database")
+    over = Box(id="over", label="CPU", x=1700, y=0, w=300, h=200)
+    pic = Image(id="pic", image_path="board.png", x=1650, y=-20, w=500,
+                h=300)
+    board = _make_board(boxes=[grp, kid, mini, fill, over], images=[pic])
+    assert check_sparse_box(board, path) == []
+
+
+def test_the_fix_settles_in_one_run(tmp_path):
+    path, box = _cpu(tmp_path)
+    other = Box(id="ram", label="RAM", x=300, y=0, w=260, h=130)
+    board = _make_board(boxes=[box, other])
+    applied = apply_fixes(board, check_sparse_box(board, path))
+    assert len(applied) == 2
+    assert box.w == other.w and box.h == other.h == 80
+    assert check_sparse_box(board, path) == []
+
+
+def test_run_all_reports_sparse_box(tmp_path):
+    path, box = _cpu(tmp_path)
+    codes = [d.code for d in run_all(_make_board(boxes=[box]),
+                                     grafli_path=path)]
+    assert "sparse-box" in codes
 
 
 # ── missing-resource ───────────────────────────────────────────

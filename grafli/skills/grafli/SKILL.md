@@ -460,6 +460,20 @@ to a v1 file, bump the header yourself).
   a `!card` body. Note text may run over many lines with `\n` or a
   triple-quoted block; a literal quote inside quoted text is `\"`
   (triple-quoted blocks need no escapes).
+* A box fits its content. A text size is a fixed token, not scaled to the
+  box: at the default size a one-line title takes a 160x80 box, a title
+  with a doc line and a lead icon about 240x80 to 260x80. When a label
+  gets shorter (its details moved into its `&doc`), shrink the box with
+  it. To fill bigger boxes, raise the text size of the whole group of
+  siblings one step (`~large`), never one box: size is emphasis, and
+  siblings of one kind share one size. `diagnose` reports a box at least
+  one and a half times as tall as its text needs (`sparse-box`);
+  `diagnose --fix` shrinks its height, and its same-sized siblings' with it.
+* A doc's first sentence is the box's subtitle, and it shows only when it
+  fits whole on one line: never cut, it is left out. Keep it short — about
+  25 characters at the default size on a 260 px box with a lead icon,
+  about 18 on a 160 px box (`80486 DX4 at 100 MHz.`, not `IDE hard disk
+  of a few hundred MB.`) — and put the rest after it.
 
 ## Common mistakes — check before you save
 
@@ -474,6 +488,11 @@ catches them before the user opens the file.
 * **An icon as an `@ image` over a box.** It drifts when the box moves
   and the label runs under it. Put the SVG into `<stem>-res/icons/` and
   write `*lead:<name>` on the box.
+* **A box left at the size of its old label.** A 260x130 box that now
+  holds `"CPU: 486"` and one doc line is mostly empty, and the text reads
+  lost in it. Shrink the group to about 260x80, or give the whole group
+  `~large`; `~small` on such a box makes it worse. `diagnose` reports it
+  as `sparse-box`.
 * **Quote characters in quoted text.** A `"` inside single-line quoted
   text must be escaped as `\"`; an unescaped one breaks the line (it
   surfaces as a `parse-error` in diagnose). For quote-heavy or

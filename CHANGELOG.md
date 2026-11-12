@@ -500,6 +500,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   places the detail can go. A session connected through `grafli agent`
   gets the same text from `authoring_guide`.
   ([#328](https://github.com/MisterGC/grafli/issues/328))
+- **A box fits its text, and `diagnose` says when it doesn't.** A text
+  size is a fixed token, so a box left at the size of a longer label read
+  mostly empty. The skill now says a box fits its content, about 240x80
+  for a title with a doc line and a lead icon, and to raise a whole
+  group's text size rather than one box's, and to keep a doc's first
+  sentence short enough to show whole as the box's subtitle.
+  ([#336](https://github.com/MisterGC/grafli/issues/336)) `diagnose`
+  reports a leaf box at least one and a half times as tall as its text needs as
+  `sparse-box`, and `--fix` shrinks its height with its same-sized
+  siblings to one new height, so a grid of equal boxes stays equal. Boxes over an
+  image, containers and boxes with a miniature or a body-filling icon are
+  left alone. ([#337](https://github.com/MisterGC/grafli/issues/337))
 - **Software diagrams from the skill draw only the arrows their question
   asks for, and their icons say what kind of thing a box is.** The skill
   told agents to leave symbols off software diagrams and never said which

@@ -727,6 +727,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   until it is drawn at less than half its own size; a big image still
   swaps for the stand-in at 32 px on screen when zoomed far out.
   ([#327](https://github.com/MisterGC/grafli/issues/327))
+- **A `~small` box shows its doc line at 100%.** Its doc line is 8 px,
+  under the 10 px a zoomed-out line needs to come back, so it showed only
+  from about 125% zoom, on the canvas, in `grafli render` and in the live
+  tab. A doc line now counts as legible at 100% whatever its size and
+  still collapses when zoomed out.
+  ([#334](https://github.com/MisterGC/grafli/issues/334))
 - **Number markers read at board zoom.** On a 200x70 box at 100% zoom
   `*badge:1` drew a ring with a digit about 4 px tall, which read as an
   empty circle, and `*1` drew a digit about 10 px tall above the label.

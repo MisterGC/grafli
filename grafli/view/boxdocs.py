@@ -22,7 +22,7 @@ from PySide6.QtWidgets import QFrame, QTextBrowser, QVBoxLayout
 from grafli import iconset, theme
 from grafli.format import Note, doc_name
 from grafli.items import BoxItem, NoteItem, scene_icons
-from grafli.lod import should_collapse
+from grafli.lod import EXPAND_PX, should_collapse
 from grafli.md_note import doc_first_sentence
 
 # The peek sits this far from the box it belongs to and from the viewport
@@ -168,8 +168,11 @@ class BoxDocsMixin:
                     line = ""
                 # A slide is drawn once: no hysteresis from the canvas.
                 was_hidden = (slide_scale is None and not item._doc_line)
-                if line and lod_on and should_collapse(
-                        item.doc_line_px() * scale, was_hidden):
+                # Judged as at least EXPAND_PX at zoom 1: a `~small` box's
+                # 8 px doc line shows at 100% and collapses only once
+                # zoomed out (#334).
+                legible = max(item.doc_line_px(), EXPAND_PX) * scale
+                if line and lod_on and should_collapse(legible, was_hidden):
                     line = ""
             item.set_doc_line(line)
         self._place_doc_peek()

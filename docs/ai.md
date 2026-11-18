@@ -108,6 +108,83 @@ that session:
 The guide is always the version of the skill that ships with the running
 grafli, so it matches the format the board is read in.
 
+## In the desktop app: hand single changes to your agent
+
+You can build a board with the app's own keys and hand single changes to a
+Claude Code session, the way a present link's tab of `grafli serve` does —
+on your own, or while an audience follows the board in a browser tab. The
+app hosts what `grafli serve` hosts, so you do not start `grafli serve`
+yourself. It needs the same extra: `pip install 'grafli[serve]'`; without
+it, the app says what is missing and the `:` line still applies grafli
+lines.
+
+**Connect a session.**
+
+1. Once, register grafli's MCP server with Claude Code:
+   `claude mcp add -s user grafli -- grafli agent`.
+2. Start the session so requests from the board reach it:
+   `claude --dangerously-load-development-channels server:grafli`
+   (see [Connect your agent](navigating.md#connect-your-agent-a-claude-code-session-you-run)
+   for what the flag does and when `MCP_PROTOCOL_NEGOTIATION=legacy` helps).
+3. In the app, with a saved board open, press <kbd>:</kbd>. The app now
+   hosts the board's folder on 127.0.0.1 (port 7341, or a free one when
+   that is taken) and writes the state file `grafli agent` looks for. The
+   agent's menu in the status bar (**✦ no agent connected**) has **Host
+   this board** for the same.
+4. In the session, type `/mcp__grafli__connect`. The status bar shows the
+   agent by name in purple — **✦ Claude** — and **✦ Claude · gone** when
+   its session drops.
+
+With no session connected, the status bar says **✦ no agent connected**,
+the `:` line says "plain language: no agent connected", and a request is
+answered with "No agent is connected, so nothing was sent". Nothing waits:
+a session that connects later hears only what you ask from then on.
+
+**Ask.**
+
+- <kbd>:</kbd> opens the command line along the bottom of the canvas. A
+  grafli line — one that starts with `@`, or reads like one without it, such
+  as `box cache "Cache"` — is applied to the board at once: a box without a
+  place goes below the selection, else in the middle of the view, and
+  <kbd>u</kbd> undoes it. Anything else is plain language for the agent:
+  "add a cache between api and db". The right end of the line says where
+  your text goes; <kbd>↑</kbd> and <kbd>↓</kbd> bring back what you sent
+  before.
+- <kbd>Shift</kbd>+<kbd>A</kbd> asks about the selected element: the line
+  opens as "✦ ask Claude about 'Payments':", and the session hears which
+  element the request is about.
+
+**What you see.** While the agent works on a request, a line at the top of
+the canvas says "✦ Claude is working on: add a cache between api and db",
+with "reading the board" or "rendering the board" as the session does it.
+When its edit lands, the app shows it at once: what it added or changed
+glows in purple for a few seconds, tagged "✦ Claude · Shift+U undo", and a
+toast says what it did ("Claude: +1 box").
+
+| Key | Does |
+|-----|------|
+| <kbd>Shift</kbd>+<kbd>U</kbd> | Undo the agent's last edit; your own edits since stay |
+| <kbd>Enter</kbd> | Take the agent's proposal, while one waits |
+| <kbd>x</kbd> | Drop the proposal; the board stays as it was |
+
+A change of more than 5 elements waits as the agent's **proposal**: a
+purple banner — "✦ Claude proposes 7 changes · split Payments" — and
+dashed outlines where it would add or change something, with what it
+removes struck through. The view moves to it when it is out of sight. While
+it waits, <kbd>Enter</kbd> and <kbd>x</kbd> act on it rather than on the
+selection.
+
+**Guests.** The agent's menu in the status bar copies the board's **edit**
+and **watch** links. A guest who opens one in a browser tab sees the same
+board, your edits as the app saves them, the agent's edits glowing and the
+working line; the app is the presenter they follow. Hosting listens on this
+machine only unless you start the app with `grafli --host <your LAN or VPN
+address> board.grafli`, as with `grafli serve --host`. **Stop hosting** in
+the same menu disconnects the agent and the guests; quitting the app does
+too.
+
+The app's agent keys are in its <kbd>F1</kbd> help under **Your agent**.
+
 ## What the skill triggers on
 
 The skill is deliberately **scoped narrowly** to avoid polluting

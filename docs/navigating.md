@@ -394,6 +394,10 @@ The boards' agent is a Claude Code session you are already running on the
 machine that runs `grafli serve`. grafli never starts a session; without a
 connected one there is no agent.
 
+The desktop app hosts a board the same way, without `grafli serve`: press
+<kbd>:</kbd> in the app and connect the session as below (see
+[In the desktop app](ai.md#in-the-desktop-app-hand-single-changes-to-your-agent)).
+
 Once, register grafli's MCP server with Claude Code for every project:
 
 ```bash

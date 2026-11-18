@@ -103,6 +103,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/mcp__grafli__connect`, both tell it to read the guide before its first
   edit, unless the skill is already loaded there.
   ([#302](https://github.com/MisterGC/grafli/issues/302))
+- **Talk to the board's agent from the desktop app, as from the live
+  tab.** Press `:` in the app and it hosts the board the way `grafli serve`
+  does, so a Claude Code session connects with `/mcp__grafli__connect`
+  without `grafli serve` started by hand; the status bar names the agent,
+  or says none is connected. On the `:` line a grafli line such as
+  `box cache "Cache"` is applied at once (`u` undoes it) and plain language
+  goes to the agent; `Shift+A` asks about the selected element. The app
+  shows what the agent is working on until its edit lands, the edit glows
+  in purple with its name, `Shift+U` takes back the agent's last edit and
+  leaves yours, and a change of more than five elements waits as a
+  proposal that `Enter` takes and `x` drops. Guests open the board's edit
+  or watch link, copied from the agent's menu in the status bar, and see
+  the same board, the agent's edits and the working line. The app hosts on
+  this machine only unless started with `grafli --host <address>`; it
+  needs the `serve` extra and says so without it.
+  ([#353](https://github.com/MisterGC/grafli/issues/353))
 - **The installed skill carries the example boards it points to.** The
   skill's playbooks tell the agent to copy boards such as
   `examples/architecture.grafli`, but `grafli skill install` copied only

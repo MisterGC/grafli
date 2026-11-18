@@ -203,6 +203,13 @@ class Room:
         await self._first.wait()
         return self.frame
 
+    async def catch_up(self) -> Frame | None:
+        """Draw the file now when it changed since the last frame, rather
+        than at the next poll; the frame on screen afterwards."""
+        await self.ready()
+        await self._refresh()
+        return self.frame
+
     async def _run(self) -> None:
         while True:
             if _signature(self.path) != self._sig:

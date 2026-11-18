@@ -903,8 +903,10 @@ class MainWindow(QMainWindow):
                 self._buffers.push_frame(frame)
             self._open_board_at(path, target_id)
             if frame is not None and frame.tour is not None:
+                resume = ("Go ▸ Back up resumes it" if controls.is_standard()
+                          else "gu resumes it")
                 self._view.toast(f"Tour paused at stop {frame.tour.index + 1}"
-                                 " — gu resumes it", "info")
+                                 f" — {resume}", "info")
 
         if rect is None:
             switch()

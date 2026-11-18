@@ -1565,6 +1565,28 @@ def test_an_arrow_key_move_after_an_undo_or_an_edit_is_its_own_step(std):
     assert box.x == 1 and "bold" in box.emphasis
 
 
+def test_a_tour_paused_by_going_into_a_board_names_go_back_up(tmp_path):
+    from tests.test_tour_across_boards import _system
+    from tests.test_tour_across_boards import _window as _tour_window
+    root, combat, _impact, detail = _system(tmp_path)
+    win = _tour_window(root)
+    win.set_control_scheme(controls.STANDARD)
+    view = win._view
+    view.setFocus()
+    view.play_flow("tour")
+    QTest.keyClick(view, Qt.Key.Key_Space)
+    assert win._file_path == combat
+    view._box_items["detail"].setSelected(True)
+    QTest.keyClick(view, Qt.Key.Key_Return)
+    assert win._file_path == detail
+    assert view._toast_text == "Tour paused at stop 2 — Go ▸ Back up resumes it"
+    QTest.keyClick(view, Qt.Key.Key_Up, ALT)
+    assert win._file_path == combat
+    assert view._flow_player is not None and view._flow_player.active
+    view._dirty = False
+    win.close()
+
+
 def test_the_annotation_help_names_the_standard_controls(std):
     win, view = std
     html = view._notes_help_html()

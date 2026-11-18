@@ -318,6 +318,18 @@ _PLACE_RE = re.compile(r'^\s+-?[\d.]+,\s*-?[\d.]+\s+[\d.]+x[\d.]+')
 _PARENT_RE = re.compile(r'\s>\S+')
 _KINDS = ("box", "arrow", "note", "image")
 
+# What the ':' line applies rather than sends to the agent: a line that
+# starts with @, or reads like one without it — a kind, an id and a quoted
+# label (an arrow: an id and its arrow). Anything else is plain language,
+# "note the cache is slow" too. The tab's edit.js holds the same rule.
+_LINE_RE = re.compile(r'^(@|(box|note|image)\s+[\w.-]+\s+"'
+                      r'|arrow\s+[\w.-]+\s*(->|<-|<->|--))')
+
+
+def is_line(text: str) -> bool:
+    """Whether *text* typed on the ':' line is a grafli line to apply."""
+    return bool(_LINE_RE.match(text.strip()))
+
 
 def _command_lines(text: str) -> list[str]:
     """The element lines of *text*: blank lines and comments dropped, and a

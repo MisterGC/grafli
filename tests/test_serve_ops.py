@@ -5,7 +5,8 @@ from __future__ import annotations
 import pytest
 
 from grafli.format import parse, serialize
-from grafli.serve.ops import NEW_BOX_H, NEW_BOX_W, OpError, apply_op
+from grafli.serve.ops import (NEW_BOX_H, NEW_BOX_W, OpError, apply_op,
+                              is_line)
 
 BOARD = """#!grafli v1
 @ box lane "Lane" 0,0 400x200
@@ -351,6 +352,29 @@ def test_a_full_line_is_taken_as_written():
     assert [n.text for n in b.notes[-2:]] == ["Q: why a queue?",
                                              "Q: and who reads it?"]
     assert len({n.id for n in b.notes}) == len(b.notes)
+
+
+@pytest.mark.parametrize("text, line", [
+    ('@ box cache "Cache"', True),
+    ('box cache "Cache"', True),
+    ('  note n1 "slow"', True),
+    ("arrow api -> db", True),
+    ("@anything", True),
+    ("add a cache between api and db", False),
+    ("note the cache is slow", False),
+    ("box it all up", False),
+    ("", False),
+])
+def test_the_command_line_tells_a_grafli_line_from_plain_language(text, line):
+    assert is_line(text) is line
+
+
+def test_the_tab_and_the_app_tell_a_grafli_line_the_same_way():
+    from pathlib import Path
+    from grafli.serve import ops
+    js = (Path(ops.__file__).parent.parent / "assets" / "serve"
+          / "edit.js").read_text(encoding="utf-8")
+    assert "/" + ops._LINE_RE.pattern + "/" in js
 
 
 @pytest.mark.parametrize("text, message", [

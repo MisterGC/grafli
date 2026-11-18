@@ -33,7 +33,7 @@ from PySide6.QtGui import (QBrush, QColor, QFont, QFontMetrics, QGuiApplication,
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu,
                                QToolButton)
 
-from grafli import theme
+from grafli import controls, theme
 from grafli.constants import FONT_FAMILY
 from grafli.serve.agent import AGENT_COLOR
 
@@ -45,6 +45,27 @@ PRESENCE_MS = 150
 ASK_LABEL_CHARS = 40
 
 CONNECT_HINT = "in your Claude Code session: /mcp__grafli__connect"
+
+
+def agent_keys() -> dict[str, str]:
+    """What the hints call the agent's commands in the active control
+    scheme: the vim keys, or the standard scheme's shortcuts and menus."""
+    if not controls.is_standard():
+        return {"line": ":", "ask": "Shift+A",
+                "undoes": "Shift+U undoes it", "tag": "Shift+U undo",
+                "settles": "Enter takes it, x drops it",
+                "settle": "Enter take · x drop"}
+    from PySide6.QtGui import QKeySequence
+    from grafli.standard_ui import ACTIONS
+
+    def native(action_id: str) -> str:
+        return QKeySequence(ACTIONS[action_id][1][0]).toString(
+            QKeySequence.SequenceFormat.NativeText)
+    return {"line": native("agent_line"), "ask": native("agent_ask"),
+            "undoes": "Agent ▸ Undo the agent's edit takes it back",
+            "tag": "Agent ▸ Undo",
+            "settles": "the Agent menu or a right-click takes or drops it",
+            "settle": "right-click: take · drop"}
 
 
 def agent_color() -> QColor:
@@ -252,6 +273,9 @@ class AgentChip(QToolButton):
         super().__init__()
         self._link = link
         self.setAutoRaise(True)
+        # Clicked, never tabbed to: Tab belongs to the canvas, which cycles
+        # the selection through siblings with it.
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.setMenu(QMenu(self))
         self.menu().aboutToShow.connect(self._fill_menu)
@@ -261,16 +285,17 @@ class AgentChip(QToolButton):
         seat, host = self._link.seat, self._link.host
         if seat is not None and seat.get("present"):
             text, color = f"✦ {seat['name']}", AGENT_COLOR
-            tip = f"{seat['name']} is connected: : asks it, Shift+A on the " \
-                  "selection"
+            keys = agent_keys()
+            tip = f"{seat['name']} is connected: {keys['line']} asks it, " \
+                  f"{keys['ask']} on the selection"
         elif seat is not None:
             text, color = f"✦ {seat['name']} · gone", theme.STATUS_DIM.name()
             tip = f"{seat['name']}'s session dropped; {CONNECT_HINT} again"
         else:
             text, color = "✦ no agent connected", theme.STATUS_DIM.name()
             tip = (CONNECT_HINT[0].upper() + CONNECT_HINT[1:] if host
-                   else "Press : to host this board, then "
-                        + CONNECT_HINT)
+                   else f"Press {agent_keys()['line']} to host this board, "
+                        "then " + CONNECT_HINT)
         if host is not None and self._link.board is None:
             tip += f" · this board is not in {host.root}, the folder hosted"
         self.setText(text)
@@ -553,7 +578,7 @@ class AgentLink(QObject):
         had, self.proposal = self.proposal, proposal
         if proposal is not None and (had is None or had["id"] != proposal["id"]):
             self.toast(f"{proposal['by']} proposes {proposal['count']} "
-                       "changes: Enter takes it, x drops it")
+                       f"changes: {agent_keys()['settles']}")
             self._show_proposal()
         self.changed.emit()
 
@@ -604,7 +629,7 @@ class AgentLink(QObject):
                 self.toast(f"{msg['by']} undid its last edit")
             else:
                 self.toast(f"{msg['by']}: {msg.get('summary') or 'changed the board'}"
-                           " · Shift+U undoes it")
+                           f" · {agent_keys()['undoes']}")
             self.mark = {"by": msg["by"], "ids": list(msg.get("ids") or []),
                          "version": msg.get("version")}
             self._mark_timer.start()
@@ -683,7 +708,8 @@ class AgentLink(QObject):
         if p is None:
             return None
         return (f"✦ {p['by']} proposes {p['count']} changes · "
-                f"{p.get('about') or p.get('summary', '')}   Enter take · x drop")
+                f"{p.get('about') or p.get('summary', '')}   "
+                f"{agent_keys()['settle']}")
 
     def working(self) -> str | None:
         """The working line as drawn, or None."""
@@ -754,7 +780,7 @@ class AgentLink(QObject):
                     lowest = g.sceneBoundingRect()
         if lowest is None:
             return
-        text = f"✦ {self.mark['by']} · Shift+U undo"
+        text = f"✦ {self.mark['by']} · {agent_keys()['tag']}"
         font = QFont(FONT_FAMILY, 9)
         font.setBold(True)
         painter.setFont(font)

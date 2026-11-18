@@ -27,6 +27,23 @@ def _pinned_theme():
 
 
 @pytest.fixture(autouse=True)
+def _vim_controls(tmp_path_factory, monkeypatch):
+    """Run every test on the vim control scheme (#352), with the scheme's
+    saved choice kept in a private settings file: a test that switches
+    schemes never writes the developer's real choice, and a developer on the
+    standard scheme still runs the suite as written. Tests of the standard
+    scheme switch to it themselves."""
+    from PySide6.QtCore import QSettings
+    from grafli import controls
+    ini = tmp_path_factory.mktemp("settings") / "grafli.ini"
+    monkeypatch.setattr(controls, "_settings", lambda: QSettings(
+        str(ini), QSettings.Format.IniFormat))
+    controls.set_scheme(controls.VIM)
+    yield
+    controls.set_scheme(controls.VIM)
+
+
+@pytest.fixture(autouse=True)
 def _private_serve_state(tmp_path_factory, monkeypatch):
     """Keep ``grafli serve``'s state file (its agent key) out of the real
     ``~/.local/state``: a test that runs the server writes it here, and a

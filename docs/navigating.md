@@ -1,5 +1,10 @@
 # Navigating graphs efficiently
 
+!!! info "This guide is the vim scheme"
+    It uses the vim keys. With the standard controls — menus, toolbar,
+    right-click and the usual shortcuts — read
+    [Navigating graphs: standard controls](navigating-standard.md).
+
 Once a diagram outgrows a single screen, the bottleneck stops being *drawing*
 and becomes *moving around*: find the thing, zoom in, edit it, zoom back out,
 find the next thing. grafli is built so that whole loop stays on the keyboard
@@ -395,7 +400,8 @@ machine that runs `grafli serve`. grafli never starts a session; without a
 connected one there is no agent.
 
 The desktop app hosts a board the same way, without `grafli serve`: press
-<kbd>:</kbd> in the app and connect the session as below (see
+<kbd>:</kbd> in the app (<kbd>Ctrl</kbd>+<kbd>L</kbd> in the standard control
+scheme) and connect the session as below (see
 [In the desktop app](ai.md#in-the-desktop-app-hand-single-changes-to-your-agent)).
 
 Once, register grafli's MCP server with Claude Code for every project:

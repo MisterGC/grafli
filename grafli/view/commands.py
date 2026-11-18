@@ -195,7 +195,14 @@ class CommandsMixin:
             return
 
         cursor_viewport = self.mapFromGlobal(self.cursor().pos())
-        cursor_scene = self.mapToScene(cursor_viewport)
+        self._paste_to(self.mapToScene(cursor_viewport))
+
+    def _paste_to(self, cursor_scene: QPointF):
+        """Paste the latest copy — the board's own, or an image or text
+        copied in another app since — centred on ``cursor_scene``."""
+        from PySide6.QtWidgets import QApplication
+        clipboard = QApplication.clipboard()
+        clip_text = clipboard.text() if clipboard else ""
 
         has_image = clipboard is not None and not clipboard.image().isNull()
         has_internal = bool(

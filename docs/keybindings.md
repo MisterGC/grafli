@@ -1,5 +1,13 @@
 # Keybindings
 
+!!! info "This page is the vim scheme"
+    grafli has two control schemes. This page is the **vim keys**: single
+    keys and modes. Driving grafli with menus, a toolbar, right-click and
+    the usual shortcuts (Ctrl/⌘+C, Delete, F2…) is the standard scheme:
+    see [Standard controls](standard-controls.md). The first start asks
+    which one you want; the **Controls** button in the Tools panel (<kbd>\\</kbd>)
+    or the <kbd>F1</kbd> help switches at any time.
+
 Grafli is modal. Most commands are a single key in **Select** mode (the
 default). The full cheat sheet is also available in-app via <kbd>F1</kbd>,
 with live filtering.

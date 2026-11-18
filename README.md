@@ -52,7 +52,10 @@ Requirements: Python 3.12+, PySide6 (Qt 6.7+).
 ## Design philosophy
 
 - **Keyboard-first.** Modal editing in the spirit of vim — Select, Rect, Text,
-  Connect — composes a small set of keystrokes into rich diagrams.
+  Connect — composes a small set of keystrokes into rich diagrams. Prefer the
+  mouse? The standard control scheme has menus, a toolbar, right-click and the
+  shortcuts you know from other apps; grafli asks on the first start, and
+  switches at any time.
 - **Less is more.** Three primitives (boxes, arrows, notes) plus visible
   containment cover the cases that matter, without a menu maze.
 - **Text for AI, git, humans.** `.grafli` files are line-oriented plain text;
@@ -171,6 +174,10 @@ Triple-quoted block notes are supported when a note contains quote characters
 or spans multiple lines.
 
 ## Keybindings (selection)
+
+These are the vim scheme's keys. The standard scheme's controls — menus,
+toolbar, right-click, Ctrl/⌘+C, Delete, F2 — are on the
+[standard controls](https://grafli.mistergc.dev/standard-controls/) page.
 
 | Key | Action |
 |-----|--------|

@@ -57,6 +57,8 @@ class _ToolButton(QWidget):
         layout.addWidget(self._text_label, stretch=1)
 
         self._hint = QLabel(shortcut)
+        # What the vim scheme shows, to come back to from the standard one.
+        self._vim_texts = (label, shortcut)
         self._hint.setFont(QFont(FONT_FAMILY, 11))
         self._hint.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -72,6 +74,10 @@ class _ToolButton(QWidget):
             f"color: {theme.SIDE_PANEL_SHORTCUT_COLOR.name()};"
             " background: transparent;")
         self.update()
+
+    def set_texts(self, label: str, hint: str):
+        self._text_label.setText(label)
+        self._hint.setText(hint)
 
     @property
     def active(self) -> bool:
@@ -174,6 +180,7 @@ class SidePanel(QWidget):
         self._build_actions_section()
         self._build_view_section()
         self._build_export_section()
+        self._build_controls_section()
 
         self._layout.addStretch(1)
         scroll.setWidget(content)
@@ -325,6 +332,53 @@ class SidePanel(QWidget):
             ("export_html",     "\U000F031D", "HTML",      ""),
         ])
 
+    def _build_controls_section(self):
+        self._add_section("controls", "Controls", [
+            ("scheme", "\U000F030C", "Vim keys", "switch"),
+        ])
+
+    # The standard scheme's words and keys for the buttons (#352); a button
+    # not named here keeps its label and shows no key.
+    _STANDARD_TEXTS = {
+        "mode_select": ("Select", "Esc"),
+        "mode_rect": ("Box", ""),
+        "mode_text": ("Note", ""),
+        "mode_connect": ("Arrow", ""),
+        "mode_image": ("Mockup", ""),
+        "edit_label": ("Rename", "F2"),
+        "delete": ("Delete", "Del"),
+        "style": ("Format…", ""),
+        "undo": ("Undo", "Ctrl+Z"),
+        "redo": ("Redo", "Ctrl+Shift+Z"),
+        "search": ("Find", "Ctrl+F"),
+        "yank_png": ("PNG", "Ctrl+Shift+C"),
+        "export_svg": ("SVG", "Ctrl+E"),
+        "scheme": ("Standard", "switch"),
+    }
+
+    def set_scheme(self, scheme: str):
+        """Label the buttons for control scheme ``scheme``."""
+        from PySide6.QtGui import QKeySequence
+        from grafli.controls import STANDARD
+        standard = scheme == STANDARD
+        for action_id, btn in self._buttons.items():
+            if not standard:
+                btn.set_texts(*btn._vim_texts)
+                continue
+            label, hint = self._STANDARD_TEXTS.get(
+                action_id, (btn._vim_texts[0], ""))
+            if "+" in hint:
+                hint = QKeySequence(hint).toString(
+                    QKeySequence.SequenceFormat.NativeText)
+            btn.set_texts(label, hint)
+        # Resizing is the corner handles' job there; the vim keys' panel
+        # entry would only enter a mode the standard keys cannot drive.
+        dim = self._buttons.get("dimension")
+        if dim is not None:
+            edit_shown = not self._buttons["edit_label"].isHidden()
+            dim.setVisible(edit_shown and not standard)
+        self._scheme = scheme
+
     def refresh_flows(self):
         """Refresh the dedicated Flows editor (kept in sync with the board)."""
         self._flows_panel.refresh()
@@ -347,6 +401,8 @@ class SidePanel(QWidget):
 
     def update_selection(self, has_selection: bool):
         self.set_section_visible("edit", has_selection)
+        if getattr(self, "_scheme", "") == "standard":
+            self._buttons["dimension"].setVisible(False)
 
     def paintEvent(self, event):
         p = QPainter(self)

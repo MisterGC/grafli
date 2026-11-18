@@ -5,9 +5,13 @@ The keys come from :mod:`grafli.keymap`, the table the F1 help renders, so
 the two cannot drift apart. The page needs no server and no internet: the
 F1 help writes it next to the installed version and opens it in the
 browser, and the website publishes the same page as ``docs/at-a-glance.html``.
-Regenerate that copy after changing the table::
 
-    python -m grafli.helppage docs/at-a-glance.html
+The page follows the control scheme (:mod:`grafli.controls`, #352): the F1
+help writes the active scheme's, and the website has one per scheme, the
+standard scheme's as ``docs/at-a-glance-standard.html``. Regenerate both
+copies after changing the table::
+
+    python -m grafli.helppage
 """
 
 from __future__ import annotations
@@ -18,10 +22,13 @@ import tempfile
 from html import escape
 from pathlib import Path
 
-from grafli import keymap
+from grafli import controls, keymap
+from grafli.controls import STANDARD, VIM
 
 SITE = "https://grafli.mistergc.dev"
 DOCS_COPY = Path("docs") / "at-a-glance.html"
+DOCS_COPIES = {VIM: DOCS_COPY,
+               STANDARD: Path("docs") / "at-a-glance-standard.html"}
 
 _LINKS = (
     ("watch", "Watch link", "follows the presenter, points, reads"),
@@ -178,7 +185,27 @@ def _steps(steps) -> str:
     return f'<ol class="steps">\n{items}\n</ol>'
 
 
-def _desk() -> str:
+def _tool_strip() -> str:
+    """The standard scheme's toolbar, its tools side by side."""
+    tools = next(g for g in keymap.STANDARD_GROUPS if g.id == "std-tools")
+    items = "\n".join(
+        f'<a class="spoke" href="#k-std-tools"><span class="tb">'
+        f'{_e(k.keys.split(" ▸ ")[-1])}</span>'
+        f'<span>{_e(_short(k.does))}</span></a>'
+        for k in tools.keys if k.keys.startswith("Toolbar ▸ ")
+    )
+    return (
+        '<div class="modemap">\n'
+        '<div class="hub"><span class="hub-name">Select</span>'
+        f'<span class="hub-keys">{_kbd("Esc")}</span>'
+        '<span class="hub-note">the default tool: click, drag, '
+        'right-click</span>'
+        "</div>\n"
+        f'<div class="spokes">\n{items}\n</div>\n</div>'
+    )
+
+
+def _desk(scheme: str = VIM) -> str:
     flow = (
         '<div class="flow">'
         + _node("app", "grafli", "your keys, saved as you go")
@@ -203,7 +230,10 @@ def _desk() -> str:
         ("<code>grafli board.grafli</code>",
          "The app opens it and redraws whenever the session changes the "
          "file."),
-        (f"{_kbd('t')} click, type <code>T:</code> or <code>Q:</code>",
+        (f"{_kbd('t')} click, type <code>T:</code> or <code>Q:</code>"
+         if scheme == VIM else
+         "<b>Note</b> on the toolbar, click, type <code>T:</code> or "
+         "<code>Q:</code>",
          "A task for the session, or a question it answers on the board."),
         ("Ask: <q>work the notes on the board</q>",
          "It does the tasks and answers the questions beside them."),
@@ -377,6 +407,9 @@ kbd.glyph { font-family: ui-sans-serif, system-ui, -apple-system,
 .or { color: var(--faint); margin: 0 .3em; font-size: .85rem; }
 .seq { display: inline-flex; gap: .15em; align-items: center;
   white-space: nowrap; }
+.tb { display: inline-block; padding: .05em .5em; border: 1px solid
+  var(--cap-edge); border-radius: 5px; background: var(--cap);
+  font-size: .8rem; font-weight: 700; white-space: nowrap; }
 .gest { font-size: .8rem; color: var(--teal); font-weight: 600;
   font-style: italic; line-height: 1.3; }
 .modemap { display: grid; grid-template-columns: minmax(11rem, 15rem) 1fr;
@@ -456,10 +489,49 @@ footer code { font-size: .9em; }
 """
 
 
-def render_page() -> str:
-    """The whole page, as a string."""
-    app_cards = "\n".join(_card(g) for g in keymap.groups(keymap.APP))
+def _app_section(scheme: str) -> str:
+    cards = "\n".join(_card(g) for g in keymap.app_groups(scheme))
+    if scheme == STANDARD:
+        return f"""<section id="app">
+<h2>The desktop app: menus, toolbar, mouse</h2>
+<p class="lede">Every command is in a menu, and right-click shows the ones
+for what is under the pointer. The shortcuts are the ones other apps use;
+<kbd>Ctrl</kbd> is <kbd class="glyph">⌘</kbd> on a Mac, and no single letter
+runs a command. <kbd>F1</kbd> shows all of this in the app, with a filter.
+Prefer single keys and modes? Help ▸ Control scheme switches to the
+<a href="{SITE}/at-a-glance.html">vim keys</a>.</p>
+{_tool_strip()}
+<div class="cards">
+{cards}
+</div>
+</section>"""
+    return f"""<section id="app">
+<h2>The desktop app, by mode</h2>
+<p class="lede">Select is home: most keys work there, on what is selected.
+One key enters a mode, <kbd>Esc</kbd> comes back. <kbd>F1</kbd> shows all
+of this in the app, with a filter. Prefer menus, a toolbar and the usual
+shortcuts? <b>Controls</b> in the Tools panel switches to the
+<a href="{SITE}/at-a-glance-standard.html">standard controls</a>.</p>
+{_mode_map()}
+<div class="cards">
+{cards}
+</div>
+</section>"""
+
+
+def render_page(scheme: str = VIM) -> str:
+    """The whole page for control scheme ``scheme``, as a string."""
     tab_cards = "\n".join(_card(g) for g in keymap.groups(keymap.TAB))
+    standard = scheme == STANDARD
+    words = (f"{SITE}/standard-controls/" if standard
+             else f"{SITE}/keybindings/")
+    hero = ("Draw a board with the mouse, the menus and the shortcuts you "
+            "know, let your Claude Code session draw on it with you, at "
+            "your desk or live in a meeting, and find every command by "
+            "where it lives." if standard else
+            "Draw a board with the keyboard, let your Claude Code session "
+            "draw on it\nwith you, at your desk or live in a meeting, and "
+            "find every key by the mode\nit works in.")
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -475,17 +547,15 @@ and every key by mode.">
 <a class="mark" href="{SITE}/">grafli</a>
 <nav>
 <a href="#agent">With your agent</a>
-<a href="#app">Desktop keys</a>
+<a href="#app">Desktop {"controls" if standard else "keys"}</a>
 <a href="#tab">Browser tab keys</a>
-<a href="{SITE}/keybindings/">Every key, in words ↗</a>
+<a href="{words}">Every {"control" if standard else "key"}, in words ↗</a>
 </nav>
 </header>
 <main>
 <section class="hero">
 <h1>grafli at a glance</h1>
-<p>Draw a board with the keyboard, let your Claude Code session draw on it
-with you, at your desk or live in a meeting, and find every key by the mode
-it works in.</p>
+<p>{hero}</p>
 </section>
 <section id="agent">
 <h2>Two ways to work with your agent</h2>
@@ -493,20 +563,11 @@ it works in.</p>
 never starts one: at your desk the session edits the file, in a meeting you
 connect it to the board.</p>
 <div class="ways">
-{_desk()}
+{_desk(scheme)}
 {_meeting()}
 </div>
 </section>
-<section id="app">
-<h2>The desktop app, by mode</h2>
-<p class="lede">Select is home: most keys work there, on what is selected.
-One key enters a mode, <kbd>Esc</kbd> comes back. <kbd>F1</kbd> shows all
-of this in the app, with a filter.</p>
-{_mode_map()}
-<div class="cards">
-{app_cards}
-</div>
-</section>
+{_app_section(scheme)}
 <section id="tab">
 <h2>The browser tab</h2>
 <p class="lede"><code>grafli serve</code> prints three links per board. Each
@@ -517,9 +578,12 @@ link's tab has its own share of the keys:</p>
 </div>
 </section>
 <footer>
-<p>Every key on this page comes from <code>grafli/keymap.py</code>, the
-table the app's <kbd>F1</kbd> help shows. The words for each key are on the
-<a href="{SITE}/keybindings/">keybindings page</a>, the browser tab in
+<p>Every {"control" if standard else "key"} on this page comes from \
+<code>grafli/keymap.py</code>, the
+table the app's <kbd>F1</kbd> help shows. The words for each \
+{"control" if standard else "key"} are on the
+<a href="{words}">{"standard controls" if standard else "keybindings"} \
+page</a>, the browser tab in
 <a href="{SITE}/navigating/#show-a-board-live-in-a-browser-tab">Show a board
 live in a browser tab</a>.</p>
 </footer>
@@ -529,13 +593,60 @@ live in a browser tab</a>.</p>
 """
 
 
-def write_page(path: Path) -> Path:
-    path.write_text(render_page(), encoding="utf-8")
+# ── The standard scheme's docs page ───────────────────────────────
+
+STANDARD_MD = Path("docs") / "standard-controls.md"
+_MD_START = "<!-- standard-controls:start (python -m grafli.helppage) -->"
+_MD_END = "<!-- standard-controls:end -->"
+
+
+def _md_keys(k: keymap.Key) -> str:
+    if k.is_gesture:
+        return f"**{k.keys}**" if " ▸ " in k.keys else k.keys
+    alts = []
+    for alt in keymap.parse_keys(k.keys):
+        chord = alt[0]
+        caps = []
+        for part in chord:
+            if part == "←↑↓→":
+                caps.append("".join(f"<kbd>{a}</kbd>" for a in part))
+            else:
+                caps.append(f"<kbd>{part}</kbd>")
+        alts.append("+".join(caps))
+    return " / ".join(alts)
+
+
+def standard_controls_md() -> str:
+    """The tables of ``docs/standard-controls.md``, from the key table."""
+    out = [_MD_START, ""]
+    for g in keymap.STANDARD_GROUPS:
+        out += [f"### {g.title}", ""]
+        if g.blurb:
+            out += [f"*{g.blurb}.*", ""]
+        out += ["| Control | What it does |", "|---|---|"]
+        out += [f"| {_md_keys(k)} | {k.does} |" for k in g.keys]
+        out.append("")
+    out.append(_MD_END)
+    return "\n".join(out)
+
+
+def write_standard_md(path: Path = STANDARD_MD) -> Path:
+    """Put the current tables into ``path`` between its markers."""
+    text = path.read_text(encoding="utf-8")
+    head, rest = text.split(_MD_START, 1)
+    tail = rest.split(_MD_END, 1)[1]
+    path.write_text(head + standard_controls_md() + tail, encoding="utf-8")
     return path
 
 
-def local_copy() -> Path:
-    """The page written for this installed version, for the F1 help.
+def write_page(path: Path, scheme: str = VIM) -> Path:
+    path.write_text(render_page(scheme), encoding="utf-8")
+    return path
+
+
+def local_copy(scheme: str | None = None) -> Path:
+    """The page written for this installed version and the active control
+    scheme (or ``scheme``), for the F1 help.
 
     Each call makes a new file with a name nobody else can claim first:
     on Linux the temp directory is shared, and a fixed name there could
@@ -543,10 +654,17 @@ def local_copy() -> Path:
     fd, name = tempfile.mkstemp(prefix="grafli-at-a-glance-", suffix=".html",
                                 dir=tempfile.gettempdir())
     with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(render_page())
+        f.write(render_page(scheme or controls.scheme()))
     return Path(name)
 
 
 if __name__ == "__main__":
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else DOCS_COPY
-    print(write_page(out))
+    if len(sys.argv) > 1:
+        out = Path(sys.argv[1])
+        scheme = sys.argv[2] if len(sys.argv) > 2 else (
+            STANDARD if out.name == DOCS_COPIES[STANDARD].name else VIM)
+        print(write_page(out, scheme))
+    else:
+        for scheme, out in DOCS_COPIES.items():
+            print(write_page(out, scheme))
+        print(write_standard_md())

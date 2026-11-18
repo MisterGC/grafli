@@ -5,6 +5,13 @@ The F1 help in the desktop app and the "grafli at a glance" page
 from :data:`GROUPS`, so a key added here shows in both, and a key missing
 from either fails ``tests/test_keymap.py``.
 
+The desktop app has two control schemes (:mod:`grafli.controls`, #352).
+:data:`GROUPS` holds the vim scheme's keys and the browser tab's;
+:data:`STANDARD_GROUPS` the standard scheme's: menus, toolbar, mouse and the
+shortcuts other apps use. Each standard row names the command it runs
+(``Key.action``), and ``tests/test_standard_controls.py`` presses or clicks
+every row and fails when the app does not run that command.
+
 A row's keys are written in a small notation:
 
 * ``" / "`` separates alternatives: ``"u / Cmd+Z"``;
@@ -34,6 +41,10 @@ class Key:
     keys: str
     does: str
     is_gesture: bool = False
+    # The standard scheme's command this row runs (``GrafliView.std_run``);
+    # ``mouse:``, ``text:`` and ``play:`` rows name a behaviour of the
+    # canvas, the text editors or the tour player instead.
+    action: str = ""
 
 
 @dataclass(frozen=True)
@@ -50,12 +61,12 @@ class Group:
     links: tuple[str, ...] = ()
 
 
-def key(keys: str, does: str) -> Key:
-    return Key(keys, does)
+def key(keys: str, does: str, action: str = "") -> Key:
+    return Key(keys, does, action=action)
 
 
-def gesture(text: str, does: str) -> Key:
-    return Key(text, does, is_gesture=True)
+def gesture(text: str, does: str, action: str = "") -> Key:
+    return Key(text, does, is_gesture=True, action=action)
 
 
 _GLYPHS = {"Cmd": "⌘", "Shift": "⇧"}
@@ -339,11 +350,229 @@ _TAB_GROUPS = (
 GROUPS: tuple[Group, ...] = _APP_GROUPS + _TAB_GROUPS
 
 
+# ── The desktop app, standard scheme ────────────────────────────────
+#
+# A gesture row written ``"Menu ▸ Item"`` is that menu's item (``Toolbar ▸``
+# a toolbar button, ``Right-click ▸`` the menu on a box). Ctrl is ⌘ on a Mac.
+
+STANDARD_GROUPS: tuple[Group, ...] = (
+    Group("std-tools", "Tools", APP,
+          blurb="The toolbar's first buttons; Esc goes back to Select", keys=(
+        gesture("Toolbar ▸ Select", "Select, move and resize: the default tool",
+                "tool_select"),
+        gesture("Toolbar ▸ Box", "Create a box: click, or drag its size",
+                "tool_box"),
+        gesture("Toolbar ▸ Note", "Create a note: click where it goes",
+                "tool_note"),
+        gesture("Toolbar ▸ Arrow", "Connect: click a box, then another",
+                "tool_connect"),
+        gesture("Toolbar ▸ Image", "Place a picture from a file",
+                "insert_image"),
+        gesture("Toolbar ▸ Mockup", "Draw an SVG mockup in place, in its app",
+                "tool_mockup"),
+        key("Esc", "Back to Select; clear the selection", "escape"),
+    )),
+    Group("std-mouse", "Mouse", APP, blurb="On the canvas", keys=(
+        gesture("Click", "Select", "mouse:select"),
+        gesture("Shift+click", "Add to / take from the selection",
+                "mouse:add_select"),
+        gesture("Drag on empty canvas", "Select all in the rectangle",
+                "mouse:rubber_band"),
+        gesture("Drag an element", "Move it", "mouse:move"),
+        gesture("Drop it on a box", "Nest it there; drop it outside to take "
+                "it out", "mouse:nest"),
+        gesture("Drag a corner or an edge", "Resize; a corner scales the "
+                "text too", "mouse:resize"),
+        gesture("Double-click", "Rename a box or an arrow, edit a note",
+                "mouse:edit"),
+        gesture("Right-click", "Menu for what is under the pointer",
+                "mouse:context_menu"),
+        gesture("Alt+drag from a box", "Draw an arrow to another",
+                "mouse:alt_connect"),
+        gesture("Middle drag / Space+drag", "Pan the canvas", "mouse:pan"),
+        gesture("Wheel / pinch", "Zoom; two-finger scroll pans",
+                "mouse:zoom"),
+        gesture("Drop image files", "Add them as images",
+                "mouse:drop_images"),
+    )),
+    Group("std-edit", "Edit", APP, blurb="Edit menu, or right-click", keys=(
+        key("Ctrl+Z", "Undo", "undo"),
+        key("Ctrl+Shift+Z / Ctrl+Y", "Redo", "redo"),
+        key("Ctrl+X", "Cut", "cut"),
+        key("Ctrl+C", "Copy", "copy"),
+        key("Ctrl+V", "Paste at the pointer", "paste"),
+        key("Ctrl+D", "Duplicate", "duplicate"),
+        key("Delete / Backspace", "Delete the selection", "delete"),
+        key("Ctrl+A", "Select all", "select_all"),
+        key("F2", "Rename the box or arrow, edit the note", "rename"),
+        key("←↑↓→", "Move the selection; pan with nothing selected",
+            "nudge"),
+        key("Shift+←↑↓→", "Move the selection further", "nudge"),
+        key("Ctrl+K", "Link: a web page, a file or another board",
+            "set_link"),
+        gesture("Edit ▸ Edit in a window", "Long text: a note, or the box's "
+                "document", "edit_text"),
+        gesture("Edit ▸ Attach", "A markdown document, a sub-board, a link "
+                "or file", "attach"),
+    )),
+    Group("std-text", "Editing text", APP,
+          blurb="Labels, notes and the text window: no modes", keys=(
+        key("Enter", "Keep a label (Shift+Enter: a new line)", "text:enter"),
+        key("Ctrl+Enter", "Keep a note's text", "text:ctrl_enter"),
+        key("Esc", "Done: keep the text and close", "text:esc"),
+        gesture("Click elsewhere", "Keep the text and close",
+                "text:click_away"),
+        key("Ctrl+S", "In the text window: save, keep writing",
+            "text:save"),
+    )),
+    Group("std-format", "Format", APP,
+          blurb="Format menu or right-click; boxes, notes, arrows alike", keys=(
+        gesture("Format ▸ Colour", "Fill of a box, colour of a note or an "
+                "arrow", "color"),
+        gesture("Format ▸ Icon…", "Pick a symbol, where it sits, a number "
+                "badge", "icon"),
+        gesture("Format ▸ Text", "Size, bold, italic, font", "text_menu"),
+        key("Ctrl+B", "Bold", "bold"),
+        key("Ctrl+I", "Italic", "italic"),
+        key("Ctrl+]", "Text bigger", "text_bigger"),
+        key("Ctrl+[", "Text smaller", "text_smaller"),
+        gesture("Format ▸ Appearance", "Plate / flat / card, label spot, "
+                "outline; an arrow's heads, line, routing", "appearance"),
+        gesture("Format ▸ Round shape", "A circle when square, a pill "
+                "otherwise", "round"),
+        gesture("Format ▸ Status label…", "A short status on the box's edge",
+                "status"),
+        gesture("Format ▸ Arrow kind", "Graph edge ⇄ annotation",
+                "arrow_kind"),
+    )),
+    Group("std-arrange", "Arrange", APP, blurb="Arrange and Insert menus",
+          keys=(
+        key("Ctrl+G", "Group: wrap the selection in a new box", "group"),
+        gesture("Arrange ▸ Auto-layout", "Lay out the selection (or all)",
+                "layout"),
+        gesture("Arrange ▸ Snap to grid", "Snap the selection to the grid",
+                "snap_grid"),
+        gesture("Arrange ▸ Slide ratio", "Boxes to the slide aspect ratio",
+                "slide_ratio"),
+        gesture("Insert ▸ Connected box", "A new box beside the selection, "
+                "with an arrow", "connected_box"),
+    )),
+    Group("std-navigate", "Navigate", APP, blurb="View and Go menus", keys=(
+        key("Ctrl+F", "Find: dim all but the matches (Tab: next match)",
+            "find"),
+        key("Ctrl++", "Zoom in", "zoom_in"),
+        key("Ctrl+-", "Zoom out", "zoom_out"),
+        key("Ctrl+0", "Zoom to fit the whole board", "zoom_fit"),
+        gesture("View ▸ Zoom to selection", "Zoom to the selection ⇄ back",
+                "zoom_selection"),
+        key("Enter", "Open the box's board, link or doc; offers to attach one",
+            "open_attachment"),
+        key("Alt+↑", "Back up to the board you came from", "go_up"),
+        key("Alt+←", "View history back", "nav_back"),
+        key("Alt+→", "View history forward", "nav_forward"),
+        key("Tab", "Next sibling box", "next_sibling"),
+        key("Shift+Tab", "Previous sibling box", "prev_sibling"),
+        gesture("Go ▸ Parent box", "Select the box this one sits in",
+                "parent_box"),
+        gesture("Go ▸ First child", "Select the first box inside",
+                "first_child"),
+        gesture("Right-click ▸ Follow an arrow", "Go to a box this one is "
+                "connected to", "follow_arrow"),
+        gesture("Go ▸ Read the doc", "The box's doc beside it (Esc closes)",
+                "peek_doc"),
+    )),
+    Group("std-view", "View", APP, blurb="View menu", keys=(
+        gesture("View ▸ Grid", "Grid: dots and snap / dots / off", "grid"),
+        gesture("View ▸ Minimap", "Minimap", "minimap"),
+        gesture("View ▸ Legend", "The map palette's legend (also in exports)",
+                "legend"),
+        gesture("View ▸ Level of detail", "Semantic zoom on / off", "lod"),
+        gesture("View ▸ Dim notes", "Concentrate on the graph", "dim_notes"),
+        gesture("View ▸ Dim arrows", "Arrows faint", "dim_arrows"),
+        gesture("View ▸ Connectivity heatmap", "Then each overlay file",
+                "heatmap"),
+        gesture("View ▸ Focus on connections", "Only what touches the box",
+                "focus_connections"),
+        gesture("View ▸ Tools panel", "The side panel: tools and flows",
+                "tools_panel"),
+        key("Ctrl+Shift+D", "Light / dark theme", "theme"),
+    )),
+    Group("std-tours", "Bookmarks & tours", APP, blurb="Tours menu", keys=(
+        gesture("Tours ▸ Bookmark the view", "What's shown, or the selection",
+                "bookmark"),
+        gesture("Tours ▸ Bookmark the exact viewport", "Zoom and position as "
+                "they are", "bookmark_viewport"),
+        gesture("Tours ▸ Record a flow", "Start / stop: bookmarks join it",
+                "record_flow"),
+        gesture("Tours ▸ Auto-flow from the box", "Walk its arrows forward",
+                "auto_flow"),
+        gesture("Tours ▸ Tours through the box", "Pick one, play from there",
+                "tours_through"),
+        gesture("Tours ▸ Edit flows", "Reorder, add, remove, dwell",
+                "edit_flows"),
+        key("F5", "Present the flow fullscreen", "present"),
+    )),
+    Group("std-playback", "Tour playback", APP, blurb="While a tour plays",
+          keys=(
+        key("Space / →", "Next stop", "play:next"),
+        key("←", "Previous stop", "play:prev"),
+        key("Esc", "Stop playback", "play:stop"),
+        gesture("Right-click", "Next, previous, play / pause / loop, camera, "
+                "stop — presenting too", "mouse:play_menu"),
+        gesture("Tours ▸ Play, pause, loop", "Paused → playing → loop",
+                "play_mode"),
+        gesture("Tours ▸ Smooth camera", "Smooth camera ⇄ instant cuts",
+                "play_transition"),
+    )),
+    Group("std-files", "Files & export", APP, blurb="File and Help menus",
+          keys=(
+        key("Ctrl+N", "New board", "new_board"),
+        key("Ctrl+O", "Open a board", "open"),
+        key("Ctrl+S", "Save", "save"),
+        key("Ctrl+W", "Close the board", "close_board"),
+        gesture("File ▸ Switch board…", "Another open board, or one nearby",
+                "switch_board"),
+        key("Ctrl+Shift+C", "Copy the board as PNG", "export_png"),
+        key("Ctrl+E", "Export SVG to a file", "export_svg"),
+        gesture("File ▸ Export", "PNG, SVG, flow PDF / PPTX, HTML",
+                "export_menu"),
+        key("Ctrl+Q", "Quit", "quit"),
+        key("F1", "This help", "help"),
+        gesture("Help ▸ Control scheme", "Switch to the vim keys, at once",
+                "scheme_menu"),
+    )),
+    Group("std-agent", "Your agent", APP,
+          blurb="A Claude Code session you run: the agent line hosts the "
+                "board, /mcp__grafli__connect in the session connects it; "
+                "right-click asks about what is under the pointer", keys=(
+        key("Ctrl+L", "Agent line: a grafli line is applied, plain language "
+                      "goes to the agent", "agent_line"),
+        key("↑ / ↓", "On the agent line: the lines sent before",
+            "text:agent_history"),
+        key("Ctrl+Shift+L", "Ask the agent about the selection", "agent_ask"),
+        gesture("Agent ▸ Take the proposal", "Take the agent's proposal, "
+                "while one waits; right-click has it too", "agent_take"),
+        gesture("Agent ▸ Drop the proposal", "Drop it; the board stays as "
+                "it was", "agent_drop"),
+        gesture("Agent ▸ Undo the agent's edit", "Its last edit; yours stay",
+                "agent_undo"),
+        gesture("✦ in the status bar", "Its menu hosts the board and copies "
+                "the links guests open in a browser tab", "mouse:agent_chip"),
+    )),
+)
+
+
 def groups(where: str) -> tuple[Group, ...]:
     return tuple(g for g in GROUPS if g.where == where)
 
 
+def app_groups(scheme: str) -> tuple[Group, ...]:
+    """The desktop app's groups for control scheme ``scheme``."""
+    from grafli.controls import STANDARD
+    return STANDARD_GROUPS if scheme == STANDARD else groups(APP)
+
+
 def find(group_id: str, keys: str) -> Key:
     """The row of group ``group_id`` whose keys are ``keys``."""
-    group = next(g for g in GROUPS if g.id == group_id)
+    group = next(g for g in GROUPS + STANDARD_GROUPS if g.id == group_id)
     return next(k for k in group.keys if k.keys == keys)

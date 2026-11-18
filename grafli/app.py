@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 import textli
 
-from grafli import theme
+from grafli import controls, theme
 from grafli.agentline import AgentLink
 from grafli.buffers import BoardFrame, BufferManager, BufferState, ViewState
 from grafli.constants import Mode
@@ -153,6 +153,12 @@ class MainWindow(QMainWindow):
         # once it is first needed (grafli.agentline).
         self._agent = AgentLink(self, serve_host, serve_port)
         self.statusBar().addPermanentWidget(self._agent.chip)
+        # The standard scheme's menus and toolbar (#352), built when the
+        # scheme is standard; the vim scheme keeps the bare canvas.
+        self._std = None
+        self._std_menus = []
+        self._std_toolbar = None
+        self._apply_control_scheme()
 
         self._pending_zoom_fit = bool(file_path)
 
@@ -256,6 +262,20 @@ class MainWindow(QMainWindow):
 
     def _on_tool_activated(self, action_id: str):
         self._view.setFocus()
+        if action_id == "scheme":
+            self.set_control_scheme(
+                controls.VIM if controls.is_standard() else controls.STANDARD)
+            return
+        if controls.is_standard() and action_id in ("style", "dimension"):
+            # The vim style keys have no place here: the Format menu does it.
+            self._popup_format_menu()
+            return
+        if controls.is_standard() and action_id in ("edit_label", "delete"):
+            # The same command as the key the button shows (F2, Delete),
+            # arrows included.
+            self._view.std_run("rename" if action_id == "edit_label"
+                               else "delete")
+            return
         actions = {
             "mode_select":  lambda: self._view.set_mode(Mode.SELECT),
             "mode_rect":    lambda: self._view.set_mode(Mode.RECT),
@@ -293,6 +313,20 @@ class MainWindow(QMainWindow):
         if handler:
             handler()
 
+    def _popup_format_menu(self):
+        from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QMenu
+        if self._std is None or not controls.is_standard():
+            return
+        menu = QMenu(self)
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        for entry in (("sub", "color", "Colour"), "icon",
+                      ("sub", "text_menu", "Text"),
+                      ("sub", "appearance", "Appearance"), "round", "status"):
+            self._std.add(menu, entry)
+        menu.popup(QCursor.pos())
+        self._format_popup = menu
+
     # ── Present (fullscreen demo) mode ───────────────────────────
 
     def _present_current(self):
@@ -316,6 +350,9 @@ class MainWindow(QMainWindow):
 
         self._present_panel_visible = self._side_panel.isVisible()
         self._side_panel.hide()
+        self.menuBar().setVisible(False)
+        if self._std_toolbar is not None:
+            self._std_toolbar.hide()
         self.statusBar().hide()
         self._panel_toggle.hide()
         self._theme_toggle.hide()
@@ -332,6 +369,9 @@ class MainWindow(QMainWindow):
             self._view._flow_player.stop()
         self.showNormal()
         self._side_panel.setVisible(self._present_panel_visible)
+        self.menuBar().setVisible(controls.is_standard())
+        if self._std_toolbar is not None and controls.is_standard():
+            self._std_toolbar.show()
         self.statusBar().show()
         self._panel_toggle.show()
         self._panel_toggle.reposition()
@@ -552,6 +592,88 @@ class MainWindow(QMainWindow):
         act_toggle_last.setShortcut(QKeySequence("Ctrl+6"))
         act_toggle_last.triggered.connect(self._toggle_last_buffer)
         self.addAction(act_toggle_last)
+
+        # The vim scheme's window shortcuts; the standard scheme's menus
+        # carry their own and switch these off.
+        self._vim_actions = list(self.actions())
+
+    # ── Control scheme (#352) ────────────────────────────────────
+
+    def set_control_scheme(self, name: str):
+        """Switch to control scheme ``name`` in place: the board, its
+        selection and the view stay; the choice is saved for the next start."""
+        if name not in controls.SCHEMES:
+            return
+        if name == controls.scheme() and self.menuBar().isVisibleTo(self) == (
+                name == controls.STANDARD and not self._presenting):
+            self._view.toast(f"Already on {controls.TITLES[name]}", "info")
+            return
+        view = self._view
+        view._commit_editor()
+        view._cancel_open_picker()
+        view._clear_box_mode()
+        view._clear_arrow_mode()
+        # The vim scheme's half-typed key states must not outlive it: jump
+        # labels or a pending g would take the standard scheme's letters.
+        view._clear_jump_labels()
+        view._exit_graph_nav()
+        view._g_pending = False
+        view._std_space_held = view._std_space_panning = False
+        controls.set_scheme(name)
+        controls.save_scheme(name)
+        self._apply_control_scheme()
+        self._view.toast(f"Controls: {controls.TITLES[name]}"
+                         + (" · F1 shows the keys" if name == controls.VIM
+                            else " · menus, toolbar and right-click"))
+        self._view.setFocus()
+
+    def _apply_control_scheme(self):
+        """Put up the active scheme's controls. The standard scheme's
+        actions, menus and toolbar are made once per window and taken down
+        and put back on each switch — nothing piles up, nothing is
+        destroyed under Qt's feet."""
+        standard = controls.is_standard()
+        for act in self._vim_actions:
+            act.setEnabled(not standard)
+        if self._std is not None:
+            for act in self._std.actions.values():
+                self.removeAction(act)
+                act.setEnabled(False)
+            self.menuBar().clear()
+            self.removeToolBar(self._std_toolbar)
+        if standard:
+            if self._std is None:
+                from grafli.standard_ui import (StandardActions, build_menus,
+                                                build_toolbar)
+                self._std = StandardActions(self, self._view)
+                self._std_menus = build_menus(self._std, self)
+                self._std_toolbar = build_toolbar(self._std, self)
+                self._view.mode_changed.connect(self._std.sync_mode)
+            for menu in self._std_menus:
+                self.menuBar().addMenu(menu)
+            for act in self._std.actions.values():
+                act.setEnabled(True)
+            # On the window too, so the shortcuts fire with the menu bar
+            # closed (and hidden while presenting).
+            self.addActions(list(self._std.actions.values()))
+            self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self._std_toolbar)
+            self._std.sync_mode(self._view.mode)
+        self.menuBar().setVisible(standard and not self._presenting)
+        if self._std_toolbar is not None:
+            self._std_toolbar.setVisible(standard and not self._presenting)
+        self._side_panel.set_scheme(controls.scheme())
+        self._side_panel.refresh_flows()
+        self._panel_toggle.setToolTip(
+            "Toggle tools panel (View ▸ Tools panel)" if standard
+            else "Toggle tools panel (\\)")
+        self._panel_toggle.reposition()
+        self._theme_toggle.reposition()
+
+    def _show_flows_panel(self):
+        """Tours ▸ Edit flows: the side panel, on its Flows tab."""
+        if not self._side_panel.isVisible():
+            self._toggle_panel()
+        self._side_panel.switch_tab(1)
 
     def _zoom_in(self):
         self._view.scale(1.15, 1.15)
@@ -781,8 +903,10 @@ class MainWindow(QMainWindow):
                 self._buffers.push_frame(frame)
             self._open_board_at(path, target_id)
             if frame is not None and frame.tour is not None:
+                resume = ("Go ▸ Back up resumes it" if controls.is_standard()
+                          else "gu resumes it")
                 self._view.toast(f"Tour paused at stop {frame.tour.index + 1}"
-                                 " — gu resumes it", "info")
+                                 f" — {resume}", "info")
 
         if rect is None:
             switch()
@@ -3132,6 +3256,9 @@ def main():
     tick = QTimer()
     tick.start(200)
     tick.timeout.connect(lambda: None)
+
+    # The control scheme: the saved one, or asked for on the very first start.
+    controls.restore_or_ask()
 
     window = MainWindow(launch_file, debug=args.debug,
                         serve_host=args.host, serve_port=args.port)

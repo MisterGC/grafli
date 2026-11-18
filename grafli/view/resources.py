@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem,
     QPushButton,
 )
-from grafli import theme
+from grafli import controls, theme
 from grafli.constants import FONT_FAMILY
 from grafli.edge_label import arrow_label_font
 from grafli.format import Arrow, Board, Image, Note, resolve_code_ref
@@ -564,6 +564,16 @@ class ResourcesMixin:
         if not path.exists():
             path.write_text(f"# {path.stem}\n\n", encoding="utf-8")
         text = path.read_text(encoding="utf-8")
+        if controls.is_standard():
+            # textli's editor is vim through and through; the standard
+            # scheme writes long text in a plain field instead.
+            from grafli.standard_ui import PlainTextWindow
+            self._zen_editor = PlainTextWindow(
+                self.window(), text, title=path.name, file_path=path)
+            self._zen_editor.finished.connect(
+                lambda _t: self._cancel_zen_edit())
+            self._zen_editor.cancelled.connect(self._cancel_zen_edit)
+            return
         self._zen_editor = ZenMarkdownEditor(
             parent=self.window(), text=text, title=path.name,
             file_path=path, anchor=anchor, canvas=self,
@@ -580,6 +590,16 @@ class ResourcesMixin:
         if self._zen_editor:
             return
         self._zen_target = item
+        # By id too: a live reload rebuilds the scene and deletes the item.
+        self._zen_note_id = item.note.id
+        if controls.is_standard():
+            from grafli.standard_ui import PlainTextWindow
+            self._zen_editor = PlainTextWindow(
+                self.window(), item.note.text, title=item.note.id)
+            self._zen_editor.finished.connect(self._commit_zen_note)
+            self._zen_editor.cancelled.connect(self._cancel_zen_edit)
+            self._zen_editor.applied.connect(self._apply_zen_note)
+            return
         self._zen_editor = ZenMarkdownEditor(
             parent=self.window(), text=item.note.text, title=item.note.id,
             file_path=None, canvas=self,
@@ -587,8 +607,30 @@ class ResourcesMixin:
         self._zen_editor.finished.connect(self._commit_zen_note)
         self._zen_editor.cancelled.connect(self._cancel_zen_edit)
 
-    def _commit_zen_note(self, text: str):
+    def _apply_zen_note(self, text: str):
+        """The plain text window's Save: the note takes the text, the window
+        stays open."""
+        item = self._live_zen_note()
+        new_text = text.strip()
+        if isinstance(item, NoteItem) and new_text \
+                and new_text != item.note.text:
+            self._push_undo()
+            item.update_text(new_text)
+            self.mark_dirty()
+
+    def _live_zen_note(self):
+        """The note the long-text editor edits, as the scene has it now: the
+        item it opened on, or — after a reload rebuilt the scene — the new
+        item of the same note."""
+        from shiboken6 import isValid
         item = self._zen_target
+        if (isinstance(item, NoteItem) and isValid(item)
+                and item.scene() is self._scene):
+            return item
+        return self._note_items.get(getattr(self, "_zen_note_id", ""))
+
+    def _commit_zen_note(self, text: str):
+        item = self._live_zen_note()
         self._zen_editor = None
         self._zen_target = None
         if not isinstance(item, NoteItem):
@@ -687,8 +729,12 @@ class ResourcesMixin:
         text = target.note.text
         font = target._note_font()
 
-        widget = InlineVimEditor(text, markdown=note_is_md(target.note),
-                                 font=font)
+        if controls.is_standard():
+            from grafli.standard_ui import PlainInlineEditor as editor_cls
+        else:
+            editor_cls = InlineVimEditor
+        widget = editor_cls(text, markdown=note_is_md(target.note),
+                            font=font)
         widget.setStyleSheet(
             "QPlainTextEdit {"
             f" background: {theme.EDITOR_BG.name()}; color: {theme.INK.name()};"
@@ -768,6 +814,11 @@ class ResourcesMixin:
             QTimer.singleShot(0, lambda p=proxy: self._safe_remove_item(p))
 
     def _safe_remove_item(self, item):
+        # A scene rebuild in the meantime (an undo, an image added) has
+        # deleted the proxy with everything else already.
+        from shiboken6 import isValid
+        if not isValid(item):
+            return
         if item.scene() is self._scene:
             self._scene.removeItem(item)
 

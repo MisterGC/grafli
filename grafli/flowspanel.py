@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from grafli import theme
+from grafli import controls, theme
 from grafli.constants import (
     FONT_FAMILY,
 )
@@ -325,7 +325,9 @@ class FlowsPanel(QWidget):
         if paused is not None:
             self._layout.addWidget(self._hint(
                 f"Tour “{paused.flow_label}” paused at stop "
-                f"{paused.index + 1}/{paused.total} — gu resumes it"))
+                f"{paused.index + 1}/{paused.total} — "
+                + ("Go ▸ Back up resumes it" if controls.is_standard()
+                   else "gu resumes it")))
 
         self._layout.addWidget(
             self._text_button("＋  New flow", self._new_flow, fill=True))
@@ -345,7 +347,9 @@ class FlowsPanel(QWidget):
                 if not flow.steps:
                     self._layout.addWidget(self._hint(
                         "No stops. Add a bookmark below, or select a step and "
-                        "press gb while navigating."))
+                        + ("choose Tours ▸ Bookmark the view while navigating."
+                           if controls.is_standard() else
+                           "press gb while navigating.")))
                 for i, step in enumerate(flow.steps):
                     self._layout.addWidget(self._step_row(flow, i, step))
                 self._layout.addWidget(self._add_row(flow))
@@ -360,7 +364,10 @@ class FlowsPanel(QWidget):
             self._toggle_bookmarks))
         if self._bookmarks_expanded:
             if not board.bookmarks:
-                self._layout.addWidget(self._hint("No bookmarks yet (gb / gB)."))
+                self._layout.addWidget(self._hint(
+                    "No bookmarks yet (Tours ▸ Bookmark the view)."
+                    if controls.is_standard() else
+                    "No bookmarks yet (gb / gB)."))
             for bm in board.bookmarks:
                 self._layout.addWidget(self._bookmark_row(bm))
 

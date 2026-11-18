@@ -31,6 +31,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QDialog,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QTabWidget,
@@ -38,7 +39,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from grafli import keymap, theme
+from grafli import controls, keymap, theme
 from grafli.constants import FONT_FAMILY, MINIMAP_MARGIN
 from grafli.glyphs import GlyphPicker, ensure_text_presentation
 
@@ -65,10 +66,15 @@ def _columns(groups, n: int) -> list[list]:
     return cols
 
 
-def cheatsheet_html(where: str, filter_text: str = "") -> str:
+def cheatsheet_html(where: str, filter_text: str = "",
+                    scheme: str | None = None) -> str:
     """The F1 help's table of ``where``'s keys (:data:`keymap.APP` or
-    :data:`keymap.TAB`), rows matching ``filter_text`` only."""
+    :data:`keymap.TAB`), rows matching ``filter_text`` only. The app's keys
+    are those of control scheme ``scheme``, the active one by default."""
     ft = filter_text.lower()
+    scheme = scheme or controls.scheme()
+    shown = (keymap.app_groups(scheme) if where == keymap.APP
+             else keymap.groups(where))
     hdr = (
         f"color:{theme.INFO_COLOR.name()};font-weight:bold;"
         "padding-top:8px;padding-bottom:2px"
@@ -108,7 +114,7 @@ def cheatsheet_html(where: str, filter_text: str = "") -> str:
 
     col_html = "</td><td width='24'></td><td valign='top'>".join(
         _render_column(col)
-        for col in _columns(keymap.groups(where), HELP_COLUMNS[where])
+        for col in _columns(shown, HELP_COLUMNS[where])
     )
     return f"<table><tr><td valign='top'>{col_html}</td></tr></table>"
 
@@ -317,6 +323,11 @@ class OverlaysMixin:
         ("n box  ·  t note  ·  i image", 15),
         ("F1 all keys", 11),
     )
+    # The standard scheme starts from the toolbar and the right button.
+    _EMPTY_HINT_STANDARD = (
+        ("Box, Note, Image on the toolbar  ·  or right-click", 15),
+        ("F1 all controls", 11),
+    )
 
     def _empty_hint_lines(self) -> tuple[tuple[str, int], ...]:
         """Return the starting hint's (line, size) pairs, () when it is off.
@@ -330,7 +341,8 @@ class OverlaysMixin:
             return ()
         if board.boxes or board.notes or board.images or board.arrows:
             return ()
-        return self._EMPTY_HINT
+        return (self._EMPTY_HINT_STANDARD if controls.is_standard()
+                else self._EMPTY_HINT)
 
     def _draw_empty_hint(self, painter: QPainter):
         """Paint the starting hint in the middle of the viewport.
@@ -475,8 +487,15 @@ class OverlaysMixin:
             f" border-bottom-color: {theme.INFO_COLOR.name()}; }}"
         )
 
-        # ── Tab 1: shortcuts ──
+        # ── Tab 1: shortcuts, of the active control scheme ──
+        scheme = controls.scheme()
         shortcuts_tab = QWidget(tabs)
+        scheme_note = QLabel(
+            f"Control scheme: <b>{controls.TITLES[scheme]}</b>"
+            + (" · Ctrl is \u2318 on a Mac" if scheme == controls.STANDARD
+               else ""), shortcuts_tab)
+        scheme_note.setObjectName("scheme_note")
+        scheme_note.setStyleSheet(f"color: {theme.HELP_FG.name()};")
         filter_input = QLineEdit(shortcuts_tab)
         filter_input.setPlaceholderText("Type to filter shortcuts\u2026")
         filter_input.setStyleSheet(
@@ -493,11 +512,13 @@ class OverlaysMixin:
             f"QTextBrowser {{ background: {theme.HELP_BG.name()};"
             f" color: {theme.HELP_FG.name()}; border: none; }}"
         )
-        browser.setHtml(cheatsheet_html(keymap.APP))
+        browser.setHtml(cheatsheet_html(keymap.APP, scheme=scheme))
         filter_input.textChanged.connect(
-            lambda t: browser.setHtml(cheatsheet_html(keymap.APP, t))
+            lambda t: browser.setHtml(cheatsheet_html(keymap.APP, t,
+                                                      scheme=scheme))
         )
         sc_layout = QVBoxLayout(shortcuts_tab)
+        sc_layout.addWidget(scheme_note)
         sc_layout.addWidget(filter_input)
         sc_layout.addWidget(browser, 1)
         tabs.addTab(shortcuts_tab, "Shortcuts")
@@ -532,10 +553,25 @@ class OverlaysMixin:
         page_btn.setToolTip("How to work with grafli and your agent, and "
                             "every key by mode, in your browser")
         page_btn.clicked.connect(self._open_help_page)
+        other = (controls.VIM if scheme == controls.STANDARD
+                 else controls.STANDARD)
+        switch_btn = QPushButton(f"Switch to {controls.TITLES[other]}", dlg)
+        switch_btn.setObjectName("switch_scheme")
+        switch_btn.setToolTip("Change how you control grafli; the board "
+                              "stays as it is")
+
+        def _switch():
+            dlg.accept()
+            window = self.window()
+            if hasattr(window, "set_control_scheme"):
+                window.set_control_scheme(other)
+
+        switch_btn.clicked.connect(_switch)
         btn = QPushButton("Close", dlg)
         btn.clicked.connect(dlg.accept)
         buttons = QHBoxLayout()
         buttons.addWidget(page_btn)
+        buttons.addWidget(switch_btn)
         buttons.addStretch(1)
         buttons.addWidget(btn)
 
@@ -574,6 +610,9 @@ class OverlaysMixin:
         dim = f"color:{theme.INK_DISABLED.name()}"
         kw_blue = f"color:{theme.NOTE_COLOR.name()};font-weight:bold"
         kw_red = f"color:{theme.NOTE_TASK_COLOR.name()};font-weight:bold"
+        # How a label is edited, in the active control scheme's words.
+        edit_label = ("a double-click or <b>F2</b>" if controls.is_standard()
+                      else f"<span style='{mono}'>e</span>")
         return f"""
         <p style='{hdr}'>TEXT ANNOTATIONS</p>
         <p>Grafli text can annotate nodes, edges, and local logic. Edit mode
@@ -683,7 +722,7 @@ return out  @parser.py:44</div>
         <span style='{mono}'>call: validate()</span>, or
         <span style='{mono}'>step: 1</span>. Known prefixes color the edge and
         render as small chips beside the remaining label text. The raw label
-        stays directly editable with <span style='{mono}'>e</span>. Supported kinds:
+        stays directly editable with {edit_label}. Supported kinds:
         <span style='{mono}'>call</span>, <span style='{mono}'>data</span>,
         <span style='{mono}'>event</span>, <span style='{mono}'>state</span>,
         <span style='{mono}'>step</span>, <span style='{mono}'>verify</span>,

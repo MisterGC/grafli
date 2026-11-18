@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 import textli
 
 from grafli import theme
+from grafli.agentline import AgentLink
 from grafli.buffers import BoardFrame, BufferManager, BufferState, ViewState
 from grafli.constants import Mode
 from grafli.fonts import register_bundled_fonts as _register_bundled_fonts
@@ -85,7 +86,8 @@ def _sync_editor_theme() -> None:
 # ── Main window ─────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
-    def __init__(self, file_path: str | None = None, *, debug: bool = False):
+    def __init__(self, file_path: str | None = None, *, debug: bool = False,
+                 serve_host: str | None = None, serve_port: int | None = None):
         super().__init__()
         self.setWindowTitle("Grafli")
         self.resize(1200, 800)
@@ -147,6 +149,10 @@ class MainWindow(QMainWindow):
         self._setup_shortcuts()
         self._setup_status_bar()
         self.menuBar().setVisible(False)
+        # The board's agent: hosted for a Claude Code session and guest tabs
+        # once it is first needed (grafli.agentline).
+        self._agent = AgentLink(self, serve_host, serve_port)
+        self.statusBar().addPermanentWidget(self._agent.chip)
 
         self._pending_zoom_fit = bool(file_path)
 
@@ -237,6 +243,7 @@ class MainWindow(QMainWindow):
         self._panel_toggle.update()
         self._theme_toggle.apply_theme()
         self._restyle_status_bar()
+        self._agent.apply_theme()
 
     def _toggle_panel(self):
         visible = not self._side_panel.isVisible()
@@ -1259,6 +1266,10 @@ class MainWindow(QMainWindow):
         self._watch_docs()
         self._watch_images()
         self._watch_palette()
+        agent = getattr(self, "_agent", None)
+        if agent is not None:
+            # The agent and the guests follow the app to the board it shows.
+            agent.follow(self._file_path)
 
     def _watch_palette(self):
         """(Re)start the poller over the places the map's palette file may
@@ -1465,7 +1476,74 @@ class MainWindow(QMainWindow):
             "window/geometry", self.saveGeometry(),
         )
         self._stop_watching()
+        if self._agent.host is not None:
+            self._agent.stop(quiet=True)
         super().closeEvent(event)
+
+    # ── The board's agent (grafli.agentline) ─────────────────────
+
+    def open_agent_line(self):
+        """``:``: the command line — a grafli line is applied, plain
+        language goes to the agent; hosts the board first."""
+        self._agent.open_line()
+
+    def ask_agent_about_selection(self):
+        """``Shift+A``: ask the agent about the selected element."""
+        self._agent.ask_about_selection()
+
+    def undo_agent_edit(self):
+        """``Shift+U``: take back the agent's last edit, and only that."""
+        self._agent.undo()
+
+    def has_agent_proposal(self) -> bool:
+        return self._agent.proposal is not None
+
+    def take_agent_proposal(self):
+        self._agent.take()
+
+    def drop_agent_proposal(self):
+        self._agent.drop()
+
+    def apply_grafli_line(self, text: str) -> bool:
+        """Apply the grafli line(s) *text* typed on the ``:`` line, as the
+        tab does: a box without a place goes below the selection, else in
+        the middle of the view. Undoable with u; False when refused."""
+        from grafli.agentline import selected_element
+        from grafli.serve.ops import OpError, apply_op
+        view, board = self._view, self.board
+        if board is None:
+            return False
+        if is_newer(board):
+            view.toast(f"Read-only — {_newer_board_reason(board)}", "warn")
+            return False
+        op = {"op": "lines", "text": text}
+        picked = selected_element(view)
+        if picked is not None and (board.box_by_id(picked[0])
+                                   or board.note_by_id(picked[0])
+                                   or board.image_by_id(picked[0])):
+            op["beside"] = picked[0]
+        mid = view.mapToScene(view.viewport().rect().center())
+        op["x"], op["y"] = mid.x(), mid.y()
+        try:
+            # Tried on a copy first: a refused line leaves the board and its
+            # undo history as they were.
+            apply_op(parse(serialize(board)), dict(op))
+        except OpError as e:
+            view.toast(str(e), "warn")
+            return False
+        view._push_undo()
+        touched = apply_op(board, op)
+        view._rebuild_scene()
+        view.mark_dirty()
+        view._scene.clearSelection()
+        for el_id in touched.get("ids", [touched["id"]]):
+            for items in (view._box_items, view._note_items,
+                          view._image_items):
+                if el_id in items:
+                    items[el_id].setSelected(True)
+        n = len(touched.get("ids", []))
+        view.toast(f"Applied {n} line" + ("s" if n != 1 else ""))
+        return True
 
 
 # ── Entry point ─────────────────────────────────────────────────
@@ -3028,6 +3106,14 @@ def main():
     )
     parser.add_argument("file", nargs="?", default=None, help="File to open")
     parser.add_argument("--debug", action="store_true", help="Enable debug overlay")
+    parser.add_argument(
+        "--host", default=None,
+        help="Where the app hosts the board for your agent and guests once "
+             "you press : — your LAN or VPN address, as for grafli serve "
+             "(default 127.0.0.1, this machine only)")
+    parser.add_argument(
+        "--port", type=int, default=None,
+        help="The port it hosts on (default 7341, else a free one)")
     args = parser.parse_args()
     launch_file = str(_resolve_launch_file(args.file))
 
@@ -3047,7 +3133,8 @@ def main():
     tick.start(200)
     tick.timeout.connect(lambda: None)
 
-    window = MainWindow(launch_file, debug=args.debug)
+    window = MainWindow(launch_file, debug=args.debug,
+                        serve_host=args.host, serve_port=args.port)
     # Restore saved geometry if it lands on a currently-attached screen;
     # otherwise fall back to maximized on the primary screen so a sleeping
     # or disconnected external display can't swallow the window.

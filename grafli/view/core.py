@@ -546,7 +546,46 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         self._draw_icon_picker(painter)
         self._draw_type_picker(painter)
         self._draw_element_overlay(painter)
+        self._draw_agent(painter)
         self._draw_toast(painter)
+
+    def _handle_agent_key(self, event, no_mod: bool, shift_only: bool) -> bool:
+        """The board's agent's keys, as the tab has them: ``:`` the command
+        line, Shift+A ask about the selection, Shift+U undo the agent's last
+        edit; while its proposal waits, Enter takes it and x drops it."""
+        window = self.window()
+        if not hasattr(window, "open_agent_line"):
+            return False
+        mods = event.modifiers()
+        if event.text() == ":" and not (mods & (
+                Qt.KeyboardModifier.ControlModifier
+                | Qt.KeyboardModifier.AltModifier
+                | Qt.KeyboardModifier.MetaModifier)):
+            window.open_agent_line()
+            return True
+        key = event.key()
+        if shift_only and key == Qt.Key.Key_A:
+            window.ask_agent_about_selection()
+            return True
+        if shift_only and key == Qt.Key.Key_U:
+            window.undo_agent_edit()
+            return True
+        if (no_mod and window.has_agent_proposal()
+                and self._mode == Mode.SELECT
+                and not self._box_mode and not self._arrow_mode):
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                window.take_agent_proposal()
+                return True
+            if key == Qt.Key.Key_X:
+                window.drop_agent_proposal()
+                return True
+        return False
+
+    def _draw_agent(self, painter: QPainter):
+        """The board's agent: its marks and proposal, its working line."""
+        agent = getattr(self.window(), "_agent", None)
+        if agent is not None and agent.view is self:
+            agent.paint(painter)
 
     # Grid mode cycle order for the # key / "grid" action.
     _GRID_CYCLE = ("off", "visual", "snap")
@@ -1418,6 +1457,10 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
                 window = self.window()
                 if hasattr(window, "_go_up"):
                     window._go_up()
+            event.accept()
+            return
+
+        if self._handle_agent_key(event, no_mod, shift_only):
             event.accept()
             return
 

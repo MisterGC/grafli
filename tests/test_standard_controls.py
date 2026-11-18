@@ -1436,6 +1436,18 @@ def test_the_icon_dialog_keeps_a_zero_badge_and_a_picked_symbol_wins():
     assert dlg.value() == ("star", "")
 
 
+def test_the_icon_dialog_picks_a_symbol_by_keyboard_over_a_badge():
+    _app()
+    from grafli.standard_ui import IconDialog
+    dlg = IconDialog(None, "3", "")
+    assert dlg.value() == ("3", "")
+    dlg.grid.setFocus()
+    QTest.keyClick(dlg.grid, Qt.Key.Key_Right)
+    name, _ = dlg.value()
+    assert name == dlg.grid.currentItem().data(Qt.ItemDataRole.UserRole)
+    assert name != "3"
+
+
 def test_the_text_window_survives_a_reload(std):
     win, view = std
     view._note_items["n"].setSelected(True)

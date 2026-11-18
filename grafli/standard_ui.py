@@ -665,8 +665,11 @@ class IconDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
         self.filter.textChanged.connect(self._apply_filter)
+        # Picking a symbol, by mouse or by the arrow keys, replaces a badge.
         self.grid.itemClicked.connect(
             lambda _it: self.badge.setChecked(False))
+        self.grid.currentItemChanged.connect(
+            lambda _it, _was: self.badge.setChecked(False))
         self.grid.itemDoubleClicked.connect(lambda _it: self.accept())
 
     def _apply_filter(self, text: str):

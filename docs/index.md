@@ -29,8 +29,8 @@ A keyboard-driven, plain-text diagram tool for people who think faster than they
 <div class="grafli-pillars" markdown>
 
 <div class="grafli-pillar" markdown>
-### Keyboard-first
-Modal editing, vim muscle memory. Four primary modes — Select, Rect, Text, Connect — and you build entire diagrams without ever reaching for the mouse.
+### Keyboard-first, or mouse and menus
+Modal editing, vim muscle memory: build entire diagrams without reaching for the mouse. Or switch to the [standard controls](standard-controls.md) — menus, a toolbar, right-click and the shortcuts you know — and never learn a mode.
 </div>
 
 <div class="grafli-pillar" markdown>

@@ -44,7 +44,7 @@ from PySide6.QtWidgets import (
     QGraphicsView,
 )
 
-from grafli import theme
+from grafli import controls, theme
 from grafli.view.commands import CommandsMixin
 from grafli.heat import DegreeProvider, HeatLegend, HeatProvider, HeatReading
 from grafli.view.complexity import ComplexityMixin
@@ -76,6 +76,7 @@ from grafli.view.overlay_files import OverlayFilesMixin
 from grafli.view.overlays import OverlaysMixin
 from grafli.view.resources import ResourcesMixin
 from grafli.view.selection import SelectionMixin
+from grafli.view.standard import StandardMixin
 from grafli.view.structure import StructureMixin
 from grafli.view.style_mode import StyleModeMixin
 from grafli.view.viewport import ViewportMixin
@@ -115,8 +116,8 @@ def flow_caption_metrics(vp_w: float, vp_h: float) -> dict:
 
 # ── Canvas view ─────────────────────────────────────────────────
 
-class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
-                 MinimapMixin, StyleModeMixin,
+class GrafliView(StandardMixin, CommandsMixin, OverlayFilesMixin,
+                 ComplexityMixin, MinimapMixin, StyleModeMixin,
                  SelectionMixin, StructureMixin, ResourcesMixin,
                  NavigationMixin, ViewportMixin, FlowsMixin, OverlaysMixin,
                  ExportMixin, LevelsMixin, BoxDocsMixin, LegendMixin,
@@ -745,7 +746,9 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
     def _refuse_locked_edit(self) -> bool:
         """Block a mutation on a collapsed aggregate, nudging toward full detail."""
         if self._selection_has_locked():
-            self.toast("Zoom in or ⇧D to edit a collapsed group", "info")
+            self.toast("Zoom in or " + ("View ▸ Level of detail"
+                                        if controls.is_standard() else "⇧D")
+                       + " to edit a collapsed group", "info")
             return True
         return False
 
@@ -894,6 +897,9 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         return super().event(e)
 
     def mousePressEvent(self, event):
+        # The standard scheme: right-click opens a menu, Space+drag pans.
+        if controls.is_standard() and self._std_mouse_press(event):
+            return
         # Middle- or right-click pans from anywhere.
         if event.button() in (Qt.MouseButton.MiddleButton,
                               Qt.MouseButton.RightButton):
@@ -1026,6 +1032,9 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
             event.accept()
             return
 
+        if controls.is_standard() and self._std_mouse_release(event):
+            return
+
         if event.button() in (Qt.MouseButton.MiddleButton,
                               Qt.MouseButton.RightButton):
             self._panning = False
@@ -1138,6 +1147,11 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
             event.accept()
             return
 
+        # The standard scheme renames an arrow the way it renames a box.
+        if controls.is_standard() and self._std_double_click(item):
+            event.accept()
+            return
+
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event):
@@ -1160,7 +1174,12 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         # Editor key handling
         if self._editor:
             if event.key() == Qt.Key.Key_Escape:
-                self._cancel_editor()
+                # The standard scheme keeps the text on Esc, as other
+                # canvases do; Ctrl+Z takes it back.
+                if controls.is_standard():
+                    self._commit_editor()
+                else:
+                    self._cancel_editor()
                 event.accept()
                 return
             if event.key() == Qt.Key.Key_Return and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
@@ -1173,6 +1192,11 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
                 return
             # Let the editor handle the key
             super().keyPressEvent(event)
+            return
+
+        # The standard scheme has its own, short table of keys.
+        if controls.is_standard():
+            self._std_key_press(event)
             return
 
         # Flow playback owns all input while active, except the keys that
@@ -2040,6 +2064,9 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event):
+        if controls.is_standard() and self._std_key_release(event):
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Alt and self._graph_nav_active:
             self._exit_graph_nav()
             event.accept()
@@ -2356,6 +2383,11 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
         if not self._connect_source:
             event.accept()
             return
+        # The standard scheme's Arrow tool connects with two clicks as well
+        # as with a drag: a click on the source keeps it for the next one.
+        if controls.is_standard() and self._std_click_keeps_source(event):
+            event.accept()
+            return
 
         # Remove preview line first so it doesn't intercept itemAt()
         if self._connect_line:
@@ -2606,7 +2638,9 @@ class GrafliView(CommandsMixin, OverlayFilesMixin, ComplexityMixin,
             play = {"paused": "paused", "playing": "playing",
                     "loop": "playing ⟳"}.get(ov.get("mode", "paused"), "paused")
             hint = (f"Space/→ next · ← prev · "
-                    f"t:{transition} · p:{play} · Esc exit")
+                    + (f"right-click: {play}, {transition} · Esc exit"
+                       if controls.is_standard() else
+                       f"t:{transition} · p:{play} · Esc exit"))
             # Surface active per-step presentation settings so a viewer can
             # tell why this stop renders summarized / faded.
             for key in ("detail", "focus"):

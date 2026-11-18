@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A standard control scheme beside the vim keys.** The desktop app can be
+  driven with a menu bar, a toolbar, a right-click menu for whatever is
+  under the pointer, and the shortcuts other apps use: Ctrl/⌘+C, X and V,
+  Ctrl/⌘+Z and Ctrl/⌘+Shift+Z, Ctrl/⌘+A, Ctrl/⌘+F, Delete, the arrow
+  keys to move, F2 to rename. No single letter runs a command there, and
+  notes and long texts are edited in plain text fields instead of textli's
+  vim editors. The first start asks which scheme to use; Help ▸ Control
+  scheme, the Tools panel's Controls button or the F1 help switch it at any
+  time without a restart or losing the open board, and the choice is kept
+  in the settings beside the theme. The vim scheme is unchanged. Panning
+  in the standard scheme is the middle button or Space+drag, since the right
+  button opens the menu. The F1 help, the "at a glance" page and the docs
+  follow the scheme: `docs/standard-controls.md`,
+  `docs/navigating-standard.md` and `docs/at-a-glance-standard.html` are the
+  standard scheme's, and `tests/test_standard_controls.py` presses or clicks
+  every control they document and fails when one is not bound.
+  ([#352](https://github.com/MisterGC/grafli/issues/352))
 - **`grafli serve <dir>` — a board live in a browser tab on your network
   or VPN.** A worker process draws the board with the app's own view, as
   `grafli export-html` does, and the server pushes the drawing to every tab

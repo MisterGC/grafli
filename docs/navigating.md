@@ -1,5 +1,10 @@
 # Navigating graphs efficiently
 
+!!! info "This guide is the vim scheme"
+    It uses the vim keys. With the standard controls — menus, toolbar,
+    right-click and the usual shortcuts — read
+    [Navigating graphs: standard controls](navigating-standard.md).
+
 Once a diagram outgrows a single screen, the bottleneck stops being *drawing*
 and becomes *moving around*: find the thing, zoom in, edit it, zoom back out,
 find the next thing. grafli is built so that whole loop stays on the keyboard

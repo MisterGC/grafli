@@ -125,6 +125,9 @@ kbd.glyph { font-family: ui-sans-serif, system-ui, -apple-system,
 .or { color: var(--faint); margin: 0 .3em; font-size: .85rem; }
 .seq { display: inline-flex; gap: .15em; align-items: center;
   white-space: nowrap; }
+.tb { display: inline-block; padding: .05em .5em; border: 1px solid
+  var(--cap-edge); border-radius: 5px; background: var(--cap);
+  font-size: .8rem; font-weight: 700; white-space: nowrap; }
 .gest { font-size: .8rem; color: var(--teal); font-weight: 600;
   font-style: italic; line-height: 1.3; }
 .modemap { display: grid; grid-template-columns: minmax(11rem, 15rem) 1fr;
@@ -259,7 +262,9 @@ connect it to the board.</p>
 <h2>The desktop app, by mode</h2>
 <p class="lede">Select is home: most keys work there, on what is selected.
 One key enters a mode, <kbd>Esc</kbd> comes back. <kbd>F1</kbd> shows all
-of this in the app, with a filter.</p>
+of this in the app, with a filter. Prefer menus, a toolbar and the usual
+shortcuts? <b>Controls</b> in the Tools panel switches to the
+<a href="https://grafli.mistergc.dev/at-a-glance-standard.html">standard controls</a>.</p>
 <div class="modemap">
 <div class="hub"><span class="hub-name">Select</span><span class="hub-keys"><span class="seq"><kbd>v</kbd></span><span class="or">/</span><span class="seq"><kbd>Esc</kbd></span></span><span class="hub-note">home: every topic below works here</span></div>
 <div class="spokes">

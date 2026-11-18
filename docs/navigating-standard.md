@@ -175,6 +175,18 @@ from it into one HTML file that opens in any browser, with no server. The
 page has its own controls, the same in both schemes: see
 [Share the map as one page](navigating.md#share-the-map-as-one-page).
 
+## Hand a change to your agent
+
+A Claude Code session you run can edit the board you are looking at:
+<kbd>Ctrl</kbd>+<kbd>L</kbd> (**Agent ▸ Agent line…**) opens a line along
+the bottom of the canvas for a grafli line or a sentence, and
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> or **Right-click ▸ Ask the
+agent about this…** asks about one element. Its edits glow in purple, and
+**Agent ▸ Undo the agent's edit** takes the last one back. How to connect
+the session, and what you see while it works, is in
+[In the desktop app](ai.md#in-the-desktop-app-hand-single-changes-to-your-agent);
+[Your agent](standard-controls.md#your-agent) lists the controls.
+
 ## Show a board live in a browser tab
 
 `grafli serve` shows boards in browser tabs with their own mouse controls

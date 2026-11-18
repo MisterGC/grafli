@@ -85,6 +85,30 @@ Labels, notes and long texts are plain text fields, without vim modes.
 The vim scheme edits the same texts in textli's vim editors; the board file
 does not record which scheme wrote it.
 
+## Your agent
+
+A Claude Code session you run can take single changes from the app, as the
+browser tab of `grafli serve` does: connect it once as
+[In the desktop app](ai.md#in-the-desktop-app-hand-single-changes-to-your-agent)
+says. Then, on a saved board:
+
+- <kbd>Ctrl</kbd>+<kbd>L</kbd> or **Agent ▸ Agent line…** opens the agent
+  line along the bottom of the canvas, and hosts the board the first time.
+  A grafli line such as `@ box cache "Cache"` is applied at once, and
+  <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes it back; anything else is plain
+  language for the agent. <kbd>↑</kbd> and <kbd>↓</kbd> bring back the
+  lines sent before; <kbd>Enter</kbd> sends, <kbd>Esc</kbd> closes.
+- <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> or **Agent ▸ Ask about the
+  selection…** asks about the selected element; **Right-click ▸ Ask the
+  agent about this…** asks about the element under the pointer.
+- A change of more than 5 elements waits as the agent's proposal: **Agent ▸
+  Take the proposal** or **Agent ▸ Drop the proposal**, which a right-click
+  anywhere also offers first while it waits.
+- **Agent ▸ Undo the agent's edit** takes back its last edit; your own edits
+  since stay.
+- **✦** in the status bar names the connected agent; its menu hosts the
+  board and copies the links guests open in a browser tab.
+
 ## Every control
 
 These tables are the ones the <kbd>F1</kbd> help shows, drawn from the same

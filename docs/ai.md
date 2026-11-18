@@ -183,7 +183,23 @@ address> board.grafli`, as with `grafli serve --host`. **Stop hosting** in
 the same menu disconnects the agent and the guests; quitting the app does
 too.
 
-The app's agent keys are in its <kbd>F1</kbd> help under **Your agent**.
+**In the standard control scheme** the same commands are on the **Agent**
+menu, and none is a single letter:
+
+| Vim keys | Standard controls |
+|----------|-------------------|
+| <kbd>:</kbd> | <kbd>Ctrl</kbd>+<kbd>L</kbd> or **Agent ▸ Agent line…** |
+| <kbd>Shift</kbd>+<kbd>A</kbd> | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>, **Agent ▸ Ask about the selection…**, or **Ask the agent about this…** in the right-click menu |
+| <kbd>Enter</kbd> / <kbd>x</kbd> on a proposal | **Agent ▸ Take the proposal** / **Drop the proposal**, also first in the right-click menu while it waits |
+| <kbd>Shift</kbd>+<kbd>U</kbd> | **Agent ▸ Undo the agent's edit** |
+| <kbd>u</kbd> after a grafli line | <kbd>Ctrl</kbd>+<kbd>Z</kbd> |
+
+The hints on the canvas name the controls of the scheme you are on: the
+proposal's banner says "right-click: take · drop", the glowing edit's tag
+"Agent ▸ Undo". On a Mac, <kbd>Ctrl</kbd> is <kbd>⌘</kbd>.
+
+The app's agent keys are in its <kbd>F1</kbd> help under **Your agent**,
+for the scheme you are on.
 
 ## What the skill triggers on
 

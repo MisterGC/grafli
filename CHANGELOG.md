@@ -19,11 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   time without a restart or losing the open board, and the choice is kept
   in the settings beside the theme. The vim scheme is unchanged. Panning
   in the standard scheme is the middle button or Space+drag, since the right
-  button opens the menu. The F1 help, the "at a glance" page and the docs
-  follow the scheme: `docs/standard-controls.md`,
-  `docs/navigating-standard.md` and `docs/at-a-glance-standard.html` are the
-  standard scheme's, and `tests/test_standard_controls.py` presses or clicks
-  every control they document and fails when one is not bound.
+  button opens the menu. The board's agent is there too: Ctrl/⌘+L opens the
+  agent line, Ctrl/⌘+Shift+L or a right-click asks about an element, and the
+  Agent menu takes or drops its proposal and undoes its edit. The F1 help,
+  the "at a glance" page and the docs follow the scheme: the website has the
+  standard controls, a standard "Navigating graphs" guide and a standard
+  "at a glance" page beside the vim ones.
   ([#352](https://github.com/MisterGC/grafli/issues/352))
 - **`grafli serve <dir>` — a board live in a browser tab on your network
   or VPN.** A worker process draws the board with the app's own view, as

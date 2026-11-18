@@ -120,7 +120,7 @@ class StandardMixin:
     _std_space_held = False
     _std_space_panning = False
     _last_context_menu = None
-    _std_last_nudge = (0.0, frozenset())
+    _std_last_nudge = (0.0, frozenset(), None)
 
     def event(self, e):
         # While Find or the jump labels take typing, the keys are theirs:
@@ -774,14 +774,17 @@ class StandardMixin:
         ids = {self._item_id(it) for it in nodes}
         top = [it for it in nodes
                if not (set(self._ancestor_ids(it)) & ids)]
-        # Presses in a row are one move, and one Ctrl+Z.
+        # Presses in a row are one move, and one Ctrl+Z — unless an undo,
+        # a redo or another edit came between them: the undo stack is then
+        # no longer as the last press left it, and this press is a new step.
         import time
         now = time.monotonic()
-        last_at, last_ids = self._std_last_nudge
+        last_at, last_ids, last_stack = self._std_last_nudge
         if not (now - last_at < _NUDGE_UNDO_WINDOW
-                and last_ids == frozenset(ids)):
+                and last_ids == frozenset(ids)
+                and last_stack == self._undo_mark()):
             self._push_undo()
-        self._std_last_nudge = (now, frozenset(ids))
+        self._std_last_nudge = (now, frozenset(ids), self._undo_mark())
         g = self.GRID_SPACING
         for item in top:
             mx, my = dx * step, dy * step
@@ -796,6 +799,12 @@ class StandardMixin:
         self.arrow_update_needed.emit()
         self.mark_dirty()
         self._ensure_selection_visible()
+
+    def _undo_mark(self):
+        """The undo stack's depth and top entry, which every undo, redo
+        and edit changes."""
+        stack = self._undo_stack
+        return len(stack), id(stack[-1]) if stack else None
 
     def _ancestor_ids(self, item) -> list[str]:
         out, seen = [], set()

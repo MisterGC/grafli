@@ -1537,6 +1537,34 @@ def test_arrow_key_presses_in_a_row_are_one_undo_step_on_the_grid(std):
     assert view.board.box_by_id("c").x == 703
 
 
+def test_an_arrow_key_move_after_an_undo_or_an_edit_is_its_own_step(std):
+    win, view = std
+    view._grid_mode = "off"
+    view._box_items["a"].setSelected(True)
+    depth = len(view._undo_stack)
+    QTest.keyClick(view, Qt.Key.Key_Right)
+    QTest.keyClick(view, Qt.Key.Key_Z, CTRL)
+    assert view.board.box_by_id("a").x == 0
+    # Within the second: still a step of its own, since Ctrl+Z came between.
+    view._box_items["a"].setSelected(True)
+    QTest.keyClick(view, Qt.Key.Key_Right)
+    assert len(view._undo_stack) == depth + 1
+    assert view.board.box_by_id("a").x == 1
+    QTest.keyClick(view, Qt.Key.Key_Z, CTRL)
+    assert view.board.box_by_id("a").x == 0
+
+    # Move, Ctrl+B, move: one Ctrl+Z takes back the second move only.
+    view._box_items["a"].setSelected(True)
+    QTest.keyClick(view, Qt.Key.Key_Right)
+    QTest.keyClick(view, Qt.Key.Key_B, CTRL)
+    QTest.keyClick(view, Qt.Key.Key_Right)
+    box = view.board.box_by_id("a")
+    assert box.x == 2 and "bold" in box.emphasis
+    QTest.keyClick(view, Qt.Key.Key_Z, CTRL)
+    box = view.board.box_by_id("a")
+    assert box.x == 1 and "bold" in box.emphasis
+
+
 def test_the_annotation_help_names_the_standard_controls(std):
     win, view = std
     html = view._notes_help_html()

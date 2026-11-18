@@ -779,12 +779,17 @@ class StandardMixin:
         # no longer as the last press left it, and this press is a new step.
         import time
         now = time.monotonic()
-        last_at, last_ids, last_stack = self._std_last_nudge
+        last_at, last_ids, last_top = self._std_last_nudge
         if not (now - last_at < _NUDGE_UNDO_WINDOW
                 and last_ids == frozenset(ids)
-                and last_stack == self._undo_mark()):
+                and self._undo_stack and self._undo_stack[-1] is last_top):
             self._push_undo()
-        self._std_last_nudge = (now, frozenset(ids), self._undo_mark())
+        # The top entry itself, not its id(): held here, it cannot be freed
+        # and its address handed to the next snapshot, so only this press's
+        # own entry is ever the same object.
+        self._std_last_nudge = (now, frozenset(ids),
+                                self._undo_stack[-1] if self._undo_stack
+                                else None)
         g = self.GRID_SPACING
         for item in top:
             mx, my = dx * step, dy * step
@@ -799,12 +804,6 @@ class StandardMixin:
         self.arrow_update_needed.emit()
         self.mark_dirty()
         self._ensure_selection_visible()
-
-    def _undo_mark(self):
-        """The undo stack's depth and top entry, which every undo, redo
-        and edit changes."""
-        stack = self._undo_stack
-        return len(stack), id(stack[-1]) if stack else None
 
     def _ancestor_ids(self, item) -> list[str]:
         out, seen = [], set()

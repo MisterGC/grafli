@@ -1565,6 +1565,29 @@ def test_an_arrow_key_move_after_an_undo_or_an_edit_is_its_own_step(std):
     assert box.x == 1 and "bold" in box.emphasis
 
 
+def test_a_move_after_an_undo_and_an_edit_or_a_redo_is_its_own_step(std):
+    """Each round within the second: the snapshot an undo drops must not
+    pass for the one the last press left on top."""
+    win, view = std
+    view._grid_mode = "off"
+
+    def press(*keys):
+        for key, mods in keys:
+            view._box_items["a"].setSelected(True)
+            QTest.keyClick(view, key, mods)
+
+    right, undo = (Qt.Key.Key_Right, NOMOD), (Qt.Key.Key_Z, CTRL)
+    bold, redo = (Qt.Key.Key_B, CTRL), (Qt.Key.Key_Y, CTRL)
+    for _ in range(20):
+        x = view.board.box_by_id("a").x
+        press(right, undo, bold, right, undo)
+        box = view.board.box_by_id("a")
+        assert "bold" in box.emphasis and box.x == x
+        press(bold)                              # bold off again
+        press(right, undo, redo, right, undo)
+        assert view.board.box_by_id("a").x == x + 1
+
+
 def test_a_tour_paused_by_going_into_a_board_names_go_back_up(tmp_path):
     from tests.test_tour_across_boards import _system
     from tests.test_tour_across_boards import _window as _tour_window

@@ -134,6 +134,12 @@ ACTIONS: dict[str, tuple[str, tuple[str, ...], str]] = {
     "present": ("Present", ("F5",), ""),
     "play_mode": ("Play, pause, loop", (), ""),
     "play_transition": ("Smooth camera", (), ""),
+    # Agent
+    "agent_line": ("Agent line…", ("Ctrl+L",), ""),
+    "agent_ask": ("Ask about the selection…", ("Ctrl+Shift+L",), ""),
+    "agent_take": ("Take the proposal", (), ""),
+    "agent_drop": ("Drop the proposal", (), ""),
+    "agent_undo": ("Undo the agent's edit", (), ""),
     # Help
     "help": ("Help", ("F1",), ""),
     "at_a_glance": ("grafli at a glance", (), ""),
@@ -168,6 +174,8 @@ MENUS: tuple[tuple[str, tuple], ...] = (
     ("Tours", ("bookmark", "bookmark_viewport", "record_flow", "auto_flow",
                "tours_through", "edit_flows", "-", "present", "play_mode",
                "play_transition")),
+    ("Agent", ("agent_line", "agent_ask", "-", "agent_take", "agent_drop",
+               "-", "agent_undo")),
     ("Help", ("help", "at_a_glance", "-",
               ("sub", "scheme_menu", "Control scheme"))),
 )
@@ -452,9 +460,12 @@ def build_context_menu(view, target, scene_pos) -> QMenu:
         for e in entries:
             acts.add(menu, e, context=target)
 
+    if _agent_proposal_waits(view):
+        add("agent_take", "agent_drop", "-")
     if isinstance(target, Arrow):
         menu.setTitle("Arrow")
         single("rename", with_key("Edit label", "F2"))
+        single("agent_ask", "Ask the agent about this…")
         single("edit_text")
         add(("sub", "attach", "Attach"))
         if view._has_attachment(target):
@@ -467,6 +478,7 @@ def build_context_menu(view, target, scene_pos) -> QMenu:
         single("rename", with_key(
             "Rename" if is_box else "Edit text"
             if isinstance(target, NoteItem) else "Edit the image file", "F2"))
+        single("agent_ask", "Ask the agent about this…")
         single("edit_text")
         single("set_link")
         add(("sub", "attach", "Attach"))
@@ -498,8 +510,14 @@ def build_context_menu(view, target, scene_pos) -> QMenu:
         item("New note here", "insert_note", "insert_note", pos=scene_pos)
         item("Image here…", "insert_image_here", "insert_image",
              pos=scene_pos)
-        add("-", "select_all", "zoom_fit", "-", "undo", "redo")
+        add("-", "select_all", "zoom_fit", "-", "undo", "redo", "-",
+            "agent_line")
     return menu
+
+
+def _agent_proposal_waits(view) -> bool:
+    waits = getattr(view.window(), "has_agent_proposal", None)
+    return bool(callable(waits) and waits())
 
 
 def _actions_for(view) -> "StandardActions":

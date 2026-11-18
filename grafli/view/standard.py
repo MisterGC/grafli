@@ -328,6 +328,12 @@ class StandardMixin:
             "quit": w("close"),
             "help": self._show_cheatsheet,
             "scheme": w("set_control_scheme"),
+            # the board's agent
+            "agent_line": w("open_agent_line"),
+            "agent_ask": w("ask_agent_about_selection"),
+            "agent_take": w("take_agent_proposal"),
+            "agent_drop": w("drop_agent_proposal"),
+            "agent_undo": w("undo_agent_edit"),
         }
 
     # ── Keys ──

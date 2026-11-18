@@ -541,6 +541,24 @@ STANDARD_GROUPS: tuple[Group, ...] = (
         gesture("Help ▸ Control scheme", "Switch to the vim keys, at once",
                 "scheme_menu"),
     )),
+    Group("std-agent", "Your agent", APP,
+          blurb="A Claude Code session you run: the agent line hosts the "
+                "board, /mcp__grafli__connect in the session connects it; "
+                "right-click asks about what is under the pointer", keys=(
+        key("Ctrl+L", "Agent line: a grafli line is applied, plain language "
+                      "goes to the agent", "agent_line"),
+        key("↑ / ↓", "On the agent line: the lines sent before",
+            "text:agent_history"),
+        key("Ctrl+Shift+L", "Ask the agent about the selection", "agent_ask"),
+        gesture("Agent ▸ Take the proposal", "Take the agent's proposal, "
+                "while one waits; right-click has it too", "agent_take"),
+        gesture("Agent ▸ Drop the proposal", "Drop it; the board stays as "
+                "it was", "agent_drop"),
+        gesture("Agent ▸ Undo the agent's edit", "Its last edit; yours stay",
+                "agent_undo"),
+        gesture("✦ in the status bar", "Its menu hosts the board and copies "
+                "the links guests open in a browser tab", "mouse:agent_chip"),
+    )),
 )
 
 

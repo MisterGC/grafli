@@ -275,6 +275,20 @@ of its own that checks what it does.
 | <kbd>F1</kbd> | This help |
 | **Help ▸ Control scheme** | Switch to the vim keys, at once |
 
+### Your agent
+
+*A Claude Code session you run: the agent line hosts the board, /mcp__grafli__connect in the session connects it; right-click asks about what is under the pointer.*
+
+| Control | What it does |
+|---|---|
+| <kbd>Ctrl</kbd>+<kbd>L</kbd> | Agent line: a grafli line is applied, plain language goes to the agent |
+| <kbd>↑</kbd> / <kbd>↓</kbd> | On the agent line: the lines sent before |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | Ask the agent about the selection |
+| **Agent ▸ Take the proposal** | Take the agent's proposal, while one waits; right-click has it too |
+| **Agent ▸ Drop the proposal** | Drop it; the board stays as it was |
+| **Agent ▸ Undo the agent's edit** | Its last edit; yours stay |
+| ✦ in the status bar | Its menu hosts the board and copies the links guests open in a browser tab |
+
 <!-- standard-controls:end -->
 
 ## Not in the standard scheme

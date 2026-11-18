@@ -1152,7 +1152,7 @@ def test_every_key_the_standard_docs_name_is_a_bound_control(name):
 
 
 _MENU_PATH = re.compile(r"\*\*((?:File|Edit|Insert|Format|Arrange|View|Go|"
-                        r"Tours|Help|Toolbar|Right-click) ▸ [^*]+)\*\*")
+                        r"Tours|Agent|Help|Toolbar|Right-click) ▸ [^*]+)\*\*")
 
 
 @pytest.mark.parametrize("name", STANDARD_DOCS)
@@ -1552,3 +1552,98 @@ def test_right_click_menus_do_not_pile_up(std, monkeypatch):
     view._std_context_menu(_vpos(view, QPointF(1300, 1300)))
     QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
     assert not isValid(first)
+
+
+# ── The board's agent in the standard scheme ────────────────────────
+
+def test_the_agent_line_brings_back_the_lines_sent_before(std):
+    win, view = std
+    line = win._agent.line
+    line.open()
+    QTest.keyClicks(line.edit, '@ box x "X"')
+    QTest.keyClick(line.edit, Qt.Key.Key_Return)
+    assert view.board.box_by_id("x") is not None
+    line.open()
+    assert line.edit.text() == ""
+    QTest.keyClick(line.edit, Qt.Key.Key_Up)
+    assert line.edit.text() == '@ box x "X"'
+    QTest.keyClick(line.edit, Qt.Key.Key_Down)
+    assert line.edit.text() == ""
+    QTest.keyClick(line.edit, Qt.Key.Key_Escape)
+    assert line.isHidden()
+
+
+def test_the_status_bar_chip_hosts_the_board_from_its_menu(std):
+    win, _view = std
+    menu = win._agent.chip.menu()
+    menu.aboutToShow.emit()
+    assert [a.text() for a in menu.actions()] == [
+        "Host this board for an agent and guests"]
+
+
+BEHAVIOUR_TESTS["text:agent_history"] = \
+    test_the_agent_line_brings_back_the_lines_sent_before
+BEHAVIOUR_TESTS["mouse:agent_chip"] = \
+    test_the_status_bar_chip_hosts_the_board_from_its_menu
+
+
+def test_right_click_asks_the_agent_about_the_element_under_it(
+        std, monkeypatch):
+    win, view = std
+    _no_popups(monkeypatch)
+    asked = []
+    monkeypatch.setattr(win, "ask_agent_about_selection",
+                        lambda: asked.append(
+                            [k for k, i in view._box_items.items()
+                             if i.isSelected()]))
+    view._box_items["b"].setSelected(True)
+    menu = view._std_context_menu(_vpos(view, _center(view._box_items["a"])))
+    item = next(a for a in menu.actions()
+                if a.text() == "Ask the agent about this…")
+    item.trigger()
+    assert asked == [["a"]]
+
+
+def test_right_click_takes_or_drops_a_waiting_proposal_first(
+        std, monkeypatch):
+    win, view = std
+    _no_popups(monkeypatch)
+    done = []
+    monkeypatch.setattr(win, "has_agent_proposal", lambda: True)
+    monkeypatch.setattr(win, "take_agent_proposal",
+                        lambda: done.append("take"))
+    monkeypatch.setattr(win, "drop_agent_proposal",
+                        lambda: done.append("drop"))
+    for pos in (_vpos(view, _center(view._box_items["a"])),
+                _vpos(view, QPointF(2000, -2000))):
+        menu = view._std_context_menu(pos)
+        first = [a for a in menu.actions() if not a.isSeparator()][:2]
+        assert [a.objectName() for a in first] == ["agent_take",
+                                                   "agent_drop"]
+        first[0].trigger()
+        first[1].trigger()
+    assert done == ["take", "drop", "take", "drop"]
+    monkeypatch.setattr(win, "has_agent_proposal", lambda: False)
+    menu = view._std_context_menu(_vpos(view, QPointF(2000, -2000)))
+    names = [a.objectName() for a in menu.actions()]
+    assert "agent_take" not in names and "agent_line" in names
+
+
+def test_the_agents_hints_name_the_active_schemes_controls(std):
+    from grafli.agentline import agent_keys
+    win, _view = std
+    agent = win._agent
+    agent.proposal = {"id": "p1", "by": "Claude", "count": 7,
+                      "about": "split Payments"}
+    try:
+        banner = agent.banner()
+        assert banner.endswith("right-click: take · drop"), banner
+        keys = agent_keys()
+        assert keys["line"] in ("Ctrl+L", "⌘L")
+        assert keys["ask"] in ("Ctrl+Shift+L", "⇧⌘L")
+        assert "Shift+" not in keys["undoes"] + keys["tag"]
+        controls.set_scheme(controls.VIM)
+        assert agent.banner().endswith("Enter take · x drop")
+        assert agent_keys()["line"] == ":"
+    finally:
+        agent.proposal = None

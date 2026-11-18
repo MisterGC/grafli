@@ -135,6 +135,14 @@ def test_the_page_shows_every_key_of_the_table(where):
     assert not missing, f"not on the page: {missing}"
 
 
+def test_the_apps_agent_keys_and_how_to_connect_are_in_the_table():
+    agent = next(g for g in keymap.groups(keymap.APP) if g.id == "agent")
+    assert {":", "Shift+A", "Shift+U", "Enter", "x"} <= {
+        k.keys for k in agent.keys}
+    assert "/mcp__grafli__connect" in agent.blurb
+    assert any(k.keys == "/mcp__grafli__connect" for k in agent.keys)
+
+
 def test_the_page_shows_both_ways_of_working_with_the_agent():
     from grafli import helppage
     page = helppage.render_page()

@@ -79,7 +79,10 @@ def _view(text: str):
 
 
 def _scene_image(text: str) -> QImage:
-    scene = _view(text)._scene
+    # The view owns its scene: held until the render is done, so a garbage
+    # collection in between cannot delete the scene under it.
+    view = _view(text)
+    scene = view._scene
     rect = scene.itemsBoundingRect()
     img = QImage(int(rect.width()), int(rect.height()),
                  QImage.Format.Format_ARGB32)

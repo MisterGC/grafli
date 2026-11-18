@@ -252,6 +252,9 @@ class AgentChip(QToolButton):
         super().__init__()
         self._link = link
         self.setAutoRaise(True)
+        # Clicked, never tabbed to: Tab belongs to the canvas, which cycles
+        # the selection through siblings with it.
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.setMenu(QMenu(self))
         self.menu().aboutToShow.connect(self._fill_menu)

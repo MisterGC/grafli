@@ -140,6 +140,17 @@ def test_the_colon_line_hosts_the_board_and_says_no_agent_is_connected(app):
     _wait(lambda: app.agent.chip.text() == "✦ Claude · gone")
 
 
+def test_tab_stays_on_the_canvas_beside_the_status_bar_chip(app):
+    """The chip is clicked, never tabbed to: Tab on the canvas still moves
+    the selection to the next sibling."""
+    app.view.setFocus()
+    QApplication.processEvents()
+    app.select("a")
+    QTest.keyClick(app.view, Qt.Key.Key_Tab)
+    assert QApplication.focusWidget() is app.view
+    assert app.view._box_items["b"].isSelected()
+
+
 def test_stopping_turns_collection_back_on_and_the_board_hosts_again(app):
     assert gc.isenabled()
     app.colon()

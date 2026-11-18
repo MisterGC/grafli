@@ -261,6 +261,21 @@ _APP_GROUPS = (
         gesture("Click @path:line", "Open the source in your editor"),
         key("F1", "This help"),
     )),
+    Group("agent", "Your agent", APP,
+          blurb="A Claude Code session you run: : hosts the board, "
+                "/mcp__grafli__connect in the session connects it", keys=(
+        key(":", "Command line: a grafli line is applied, plain language "
+                 "goes to the agent"),
+        key("↑ / ↓", "On the command line: the lines sent before"),
+        key("Shift+A", "Ask the agent about the selection"),
+        key("Enter", "Take the agent's proposal, while one waits"),
+        key("x", "Drop the agent's proposal"),
+        key("Shift+U", "Undo the agent's last edit; yours stay"),
+        gesture("/mcp__grafli__connect",
+                "In the session: connect it; the status bar names it"),
+        gesture("✦ in the status bar",
+                "Its menu copies the links guests open in a browser tab"),
+    )),
 )
 
 # ── The browser tab of `grafli serve` ───────────────────────────────

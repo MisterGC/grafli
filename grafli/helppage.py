@@ -30,7 +30,7 @@ _LINKS = (
 )
 
 # Accent per group: the agent's purple, the presenter's orange.
-_ACCENT = {"tab-agent": "agent", "tab-reveal": "present"}
+_ACCENT = {"agent": "agent", "tab-agent": "agent", "tab-reveal": "present"}
 
 
 def _e(text: str) -> str:

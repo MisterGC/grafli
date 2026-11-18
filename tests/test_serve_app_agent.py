@@ -8,6 +8,7 @@ The bridge runs as its own process, as Claude Code runs it."""
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import sys
@@ -137,6 +138,39 @@ def test_the_colon_line_hosts_the_board_and_says_no_agent_is_connected(app):
     assert app.path.read_text(encoding="utf-8") == BOARD
     session.end()
     _wait(lambda: app.agent.chip.text() == "✦ Claude · gone")
+
+
+def test_stopping_turns_collection_back_on_and_the_board_hosts_again(app):
+    assert gc.isenabled()
+    app.colon()
+    QTest.keyClick(app.agent.line.edit, Qt.Key.Key_Escape)
+    # While the app hosts, only its GUI thread collects garbage.
+    assert not gc.isenabled()
+    port = app.agent.host.port
+    assert agents.find_state(port)["port"] == port
+    session = app.session()
+    assert app.agent.chip.text() == "✦ Claude"
+
+    app.agent.stop()
+    assert agents.find_state(port) is None
+    assert gc.isenabled()
+    assert app.agent.host is None
+    assert app.agent.chip.text() == "✦ no agent connected"
+    assert "Stopped hosting" in app.toast()
+
+    # "Host this board" in the status bar's menu hosts it again, and a
+    # session connects to the new run.
+    app.agent.host_from_menu()
+    assert app.agent.host is not None and not gc.isenabled()
+    again = agents.find_state(app.agent.host.port)
+    assert again and again["key"] == app.agent.host.keys.agent
+    assert "Hosting boards/" in app.toast()
+    _wait(lambda: app.agent.board == "b")
+    session.end()
+    app.session("Claude again")
+    assert app.agent.chip.text() == "✦ Claude again"
+    app.agent.stop(quiet=True)
+    assert gc.isenabled()
 
 
 def test_without_the_serve_extra_the_app_says_what_is_missing(app,
